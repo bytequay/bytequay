@@ -29,7 +29,6 @@ import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.git.command.GitCommandRunner.Result;
 import com.bytequay.app.review.IdeRuntimeService;
 import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.hosting.HostingPullRequestContents;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.ManagedWorktreeService;
 import com.bytequay.app.workspace.WorkspaceHostingService;
@@ -43,6 +42,7 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.PullRequestContentReader;
+import com.bytequay.core.hosting.PullRequestWriter;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -72,6 +72,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.app.git.GitTestSupport.configureUser;
 import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.pullRequests;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -135,7 +137,6 @@ class TestDevelopmentGitInspector
         run(repository, "init", "--bare", bareRemote.toString());
         when(workspaces.findById(WORKSPACE_ID)).thenReturn(Optional.of(workspace(false, "main")));
         when(credentials.gitAuthenticationEnvironment(eq(WORKSPACE_ID), anyCollection())).thenReturn(ImmutableMap.of());
-        when(pullRequests.provider()).thenReturn(HostingProvider.GITHUB);
         when(hosting.captureRead(WORKSPACE_ID)).thenAnswer(ignored ->
                 HostingTestFixture.route(workspaces.findById(WORKSPACE_ID).orElseThrow().monitoredRepository().fullName(), "test-token"));
         worktreeService = new ManagedWorktreeService(paths, workspaces, git, mock(IdeRuntimeService.class));
@@ -145,7 +146,7 @@ class TestDevelopmentGitInspector
         task = created(worktree.taskId(), true, "Development test", TitleSource.USER, AgentLaneId.CODEX_CLI,
                 worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
         inspector = new DevelopmentGitInspector(worktreeService, workspaces, git, credentials,
-                new HostingPullRequestContents(ImmutableList.of(pullRequests)), hosting, assignments, cachedPullRequests);
+                integrations(pullRequests(HostingProvider.GITHUB, pullRequests, mock(PullRequestWriter.class))), hosting, assignments, cachedPullRequests);
         org.mockito.Mockito.clearInvocations(pullRequests);
     }
 

@@ -13,8 +13,8 @@
  */
 package com.bytequay.app.service.pr;
 
+import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
-import com.bytequay.app.service.hosting.HostingPullRequestWrites;
 import com.bytequay.app.service.pr.PullRequestService.Posted;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.core.domain.HandledAction;
@@ -61,7 +61,7 @@ final class PullRequestActions
     private static final Logger log = LoggerFactory.getLogger(PullRequestActions.class);
     private static final Set<String> REACTION_CONTENTS = ImmutableSet.of("+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes");
 
-    private final HostingPullRequestWrites writes;
+    private final HostingIntegrations integrations;
     private final PullRequestStore store;
     private final PullRequestSnapshotService snapshots;
     private final PrDetailStore details;
@@ -72,7 +72,7 @@ final class PullRequestActions
     private final Function<PullRequestRead, Optional<Long>> rowId;
 
     PullRequestActions(
-            HostingPullRequestWrites writes,
+            HostingIntegrations integrations,
             PullRequestStore store,
             PullRequestSnapshotService snapshots,
             PrDetailStore details,
@@ -81,7 +81,7 @@ final class PullRequestActions
             HostingPullRequestService requests,
             Function<PullRequestRead, PullRequestDetail> readDetail, Function<PullRequestRead, Optional<Long>> rowId)
     {
-        this.writes = requireNonNull(writes, "writes is null");
+        this.integrations = requireNonNull(integrations, "integrations is null");
         this.store = requireNonNull(store, "store is null");
         this.snapshots = requireNonNull(snapshots, "snapshots is null");
         this.details = requireNonNull(details, "details is null");
@@ -95,7 +95,7 @@ final class PullRequestActions
     boolean hasMergeQueue(PullRequestRead route, String baseRef)
     {
         checkText(baseRef, "baseRef");
-        return writes.forSession(route.session()).hasMergeQueue(route.session().access(), route.repository(), baseRef);
+        return integrations.of(route.session()).writer().hasMergeQueue(route.session().access(), route.repository(), baseRef);
     }
 
     Posted createReviewComment(PullRequestRead route, InlineReviewComment comment)
@@ -107,7 +107,7 @@ final class PullRequestActions
             replyToReviewComment(route, comment.replyToCommentId().getAsLong(), comment.body());
             return new Posted(afterWrite(route, () -> readDetail.apply(route), before), OptionalLong.empty(), ImmutableList.of());
         }
-        PrTimelineEvent created = writes.forSession(route.session()).createReviewComment(route.session().access(), route.repository(), route.number(), comment);
+        PrTimelineEvent created = integrations.of(route.session()).writer().createReviewComment(route.session().access(), route.repository(), route.number(), comment);
         PullRequestDetail detail = afterWrite(route, () -> {
             PullRequestDetail patched = patchCachedTimeline(route, prId, created);
             if (created.githubId() != null) {
@@ -123,7 +123,7 @@ final class PullRequestActions
     {
         checkText(body, "comment body");
         PullRequestDetail before = readDetail.apply(route);
-        PrTimelineEvent created = writes.forSession(route.session()).comment(route.session().access(), route.repository(), route.number(), body);
+        PrTimelineEvent created = integrations.of(route.session()).writer().comment(route.session().access(), route.repository(), route.number(), body);
         return afterWrite(route, () -> {
             PullRequestDetail detail = patchCachedTimeline(route, rowId.apply(route), created);
             if (created.githubId() != null) {
@@ -183,7 +183,7 @@ final class PullRequestActions
         }
 
         try {
-            return writes.forSession(route.session()).toggleReaction(route.session().access(), route.repository(), route.number(),
+            return integrations.of(route.session()).writer().toggleReaction(route.session().access(), route.repository(), route.number(),
                     normalizedTarget, commentId, normalizedContent, viewerHasReacted);
         }
         finally {
@@ -195,7 +195,7 @@ final class PullRequestActions
     {
         checkText(title, "pull request title");
         String normalizedTitle = title.trim();
-        writes.forSession(route.session()).updateTitle(route.session().access(), route.repository(), route.number(), normalizedTitle);
+        integrations.of(route.session()).writer().updateTitle(route.session().access(), route.repository(), route.number(), normalizedTitle);
         afterWrite(route, () -> {
             rowId.apply(route).ifPresent(prId -> {
                 snapshots.patchDetail(prId, cached -> new StoredPrDetail(cached.raw().withTitle(normalizedTitle), cached.reviews(), cached.timeline(),
@@ -209,7 +209,8 @@ final class PullRequestActions
 
     void updateDescription(PullRequestRead route, String description)
     {
-        writes.forSession(route.session()).updateDescription(route.session().access(), route.repository(), route.number(), requireNonNull(description, "description is null"));
+        String body = requireNonNull(description, "description is null");
+        integrations.of(route.session()).writer().updateDescription(route.session().access(), route.repository(), route.number(), body);
         afterWrite(route, () -> {
             recent.pullRequestAction(rowId.apply(route).orElseThrow(), RecentReason.EDITED, 0);
             invalidatePullRequestDetail(route);
@@ -218,7 +219,7 @@ final class PullRequestActions
 
     void closePullRequest(PullRequestRead route)
     {
-        writes.forSession(route.session()).close(route.session().access(), route.repository(), route.number());
+        integrations.of(route.session()).writer().close(route.session().access(), route.repository(), route.number());
         afterWrite(route, () -> {
             recent.pullRequestAction(rowId.apply(route).orElseThrow(), RecentReason.EDITED, 0);
             invalidatePullRequestCaches(route);
@@ -228,7 +229,7 @@ final class PullRequestActions
     void markReadyForReview(PullRequestRead route)
     {
         try {
-            writes.forSession(route.session()).markReady(route.session().access(), route.repository(), route.number());
+            integrations.of(route.session()).writer().markReady(route.session().access(), route.repository(), route.number());
         }
         finally {
             // A lost response may still have promoted the draft; refresh without repeating the write.
@@ -239,7 +240,7 @@ final class PullRequestActions
 
     void updateMetadata(PullRequestRead route, List<String> assignees, List<String> labels)
     {
-        writes.forSession(route.session()).updateMetadata(
+        integrations.of(route.session()).writer().updateMetadata(
                 route.session().access(), route.repository(), route.number(),
                 normalizeNames(assignees, "assignees"),
                 normalizeNames(labels, "labels"));
@@ -252,7 +253,7 @@ final class PullRequestActions
     void updateReviewerRequest(PullRequestRead route, String login, boolean requested)
     {
         checkText(login, "reviewer login");
-        writes.forSession(route.session()).updateReviewer(route.session().access(), route.repository(), route.number(), login.trim(), requested);
+        integrations.of(route.session()).writer().updateReviewer(route.session().access(), route.repository(), route.number(), login.trim(), requested);
         afterWrite(route, () -> {
             recent.pullRequestAction(rowId.apply(route).orElseThrow(), RecentReason.EDITED, 0);
             invalidatePullRequestDetail(route);
@@ -262,7 +263,7 @@ final class PullRequestActions
     void replyToReviewComment(PullRequestRead route, long commentId, String body)
     {
         checkText(body, "reply body");
-        writes.forSession(route.session()).replyToReviewComment(route.session().access(), route.repository(), route.number(), commentId, body);
+        integrations.of(route.session()).writer().replyToReviewComment(route.session().access(), route.repository(), route.number(), commentId, body);
         afterWrite(route, () -> {
             invalidatePullRequestCaches(route);
             recent.pullRequestAction(rowId.apply(route).orElseThrow(), RecentReason.COMMENTED, 0);
@@ -288,7 +289,7 @@ final class PullRequestActions
         checkText(body, "comment body");
 
         PullRequestDetail before = readDetail.apply(route);
-        writes.forSession(route.session()).editComment(route.session().access(), route.repository(), route.number(), normalizedTarget, commentId, body);
+        integrations.of(route.session()).writer().editComment(route.session().access(), route.repository(), route.number(), normalizedTarget, commentId, body);
         Optional<PullRequestDetail> patched = afterWrite(route, () -> {
             Optional<Long> prId = rowId.apply(route);
             return prId.flatMap(id -> snapshots.patchDetail(id, cached -> withEditedBody(cached, normalizedTarget, commentId, body)))
@@ -350,7 +351,7 @@ final class PullRequestActions
 
     void setReviewThreadResolved(PullRequestRead route, long rootCommentId, boolean resolved)
     {
-        writes.forSession(route.session()).resolveThread(route.session().access(), route.repository(), route.number(), rootCommentId, resolved);
+        integrations.of(route.session()).writer().resolveThread(route.session().access(), route.repository(), route.number(), rootCommentId, resolved);
         afterWrite(route, () -> invalidatePullRequestDetail(route));
     }
 
@@ -384,7 +385,7 @@ final class PullRequestActions
         }
 
         PullRequestDetail before = readDetail.apply(route);
-        SubmittedReview submitted = writes.forSession(route.session()).submitReview(route.session().access(), route.repository(), route.number(),
+        SubmittedReview submitted = integrations.of(route.session()).writer().submitReview(route.session().access(), route.repository(), route.number(),
                 normalizedEvent, reviewBody, reviewComments, commitId);
         Optional<PrReviewState> created = submitted.review();
         List<PrTimelineEvent> events = submitted.events();
@@ -532,7 +533,7 @@ final class PullRequestActions
         }
         MergeResult result;
         try {
-            result = writes.forSession(route.session()).merge(route.session().access(), route.repository(), route.number(), strategy, headSha);
+            result = integrations.of(route.session()).writer().merge(route.session().access(), route.repository(), route.number(), strategy, headSha);
         }
         finally {
             afterWrite(route, () -> invalidatePullRequestDetail(route));
@@ -550,7 +551,7 @@ final class PullRequestActions
     void removeFromMergeQueue(PullRequestRead route, boolean autoMerge)
     {
         try {
-            writes.forSession(route.session()).removeFromMergeQueue(route.session().access(), route.repository(), route.number(), autoMerge);
+            integrations.of(route.session()).writer().removeFromMergeQueue(route.session().access(), route.repository(), route.number(), autoMerge);
         }
         finally {
             afterWrite(route, () -> invalidatePullRequestDetail(route));

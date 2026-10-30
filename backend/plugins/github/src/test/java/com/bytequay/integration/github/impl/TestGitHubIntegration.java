@@ -20,9 +20,13 @@ import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingIntegration;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.IssueClient;
+import com.bytequay.core.hosting.PullRequestContentReader;
 import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.hosting.PullRequestListPage;
+import com.bytequay.core.hosting.PullRequestWriter;
 import com.bytequay.core.hosting.RemoteHostingRepository;
+import com.bytequay.core.hosting.RepositoryMetadataReader;
 import com.bytequay.core.hosting.RepositoryVisibility;
 import com.bytequay.integration.github.GitHubIntegration;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -58,6 +62,7 @@ import static com.bytequay.core.hosting.HostingFailure.Kind.UNAVAILABLE;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 class TestGitHubIntegration
 {
@@ -93,7 +98,7 @@ class TestGitHubIntegration
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.start();
         http = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
-        integration = GitHubIntegration.create(http, new ObjectMapper().findAndRegisterModules());
+        integration = connections(http, new ObjectMapper().findAndRegisterModules());
         URI base = URI.create("http://127.0.0.1:" + server.getAddress().getPort());
         URI webBase = URI.create("https://github.example");
         access = new HostingAccess(new HostingInstance(1, HostingProvider.GITHUB, webBase, base.resolve("/api/v3")), "private-token");
@@ -254,7 +259,7 @@ class TestGitHubIntegration
             throws IOException
     {
         ObjectMapper shared = new ObjectMapper().findAndRegisterModules();
-        HostingIntegration strict = GitHubIntegration.create(http, shared);
+        HostingIntegration strict = connections(http, shared);
         serve("/api/v3/user", 200, "{\"id\":\"123\",\"login\":\"alice\"}", ImmutableMap.of());
 
         assertThatThrownBy(() -> strict.accounts().verify(access))
@@ -589,7 +594,7 @@ class TestGitHubIntegration
     void rejectsRedirectingClientsAndDoesNotFollowResponses()
     {
         try (HttpClient redirecting = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.ALWAYS).build()) {
-            assertThatThrownBy(() -> GitHubIntegration.create(redirecting, new ObjectMapper())).isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> connections(redirecting, new ObjectMapper())).isInstanceOf(IllegalArgumentException.class);
         }
         AtomicInteger redirected = new AtomicInteger();
         server.createContext("/unexpected", exchange -> {
@@ -699,4 +704,10 @@ class TestGitHubIntegration
     }
 
     private record Request(String path, Optional<String> query, String authorization, Optional<String> validator) {}
+
+    private static HostingIntegration connections(HttpClient http, ObjectMapper mapper)
+    {
+        return GitHubIntegration.create(http, mapper, mock(PullRequestContentReader.class), mock(PullRequestWriter.class), mock(IssueClient.class),
+                mock(RepositoryMetadataReader.class));
+    }
 }

@@ -26,7 +26,6 @@ import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryLabel;
 import com.bytequay.core.hosting.HostingAccess;
-import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingRepositoryUser;
 import com.bytequay.core.hosting.IssueActivity;
@@ -45,7 +44,6 @@ import java.util.Optional;
 import java.util.stream.Stream;
 
 import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
-import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -63,12 +61,6 @@ public final class GitHubIssueClient
         this.reads = requireNonNull(reads, "reads is null");
         this.timeline = requireNonNull(timeline, "timeline is null");
         this.writes = requireNonNull(writes, "writes is null");
-    }
-
-    @Override
-    public HostingProvider provider()
-    {
-        return GITHUB;
     }
 
     @Override

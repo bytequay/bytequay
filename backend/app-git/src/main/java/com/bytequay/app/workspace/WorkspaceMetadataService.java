@@ -14,6 +14,7 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.app.git.AvatarCache;
+import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryLabel;
@@ -55,7 +56,7 @@ public class WorkspaceMetadataService
     private final WorkspaceStore workspaces;
     private final RepositoryMetadataStore metadata;
     private final WorkspaceHostingService hosting;
-    private final List<RepositoryMetadataReader> readers;
+    private final HostingIntegrations integrations;
     private final AvatarCache avatarCache;
     private final Clock clock;
     private final Striped<Lock> locks = Striped.lock(64);
@@ -64,14 +65,14 @@ public class WorkspaceMetadataService
             WorkspaceStore workspaces,
             RepositoryMetadataStore metadata,
             WorkspaceHostingService hosting,
-            List<RepositoryMetadataReader> readers,
+            HostingIntegrations integrations,
             AvatarCache avatarCache,
             Clock clock)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.hosting = requireNonNull(hosting, "hosting is null");
-        this.readers = ImmutableList.copyOf(readers);
+        this.integrations = requireNonNull(integrations, "integrations is null");
         this.avatarCache = requireNonNull(avatarCache, "avatarCache is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
@@ -148,7 +149,7 @@ public class WorkspaceMetadataService
 
     private RepositoryMetadataReader reader(WorkspaceHostingRead route)
     {
-        return readers.stream().filter(value -> value.provider() == route.session().access().server().provider()).findFirst().orElseThrow();
+        return integrations.of(route.session()).metadata();
     }
 
     private void refreshExpired(Workspace workspace)

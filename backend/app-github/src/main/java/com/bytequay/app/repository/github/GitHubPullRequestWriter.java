@@ -26,7 +26,6 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.hosting.HostingAccess;
-import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.PullRequestWriter;
 import com.bytequay.core.hosting.SubmittedReview;
@@ -63,12 +62,6 @@ public class GitHubPullRequestWriter
         this.actions = requireNonNull(actions, "actions is null");
         this.reads = requireNonNull(reads, "reads is null");
         this.writes = requireNonNull(writes, "writes is null");
-    }
-
-    @Override
-    public HostingProvider provider()
-    {
-        return HostingProvider.GITHUB;
     }
 
     private static PullRequestRef ref(HostingAccess access, HostingRepository repository, int number)

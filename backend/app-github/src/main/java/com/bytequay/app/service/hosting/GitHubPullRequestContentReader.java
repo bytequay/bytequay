@@ -33,7 +33,6 @@ import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.StoredPrDiff;
 import com.bytequay.core.hosting.DiscussionProbe;
 import com.bytequay.core.hosting.HostingAccess;
-import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.PullRequestContentReader;
 import com.google.common.collect.ImmutableList;
@@ -101,12 +100,6 @@ public class GitHubPullRequestContentReader
         this.actions = requireNonNull(actions, "actions is null");
         this.accounts = requireNonNull(accounts, "accounts is null");
         this.ioExecutor = requireNonNull(ioExecutor, "ioExecutor is null");
-    }
-
-    @Override
-    public HostingProvider provider()
-    {
-        return HostingProvider.GITHUB;
     }
 
     @Override

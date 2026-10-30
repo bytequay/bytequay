@@ -30,7 +30,7 @@ import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.StartCiAutofixCommand;
 import com.bytequay.app.discussion.ReviewFixService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
-import com.bytequay.app.service.hosting.HostingPullRequestWrites;
+import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.core.domain.CreatedPullRequest;
 import com.bytequay.core.domain.GitHubPullRequestIdentity;
@@ -67,7 +67,7 @@ public class DevelopmentFollowupCoordinator
     private final CiAutofixService ci;
     private final WorkspaceHostingService hosting;
     private final HostingConnectionService connections;
-    private final HostingPullRequestWrites writes;
+    private final HostingIntegrations integrations;
     private final Clock clock;
     private final DevelopmentBranchService branches;
     private final ReviewFixService reviewFixes;
@@ -75,7 +75,7 @@ public class DevelopmentFollowupCoordinator
     private final ConcurrentMap<TaskId, PendingPublication> publications = new ConcurrentHashMap<>();
 
     public DevelopmentFollowupCoordinator(AgentTurnService turns, AgentTurnStore turnStore, DevelopmentGitInspector git,
-            Executor executor, CiAutofixService ci, WorkspaceHostingService hosting, HostingPullRequestWrites writes, Clock clock, DevelopmentBranchService branches,
+            Executor executor, CiAutofixService ci, WorkspaceHostingService hosting, HostingIntegrations integrations, Clock clock, DevelopmentBranchService branches,
             ReviewFixService reviewFixes, HostingConnectionService connections)
     {
         this.reviewFixes = requireNonNull(reviewFixes, "reviewFixes is null");
@@ -86,7 +86,7 @@ public class DevelopmentFollowupCoordinator
         this.ci = requireNonNull(ci, "ci is null");
         this.hosting = requireNonNull(hosting, "hosting is null");
         this.connections = requireNonNull(connections, "connections is null");
-        this.writes = requireNonNull(writes, "writes is null");
+        this.integrations = requireNonNull(integrations, "integrations is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.branches = requireNonNull(branches, "branches is null");
     }
@@ -622,7 +622,7 @@ public class DevelopmentFollowupCoordinator
         var selected = hosting.captureRead(worktree.workspaceId());
         checkState(selected.session().access().server().equals(route.server()) && selected.repository().fullPath().equals(route.baseRepository().fullName()),
                 "The publication repository changed");
-        CreatedPullRequest created = writes.forSession(selected.session()).create(selected.session().access(), selected.repository(),
+        CreatedPullRequest created = integrations.of(selected.session()).writer().create(selected.session().access(), selected.repository(),
                 head, route.baseBranch(), withoutAttribution(title), withoutAttribution(body), true);
         return "Pushed " + window.localHead() + "; created draft pull request " + created.url();
     }

@@ -21,7 +21,6 @@ import com.bytequay.core.hosting.HostingCredential;
 import com.bytequay.core.hosting.HostingCredential.Source;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
-import com.bytequay.core.hosting.HostingIntegration;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
@@ -48,6 +47,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.connections;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
 import static com.bytequay.core.domain.PullRequest.Origin.AUTHORED;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
@@ -274,7 +275,7 @@ class TestHostingPullRequestService
     {
         when(identities.findInstance(10)).thenReturn(Optional.of(new HostingInstance(10, provider, URI.create("https://hosting.test"), URI.create("https://hosting.test/api"))));
         connections = new HostingConnectionService(identities, credentials,
-                ImmutableList.of(new HostingIntegration(provider, mock(HostingAccounts.class), mock(HostingRepositories.class), reader)), ImmutableList.of());
+                integrations(connections(provider, mock(HostingAccounts.class), mock(HostingRepositories.class), reader)), ImmutableList.of());
         return new HostingPullRequestService(connections, snapshots, identities, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

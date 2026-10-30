@@ -25,7 +25,6 @@ import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingAccounts;
 import com.bytequay.core.hosting.HostingInstance;
-import com.bytequay.core.hosting.HostingIntegration;
 import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepositories;
@@ -54,6 +53,8 @@ import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.connections;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
 import static com.bytequay.core.domain.PrRawDetail.UNKNOWN_COUNT;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.hosting.HostingProvider.GITHUB;
@@ -125,7 +126,7 @@ class TestCredentialHostingRead
         }).when(snapshots).evictRepository(30, 7);
         when(reader.fetch(any(), any(), anyInt(), any())).thenReturn(fetched());
         HostingConnectionService connections = new HostingConnectionService(identities, manualCredentials,
-                ImmutableList.of(new HostingIntegration(GITHUB, accounts, repositories, reader)), ImmutableList.of());
+                integrations(connections(GITHUB, accounts, repositories, reader)), ImmutableList.of());
         credentials = new CredentialService(globalStore, workspaceStore, ghCli, profiles, connections, mock(WorkspaceStore.class));
         requests = new HostingPullRequestService(connections, snapshots, identities, Clock.fixed(NOW, ZoneOffset.UTC));
     }

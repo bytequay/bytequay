@@ -30,7 +30,6 @@ import com.bytequay.core.hosting.HostingCredential;
 import com.bytequay.core.hosting.HostingCredential.Source;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
-import com.bytequay.core.hosting.HostingIntegration;
 import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepositories;
@@ -58,6 +57,8 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
 
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.connections;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
 import static com.bytequay.core.hosting.HostingProvider.GITHUB;
@@ -88,8 +89,8 @@ class TestWorkspaceHostingService
     private final HostingRepositories repositories = mock(HostingRepositories.class);
     private final PullRequestReader requests = mock(PullRequestReader.class);
     private final HostingConnectionService connections = new HostingConnectionService(identities, credentials,
-            ImmutableList.of(new HostingIntegration(GITHUB, mock(HostingAccounts.class), repositories, requests),
-                    new HostingIntegration(GITLAB, mock(HostingAccounts.class), repositories, requests)), ImmutableList.of());
+            integrations(connections(GITHUB, mock(HostingAccounts.class), repositories, requests),
+                    connections(GITLAB, mock(HostingAccounts.class), repositories, requests)), ImmutableList.of());
     private final HostingPullRequestStore snapshots = mock(HostingPullRequestStore.class);
     private final HostingPullRequestService cache = new HostingPullRequestService(connections, snapshots, identities, Clock.fixed(NOW, ZoneOffset.UTC));
     private final CredentialService desktop = mock(CredentialService.class);

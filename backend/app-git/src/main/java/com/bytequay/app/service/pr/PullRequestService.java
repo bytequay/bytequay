@@ -23,8 +23,8 @@ import com.bytequay.app.repository.github.GitHubPullRequestSummaryClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
+import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
-import com.bytequay.app.service.hosting.HostingPullRequestWrites;
 import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.workspace.WorkspaceHostingRead;
@@ -172,7 +172,7 @@ public class PullRequestService
     @Autowired
     public PullRequestService(
             GitHubPullRequestReadClient gitHub,
-            HostingPullRequestWrites pullRequestWrites,
+            HostingIntegrations integrations,
             GitHubRepoClient repositories,
             GitHubAccountClient accounts,
             PullRequestStore store,
@@ -216,7 +216,7 @@ public class PullRequestService
         this.issues = requireNonNull(issues, "issues is null");
         this.writes = requireNonNull(writes, "writes is null");
         this.clock = requireNonNull(clock, "clock is null");
-        this.actions = new PullRequestActions(pullRequestWrites, store, snapshots, details, viewStateStore,
+        this.actions = new PullRequestActions(integrations, store, snapshots, details, viewStateStore,
                 recent, requests, this::getPullRequestDetail, this::findStoredId);
     }
 

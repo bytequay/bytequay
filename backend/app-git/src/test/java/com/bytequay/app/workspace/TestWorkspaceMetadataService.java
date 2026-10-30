@@ -44,6 +44,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.metadata;
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.doAnswer;
@@ -166,7 +169,8 @@ class TestWorkspaceMetadataService
         when(hosting.captureRead(org.mockito.ArgumentMatchers.anyString()))
                 .thenAnswer(invocation -> WorkspaceIssueTestData.route(workspaces.get(invocation.getArgument(0))));
         service = new WorkspaceMetadataService(workspaceStore, metadataStore, hosting,
-                ImmutableList.of(new GitHubIssueClient(gitHub, pullRequests, mock(GitHubPullRequestWriteClient.class))), avatarCache, Clock.fixed(NOW, ZoneOffset.UTC));
+                integrations(metadata(GITHUB, new GitHubIssueClient(gitHub, pullRequests, mock(GitHubPullRequestWriteClient.class)))), avatarCache,
+                Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
@@ -180,10 +184,9 @@ class TestWorkspaceMetadataService
         var route = WorkspaceIssueTestData.route(gitlab);
         when(hosting.captureRead("gitlab")).thenReturn(route);
         var reader = mock(com.bytequay.core.hosting.RepositoryMetadataReader.class);
-        when(reader.provider()).thenReturn(GITLAB);
         when(reader.overview(route.session().access(), route.repository())).thenReturn(new com.bytequay.core.hosting.RepositoryOverview("Project", 3,
                 ImmutableList.of("java"), ImmutableMap.of("Java", 100L)));
-        service = new WorkspaceMetadataService(workspaceStore, metadataStore, hosting, ImmutableList.of(reader), avatarCache, Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new WorkspaceMetadataService(workspaceStore, metadataStore, hosting, integrations(metadata(GITLAB, reader)), avatarCache, Clock.fixed(NOW, ZoneOffset.UTC));
 
         service.synchronize("gitlab");
 

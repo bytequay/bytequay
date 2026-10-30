@@ -22,7 +22,6 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingFailure;
-import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingUrls;
 import com.bytequay.core.hosting.PullRequestWriter;
@@ -65,12 +64,6 @@ public final class GitLabPullRequestWriter
     {
         this.http = new GitLabHttpClient(http, mapper);
         this.diffs = new GitLabMergeRequestDiffs(this.http);
-    }
-
-    @Override
-    public HostingProvider provider()
-    {
-        return HostingProvider.GITLAB;
     }
 
     @Override

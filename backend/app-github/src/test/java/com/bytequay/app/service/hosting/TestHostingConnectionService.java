@@ -22,7 +22,6 @@ import com.bytequay.core.hosting.HostingCredential;
 import com.bytequay.core.hosting.HostingCredential.Source;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
-import com.bytequay.core.hosting.HostingIntegration;
 import com.bytequay.core.hosting.HostingPermissions;
 import com.bytequay.core.hosting.HostingRepositories;
 import com.bytequay.core.hosting.HostingRepository;
@@ -46,6 +45,8 @@ import java.net.URI;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.connections;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
 import static com.bytequay.core.domain.PrRawDetail.UNKNOWN_COUNT;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
@@ -82,7 +83,7 @@ class TestHostingConnectionService
     {
         when(cli.provider()).thenReturn(GITLAB);
         service = new HostingConnectionService(identities, credentials,
-                ImmutableList.of(new HostingIntegration(GITLAB, accounts, repositories, requests)), ImmutableList.of(cli));
+                integrations(connections(GITLAB, accounts, repositories, requests)), ImmutableList.of(cli));
         when(identities.listInstances()).thenReturn(ImmutableList.of(instance));
         when(identities.listAccounts(10)).thenReturn(ImmutableList.of(account));
         when(identities.findAccount(20)).thenReturn(Optional.of(account));

@@ -26,8 +26,6 @@ import java.util.Optional;
 /** Remote issue operations normalized for the existing workspace issue surface. */
 public interface IssueClient
 {
-    HostingProvider provider();
-
     IssueSyncPage list(HostingAccess access, HostingRepository repository, Optional<Instant> since, int page);
 
     Optional<RepositoryIssue> find(HostingAccess access, HostingRepository repository, int number);

@@ -32,7 +32,6 @@ import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.StoredPrDiff;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingFailure;
-import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingUrls;
 import com.bytequay.core.hosting.PullRequestContentReader;
@@ -86,12 +85,6 @@ public final class GitLabPullRequestContentReader
     {
         this.http = new GitLabHttpClient(http, mapper);
         this.mergeRequestDiffs = new GitLabMergeRequestDiffs(this.http);
-    }
-
-    @Override
-    public HostingProvider provider()
-    {
-        return HostingProvider.GITLAB;
     }
 
     @Override

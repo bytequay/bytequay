@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.workspace;
 
+import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.core.domain.GitHubIssuePreview;
 import com.bytequay.core.domain.GitHubIssueSource;
@@ -71,7 +72,7 @@ public class WorkspaceIssueService
     private final RepositoryIssueStore issues;
     private final RepositoryIssueDetailStore details;
     private final WorkspaceHostingService hosting;
-    private final List<IssueClient> clients;
+    private final HostingIntegrations integrations;
     private final RecentTouchRecorder recent;
     private final Clock clock;
     private final AppSettingsStore settings;
@@ -82,7 +83,7 @@ public class WorkspaceIssueService
             RepositoryIssueStore issues,
             RepositoryIssueDetailStore details,
             WorkspaceHostingService hosting,
-            List<IssueClient> clients,
+            HostingIntegrations integrations,
             RecentTouchRecorder recent,
             Clock clock,
             AppSettingsStore settings)
@@ -91,7 +92,7 @@ public class WorkspaceIssueService
         this.issues = requireNonNull(issues, "issues is null");
         this.details = requireNonNull(details, "details is null");
         this.hosting = requireNonNull(hosting, "hosting is null");
-        this.clients = ImmutableList.copyOf(clients);
+        this.integrations = requireNonNull(integrations, "integrations is null");
         this.recent = requireNonNull(recent, "recent is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.settings = requireNonNull(settings, "settings is null");
@@ -439,7 +440,7 @@ public class WorkspaceIssueService
 
     private IssueClient client(WorkspaceHostingRead route)
     {
-        return clients.stream().filter(client -> client.provider() == route.session().access().server().provider()).findFirst().orElseThrow();
+        return integrations.of(route.session()).issues();
     }
 
     private void refreshActivity(WorkspaceHostingRead route, int issueNumber)

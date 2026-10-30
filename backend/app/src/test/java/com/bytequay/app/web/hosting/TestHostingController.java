@@ -66,6 +66,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.stream.Stream;
 
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
 import static com.bytequay.app.web.agent.AgentController.SESSION_HEADER;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -474,7 +475,7 @@ class TestHostingController
     {
         HostingIdentityStore identities = mock(HostingIdentityStore.class);
         HostingCredentialStore credentials = mock(HostingCredentialStore.class);
-        HostingConnectionService service = new HostingConnectionService(identities, credentials, ImmutableList.of(), ImmutableList.of());
+        HostingConnectionService service = new HostingConnectionService(identities, credentials, integrations(), ImmutableList.of());
 
         mvc(service).perform(delete("/api/hosting/accounts/7/credential").header(SESSION_HEADER, SESSION))
                 .andExpect(status().isOk());

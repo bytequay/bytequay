@@ -35,9 +35,8 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.service.hosting.GitHubPullRequestContentReader;
 import com.bytequay.app.service.hosting.HostingConnectionService;
-import com.bytequay.app.service.hosting.HostingPullRequestContents;
+import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
-import com.bytequay.app.service.hosting.HostingPullRequestWrites;
 import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.workspace.WorkspaceHostingRead;
@@ -90,6 +89,7 @@ import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.PullRequestContentReader;
 import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.hosting.PullRequestWriter;
 import com.bytequay.core.hosting.SubmittedReview;
@@ -142,6 +142,8 @@ import java.util.concurrent.locks.LockSupport;
 import java.util.function.Consumer;
 import java.util.stream.IntStream;
 
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.pullRequests;
 import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -199,8 +201,8 @@ class TestPullRequestService
     @Mock private WebServerApplicationContext applicationContext;
     @Mock private WebServer server;
 
-    private HostingPullRequestContents contents;
-    private HostingPullRequestWrites hostingWrites;
+    private PullRequestContentReader contents;
+    private HostingIntegrations integrations;
     private PullRequestService service;
     private PullRequestSnapshotService snapshots;
 
@@ -209,9 +211,9 @@ class TestPullRequestService
     @BeforeEach
     void setUp()
     {
-        contents = new HostingPullRequestContents(ImmutableList.of(new GitHubPullRequestContentReader(gitHub, actions, accounts, Runnable::run)));
-        hostingWrites = new HostingPullRequestWrites(ImmutableList.of(new GitHubPullRequestWriter(gitHub, writes, actions)));
-        snapshots = new PullRequestSnapshotService(contents, hostingWrites, requests, detailStore, diffStore);
+        contents = new GitHubPullRequestContentReader(gitHub, actions, accounts, Runnable::run);
+        integrations = integrations(pullRequests(GITHUB, contents, new GitHubPullRequestWriter(gitHub, writes, actions)));
+        snapshots = new PullRequestSnapshotService(integrations, requests, detailStore, diffStore);
         service = newService(Clock.systemUTC());
         HostingInstance instance = new HostingInstance(1, GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
         session = new HostingReadSession(10, "desktop-scope", new HostingAccess(instance, "pat"));
@@ -2351,9 +2353,8 @@ class TestPullRequestService
     void acceptedCommandClearsRemoteCachesAndSurvivesAFailedRefresh(String kind)
     {
         PullRequestWriter writer = mock(PullRequestWriter.class);
-        when(writer.provider()).thenReturn(GITHUB);
-        hostingWrites = new HostingPullRequestWrites(ImmutableList.of(writer));
-        snapshots = new PullRequestSnapshotService(contents, hostingWrites, requests, detailStore, diffStore);
+        integrations = integrations(pullRequests(GITHUB, contents, writer));
+        snapshots = new PullRequestSnapshotService(integrations, requests, detailStore, diffStore);
         service = newService(Clock.systemUTC());
         PrTimelineEvent result = new PrTimelineEvent(null, "system_note", null, null, "Closed", Optional.empty());
         var inline = new InlineReviewComment("file.txt", "/close", 4, "RIGHT", null, null, "head", OptionalLong.empty());
@@ -2402,8 +2403,7 @@ class TestPullRequestService
     void commandOnlyCommentsReturnRefreshedDetailWithoutRecordingAReview(boolean review)
     {
         PullRequestWriter writer = mock(PullRequestWriter.class);
-        when(writer.provider()).thenReturn(GITHUB);
-        hostingWrites = new HostingPullRequestWrites(ImmutableList.of(writer));
+        integrations = integrations(pullRequests(GITHUB, contents, writer));
         var comment = new InlineReviewComment("file.txt", "/close", 4, "RIGHT", null, null, "head", OptionalLong.empty());
         PrTimelineEvent result = new PrTimelineEvent(null, "system_note", null, null, "Closed", Optional.empty());
         if (review) {
@@ -2423,7 +2423,7 @@ class TestPullRequestService
             detail.set(refreshed);
             return null;
         }).when(detailStore).clearRemote(12L);
-        var requestActions = new PullRequestActions(hostingWrites, store, snapshots, detailStore, viewStateStore, recent, requests,
+        var requestActions = new PullRequestActions(integrations, store, snapshots, detailStore, viewStateStore, recent, requests,
                 route -> detail.get(), route -> Optional.of(12L));
 
         PullRequestRead route = read(PullRequestRef.of("owner", "repo", 7));
@@ -2864,9 +2864,8 @@ class TestPullRequestService
     void patchesActualSubmissionEventsWithoutInventingAReviewId(boolean approved, boolean commented)
     {
         PullRequestWriter writer = mock(PullRequestWriter.class);
-        when(writer.provider()).thenReturn(GITHUB);
-        hostingWrites = new HostingPullRequestWrites(ImmutableList.of(writer));
-        snapshots = new PullRequestSnapshotService(contents, hostingWrites, requests, detailStore, diffStore);
+        integrations = integrations(pullRequests(GITHUB, contents, writer));
+        snapshots = new PullRequestSnapshotService(integrations, requests, detailStore, diffStore);
         service = newService(Clock.systemUTC());
         PrReviewState previous = new PrReviewState(null, "another-reviewer", null, false, "APPROVED", null, null, null, "head");
         PrReviewState approvedReview = new PrReviewState(null, "me", null, false, "APPROVED", null, null, null, "head");
@@ -3712,8 +3711,8 @@ class TestPullRequestService
 
     private PullRequestService newService(Clock clock)
     {
-        return new PullRequestService(gitHub, hostingWrites, repositories, accounts, store, snapshots, detailStore, new PullRequestDetailFetcher(
-                contents,
+        return new PullRequestService(gitHub, integrations, repositories, accounts, store, snapshots, detailStore, new PullRequestDetailFetcher(
+                integrations,
                 Runnable::run), viewStateStore, recent, credentialService, connections, requests, workspaceHosting, metadata, summaries, workspaces, applicationContext,
                 notifications, syncSettings, issues, writeVersion, clock);
     }

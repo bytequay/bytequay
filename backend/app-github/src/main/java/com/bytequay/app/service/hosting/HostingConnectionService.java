@@ -58,14 +58,14 @@ public class HostingConnectionService
 {
     private final HostingIdentityStore identities;
     private final HostingCredentialStore credentials;
-    private final Map<HostingProvider, HostingIntegration> integrations;
+    private final HostingIntegrations integrations;
     private final Map<HostingProvider, HostingCli> clis;
 
-    public HostingConnectionService(HostingIdentityStore identities, HostingCredentialStore credentials, List<HostingIntegration> integrations, List<HostingCli> clis)
+    public HostingConnectionService(HostingIdentityStore identities, HostingCredentialStore credentials, HostingIntegrations integrations, List<HostingCli> clis)
     {
         this.identities = requireNonNull(identities, "identities is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
-        this.integrations = integrations.stream().collect(toImmutableMap(HostingIntegration::provider, integration -> integration));
+        this.integrations = requireNonNull(integrations, "integrations is null");
         this.clis = clis.stream().collect(toImmutableMap(HostingCli::provider, cli -> cli));
     }
 
@@ -271,8 +271,6 @@ public class HostingConnectionService
 
     private HostingIntegration integration(HostingProvider provider)
     {
-        HostingIntegration integration = integrations.get(requireNonNull(provider, "provider is null"));
-        checkArgument(integration != null, "unsupported hosting provider");
-        return integration;
+        return integrations.of(provider);
     }
 }

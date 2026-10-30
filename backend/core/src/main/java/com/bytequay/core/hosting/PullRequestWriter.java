@@ -23,8 +23,6 @@ import java.util.List;
 /** Provider operations performed only after an application-authorized write. */
 public interface PullRequestWriter
 {
-    HostingProvider provider();
-
     /** Returns the note, or a command result with no remote ID when no note was created. */
     PrTimelineEvent comment(HostingAccess access, HostingRepository repository, int number, String body);
 

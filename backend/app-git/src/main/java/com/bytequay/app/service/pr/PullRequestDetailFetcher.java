@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.service.pr;
 
-import com.bytequay.app.service.hosting.HostingPullRequestContents;
+import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.core.domain.GitHubPullRequestIdentity;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.StoredPrDetail;
@@ -39,38 +39,38 @@ import static java.util.Objects.requireNonNull;
 @Component
 class PullRequestDetailFetcher
 {
-    private final HostingPullRequestContents contents;
+    private final HostingIntegrations integrations;
     private final Executor ioExecutor;
 
-    PullRequestDetailFetcher(HostingPullRequestContents contents, @Qualifier(IO_EXECUTOR) Executor ioExecutor)
+    PullRequestDetailFetcher(HostingIntegrations integrations, @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
-        this.contents = requireNonNull(contents, "contents is null");
+        this.integrations = requireNonNull(integrations, "integrations is null");
         this.ioExecutor = requireNonNull(ioExecutor, "ioExecutor is null");
     }
 
     String headRef(PullRequestRead route)
     {
-        return contents.reader(route.session()).headRef(route.number());
+        return integrations.of(route.session()).contents().headRef(route.number());
     }
 
     boolean viewerCanWrite(PullRequestRead route)
     {
-        return contents.reader(route.session()).viewerCanWrite(route.session().access(), route.repository());
+        return integrations.of(route.session()).contents().viewerCanWrite(route.session().access(), route.repository());
     }
 
     Optional<DiscussionProbe> probeDiscussion(PullRequestRead route, Map<String, String> etags)
     {
-        return contents.reader(route.session()).probeDiscussion(route.session().access(), route.repository(), route.number(), etags);
+        return integrations.of(route.session()).contents().probeDiscussion(route.session().access(), route.repository(), route.number(), etags);
     }
 
     ListenableFuture<StoredPrDetail> fetchDiscussion(PullRequestRead route, StoredPrDetail existing)
     {
-        return submit(() -> contents.reader(route.session()).discussion(route.session().access(), route.repository(), route.number(), existing), ioExecutor);
+        return submit(() -> integrations.of(route.session()).contents().discussion(route.session().access(), route.repository(), route.number(), existing), ioExecutor);
     }
 
     List<GitHubPullRequestIdentity> identitiesByHead(PullRequestRead route, RepoRef sourceRepository, String branch)
     {
-        return contents.reader(route.session()).identitiesByHead(route.session().access(), route.repository(), sourceRepository, branch);
+        return integrations.of(route.session()).contents().identitiesByHead(route.session().access(), route.repository(), sourceRepository, branch);
     }
 
     static <T> T await(ListenableFuture<T> future)

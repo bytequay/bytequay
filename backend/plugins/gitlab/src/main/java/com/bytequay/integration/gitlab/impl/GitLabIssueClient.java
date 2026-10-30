@@ -23,7 +23,6 @@ import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryLabel;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingFailure;
-import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingRepositoryUser;
 import com.bytequay.core.hosting.HostingUrls;
@@ -51,7 +50,6 @@ import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
-import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.encode;
 import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.issuePath;
 import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.mapped;
@@ -69,12 +67,6 @@ public final class GitLabIssueClient
     public GitLabIssueClient(HttpClient http, ObjectMapper mapper)
     {
         this.http = new GitLabHttpClient(http, mapper);
-    }
-
-    @Override
-    public HostingProvider provider()
-    {
-        return GITLAB;
     }
 
     @Override

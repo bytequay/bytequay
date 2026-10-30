@@ -15,8 +15,16 @@ package com.bytequay.core.hosting;
 
 import static java.util.Objects.requireNonNull;
 
-/** Bundled implementations of the public remote ports. */
-public record HostingIntegration(HostingProvider provider, HostingAccounts accounts, HostingRepositories repositories, PullRequestReader pullRequests)
+/** One provider's implementations of every remote hosting port. */
+public record HostingIntegration(
+        HostingProvider provider,
+        HostingAccounts accounts,
+        HostingRepositories repositories,
+        PullRequestReader pullRequests,
+        PullRequestContentReader contents,
+        PullRequestWriter writer,
+        IssueClient issues,
+        RepositoryMetadataReader metadata)
 {
     public HostingIntegration
     {
@@ -24,5 +32,9 @@ public record HostingIntegration(HostingProvider provider, HostingAccounts accou
         requireNonNull(accounts, "accounts is null");
         requireNonNull(repositories, "repositories is null");
         requireNonNull(pullRequests, "pullRequests is null");
+        requireNonNull(contents, "contents is null");
+        requireNonNull(writer, "writer is null");
+        requireNonNull(issues, "issues is null");
+        requireNonNull(metadata, "metadata is null");
     }
 }

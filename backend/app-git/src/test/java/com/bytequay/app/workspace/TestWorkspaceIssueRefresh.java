@@ -53,10 +53,13 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.issues;
 import static com.bytequay.app.workspace.WorkspaceIssueTestData.NOW;
 import static com.bytequay.app.workspace.WorkspaceIssueTestData.event;
 import static com.bytequay.app.workspace.WorkspaceIssueTestData.issue;
 import static com.bytequay.app.workspace.WorkspaceIssueTestData.workspace;
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -97,7 +100,7 @@ class TestWorkspaceIssueRefresh
         when(hosting.captureRead(org.mockito.ArgumentMatchers.anyString()))
                 .thenAnswer(invocation -> WorkspaceIssueTestData.route(workspaces.get(invocation.getArgument(0))));
         service = new WorkspaceIssueService(workspaceStore, issueStore, detailStore, hosting,
-                ImmutableList.of(new GitHubIssueClient(gitHub, issueReads, mock(GitHubPullRequestWriteClient.class))),
+                integrations(issues(GITHUB, new GitHubIssueClient(gitHub, issueReads, mock(GitHubPullRequestWriteClient.class)))),
                 mock(RecentTouchRecorder.class), Clock.fixed(NOW, ZoneOffset.UTC), settings);
     }
 

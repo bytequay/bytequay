@@ -32,8 +32,6 @@ import java.util.Optional;
 /** Remote content normalized to the existing desktop review contracts. */
 public interface PullRequestContentReader
 {
-    HostingProvider provider();
-
     String headRef(int number);
 
     GitHubPullRequestIdentity identity(HostingAccess access, HostingRepository repository, int number);

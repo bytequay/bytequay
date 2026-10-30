@@ -15,10 +15,6 @@ package com.bytequay.integration.gitlab;
 
 import com.bytequay.core.hosting.HostingIntegration;
 import com.bytequay.core.hosting.HostingProvider;
-import com.bytequay.core.hosting.IssueClient;
-import com.bytequay.core.hosting.PullRequestContentReader;
-import com.bytequay.core.hosting.PullRequestWriter;
-import com.bytequay.core.hosting.RepositoryMetadataReader;
 import com.bytequay.integration.gitlab.impl.GitLabConnectionClient;
 import com.bytequay.integration.gitlab.impl.GitLabIssueClient;
 import com.bytequay.integration.gitlab.impl.GitLabPullRequestContentReader;
@@ -32,29 +28,11 @@ public final class GitLabIntegration
 {
     private GitLabIntegration() {}
 
-    public static PullRequestWriter writer(HttpClient http, ObjectMapper mapper)
-    {
-        return new GitLabPullRequestWriter(http, mapper);
-    }
-
-    public static PullRequestContentReader contents(HttpClient http, ObjectMapper mapper)
-    {
-        return new GitLabPullRequestContentReader(http, mapper);
-    }
-
-    public static IssueClient issues(HttpClient http, ObjectMapper mapper)
-    {
-        return new GitLabIssueClient(http, mapper);
-    }
-
-    public static RepositoryMetadataReader metadata(HttpClient http, ObjectMapper mapper)
-    {
-        return new GitLabIssueClient(http, mapper);
-    }
-
     public static HostingIntegration create(HttpClient http, ObjectMapper mapper)
     {
-        GitLabConnectionClient client = new GitLabConnectionClient(http, mapper);
-        return new HostingIntegration(HostingProvider.GITLAB, client, client, new GitLabPullRequestReader(http, mapper));
+        GitLabConnectionClient connections = new GitLabConnectionClient(http, mapper);
+        GitLabIssueClient issues = new GitLabIssueClient(http, mapper);
+        return new HostingIntegration(HostingProvider.GITLAB, connections, connections, new GitLabPullRequestReader(http, mapper),
+                new GitLabPullRequestContentReader(http, mapper), new GitLabPullRequestWriter(http, mapper), issues, issues);
     }
 }

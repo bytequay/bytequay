@@ -22,8 +22,6 @@ import java.util.Optional;
 /** Repository facts used by the workspace header and existing people/label pickers. */
 public interface RepositoryMetadataReader
 {
-    HostingProvider provider();
-
     RepositoryOverview overview(HostingAccess access, HostingRepository repository);
 
     Optional<List<RepositoryContributor>> contributors(HostingAccess access, HostingRepository repository);

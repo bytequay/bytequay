@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import type { JiraComment, JiraIssue } from '../contracts';
+import type { JiraComment, JiraIssue, JiraIssueDetail, JiraUser } from '../contracts';
 
 export const JIRA_WORKFLOW_GROUPS = ['To do', 'In progress', 'In review', 'Done'] as const;
 export function jiraWorkflowGroup(issue: JiraIssue): string {
@@ -72,4 +72,33 @@ export function jiraCommentThreads(comments: JiraComment[]): JiraCommentThread[]
     threadOf.set(comment.id, thread);
   }
   return threads.reverse();
+}
+
+/** People a comment can mention: the ticket's own people first, then everyone Jira lets you assign it to. */
+export function jiraMentionPeople(detail: JiraIssueDetail): JiraUser[] {
+  const people = [detail.issue.assignee, detail.reporter, ...detail.comments.map(comment => comment.author).reverse(), ...detail.peopleFields.flatMap(field => field.people), ...detail.assignees];
+  return [...new Map(people.filter(person => person !== null).map(person => [person.accountId, person])).values()];
+}
+
+/** The `@` query ending at the caret; it may hold spaces so a full name keeps matching. */
+export function jiraMentionQuery(value: string, caret: number): { start: number; query: string } | null {
+  const match = value.slice(0, caret).match(/(^|[\s(])@([^@\n]{0,40})$/);
+  return match ? { start: caret - match[2].length - 1, query: match[2] } : null;
+}
+
+/** The first few people whose name, or a word of it, starts with the query. */
+export function jiraMentionMatches(people: JiraUser[], query: string): JiraUser[] {
+  const prefix = query.toLowerCase();
+  return people.filter(person => {
+    const name = person.displayName.toLowerCase();
+    return name.startsWith(prefix) || name.split(/\s+/).some(word => word.startsWith(prefix));
+  }).slice(0, 8);
+}
+
+/** `@Name` → account id for each known person the text names. */
+export function jiraMentions(text: string, people: JiraUser[]): Record<string, string> {
+  const ids = new Map<string, Set<string>>();
+  for (const person of people) ids.set(`@${person.displayName}`, (ids.get(`@${person.displayName}`) ?? new Set()).add(person.accountId));
+  // ponytail: a name two people share stays plain text; track the picked account per insertion if that bites.
+  return Object.fromEntries([...ids].filter(([name, accounts]) => accounts.size === 1 && text.includes(name)).map(([name, accounts]) => [name, [...accounts][0]]));
 }

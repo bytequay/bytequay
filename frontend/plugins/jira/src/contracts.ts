@@ -92,8 +92,9 @@ export type JiraBridge = {
   updateJiraIssue: (location: JiraLocation, fields: Record<string, unknown>, expectedUpdatedAt: string) => Promise<JiraIssueDetail>;
   transitionJiraIssue: (location: JiraLocation, transitionId: string, fields: Record<string, unknown>, expectedUpdatedAt: string) => Promise<JiraIssueDetail>;
   moveJiraIssue: (location: JiraLocation, sprintId: number | null, boardId: number, expectedUpdatedAt: string) => Promise<JiraIssueDetail>;
-  commentJiraIssue: (location: JiraLocation, body: string, operationId: string, parentId?: string) => Promise<JiraIssueDetail>;
-  editJiraComment: (location: JiraLocation, commentId: string, body: string, expectedUpdated: string) => Promise<JiraIssueDetail>;
+  /** `mentions` maps each `@Name` in the body to the Jira account it links. */
+  commentJiraIssue: (location: JiraLocation, body: string, operationId: string, parentId: string | undefined, mentions: Record<string, string>) => Promise<JiraIssueDetail>;
+  editJiraComment: (location: JiraLocation, commentId: string, body: string, expectedUpdated: string, mentions: Record<string, string>) => Promise<JiraIssueDetail>;
   setJiraEpic: (location: JiraLocation, isEpic: boolean) => Promise<JiraIssueDetail>;
   assignJiraWorkspace: (location: JiraLocation, workspaceId: string) => Promise<JiraIssueDetail>;
   listJiraAttention: () => Promise<JiraIssue[]>;

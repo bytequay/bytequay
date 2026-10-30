@@ -217,14 +217,14 @@ public class JiraController
     @PostMapping(ISSUE + "/comments")
     public JiraDtos.Detail comment(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId, @RequestBody Comment request)
     {
-        return jira.comment(connectionId, cloudId, issueId, request.body(), request.operationId(), request.parentId());
+        return jira.comment(connectionId, cloudId, issueId, request.body(), request.mentions(), request.operationId(), request.parentId());
     }
 
     @PutMapping(ISSUE + "/comments/{commentId}")
     public JiraDtos.Detail editComment(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId, @PathVariable String commentId,
             @RequestBody CommentEdit request)
     {
-        return jira.editComment(connectionId, cloudId, issueId, commentId, request.body(), request.expectedUpdated());
+        return jira.editComment(connectionId, cloudId, issueId, commentId, request.body(), request.mentions(), request.expectedUpdated());
     }
 
     @PutMapping(ISSUE + "/epic")
@@ -285,9 +285,21 @@ public class JiraController
 
     public record Move(Optional<Long> sprintId, Instant expectedUpdatedAt) {}
 
-    public record Comment(String body, String operationId, Optional<String> parentId) {}
+    public record Comment(String body, Map<String, String> mentions, String operationId, Optional<String> parentId)
+    {
+        public Comment
+        {
+            mentions = ImmutableMap.copyOf(mentions);
+        }
+    }
 
-    public record CommentEdit(String body, String expectedUpdated) {}
+    public record CommentEdit(String body, Map<String, String> mentions, String expectedUpdated)
+    {
+        public CommentEdit
+        {
+            mentions = ImmutableMap.copyOf(mentions);
+        }
+    }
 
     public record Epic(boolean isEpic) {}
 

@@ -59,15 +59,15 @@ describe('Jira desktop boundary', () => {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ transitionId: 'done', fields: { resolution: { id: 'fixed' } }, expectedUpdatedAt: 'version-1' }),
     });
-    await bridge.commentJiraIssue(location, 'Reply', 'stable-operation', 'comment/parent');
+    await bridge.commentJiraIssue(location, '@Sam Lee reply', 'stable-operation', 'comment/parent', { '@Sam Lee': 'sam' });
     expect(requests).toHaveBeenLastCalledWith(`${issuePath}/comments`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body: 'Reply', operationId: 'stable-operation', parentId: 'comment/parent' }),
+      body: JSON.stringify({ body: '@Sam Lee reply', mentions: { '@Sam Lee': 'sam' }, operationId: 'stable-operation', parentId: 'comment/parent' }),
     });
-    await bridge.editJiraComment(location, 'comment/one', 'Edited', 'version-2');
+    await bridge.editJiraComment(location, 'comment/one', 'Edited', 'version-2', {});
     expect(requests).toHaveBeenLastCalledWith(`${issuePath}/comments/comment%2Fone`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body: 'Edited', expectedUpdated: 'version-2' }),
+      body: JSON.stringify({ body: 'Edited', mentions: {}, expectedUpdated: 'version-2' }),
     });
   });
 

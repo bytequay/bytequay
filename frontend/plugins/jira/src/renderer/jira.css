@@ -275,6 +275,8 @@ textarea.jira-field { width: 100%; height: auto; padding: 6px 8px; line-height: 
 .jira-reply-form { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 0; padding: 8px 10px; border: 1px solid var(--fg-link); border-radius: 8px; background: var(--surface-canvas); box-shadow: 0 0 0 3px light-dark(rgba(9, 105, 218, 0.15), rgb(0 0 0 / 27%)); animation: jira-fade 0.15s; }
 .jira-reply-form textarea { padding: 0; border: 0; outline: none; background: transparent; color: var(--text-1); font: inherit; font-size: 13px; line-height: 1.5; resize: vertical; }
 .jira-reply-form__foot { display: flex; align-items: center; gap: 8px; }
+/* In flow under the box: the composer clips anything that floats out of it. */
+.jira-mentions { max-height: 232px; padding-top: 4px; border-top: 1px solid light-dark(#eff1f3, var(--dark-border-muted)); overflow: auto; }
 .jira-reply-form__foot .jira-btn { height: 26px; }
 
 /* The fields rail. */

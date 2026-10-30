@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject, type TextareaHTMLAttributes } from 'react';
 import { Bookmark, Bug, Check, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, ClipboardList, Columns3, CornerDownRight, Equal, ExternalLink, FolderGit2, List, LoaderCircle, Minus, Pencil, RefreshCw, Reply, Search, UserRound, UsersRound, X, Zap } from 'lucide-react';
 import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import { ago, relativeTime } from '@bytequay/ui/relativeTime';
@@ -20,7 +20,7 @@ import { Card, Clickable, Pill } from '@bytequay/ui/cards';
 import CopyLinkButton from '@bytequay/ui/CopyLinkButton';
 import { JIRA_CHANGED, jiraAccountLabel, jiraSiteDomain, jiraIssueKey, jiraIssueLocation, notifyJiraChanged, type JiraBoard, type JiraComment, type JiraConnection, type JiraField, type JiraIssue, type JiraIssueDetail, type JiraIssuePage, type JiraLinkType, type JiraLocation, type JiraRelatedIssue, type JiraSite, type JiraSprint, type JiraStatus, type JiraUser } from '../contracts';
 import JiraIcon from './JiraIcon';
-import { completedGroups, JIRA_WORKFLOW_GROUPS, jiraCommentThreads, jiraPriorityLevel, jiraWorkflowGroup } from './presentation';
+import { completedGroups, JIRA_WORKFLOW_GROUPS, jiraCommentThreads, jiraMentionMatches, jiraMentionPeople, jiraMentionQuery, jiraMentions, jiraPriorityLevel, jiraWorkflowGroup } from './presentation';
 import { useJiraHost } from './host';
 import './jira.css';
 
@@ -433,6 +433,44 @@ const submitOnCommandEnter = (event: React.KeyboardEvent<HTMLTextAreaElement>) =
   if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); }
 };
 
+/** A comment box that suggests people after `@` and inserts the picked one as `@Name`. */
+function JiraMentionTextarea({ people, value, onValue, textareaRef, ...props }: { people: JiraUser[]; value: string; onValue: (value: string) => void; textareaRef: RefObject<HTMLTextAreaElement | null> } & Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'onChange' | 'onKeyDown'>) {
+  const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
+  const [selected, setSelected] = useState(0);
+  const listId = useId();
+  const matches = mention ? jiraMentionMatches(people, mention.query) : [];
+  const active = Math.min(selected, matches.length - 1);
+  const choose = (person: JiraUser) => {
+    if (!mention) return;
+    const inserted = `@${person.displayName} `;
+    const caret = mention.start + inserted.length;
+    onValue(value.slice(0, mention.start) + inserted + value.slice(mention.start + 1 + mention.query.length));
+    setMention(null);
+    requestAnimationFrame(() => { textareaRef.current?.focus(); textareaRef.current?.setSelectionRange(caret, caret); });
+  };
+  return <>
+    <textarea ref={textareaRef} {...props} value={value} aria-autocomplete="list" aria-expanded={matches.length > 0} aria-controls={matches.length > 0 ? listId : undefined}
+      aria-activedescendant={matches.length > 0 ? `${listId}-${active}` : undefined}
+      onChange={event => { onValue(event.target.value); setMention(jiraMentionQuery(event.target.value, event.target.selectionStart)); setSelected(0); }}
+      onBlur={() => setMention(null)}
+      onKeyDown={event => {
+        if (matches.length > 0 && !event.nativeEvent.isComposing) {
+          if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); setSelected((active + (event.key === 'ArrowDown' ? 1 : -1) + matches.length) % matches.length); return; }
+          if ((event.key === 'Enter' && !event.metaKey && !event.ctrlKey) || event.key === 'Tab') { event.preventDefault(); choose(matches[active]); return; }
+          // Escape closes the list; the next one cancels the form.
+          if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setMention(null); return; }
+        }
+        submitOnCommandEnter(event);
+      }} />
+    {matches.length > 0 && <div className="jira-mentions" id={listId} role="listbox" aria-label="Mention someone">
+      {matches.map((person, index) => <div key={person.accountId} id={`${listId}-${index}`} role="option" aria-selected={index === active} className="jira-people__option"
+        onMouseDown={event => { event.preventDefault(); choose(person); }} onMouseEnter={() => setSelected(index)}>
+        <JiraAvatar person={person} /><span className="jira-people__name">{person.displayName}</span>
+      </div>)}
+    </div>}
+  </>;
+}
+
 function JiraWorkItemRow({ item, onOpen }: { item: JiraRelatedIssue; onOpen: () => void }) {
   return <button type="button" className="jira-work-item" aria-label={`${item.key}: ${item.title}`} title={`${item.key}: ${item.title}`} onClick={onOpen}>
     <JiraTypeIcon type={item.type} size={12} /><span className="card-key">{item.key}</span><span className="jira-work-item__title">{item.title}</span><StatusPill status={item.status} />
@@ -644,19 +682,20 @@ function JiraDetail({ location, scope, sprints, boardId, onClose, onChanged, onS
     closeMenu();
     void mutate(() => host.bridge.moveJiraIssue(location, sprintId, boardId, issue.updatedAt));
   };
+  const mentionPeople = detail ? jiraMentionPeople(detail) : [];
   const sendComment = () => {
     const body = comment.trim();
     if (!body) return;
     if (commentRequest.current?.body !== body) commentRequest.current = { body, id: crypto.randomUUID() };
     const request = commentRequest.current;
-    void mutate(() => host.bridge.commentJiraIssue(location, request.body, request.id), () => { setComment(''); setCommentRevision(value => value + 1); commentRequest.current = null; }, 'comment');
+    void mutate(() => host.bridge.commentJiraIssue(location, request.body, request.id, undefined, jiraMentions(request.body, mentionPeople)), () => { setComment(''); setCommentRevision(value => value + 1); commentRequest.current = null; }, 'comment');
   };
   const onRewriteError = (failure: unknown | null) => setError(failure === null ? null : message(failure));
   // Jira threads are one level deep: a reply to a reply still belongs to the thread's first comment.
   const commentRow = (value: JiraComment, threadId: string, parentId: string, nested = false) => <JiraCommentRow key={value.id} value={value} nested={nested}>
     {commentEdit?.id === value.id
-      ? <form className="jira-comment-edit" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); if (!busy) setCommentEdit(null); } }} onSubmit={event => { event.preventDefault(); const body = commentEdit.body.trim(); if (body) void mutate(() => host.bridge.editJiraComment(location, value.id, body, commentEdit.updated), () => setCommentEdit(null)); }}>
-        <textarea ref={commentEditRef} disabled={busy} className="jira-field" aria-label="Edit comment" rows={4} autoFocus value={commentEdit.body} onChange={event => setCommentEdit({ ...commentEdit, body: event.target.value })} onKeyDown={submitOnCommandEnter} />
+      ? <form className="jira-comment-edit" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); if (!busy) setCommentEdit(null); } }} onSubmit={event => { event.preventDefault(); const body = commentEdit.body.trim(); if (body) void mutate(() => host.bridge.editJiraComment(location, value.id, body, commentEdit.updated, jiraMentions(body, mentionPeople)), () => setCommentEdit(null)); }}>
+        <JiraMentionTextarea people={mentionPeople} textareaRef={commentEditRef} disabled={busy} className="jira-field" aria-label="Edit comment" rows={4} autoFocus value={commentEdit.body} onValue={body => setCommentEdit({ ...commentEdit, body })} />
         <div className="jira-form-actions"><BetterWordsButton text={commentEdit.body} textareaRef={commentEditRef} workspaceId={issue?.workspace?.id} disabled={busy} onError={onRewriteError} />
           <button type="button" className="jira-btn" disabled={busy} onClick={() => setCommentEdit(null)}>Cancel</button><button type="submit" className="jira-btn is-primary" disabled={busy || !commentEdit.body.trim()}>Save</button></div>
       </form>
@@ -719,7 +758,7 @@ function JiraDetail({ location, scope, sprints, boardId, onClose, onChanged, onS
         <section className="jira-comments" aria-label="Comments">
           <h3>Comments<span className="jira-count">{detail.comments.length}</span></h3>
           <form className="jira-composer" onSubmit={event => { event.preventDefault(); sendComment(); }}>
-            <textarea ref={commentRef} disabled={busy} aria-label="Add a comment" rows={5} placeholder="Write a comment…" value={comment} onChange={event => setComment(event.target.value)} onKeyDown={submitOnCommandEnter} />
+            <JiraMentionTextarea people={mentionPeople} textareaRef={commentRef} disabled={busy} aria-label="Add a comment" rows={5} placeholder="Write a comment…" value={comment} onValue={setComment} />
             <div className="jira-composer__foot"><BetterWordsButton key={commentRevision} text={comment} textareaRef={commentRef} workspaceId={issue.workspace?.id} disabled={busy} onError={onRewriteError} />
               <span className="jira-kbd" aria-hidden="true">⌘↵</span><button type="submit" className="jira-btn is-primary" disabled={busy || !comment.trim()}>Send</button></div>
           </form>
@@ -731,8 +770,8 @@ function JiraDetail({ location, scope, sprints, boardId, onClose, onChanged, onS
               {commentRow(root, root.id, parentId)}
               {(replies.length > 0 || replying) && <div className="jira-comment-replies">
                 {replies.map(value => commentRow(value, root.id, parentId, true))}
-                {replying && <form className="jira-reply-form" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); if (!busy) setReply(null); } }} onSubmit={event => { event.preventDefault(); const body = replying.body.trim(); if (!body) return; if (replyRequest.current?.body !== body || replyRequest.current.parentId !== replying.parentId) replyRequest.current = { body, parentId: replying.parentId, id: crypto.randomUUID() }; const request = replyRequest.current; void mutate(() => host.bridge.commentJiraIssue(location, request.body, request.id, request.parentId), () => { setReply(null); replyRequest.current = null; }, 'comment'); }}>
-                  <textarea ref={replyRef} disabled={busy} aria-label={`Reply to ${replying.to}`} rows={3} autoFocus placeholder={`Reply to ${replying.to}…`} value={replying.body} onChange={event => setReply({ ...replying, body: event.target.value })} onKeyDown={submitOnCommandEnter} />
+                {replying && <form className="jira-reply-form" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); if (!busy) setReply(null); } }} onSubmit={event => { event.preventDefault(); const body = replying.body.trim(); if (!body) return; if (replyRequest.current?.body !== body || replyRequest.current.parentId !== replying.parentId) replyRequest.current = { body, parentId: replying.parentId, id: crypto.randomUUID() }; const request = replyRequest.current; void mutate(() => host.bridge.commentJiraIssue(location, request.body, request.id, request.parentId, jiraMentions(request.body, mentionPeople)), () => { setReply(null); replyRequest.current = null; }, 'comment'); }}>
+                  <JiraMentionTextarea people={mentionPeople} textareaRef={replyRef} disabled={busy} aria-label={`Reply to ${replying.to}`} rows={3} autoFocus placeholder={`Reply to ${replying.to}…`} value={replying.body} onValue={body => setReply({ ...replying, body })} />
                   <div className="jira-reply-form__foot"><BetterWordsButton text={replying.body} textareaRef={replyRef} workspaceId={issue.workspace?.id} disabled={busy} onError={onRewriteError} />
                     <button type="button" className="jira-btn" disabled={busy} onClick={() => setReply(null)}>Cancel</button><button type="submit" className="jira-btn is-primary" disabled={busy || !replying.body.trim()}>Reply</button></div>
                 </form>}

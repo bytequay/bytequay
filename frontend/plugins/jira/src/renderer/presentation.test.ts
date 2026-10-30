@@ -14,7 +14,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
-import { completedGroups, jiraCommentThreads, jiraPriorityLevel, jiraWorkflowGroup } from './presentation';
+import { completedGroups, jiraCommentThreads, jiraMentionMatches, jiraMentionQuery, jiraMentions, jiraPriorityLevel, jiraWorkflowGroup } from './presentation';
 import { jiraIssue } from './fixtures/jira';
 import type { JiraComment } from '../contracts';
 
@@ -65,5 +65,27 @@ describe('Jira comment threads', () => {
     const ids = jiraCommentThreads([comment('root'), comment('other'), comment('reply', 'root'), comment('reply-to-reply', 'reply'), comment('orphan', 'missing')])
       .map(thread => [thread.comment.id, ...thread.replies.map(reply => reply.id)]);
     expect(ids).toEqual([['orphan'], ['other'], ['root', 'reply', 'reply-to-reply']]);
+  });
+});
+
+describe('comment mentions', () => {
+  const person = (accountId: string, displayName: string) => ({ accountId, displayName, avatarUrl: null });
+  const people = [person('ann', 'Ann Lee'), person('sam', 'Sam Annan'), person('bo', 'Bo Chen')];
+
+  it('reads the query after an @ that starts a word, spaces included', () => {
+    expect(jiraMentionQuery('thanks @an', 10)).toEqual({ start: 7, query: 'an' });
+    expect(jiraMentionQuery('@Ann L', 6)).toEqual({ start: 0, query: 'Ann L' });
+    expect(jiraMentionQuery('mail me@example', 15)).toBeNull();
+  });
+
+  it('matches a name or any word of it by prefix', () => {
+    expect(jiraMentionMatches(people, 'an').map(value => value.accountId)).toEqual(['ann', 'sam']);
+    expect(jiraMentionMatches(people, 'ann l').map(value => value.accountId)).toEqual(['ann']);
+    expect(jiraMentionMatches(people, 'chen').map(value => value.accountId)).toEqual(['bo']);
+    expect(jiraMentionMatches(people, 'nan')).toEqual([]);
+  });
+
+  it('links only names in the text that one person holds', () => {
+    expect(jiraMentions('@Ann Lee and @Bo Chen, not Sam', [...people, person('other-bo', 'Bo Chen')])).toEqual({ '@Ann Lee': 'ann' });
   });
 });

@@ -228,21 +228,22 @@ class TestJiraController
                         .content(mapper.writeValueAsString(ImmutableMap.of("sprintId", 8, "expectedUpdatedAt", UPDATED))))
                 .andExpect(status().isOk());
         verify(jira).move("connection", "cloud", "10001", UPDATED, Optional.of(8L));
-        when(jira.comment("connection", "cloud", "10001", "Ready for review", "request-1234567890", Optional.empty())).thenReturn(detail());
+        Map<String, String> mentions = ImmutableMap.of("@Sam Lee", "712020:sam");
+        when(jira.comment("connection", "cloud", "10001", "@Sam Lee ready for review", mentions, "request-1234567890", Optional.empty())).thenReturn(detail());
         mvc.perform(post(ISSUE + "/comments").contentType(MediaType.APPLICATION_JSON)
-                        .content(mapper.writeValueAsString(ImmutableMap.of("body", "Ready for review", "operationId", "request-1234567890"))))
+                        .content(mapper.writeValueAsString(ImmutableMap.of("body", "@Sam Lee ready for review", "mentions", mentions, "operationId", "request-1234567890"))))
                 .andExpect(status().isOk());
-        verify(jira).comment("connection", "cloud", "10001", "Ready for review", "request-1234567890", Optional.empty());
-        when(jira.comment("connection", "cloud", "10001", "Agreed", "request-1234567891", Optional.of("5"))).thenReturn(detail());
+        verify(jira).comment("connection", "cloud", "10001", "@Sam Lee ready for review", mentions, "request-1234567890", Optional.empty());
+        when(jira.comment("connection", "cloud", "10001", "Agreed", ImmutableMap.of(), "request-1234567891", Optional.of("5"))).thenReturn(detail());
         mvc.perform(post(ISSUE + "/comments").contentType(MediaType.APPLICATION_JSON)
-                        .content(mapper.writeValueAsString(ImmutableMap.of("body", "Agreed", "operationId", "request-1234567891", "parentId", "5"))))
+                        .content(mapper.writeValueAsString(ImmutableMap.of("body", "Agreed", "mentions", ImmutableMap.of(), "operationId", "request-1234567891", "parentId", "5"))))
                 .andExpect(status().isOk());
-        verify(jira).comment("connection", "cloud", "10001", "Agreed", "request-1234567891", Optional.of("5"));
-        when(jira.editComment("connection", "cloud", "10001", "5", "Updated", "2026-09-26T01:00:00.000+0000")).thenReturn(detail());
+        verify(jira).comment("connection", "cloud", "10001", "Agreed", ImmutableMap.of(), "request-1234567891", Optional.of("5"));
+        when(jira.editComment("connection", "cloud", "10001", "5", "Updated @Sam Lee", mentions, "2026-09-26T01:00:00.000+0000")).thenReturn(detail());
         mvc.perform(put(ISSUE + "/comments/5").contentType(MediaType.APPLICATION_JSON)
-                        .content(mapper.writeValueAsString(ImmutableMap.of("body", "Updated", "expectedUpdated", "2026-09-26T01:00:00.000+0000"))))
+                        .content(mapper.writeValueAsString(ImmutableMap.of("body", "Updated @Sam Lee", "mentions", mentions, "expectedUpdated", "2026-09-26T01:00:00.000+0000"))))
                 .andExpect(status().isOk());
-        verify(jira).editComment("connection", "cloud", "10001", "5", "Updated", "2026-09-26T01:00:00.000+0000");
+        verify(jira).editComment("connection", "cloud", "10001", "5", "Updated @Sam Lee", mentions, "2026-09-26T01:00:00.000+0000");
         when(jira.epic("connection", "cloud", "10001", true)).thenReturn(detail());
         mvc.perform(put(ISSUE + "/epic").contentType(MediaType.APPLICATION_JSON).content("{\"isEpic\":true}"))
                 .andExpect(status().isOk());

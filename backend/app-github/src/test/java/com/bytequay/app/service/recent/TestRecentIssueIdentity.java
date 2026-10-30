@@ -22,7 +22,6 @@ import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import com.bytequay.core.store.HostingIdentityStore;
-import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.RecentStore;
 import com.bytequay.core.store.RepositoryIssueStore;
@@ -65,7 +64,7 @@ class TestRecentIssueIdentity
         String url = "https://gitlab.example.com/gitlab/group/subgroup/repo/-/issues/7";
         when(issues.find(workspaces, workspace, 7)).thenReturn(Optional.of(new RepositoryIssue(70, 7, "Fix selection", "body", "alice", "", url,
                 ImmutableList.of(), ImmutableList.of(), 0, now, now)));
-        RecentTouchRecorder recorder = new RecentTouchRecorder(recent, mock(PullRequestStore.class), mock(PrDetailStore.class), issues, workspaces,
+        RecentTouchRecorder recorder = new RecentTouchRecorder(recent, mock(PullRequestStore.class), issues, workspaces,
                 identities, credentials, Clock.fixed(now, ZoneOffset.UTC));
 
         recorder.issueAction(workspace.id(), 7, RecentReason.COMMENTED);

@@ -449,7 +449,7 @@ class TestPullRequestSnapshotService
         PrRawDetail detail = raw(base, head);
         FetchedPullRequest summary = new FetchedPullRequest(77L, REF.repoFullName(), REF.number(), detail.title(), detail.author(), detail.htmlUrl(), UPDATED, UPDATED,
                 PullRequest.Origin.OTHER, ImmutableList.of(), ImmutableMap.of(), false, "open", null, null, ImmutableList.of(), true, "clean", "feature");
-        return new HostingPullRequestSnapshot(new HostingPullRequest(100, 200, REF.number(), "77"), 300, "desktop-scope", summary, detail, Optional.empty(), UPDATED);
+        return new HostingPullRequestSnapshot(new HostingPullRequest(100, 200, REF.number()), 300, "desktop-scope", summary, detail, Optional.empty(), UPDATED);
     }
 
     private static StoredPrDetail stored()

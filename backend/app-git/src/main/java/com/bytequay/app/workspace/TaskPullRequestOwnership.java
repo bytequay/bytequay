@@ -67,7 +67,7 @@ public class TaskPullRequestOwnership
             return false;
         }
         if (assignments.findByTaskId(task.id().toString()).filter(assigned -> assigned.repo().equalsIgnoreCase(repo) && assigned.number() == number).isPresent()) {
-            return !open || find(task.workspaceId().orElseThrow(), repo, number).filter(TaskPullRequestOwnership::isOpen).isPresent();
+            return !open || find(task.workspaceId().orElseThrow(), number).filter(TaskPullRequestOwnership::isOpen).isPresent();
         }
         TaskWorktree worktree = task.taskWorktree().orElseThrow(() -> new AgentConflictException("Task worktree is unavailable"));
         // The agent may have renamed the branch; the current branch is read only when the generated one does not match.
@@ -97,7 +97,7 @@ public class TaskPullRequestOwnership
     public Optional<List<PullRequest>> assignedPullRequests(AgentTask task)
     {
         return assignments.findByTaskId(task.id().toString())
-                .map(pr -> find(pr.workspaceId(), pr.repo(), pr.number()).stream().collect(toImmutableList()));
+                .map(pr -> find(pr.workspaceId(), pr.number()).stream().collect(toImmutableList()));
     }
 
     public List<String> branches(TaskWorktree worktree)
@@ -141,14 +141,14 @@ public class TaskPullRequestOwnership
                 .or(() -> pullRequests.stream().filter(pr -> "merged".equals(pr.state())).max(newest));
     }
 
-    private Optional<PullRequest> find(String workspaceId, String repo, int number)
+    private Optional<PullRequest> find(String workspaceId, int number)
     {
-        return workspaces.findById(workspaceId).flatMap(workspace -> rows.find(workspace, repo, number));
+        return workspaces.findById(workspaceId).flatMap(workspace -> rows.find(workspace, number));
     }
 
     private List<PullRequest> byHead(String workspaceId, String repo, String branch)
     {
-        return workspaces.findById(workspaceId).map(workspace -> rows.findByHead(workspace, repo, branch))
+        return workspaces.findById(workspaceId).map(workspace -> rows.findByHead(workspace, branch))
                 .orElseGet(() -> pullRequests.findByHeadRef(repo, branch));
     }
 

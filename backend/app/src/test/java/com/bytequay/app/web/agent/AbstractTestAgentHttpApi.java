@@ -36,6 +36,7 @@ import com.bytequay.app.workspace.WorkspaceHostingRead;
 import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
+import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.Workspace;
@@ -45,6 +46,7 @@ import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.RemoteHostingAccount;
 import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.bytequay.core.store.HostingIdentityStore;
+import com.bytequay.core.store.HostingPullRequestStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkItemStore;
@@ -80,6 +82,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -201,6 +204,9 @@ abstract class AbstractTestAgentHttpApi
     protected HostingIdentityStore hostingIdentities;
 
     @Autowired
+    protected HostingPullRequestStore hostedPullRequests;
+
+    @Autowired
     protected WorkItemStore workItems;
 
     @MockitoBean
@@ -289,6 +295,18 @@ abstract class AbstractTestAgentHttpApi
         when(workspaceHosting.captureRead(workspaceId)).thenReturn(new WorkspaceHostingRead(session, hosted, login));
         when(workspaceHosting.viewerLogin(workspaceId)).thenReturn(Optional.of(login));
         when(workspaceHosting.cachedRepositoryId(workspaceId)).thenReturn(Optional.of(hosted.id()));
+    }
+
+    /** Stores a repository listing under that repository's hosting identity, as every provider's sync does. */
+    protected void saveListed(String path, List<FetchedPullRequest> pullRequests)
+    {
+        var instance = hostingIdentities.upsertInstance(new HostingServer(GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com")));
+        var account = hostingIdentities.upsertAccount(instance.id(), new RemoteHostingAccount("lister", "lister"));
+        long repositoryId = workspaces.findById(workspaceId).filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(path))
+                .flatMap(workspace -> workspaces.findHostingRepositoryId(workspaceId))
+                .orElseGet(() -> hostingIdentities.upsertRepository(instance.id(), new RemoteHostingRepository(path, path, URI.create("https://github.com/" + path),
+                        URI.create("https://github.com/" + path + ".git"), Optional.empty(), Optional.of("main"))).id());
+        hostedPullRequests.savePage(account.id(), repositoryId, "test-listing", pullRequests);
     }
 
     protected Map<String, Object> createTaskBody(String laneId)

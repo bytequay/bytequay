@@ -159,13 +159,13 @@ public class WorkspaceHostingService
     {
         checkArgument(page > 0, "page must be positive");
         checkArgument(pageSize > 0 && pageSize <= 100, "pageSize must be between 1 and 100");
-        Workspace workspace = requireWorkspace(workspaces, workspaceId);
+        requireWorkspace(workspaces, workspaceId);
         Optional<HostingCacheTarget> target = cacheTarget(workspaceId);
         PullRequestListPage found = target.map(value -> requests.cachedPage(value, page, pageSize))
                 .orElseGet(() -> new PullRequestListPage(ImmutableList.of(), false));
-        return new WorkspacePullRequestPage(found.items().stream().map(summary -> {
-            return new WorkspacePullRequestRow(summary, rows.findOrCreate(workspace, target.orElseThrow().repositoryId(), summary));
-        }).collect(toImmutableList()), found.hasNext());
+        return new WorkspacePullRequestPage(found.items().stream()
+                .map(summary -> new WorkspacePullRequestRow(summary, rows.findOrCreate(target.orElseThrow().repositoryId(), summary)))
+                .collect(toImmutableList()), found.hasNext());
     }
 
     public Optional<Long> cachedRepositoryId(String workspaceId)

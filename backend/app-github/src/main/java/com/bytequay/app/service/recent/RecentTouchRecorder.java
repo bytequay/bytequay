@@ -21,11 +21,9 @@ import com.bytequay.core.domain.RecentText;
 import com.bytequay.core.domain.RecentTextKind;
 import com.bytequay.core.domain.RecentTouch;
 import com.bytequay.core.domain.RepositoryIssue;
-import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.store.HostingIdentityStore;
-import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.RecentStore;
 import com.bytequay.core.store.RepositoryIssueStore;
@@ -57,7 +55,6 @@ public class RecentTouchRecorder
 
     private final RecentStore recent;
     private final PullRequestStore pullRequests;
-    private final PrDetailStore details;
     private final RepositoryIssueStore issues;
     private final WorkspaceStore workspaces;
     private final HostingIdentityStore hostingIdentities;
@@ -67,7 +64,6 @@ public class RecentTouchRecorder
     public RecentTouchRecorder(
             RecentStore recent,
             PullRequestStore pullRequests,
-            PrDetailStore details,
             RepositoryIssueStore issues,
             WorkspaceStore workspaces,
             HostingIdentityStore hostingIdentities,
@@ -76,7 +72,6 @@ public class RecentTouchRecorder
     {
         this.recent = requireNonNull(recent, "recent is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
-        this.details = requireNonNull(details, "details is null");
         this.issues = requireNonNull(issues, "issues is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.hostingIdentities = requireNonNull(hostingIdentities, "hostingIdentities is null");
@@ -256,46 +251,22 @@ public class RecentTouchRecorder
     private Optional<RecentItem> pullRequestItem(long prId)
     {
         return pullRequests.findById(prId).map(row -> {
-            var identity = pullRequests.findHostingIdentity(prId);
-            Optional<String> workspaceId = identity.flatMap(request -> workspaces.findAll().stream()
-                    .filter(workspace -> workspaces.findHostingRepositoryId(workspace.id()).filter(id -> id == request.repositoryId()).isPresent())
-                    .map(Workspace::id).findFirst());
-            String key = identity.isPresent() ? "pr:" + prId : RecentItemType.PULL_REQUEST.itemKey(row.repo(), row.number());
-            return new RecentItem(RecentItemType.PULL_REQUEST, key, Optional.of(row.number()), row.title(), Optional.of(row.repo()), workspaceId,
+            long repositoryId = pullRequests.findHostingIdentity(prId).orElseThrow().repositoryId();
+            Optional<String> workspaceId = workspaces.findAll().stream()
+                    .filter(workspace -> workspaces.findHostingRepositoryId(workspace.id()).filter(id -> id == repositoryId).isPresent())
+                    .map(Workspace::id).findFirst();
+            return new RecentItem(RecentItemType.PULL_REQUEST, "pr:" + prId, Optional.of(row.number()), row.title(), Optional.of(row.repo()), workspaceId,
                     Optional.of(row.htmlUrl()), row.origin() == PullRequest.Origin.AUTHORED, Optional.of(prId), Optional.of(row.author()));
         });
     }
 
+    /** The workspace's request when one is named, else the request at that path; a request not stored yet has no entry. */
     private Optional<RecentItem> pullRequestItem(String repo, int number, String workspaceId)
     {
-        if (workspaceId != null) {
-            Optional<RecentItem> hosted = workspaces.findHostingRepositoryId(workspaceId)
-                    .flatMap(id -> pullRequests.findByHostingRepository(id, number)).flatMap(row -> pullRequestItem(row.id()));
-            if (hosted.isPresent()) {
-                return hosted;
-            }
-        }
-        Optional<Long> prId = pullRequests.findIdByRepoAndNumber(repo, number);
-        Optional<StoredPrDetail> detail = prId.flatMap(details::find);
-        String title = detail.map(stored -> stored.raw().title()).filter(value -> value != null && !value.isBlank())
-                .orElse(repo + " #" + number);
-        String htmlUrl = detail.map(stored -> stored.raw().htmlUrl())
-                .orElseGet(() -> "https://github.com/" + repo + "/pull/" + number);
-        boolean mine = detail.map(stored -> stored.raw().author())
-                .flatMap(author -> credentials.cachedLogin().map(author::equalsIgnoreCase))
-                .orElse(false);
-        String author = detail.map(stored -> stored.raw().author()).orElse(null);
-        return Optional.of(new RecentItem(
-                RecentItemType.PULL_REQUEST,
-                RecentItemType.PULL_REQUEST.itemKey(repo, number),
-                Optional.of(number),
-                title,
-                Optional.ofNullable(repo),
-                Optional.ofNullable(workspaceId),
-                Optional.ofNullable(htmlUrl),
-                mine,
-                prId,
-                Optional.ofNullable(author)));
+        return Optional.ofNullable(workspaceId).flatMap(workspaces::findHostingRepositoryId)
+                .flatMap(id -> pullRequests.findByHostingRepository(id, number)).map(PullRequest::id)
+                .or(() -> pullRequests.findIdByRepoAndNumber(repo, number))
+                .flatMap(this::pullRequestItem);
     }
 
     private Optional<RecentItem> issueItem(String workspaceId, int number)

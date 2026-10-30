@@ -46,6 +46,5 @@ public record HostingPullRequestSnapshot(
         checkOptionalText(etag, "etag");
         requireNonNull(validatedAt, "validatedAt is null");
         checkArgument(pullRequest.number() == request.number(), "Snapshot request number differs from its identity");
-        checkArgument(pullRequest.githubId().toString().equals(request.remoteId()), "Snapshot remote ID differs from its identity");
     }
 }

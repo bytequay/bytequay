@@ -20,7 +20,6 @@ import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.hosting.HostingAccount;
-import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
@@ -29,7 +28,6 @@ import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.hosting.RemoteHostingAccount;
 import com.bytequay.core.hosting.RemoteHostingRepository;
-import com.bytequay.core.review.ReviewDraft;
 import com.bytequay.persistence.sqlite.entity.PullRequestEntity;
 import com.bytequay.persistence.sqlite.repository.HostingPullRequestSnapshotJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
@@ -48,7 +46,6 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 
-import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
 import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static com.bytequay.core.hosting.HostingPullRequestSnapshot.CONNECTED_ACCOUNT;
@@ -77,9 +74,6 @@ class TestSqliteHostingPullRequestStore
     private SqlitePrDetailStore details;
 
     @Autowired
-    private SqliteReviewDraftStore drafts;
-
-    @Autowired
     private PullRequestJpaRepository requests;
 
     @Autowired
@@ -104,11 +98,9 @@ class TestSqliteHostingPullRequestStore
         assertThat(saved.detail()).isEqualTo(detail);
         assertThat(saved.detail().requestedReviewerCount()).isEqualTo(PrRawDetail.UNKNOWN_COUNT);
         assertThat(saved.detail().changedFiles()).isEqualTo(PrRawDetail.UNKNOWN_COUNT);
-        assertThat(saved.request().remoteId()).isEqualTo("42");
         PullRequestEntity retained = requests.findById(saved.request().id()).orElseThrow();
         assertThat(retained.getRepo()).isEqualTo("Team/Project");
-        assertThat(retained.getDashboardVisible()).isFalse();
-        assertThat(retained.getWorkspaceVisible()).isFalse();
+        assertThat(retained.isDashboardVisible()).isFalse();
         assertThat(requests.count()).isEqualTo(1);
         assertThat(snapshots.count()).isEqualTo(1);
     }
@@ -329,33 +321,26 @@ class TestSqliteHostingPullRequestStore
         entities.flush();
         entities.clear();
 
-        assertThat(desktop.findDashboardHosted()).isEmpty();
+        assertThat(desktop.findDashboardVisible()).isEmpty();
         desktop.setDashboardVisible(id, true);
-        assertThat(desktop.findDashboardHosted()).extracting(PullRequest::id).containsExactly(id);
+        assertThat(desktop.findDashboardVisible()).extracting(PullRequest::id).containsExactly(id);
         assertThat(store.findReadingAccounts(ImmutableSet.of(id))).containsExactly(Map.entry(id, ImmutableSet.of(hosted.accountId())));
         desktop.setDashboardVisible(id, false);
-        assertThat(desktop.findDashboardHosted()).isEmpty();
+        assertThat(desktop.findDashboardVisible()).isEmpty();
     }
 
     @Test
-    void neverAttachesToLegacyRowsOrTransfersTheirLocalState()
+    void keepsOneRowWhenApisReportDifferentIdsForTheSameRequest()
     {
+        // GitHub's issue search reports the issue's ID; its pull request reads report the pull request's.
         Scope scope = scope(GITHUB, "https://github.com");
-        FetchedPullRequest legacyMetadata = pullRequest(scope, 99, "Legacy title");
-        PullRequestEntity legacy = requests.saveAndFlush(PullRequestEntity.from(legacyMetadata, NOW));
-        views.markViewed(legacy.getId());
-        ReviewDraft draft = drafts.save(ReviewDraft.empty("saved-draft", legacyMetadata.repo(), legacyMetadata.number(), NOW));
-        HostingPullRequestSnapshot hosted = save(scope, "Hosted title", "new-body");
+        HostingPullRequestSnapshot read = save(scope, "Title", "body");
+        store.savePage(scope.account().id(), scope.repository().id(), CONNECTED_ACCOUNT, ImmutableList.of(pullRequest(scope, 9001, "Searched title")));
         entities.flush();
         entities.clear();
 
-        assertThat(hosted.request().id()).isNotEqualTo(legacy.getId());
-        PullRequestEntity retained = requests.findById(legacy.getId()).orElseThrow();
-        assertThat(retained.getHostingRepository()).isNull();
-        assertThat(retained.getTitle()).isEqualTo("Legacy title");
-        assertThat(views.findByPrIds(ImmutableSet.of(legacy.getId(), hosted.request().id()))).containsOnlyKeys(legacy.getId());
-        assertThat(drafts.find(draft.id())).contains(draft);
-        assertThat(requests.count()).isEqualTo(2);
+        assertThat(requests.count()).isEqualTo(1);
+        assertThat(requests.findById(read.request().id()).orElseThrow().getTitle()).isEqualTo("Searched title");
     }
 
     @Test
@@ -388,29 +373,9 @@ class TestSqliteHostingPullRequestStore
         assertThat(retained.getLabelColors()).containsEntry("bug", "ff0000");
         assertThat(retained.getRequestedReviewers()).isEmpty();
         assertThat(retained.getOrigin()).isEqualTo(PullRequest.Origin.AUTHORED.name());
-        assertThat(requests.findByIdAndHostingRepositoryIsNull(alice.request().id())).isEmpty();
         assertThat(entities.createQuery("SELECT COUNT(d) FROM PrDetailEntity d WHERE d.prId = :id", Long.class)
                 .setParameter("id", alice.request().id()).getSingleResult()).isZero();
         assertThat(views.findByPrIds(ImmutableSet.of(alice.request().id()))).containsKey(alice.request().id());
-    }
-
-    @Test
-    void rejectsChangedRemoteIdentityEvenAfterSnapshotEviction()
-    {
-        Scope scope = scope(GITLAB, "https://gitlab.com");
-        HostingPullRequestSnapshot original = save(scope, "Original", "body");
-        FetchedPullRequest reusedNumber = pullRequest(scope, 43, "Different request");
-
-        assertThatThrownBy(() -> store.save(scope.account().id(), scope.repository().id(), CONNECTED_ACCOUNT,
-                reusedNumber, detail(reusedNumber, "wrong"), Optional.empty(), NOW))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
-        assertThat(store.find(scope.account().id(), scope.repository().id(), 7)).contains(original);
-        store.evict(scope.account().id(), scope.repository().id(), 7, CONNECTED_ACCOUNT);
-        assertThatThrownBy(() -> store.save(scope.account().id(), scope.repository().id(), CONNECTED_ACCOUNT,
-                reusedNumber, detail(reusedNumber, "wrong"), Optional.empty(), NOW))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
-        assertThat(store.find(scope.account().id(), scope.repository().id(), 7)).isEmpty();
-        assertThat(requests.findById(original.request().id()).orElseThrow().getRemoteId()).isEqualTo("42");
     }
 
     @Test
@@ -518,7 +483,8 @@ class TestSqliteHostingPullRequestStore
         Scope privateServer = scope(GITLAB, "https://git.example.com");
         HostingPullRequestSnapshot publicRequest = save(publicServer, "Public", "Public body");
         HostingPullRequestSnapshot privateRequest = save(privateServer, "Private", "Private body");
-        PullRequest legacy = desktop.saveObserved(pullRequest(scope(GITHUB, "https://github.com"), 42, "GitHub"));
+        Scope gitHub = scope(GITHUB, "https://github.com");
+        HostingPullRequestSnapshot gitHubRequest = save(gitHub, "GitHub", "GitHub body");
         desktop.setMonitored(publicRequest.request().id(), true);
         views.markViewed(publicRequest.request().id());
         entities.flush();
@@ -536,8 +502,9 @@ class TestSqliteHostingPullRequestStore
         assertThat(desktop.findById(publicRow.id())).contains(publicRow);
         assertThat(desktop.findHostingIdentity(publicRow.id())).contains(publicRequest.request());
         assertThat(desktop.findHostingIdentity(privateRow.id())).contains(privateRequest.request());
-        assertThat(desktop.findHostingIdentity(legacy.id())).isEmpty();
-        assertThat(desktop.findIdByRepoAndNumber(publicRow.repo(), 7)).contains(legacy.id());
+        assertThat(desktop.findIdByRepoAndNumber(publicRow.repo(), 7)).isPresent();
+        assertThat(desktop.findIdByRepoAndNumber(gitHub.repository().fullPath(), 7)).isPresent();
+        assertThat(gitHubRequest.request().id()).isNotIn(publicRow.id(), privateRow.id());
         assertThat(desktop.findByHostingHeadRef(publicServer.repository().id(), "feature")).extracting(PullRequest::id).containsExactly(publicRow.id());
     }
 
@@ -582,7 +549,6 @@ class TestSqliteHostingPullRequestStore
         PullRequestEntity existing = requests.findById(saved.request().id()).orElseThrow();
         PullRequestEntity duplicate = PullRequestEntity.from(saved.pullRequest(), NOW);
         duplicate.setHostingRepository(existing.getHostingRepository());
-        duplicate.setRemoteId(existing.getRemoteId());
         assertThatThrownBy(() -> requests.saveAndFlush(duplicate)).isInstanceOf(JpaSystemException.class)
                 .hasMessageContaining("UNIQUE constraint failed: pull_requests.hosting_repository_id, pull_requests.number");
     }

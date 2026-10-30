@@ -40,9 +40,13 @@ import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.RemoteHostingRepository;
+import com.bytequay.core.store.HostingIdentityStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.bytequay.persistence.sqlite.entity.PullRequestEntity;
+import com.bytequay.persistence.sqlite.repository.HostingRepositoryJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -53,6 +57,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -64,6 +69,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
 
+import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.lang.Math.toIntExact;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -90,6 +96,8 @@ final class CiAutofixE2eHarness
     private final AgentEventService events;
     private final AgentResourceService resources;
     private final PullRequestJpaRepository pullRequests;
+    private final HostingIdentityStore identities;
+    private final HostingRepositoryJpaRepository repositories;
     private final PrDetailStore details;
     private final WorkspaceStore workspaces;
     private final WorkspacePaths workspacePaths;
@@ -108,6 +116,8 @@ final class CiAutofixE2eHarness
             AgentEventService events,
             AgentResourceService resources,
             PullRequestJpaRepository pullRequests,
+            HostingIdentityStore identities,
+            HostingRepositoryJpaRepository repositories,
             PrDetailStore details,
             WorkspaceStore workspaces,
             WorkspacePaths workspacePaths,
@@ -124,6 +134,8 @@ final class CiAutofixE2eHarness
         this.events = events;
         this.resources = resources;
         this.pullRequests = pullRequests;
+        this.identities = identities;
+        this.repositories = repositories;
         this.details = details;
         this.workspaces = workspaces;
         this.workspacePaths = workspacePaths;
@@ -363,8 +375,12 @@ final class CiAutofixE2eHarness
 
     private long seedPullRequest(E2eGitRepository repository)
     {
+        String path = repository.pullRequest().repoFullName();
+        HostingRepository hosted = identities.upsertRepository(identities.upsertInstance(GITHUB_SERVER).id(), new RemoteHostingRepository(path, path,
+                URI.create("https://github.com/" + path), URI.create("https://github.com/" + path + ".git"), Optional.empty(), Optional.of("main")));
         PullRequestEntity entity = new PullRequestEntity();
-        entity.setRepo(repository.pullRequest().repoFullName());
+        entity.setHostingRepository(repositories.getReferenceById(hosted.id()));
+        entity.setRepo(path);
         entity.setNumber(repository.pullRequest().number());
         entity.setTitle("CI Autofix E2E");
         entity.setAuthor("author");

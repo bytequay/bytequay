@@ -158,8 +158,7 @@ class TestPullRequestRefreshControllers
         verify(pullRequests).findCachedFailingChecks(candidates);
         verify(pullRequests).findMentioned(candidates);
         verify(pullRequests).attentionVersion();
-        verify(pullRequests).listHostedAttentionCandidates();
-        verify(pullRequests).listDiscoveredAttentionCandidates();
+        verify(pullRequests).attentionRoutes(candidates);
         verifyNoMoreInteractions(ignoreStubs(pullRequests));
         verifyNoInteractions(refresh);
     }
@@ -203,21 +202,23 @@ class TestPullRequestRefreshControllers
     }
 
     @Test
-    void listsWatchedHostedRequestsBesideThePathKeyedOnesWithTheirWorkspace()
+    void namesTheRouteEachSharedAttentionRowOpensThrough()
             throws Exception
     {
         PullRequestService pullRequests = pullRequests();
+        List<PullRequest> candidates = ImmutableList.of(attentionPullRequest(1), attentionPullRequest(2), attentionPullRequest(3));
         when(pullRequests.attentionVersion()).thenReturn("boot-7-42");
-        when(pullRequests.listAttentionCandidates()).thenReturn(ImmutableList.of(attentionPullRequest(1)));
-        when(pullRequests.listHostedAttentionCandidates()).thenReturn(ImmutableMap.of("gitlab-workspace", ImmutableList.of(attentionPullRequest(2))));
-        // A discovered request a watched workspace also lists opens through the workspace, once.
-        when(pullRequests.listDiscoveredAttentionCandidates()).thenReturn(ImmutableMap.of(11L, ImmutableList.of(attentionPullRequest(2), attentionPullRequest(3))));
+        when(pullRequests.listAttentionCandidates()).thenReturn(candidates);
+        when(pullRequests.attentionRoutes(candidates)).thenReturn(ImmutableMap.of(1L, PullRequestRoute.of(null, null), 2L, PullRequestRoute.of("gitlab-workspace", null),
+                3L, PullRequestRoute.account(11)));
         var mvc = standaloneSetup(new PullRequestController(pullRequests, mock(PullRequestRefreshService.class))).build();
 
         mvc.perform(get("/prs/attention"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(3))
                 .andExpect(jsonPath("$[0].id").value(1))
+                .andExpect(jsonPath("$[0].workspaceId").doesNotExist())
+                .andExpect(jsonPath("$[0].accountId").doesNotExist())
                 .andExpect(jsonPath("$[1].id").value(2))
                 .andExpect(jsonPath("$[1].workspaceId").value("gitlab-workspace"))
                 .andExpect(jsonPath("$[2].id").value(3))

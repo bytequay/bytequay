@@ -91,7 +91,7 @@ public class PullRequestContextBridgeResolverImpl
         }
         else {
             Optional<Long> row = workspaces.findById(assignment.workspaceId())
-                    .flatMap(workspace -> requestRows.findId(workspace, assignment.repo(), assignment.number()));
+                    .flatMap(workspace -> requestRows.findId(workspace, assignment.number()));
             Optional<StoredPrDetail> cached = row.flatMap(details::find);
             PrDetailFreshness freshness = row.map(details::findFreshness).orElseGet(PrDetailFreshness::unknown);
             result.put("status", cached.isPresent() ? "cached" : "missing").put("mayBeStale", true);

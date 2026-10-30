@@ -102,7 +102,7 @@ public class SqlitePrDetailStore
     @Override
     public Optional<Instant> findSyncedAt(String repo, int number)
     {
-        return pullRequestRepo.findByRepoIgnoreCaseAndNumber(repo, number)
+        return pullRequestRepo.findByPath(repo, number).stream().findFirst()
                 .map(PullRequestEntity::getId)
                 .flatMap(detailRepo::findSyncedAtByPrId);
     }
@@ -396,7 +396,7 @@ public class SqlitePrDetailStore
         requireNonNull(event, "event is null");
         String eventKey = event.localEventKey()
                 .orElseThrow(() -> new IllegalArgumentException("local timeline event has no event key"));
-        long prId = pullRequestRepo.findByRepoIgnoreCaseAndNumber(pullRequest.repoFullName(), pullRequest.number())
+        long prId = pullRequestRepo.findByPath(pullRequest.repoFullName(), pullRequest.number()).stream().findFirst()
                 .map(PullRequestEntity::getId)
                 .orElseThrow(() -> new IllegalArgumentException("Pull request is not stored: " + pullRequest.fullName()));
         timelineRepo.insertLocalEvent(prId, event.event(), event.actor(), InstantToTextConverter.format(event.timestamp()), event.body(), eventKey);

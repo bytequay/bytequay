@@ -18,6 +18,7 @@ import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.HostingConnection;
 import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
@@ -90,7 +91,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -431,50 +431,22 @@ public class PullRequestService
         return pullRequest.activityAt() == null || checkedAt.filter(at -> !at.isBefore(pullRequest.activityAt())).isPresent();
     }
 
-    public PullRequest setMonitored(long prId, boolean monitored)
-    {
-        return setMonitored(prId, monitored, null);
-    }
-
     public PullRequest setMonitored(long prId, boolean monitored, PullRequestRoute routing)
     {
         PullRequest row = store.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pull request not found"));
+        if (monitored && row.monitoredAt() == null && !"merged".equalsIgnoreCase(row.state())) {
+            PullRequestRead route = prepareRead(routing, row.repo(), row.number());
+            checkArgument(storedPullRequestId(route) == prId, "Pull request belongs to another workspace");
+            refreshPullRequestDetailFromRemote(route);
+            row = store.findById(prId).orElseThrow();
+        }
+        // The refresh may find it merged meanwhile.
         if (monitored && "merged".equalsIgnoreCase(row.state())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Merged pull requests cannot be monitored");
         }
-        if (store.findHostingIdentity(prId).isPresent()) {
-            if (monitored && row.monitoredAt() == null) {
-                PullRequestRead route = prepareRead(routing, row.repo(), row.number());
-                checkArgument(storedPullRequestId(route) == prId, "Pull request belongs to another workspace");
-                refreshPullRequestDetailFromRemote(route);
-            }
-            store.setMonitored(prId, monitored);
-            return store.findById(prId).orElseThrow();
-        }
-        if (monitored && row.monitoredAt() == null) {
-            HostingReadSession session = credentialService.captureHostingRead();
-            String login = connections.account(session).login();
-            PullRequestCardSummary summary = discovery(session).summaries(
-                            session.access(), ImmutableList.of(parseRef(row.repo(), row.number())), login).stream()
-                    .findFirst()
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Could not load pull request activity. Retry monitoring shortly."));
-            // Establish the same lightweight baseline used by polling before enabling notifications.
-            PullRequest observed = store.saveObserved(summary.pullRequest());
-            storeCardSummary(session, observed, summary, login);
-            if ("merged".equalsIgnoreCase(summary.pullRequest().state()) || summary.pullRequest().mergedAt() != null) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "Merged pull requests cannot be monitored");
-            }
-        }
         store.setMonitored(prId, monitored);
         return store.findById(prId).orElseThrow();
-    }
-
-    /** Returns the existing local PR rows restricted to one repository. */
-    public PullRequestPage listPullRequests(RepoRef repository, int page, int pageSize, String search)
-    {
-        checkPage(page, pageSize);
-        return store.findRepositoryPage(requireNonNull(repository, "repository is null").fullName(), page, pageSize, search);
     }
 
     /** Merged pull requests already stored for one repository; repository sync keeps roughly the last month of them. */
@@ -512,25 +484,15 @@ public class PullRequestService
 
     private void syncRepository(HostingReadSession session, HostingRepository repository, String login)
     {
-        boolean pathKeyed = pathKeyed(session);
-        if (pathKeyed) {
-            baselineSummaries(session);
-        }
+        baselineSummaries(session);
         Map<String, FetchedPullRequest> seen = new LinkedHashMap<>();
-        Consumer<List<FetchedPullRequest>> save = page -> {
-            List<FetchedPullRequest> rows = page.stream().map(row -> row.withViewerOrigin(login)).collect(toImmutableList());
-            if (pathKeyed) {
-                store.saveRepositorySyncPage(repository.fullPath(), rows);
-            }
-            rows.forEach(row -> seen.put(row.repo() + "#" + row.number(), row));
-        };
+        Consumer<List<FetchedPullRequest>> save = page -> page.forEach(row -> seen.put(row.repo() + "#" + row.number(), row));
         String key = "hosting.repository-sync." + session.cacheScope() + "." + repository.id();
         Instant started = clock.instant();
-        // Deleting the last workspace of a repository hides its rows, so watching it again needs the full pass.
+        // Deleting the last workspace of a repository removes its rows, so watching it again needs the full pass.
         Optional<Instant> synced = syncSettings.get(key).map(Instant::parse)
                 .filter(at -> at.isAfter(started.minus(Duration.ofDays(CLOSED_RETENTION_DAYS))) && !at.isAfter(started))
-                .filter(ignored -> pathKeyed ? store.findRepositoryPage(repository.fullPath(), 0, 1).totalPullRequests() > 0
-                        : !requests.cachedPage(session, repository.id(), 1, 1).items().isEmpty());
+                .filter(ignored -> !requests.cachedPage(session, repository.id(), 1, 1).items().isEmpty());
         if (synced.isPresent()) {
             discoverRepository(session, repository.id(), false, synced.orElseThrow().minusSeconds(300), save);
         }
@@ -541,9 +503,7 @@ public class PullRequestService
             discoverRepository(session, repository.id(), true, Instant.MIN, save);
         }
         syncSettings.put(key, started.toString());
-        if (pathKeyed) {
-            enrichCards(session, login, seen.values().stream().map(row -> parseRef(row.repo(), row.number())).collect(toImmutableList()));
-        }
+        enrichCards(session, login, seen.values().stream().map(row -> parseRef(row.repo(), row.number())).collect(toImmutableList()));
         // Discovery never deletes cached rows or local marks.
     }
 
@@ -700,12 +660,11 @@ public class PullRequestService
         queries.put(DiscoveryQuery.of(Kind.REVIEW_REQUESTED, State.ANY), REVIEW_REQUESTED);
         queries.put(DiscoveryQuery.of(Kind.REVIEWED, State.ANY), OTHER);
         queries.put(DiscoveryQuery.of(Kind.INVOLVED, State.ANY), OTHER);
-        if (pathKeyed(session)) {
-            // Path-keyed rows of watched repositories are refreshed between their repository scans.
-            workspaces.findAll().stream().filter(workspace -> PullRequestRows.pathKeyed(workspace.provider()))
-                    .map(workspace -> workspace.monitoredRepository().fullName()).distinct()
-                    .forEach(repo -> queries.put(DiscoveryQuery.repository(repo), OTHER));
-        }
+        // Watched repositories on this server are refreshed between their repository scans.
+        workspaces.findAll().stream()
+                .filter(workspace -> workspaces.isWatched(workspace.id()) && workspace.hostingServer().orElse(GITHUB_SERVER).equals(session.access().server()))
+                .map(workspace -> workspace.monitoredRepository().fullName()).distinct()
+                .forEach(repo -> queries.put(DiscoveryQuery.repository(repo), OTHER));
         // One search per tick, in turn: back to back, a tick's searches land as one burst on the provider's rate limit.
         // Each query keeps its own checkpoint, so a query that waits for its turn still reads everything since its last run.
         List<DiscoveryQuery> order = ImmutableList.copyOf(queries.keySet());
@@ -756,8 +715,11 @@ public class PullRequestService
                     .map(row -> origin == REVIEW_REQUESTED && row.origin() != AUTHORED ? row.withOrigin(REVIEW_REQUESTED) : row)
                     .collect(toImmutableList());
             if (query.kind() == Kind.REPOSITORY) {
-                store.saveRepositorySyncPage(query.repository().orElseThrow(), rows);
-                rows.forEach(row -> seen.putIfAbsent(row.repo() + "#" + row.number(), row));
+                rows.forEach(row -> {
+                    if (seen.putIfAbsent(row.repo() + "#" + row.number(), row) == null) {
+                        storeSummary(session, row);
+                    }
+                });
             }
             else {
                 rows.forEach(row -> {
@@ -786,10 +748,9 @@ public class PullRequestService
         PullRequestRead route = requestRead(session, ref.repoFullName(), ref.number());
         FetchedPullRequest fetched = refreshMetadata(route, false).pullRequest().withViewerOrigin(login);
         FetchedPullRequest observed = notice.reason() == ActivityNotice.Reason.REVIEW_REQUESTED && fetched.origin() != AUTHORED ? fetched.withOrigin(REVIEW_REQUESTED) : fetched;
-        PullRequest row = rows.observe(route, observed);
-        if (!pathKeyed(session)) {
-            store.setDashboardVisible(row.id(), true);
-        }
+        requests.saveSummaries(session, route.repository().id(), ImmutableList.of(observed));
+        PullRequest row = rows.find(route).orElseThrow();
+        store.setDashboardVisible(row.id(), true);
         // Save the dirty marker before enrichment: a comment request failure cannot hide the notification.
         if (notice.reason() != ActivityNotice.Reason.CI) {
             store.observeActivity(row.id(), Optional.empty(), notice.updatedAt());
@@ -849,12 +810,7 @@ public class PullRequestService
         syncAttentionQuery(session, seen, DiscoveryQuery.of(Kind.REVIEWED, State.OPEN), OTHER);
         syncAttentionQuery(session, seen, DiscoveryQuery.of(Kind.INVOLVED, State.ANY).updatedSince(since), OTHER);
         List<FetchedPullRequest> fresh = ImmutableList.copyOf(seen.values());
-        if (pathKeyed(session)) {
-            store.saveDashboardSyncPage(fresh);
-        }
-        else {
-            hideUndiscovered(session, login, fresh);
-        }
+        hideUndiscovered(session, login, fresh);
         enrichCards(session, login, fresh.stream().map(row -> parseRef(row.repo(), row.number())).collect(toImmutableList()));
     }
 
@@ -1013,7 +969,7 @@ public class PullRequestService
                 if (fetched.origin() != AUTHORED && reviewRequests.contains(ref)) {
                     fetched = fetched.withOrigin(REVIEW_REQUESTED);
                 }
-                PullRequest row = saveDiscovered(session, fetched);
+                PullRequest row = storeSummary(session, fetched);
                 storeCardSummary(session, row, summary, login);
                 if (row.updatedAt().isAfter(summary.pullRequest().updatedAt())) {
                     continue;
@@ -1070,22 +1026,22 @@ public class PullRequestService
         }
     }
 
-    /** The desktop sign-in when one is set up, then every connected account whose rows a path cannot mix up. */
+    /** The desktop sign-in when one is set up, then every other connected account. */
     private List<HostingReadSession> discoveryReads()
     {
         ImmutableList.Builder<HostingReadSession> reads = ImmutableList.builder();
-        if (credentialService.isGitHubAccountConfigured()) {
-            reads.add(credentialService.captureHostingRead());
-        }
-        connectedDiscoveryAccounts().forEach(account -> reads.add(connections.readSession(account)));
+        Optional<HostingReadSession> desktop = credentialService.isGitHubAccountConfigured() ? Optional.of(credentialService.captureHostingRead()) : Optional.empty();
+        desktop.ifPresent(reads::add);
+        connectedDiscoveryAccounts().stream()
+                .filter(account -> desktop.filter(session -> session.accountId() == account).isEmpty())
+                .forEach(account -> reads.add(connections.readSession(account)));
         return reads.build();
     }
 
-    /** Path-keyed rows cannot tell two accounts' requests apart, so only the desktop sign-in discovers them. */
     public List<Long> connectedDiscoveryAccounts()
     {
         return connections.connections().stream()
-                .filter(connection -> connection.connected() && !PullRequestRows.pathKeyed(connection.instance().provider()))
+                .filter(HostingConnection::connected)
                 .map(connection -> connection.account().id())
                 .collect(toImmutableList());
     }
@@ -1095,23 +1051,20 @@ public class PullRequestService
         return credentialService.isGitHubAccountConfigured() || !connectedDiscoveryAccounts().isEmpty();
     }
 
-    private static boolean pathKeyed(HostingReadSession session)
-    {
-        return PullRequestRows.pathKeyed(session.access().server().provider());
-    }
-
     private Map<PullRequestRef, SummaryStamp> stamps(HostingReadSession session)
     {
         return summaryStamps.computeIfAbsent(session.accountId(), ignored -> new ConcurrentHashMap<>());
     }
 
-    /** The attention list holds path-keyed rows; an account with hosted rows summarizes what its feed and discovery touch. */
+    /** The shared attention rows this session's account reads; only it can summarize them. */
     private List<PullRequest> attentionCandidates(HostingReadSession session)
     {
-        return pathKeyed(session) ? store.findAttentionCandidates() : ImmutableList.of();
+        List<PullRequest> rows = store.findAttentionCandidates();
+        Map<Long, Set<Long>> readers = requests.readingAccounts(rows.stream().map(PullRequest::id).collect(toImmutableSet()));
+        return rows.stream().filter(row -> readers.getOrDefault(row.id(), ImmutableSet.of()).contains(session.accountId())).collect(toImmutableList());
     }
 
-    /** A full pass hides this account's discovered requests that it no longer finds or is notified about, as the path-keyed dashboard page does. */
+    /** A full pass hides this account's discovered requests that it no longer finds or is notified about. */
     private void hideUndiscovered(HostingReadSession session, String login, List<FetchedPullRequest> fresh)
     {
         PullRequestDiscovery discovery = discovery(session);
@@ -1122,46 +1075,54 @@ public class PullRequestService
                 .flatMap(Optional::stream)
                 .map(PullRequest::id)
                 .collect(toImmutableSet());
-        List<PullRequest> shown = store.findDashboardHosted();
+        List<PullRequest> shown = store.findDashboardVisible();
         Map<Long, Set<Long>> readers = requests.readingAccounts(shown.stream().map(PullRequest::id).collect(toImmutableSet()));
         shown.stream()
                 .filter(row -> readers.getOrDefault(row.id(), ImmutableSet.of()).contains(session.accountId()) && !kept.contains(row.id()))
                 .forEach(row -> store.setDashboardVisible(row.id(), false));
     }
 
-    /** Requests account discovery shows, each under a connected account that can read it; the caller drops those a watched workspace lists. */
-    public Map<Long, List<PullRequest>> listDiscoveredAttentionCandidates()
+    /**
+     * How each attention row opens: through a workspace on its repository, a watched one first, else through a connected account that
+     * reads it, else through the desktop sign-in.
+     */
+    public Map<Long, PullRequestRoute> attentionRoutes(List<PullRequest> rows)
     {
+        Map<Long, String> workspaceByRepository = new HashMap<>();
+        workspaces.findAll().stream()
+                .sorted(Comparator.comparing(workspace -> !workspaces.isWatched(workspace.id())))
+                .forEach(workspace -> workspaces.findHostingRepositoryId(workspace.id()).ifPresent(id -> workspaceByRepository.putIfAbsent(id, workspace.id())));
         List<Long> connected = connectedDiscoveryAccounts();
-        List<PullRequest> shown = store.findDashboardHosted();
-        Map<Long, Set<Long>> readers = requests.readingAccounts(shown.stream().map(PullRequest::id).collect(toImmutableSet()));
-        Map<Long, List<PullRequest>> byAccount = new LinkedHashMap<>();
-        for (PullRequest row : shown) {
+        Map<Long, Set<Long>> readers = requests.readingAccounts(rows.stream().map(PullRequest::id).collect(toImmutableSet()));
+        // ponytail: one identity read per row; batch it if the attention rebuild shows up in a profile.
+        return rows.stream().collect(toImmutableMap(PullRequest::id, row -> {
+            Optional<String> workspace = store.findHostingIdentity(row.id()).map(identity -> workspaceByRepository.get(identity.repositoryId()));
+            if (workspace.isPresent()) {
+                return PullRequestRoute.of(workspace.orElseThrow(), null);
+            }
             Set<Long> accounts = readers.getOrDefault(row.id(), ImmutableSet.of());
-            connected.stream().filter(accounts::contains).findFirst()
-                    .ifPresent(account -> byAccount.computeIfAbsent(account, ignored -> new ArrayList<>()).add(row));
-        }
-        return byAccount.entrySet().stream().collect(toImmutableMap(Map.Entry::getKey, entry -> ImmutableList.copyOf(entry.getValue())));
+            return connected.stream().filter(accounts::contains).findFirst().map(PullRequestRoute::account).orElseGet(() -> PullRequestRoute.of(null, null));
+        }));
     }
 
-    /** A discovered request is stored as its provider keys rows: by path, or under its repository's hosting identity. */
-    private PullRequest saveDiscovered(HostingReadSession session, FetchedPullRequest pullRequest)
+    /** Stores a summary under its repository and returns its row. */
+    private PullRequest storeSummary(HostingReadSession session, FetchedPullRequest pullRequest)
     {
-        if (pathKeyed(session)) {
-            return store.saveObserved(pullRequest);
-        }
         HostingRepository repository = accountRepository(session, pullRequest.repo());
         requests.saveSummaries(session, repository.id(), ImmutableList.of(pullRequest));
-        PullRequest row = store.findByHostingRepository(repository.id(), pullRequest.number()).orElseThrow();
+        return store.findByHostingRepository(repository.id(), pullRequest.number()).orElseThrow();
+    }
+
+    /** A discovered request is stored and shown on the dashboard. */
+    private PullRequest saveDiscovered(HostingReadSession session, FetchedPullRequest pullRequest)
+    {
+        PullRequest row = storeSummary(session, pullRequest);
         store.setDashboardVisible(row.id(), true);
         return row;
     }
 
     private Optional<PullRequest> findDiscovered(HostingReadSession session, PullRequestRef ref)
     {
-        if (pathKeyed(session)) {
-            return store.findIdByRepoAndNumber(ref.repoFullName(), ref.number()).flatMap(store::findById);
-        }
         return connections.findRepository(session, ref.repoFullName()).flatMap(repository -> store.findByHostingRepository(repository.id(), ref.number()));
     }
 
@@ -1181,7 +1142,7 @@ public class PullRequestService
     {
         Map<String, Integer> counts = new HashMap<>();
         checkArgument(limit == 10 || limit == 30, "warm limit must be 10 or 30");
-        store.findAttentionCandidates().stream()
+        attentionCandidates(credentialService.captureHostingRead()).stream()
                 .sorted(Comparator.comparing(PullRequest::updatedAt).reversed().thenComparing(Comparator.comparingInt(PullRequest::number).reversed()))
                 .filter(row -> counts.merge(row.repo().toLowerCase(Locale.ROOT), 1, Integer::sum) <= limit)
                 .forEach(row -> warmDetail(row.repo(), row.number(), Duration.ofMinutes(10)));
@@ -1300,12 +1261,9 @@ public class PullRequestService
         return route;
     }
 
-    /** Path-keyed rows cannot tell two accounts' requests apart, so only a provider with hosted rows is read through an account. */
     private HostingReadSession accountSession(long accountId)
     {
-        HostingReadSession session = connections.readSession(accountId);
-        checkArgument(!pathKeyed(session), "Requests on this provider open through the desktop sign-in or a workspace");
-        return session;
+        return connections.readSession(accountId);
     }
 
     private HostingRepository accountRepository(HostingReadSession session, String repo)
@@ -1354,14 +1312,6 @@ public class PullRequestService
     public List<PullRequest> listWorkspaceAttentionCandidates(String workspaceId)
     {
         return workspaceHosting.cachedAttention(workspaceId);
-    }
-
-    /** The attention query reads path-keyed rows; each watched workspace with hosted rows lists its own, by workspace. */
-    public Map<String, List<PullRequest>> listHostedAttentionCandidates()
-    {
-        return workspaces.findAll().stream()
-                .filter(workspace -> !PullRequestRows.pathKeyed(workspace.provider()) && workspaces.isWatched(workspace.id()))
-                .collect(toImmutableMap(Workspace::id, workspace -> workspaceHosting.cachedAttention(workspace.id())));
     }
 
     public boolean hasMergeQueue(PullRequestRead route, String baseRef)
@@ -2016,7 +1966,7 @@ public class PullRequestService
     {
         Workspace workspace = workspaces.findById(workspaceId).orElseThrow();
         checkArgument(workspace.monitoredRepository().fullName().equalsIgnoreCase(repo), "Request belongs to another workspace repository");
-        return rows.find(workspace, repo, number);
+        return rows.find(workspace, number);
     }
 
     public Optional<Long> findWorkspaceHostingRepositoryId(String workspaceId)
@@ -2032,7 +1982,7 @@ public class PullRequestService
     public List<PullRequest> findWorkspacePullRequestsByHeadRef(String workspaceId, String headRef)
     {
         Workspace workspace = workspaces.findById(workspaceId).orElseThrow();
-        return rows.findByHead(workspace, workspace.monitoredRepository().fullName(), headRef);
+        return rows.findByHead(workspace, headRef);
     }
 
     public Optional<PullRequestDetail> findPullRequestDetail(PullRequestRead route)

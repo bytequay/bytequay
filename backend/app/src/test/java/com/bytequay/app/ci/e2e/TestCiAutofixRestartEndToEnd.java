@@ -45,9 +45,11 @@ import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.store.CredentialStore;
+import com.bytequay.core.store.HostingIdentityStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.WorkspaceCredentialStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.bytequay.persistence.sqlite.repository.HostingRepositoryJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableSet;
@@ -265,6 +267,8 @@ class TestCiAutofixRestartEndToEnd
                 context.getBean(AgentEventService.class),
                 context.getBean(AgentResourceService.class),
                 context.getBean(PullRequestJpaRepository.class),
+                context.getBean(HostingIdentityStore.class),
+                context.getBean(HostingRepositoryJpaRepository.class),
                 context.getBean(PrDetailStore.class),
                 context.getBean(WorkspaceStore.class),
                 context.getBean(WorkspacePaths.class),

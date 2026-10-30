@@ -112,7 +112,7 @@ class TestCredentialHostingRead
         when(snapshots.find(20, 30, 7)).thenAnswer(ignored -> Optional.ofNullable(cached.get()));
         when(snapshots.save(eq(20L), eq(30L), anyString(), any(), any(), any(), any())).thenAnswer(call -> {
             FetchedPullRequest summary = call.getArgument(3);
-            HostingPullRequestSnapshot value = new HostingPullRequestSnapshot(new HostingPullRequest(40, 30, 7, summary.githubId().toString()),
+            HostingPullRequestSnapshot value = new HostingPullRequestSnapshot(new HostingPullRequest(40, 30, 7),
                     20, call.getArgument(2), summary, call.getArgument(4), call.getArgument(5), call.getArgument(6));
             cached.set(value);
             return value;
@@ -160,7 +160,7 @@ class TestCredentialHostingRead
     void manualAccountSnapshotCannotSupplyDesktopMetadataOrValidator()
     {
         PullRequestFetch fetched = fetched();
-        cached.set(new HostingPullRequestSnapshot(new HostingPullRequest(40, 30, 7, "99"), 20, CONNECTED_ACCOUNT,
+        cached.set(new HostingPullRequestSnapshot(new HostingPullRequest(40, 30, 7), 20, CONNECTED_ACCOUNT,
                 fetched.pullRequest().orElseThrow(), fetched.detail().orElseThrow(), Optional.of("manual-validator"), NOW));
 
         HostingPullRequestSnapshot result = requests.refresh(credentials.captureHostingRead(), 30, 7, false);
@@ -174,7 +174,7 @@ class TestCredentialHostingRead
     void invalidationAfterAWriteNeedsNoCredentialOrRemoteResolution()
     {
         PullRequestFetch fetched = fetched();
-        cached.set(new HostingPullRequestSnapshot(new HostingPullRequest(40, 30, 7, "99"), 20, CONNECTED_ACCOUNT,
+        cached.set(new HostingPullRequestSnapshot(new HostingPullRequest(40, 30, 7), 20, CONNECTED_ACCOUNT,
                 fetched.pullRequest().orElseThrow(), fetched.detail().orElseThrow(), Optional.of("manual-validator"), NOW));
         token.set(null);
 

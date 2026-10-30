@@ -29,61 +29,38 @@ import java.util.Set;
 public interface PullRequestJpaRepository
         extends JpaRepository<PullRequestEntity, Long>
 {
-    @Query("SELECT e FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND (e.dashboardVisible = true OR e.origin IN ('AUTHORED', 'REVIEW_REQUESTED') "
+    String WATCHED = "EXISTS (SELECT w.id FROM WorkspaceEntity w WHERE w.watched = true AND LOWER(e.repo) = LOWER(CONCAT(w.monitoredOwner, CONCAT('/', w.monitoredRepo))))";
+    String DASHBOARD = "e.dashboardVisible = true OR e.monitoredAt IS NOT NULL OR " + WATCHED;
+
+    @Query("SELECT e FROM PullRequestEntity e WHERE e.dashboardVisible = true OR e.origin IN ('AUTHORED', 'REVIEW_REQUESTED') "
             + "OR e.monitoredAt IS NOT NULL OR e.reviewRequestedAt IS NOT NULL "
-            + "OR EXISTS (SELECT v.prId FROM PrViewStateEntity v WHERE v.prId = e.id AND v.reviewedAt IS NOT NULL) "
-            + "OR (e.workspaceVisible = true AND EXISTS (SELECT w.id FROM WorkspaceEntity w "
-            + "WHERE w.watched = true AND LOWER(e.repo) = LOWER(CONCAT(w.monitoredOwner, CONCAT('/', w.monitoredRepo)))))) "
+            + "OR EXISTS (SELECT v.prId FROM PrViewStateEntity v WHERE v.prId = e.id AND v.reviewedAt IS NOT NULL) OR " + WATCHED + " "
             + "ORDER BY e.updatedAt DESC, e.id DESC")
     List<PullRequestEntity> findAttentionCandidates();
 
-    @Query("SELECT e FROM PullRequestEntity e WHERE e.hostingRepository IS NOT NULL AND e.dashboardVisible = true ORDER BY e.updatedAt DESC, e.id DESC")
-    List<PullRequestEntity> findDashboardHosted();
+    @Query("SELECT e FROM PullRequestEntity e WHERE e.dashboardVisible = true ORDER BY e.updatedAt DESC, e.id DESC")
+    List<PullRequestEntity> findDashboardVisible();
 
-    @Query("SELECT e FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND ("
-            + "(e.dashboardVisible = true OR e.dashboardVisible IS NULL OR e.monitoredAt IS NOT NULL) "
-            + "OR (e.workspaceVisible = true AND EXISTS (SELECT w.id FROM WorkspaceEntity w "
-            + "WHERE w.watched = true AND LOWER(e.repo) = LOWER(CONCAT(w.monitoredOwner, CONCAT('/', w.monitoredRepo))))))")
+    @Query("SELECT e FROM PullRequestEntity e WHERE " + DASHBOARD)
     Page<PullRequestEntity> findDashboardPage(Pageable pageable);
 
-    @Query("SELECT e FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND LOWER(e.repo) = LOWER(:repo) AND e.workspaceVisible = true")
-    Page<PullRequestEntity> findWorkspacePage(@Param("repo") String repo, Pageable pageable);
-
-    @Query("SELECT e FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND LOWER(e.repo) = LOWER(:repo) AND e.workspaceVisible = true "
-            + "AND (LOWER(e.title) LIKE CONCAT('%', CONCAT(LOWER(:search), '%')) OR e.number = :number)")
-    Page<PullRequestEntity> searchWorkspacePage(@Param("repo") String repo, @Param("search") String search, @Param("number") Integer number, Pageable pageable);
-
-    @Query("SELECT e FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND LOWER(e.repo) = LOWER(:repo) AND e.workspaceVisible = true AND e.mergedAt IS NOT NULL "
-            + "AND (:search = '' OR LOWER(e.title) LIKE CONCAT('%', CONCAT(LOWER(:search), '%')) OR e.number = :number) ORDER BY e.mergedAt DESC, e.id DESC")
-    List<PullRequestEntity> findMergedWorkspace(@Param("repo") String repo, @Param("search") String search, @Param("number") Integer number, Pageable pageable);
-
-    @Query("SELECT COUNT(e) FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND "
-            + "((e.dashboardVisible = true OR e.dashboardVisible IS NULL OR e.monitoredAt IS NOT NULL) "
-            + "OR (e.workspaceVisible = true AND EXISTS (SELECT w.id FROM WorkspaceEntity w "
-            + "WHERE w.watched = true AND LOWER(e.repo) = LOWER(CONCAT(w.monitoredOwner, CONCAT('/', w.monitoredRepo)))))) "
-            + "AND (e.state IS NULL OR e.state = 'open')")
+    @Query("SELECT COUNT(e) FROM PullRequestEntity e WHERE (" + DASHBOARD + ") AND e.state = 'open'")
     long countOpenDashboard();
 
-    @Query("SELECT COUNT(e) FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND LOWER(e.repo) = LOWER(:repo) "
-            + "AND e.workspaceVisible = true AND (e.state IS NULL OR e.state = 'open')")
-    long countOpenWorkspace(@Param("repo") String repo);
-
-    @Query("SELECT COUNT(e) FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND LOWER(e.repo) = LOWER(:repo) "
-            + "AND e.workspaceVisible = true AND (e.state IS NULL OR e.state = 'open') "
-            + "AND (LOWER(e.title) LIKE CONCAT('%', CONCAT(LOWER(:search), '%')) OR e.number = :number)")
-    long countOpenWorkspaceSearch(@Param("repo") String repo, @Param("search") String search, @Param("number") Integer number);
-
-    Optional<PullRequestEntity> findByIdAndHostingRepositoryIsNull(long id);
+    @Query("SELECT e FROM PullRequestEntity e WHERE LOWER(e.repo) = LOWER(:repo) AND e.mergedAt IS NOT NULL "
+            + "AND (:search = '' OR LOWER(e.title) LIKE CONCAT('%', CONCAT(LOWER(:search), '%')) OR e.number = :number) ORDER BY e.mergedAt DESC, e.id DESC")
+    List<PullRequestEntity> findMerged(@Param("repo") String repo, @Param("search") String search, @Param("number") Integer number, Pageable pageable);
 
     Optional<PullRequestEntity> findByHostingRepositoryIdAndNumber(long repositoryId, int number);
 
     List<PullRequestEntity> findByHostingRepositoryIdAndHeadRefOrderByNumberDesc(long repositoryId, String headRef);
 
-    @Query("SELECT e FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND LOWER(e.repo) = LOWER(:repo) AND e.number = :number")
-    Optional<PullRequestEntity> findByRepoIgnoreCaseAndNumber(@Param("repo") String repo, @Param("number") int number);
+    /** A path names one repository on each server; the most recently updated request wins. */
+    @Query("SELECT e FROM PullRequestEntity e WHERE LOWER(e.repo) = LOWER(:repo) AND e.number = :number ORDER BY e.updatedAt DESC, e.id DESC")
+    List<PullRequestEntity> findByPath(@Param("repo") String repo, @Param("number") int number);
 
-    @Query("SELECT e FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND LOWER(e.repo) = LOWER(:repo) AND e.headRef = :headRef ORDER BY e.number DESC")
-    List<PullRequestEntity> findByRepoIgnoreCaseAndHeadRefOrderByNumberDesc(@Param("repo") String repo, @Param("headRef") String headRef);
+    @Query("SELECT e FROM PullRequestEntity e WHERE LOWER(e.repo) = LOWER(:repo) AND e.headRef = :headRef ORDER BY e.number DESC")
+    List<PullRequestEntity> findByPathAndHeadRef(@Param("repo") String repo, @Param("headRef") String headRef);
 
     @Query("SELECT e.discussionActivityAt FROM PullRequestEntity e WHERE e.id = :id")
     Optional<Instant> findDiscussionActivityAt(@Param("id") long id);

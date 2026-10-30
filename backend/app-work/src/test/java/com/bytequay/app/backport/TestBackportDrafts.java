@@ -131,7 +131,7 @@ class TestBackportDrafts
         FetchedPullRequest sourceSummary = new FetchedPullRequest(4L, ROOT.repoFullName(), ROOT.number(), source.title(), "author", ROOT_URL,
                 Instant.EPOCH, Instant.EPOCH, PullRequest.Origin.OTHER, ImmutableList.of(), ImmutableMap.of(), false, "merged", Instant.EPOCH, Instant.EPOCH,
                 ImmutableList.of(), true, "clean", "feature");
-        HostingPullRequestSnapshot snapshot = new HostingPullRequestSnapshot(new HostingPullRequest(4, 4, 4, "4"), 1, "source",
+        HostingPullRequestSnapshot snapshot = new HostingPullRequestSnapshot(new HostingPullRequest(4, 4, 4), 1, "source",
                 sourceSummary, source, Optional.empty(), Instant.EPOCH);
         when(hosting.readPullRequest(sourceRead, ROOT.number())).thenReturn(snapshot);
         FetchedPullRequest example = new FetchedPullRequest(123L, "test/p2", 123, EXAMPLE, "author", "https://github.com/test/p2/pull/123",

@@ -40,6 +40,7 @@ import java.util.Optional;
 
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -66,17 +67,15 @@ class TestTaskPullRequestOwnership
     {
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
         when(workspace.id()).thenReturn("workspace");
-        when(workspace.isGitHub()).thenReturn(true);
         when(workspace.monitoredRepository()).thenReturn(RepoRef.of("owner", "repo"));
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
+        when(workspaces.findHostingRepositoryId("workspace")).thenReturn(Optional.of(42L));
         when(worktrees.currentBranch(worktree)).thenReturn(Optional.of("renamed"));
     }
 
     @Test
-    void hostedTasksUseTheirRepositoryIdentityForAssignedAndBranchRequests()
+    void tasksUseTheirRepositoryIdentityForAssignedAndBranchRequests()
     {
-        when(workspaces.findById("workspace").orElseThrow().isGitHub()).thenReturn(false);
-        when(workspaces.findHostingRepositoryId("workspace")).thenReturn(Optional.of(42L));
         PullRequest hosted = pullRequest(7, "open", PullRequest.Origin.AUTHORED);
         when(pullRequests.findByHostingHeadRef(42L, worktree.generatedBranch())).thenReturn(ImmutableList.of(hosted));
         assertThat(ownership.linkedPullRequest(task)).contains(hosted);
@@ -91,11 +90,10 @@ class TestTaskPullRequestOwnership
     void theTaskOwnsItsAssignedPullRequestOpenOnlyWhenAsked()
     {
         when(assignments.findByTaskId(taskId.toString())).thenReturn(Optional.of(new PullRequestTask(taskId.toString(), "workspace", "owner/repo", 7, "context")));
-        when(pullRequests.findIdByRepoAndNumber("Owner/Repo", 7)).thenReturn(Optional.of(7L));
-        when(pullRequests.findById(7L)).thenReturn(Optional.of(pullRequest(7, "open", PullRequest.Origin.AUTHORED)));
+        when(pullRequests.findByHostingRepository(42L, 7)).thenReturn(Optional.of(pullRequest(7, "open", PullRequest.Origin.AUTHORED)));
 
         assertThat(ownership.owns(task, "Owner/Repo", 7, true)).isTrue();
-        when(pullRequests.findById(7L)).thenReturn(Optional.of(pullRequest(7, "closed", PullRequest.Origin.AUTHORED)));
+        when(pullRequests.findByHostingRepository(42L, 7)).thenReturn(Optional.of(pullRequest(7, "closed", PullRequest.Origin.AUTHORED)));
         assertThat(ownership.owns(task, "Owner/Repo", 7, true)).isFalse();
         assertThat(ownership.owns(task, "Owner/Repo", 7, false)).isTrue();
         assertThat(ownership.owns(task, "owner/repo", 8, false)).isFalse();
@@ -105,8 +103,8 @@ class TestTaskPullRequestOwnership
     @Test
     void theTaskOwnsAPullRequestFromItsGeneratedOrCurrentBranchOpenOnlyWhenAsked()
     {
-        when(pullRequests.findByHeadRef("owner/repo", worktree.generatedBranch())).thenReturn(ImmutableList.of(pullRequest(7, "closed", PullRequest.Origin.OTHER)));
-        when(pullRequests.findByHeadRef("owner/repo", "renamed")).thenReturn(ImmutableList.of(pullRequest(9, "open", PullRequest.Origin.AUTHORED),
+        when(pullRequests.findByHostingHeadRef(42L, worktree.generatedBranch())).thenReturn(ImmutableList.of(pullRequest(7, "closed", PullRequest.Origin.OTHER)));
+        when(pullRequests.findByHostingHeadRef(42L, "renamed")).thenReturn(ImmutableList.of(pullRequest(9, "open", PullRequest.Origin.AUTHORED),
                 pullRequest(11, "open", PullRequest.Origin.OTHER)));
 
         assertThat(ownership.owns(task, "owner/repo", 7, false)).isTrue();
@@ -117,22 +115,21 @@ class TestTaskPullRequestOwnership
         assertThat(ownership.owns(task, "owner/repo", 11, false)).isFalse();
         // A repository the workspace does not monitor never matches, whatever its branches.
         assertThat(ownership.owns(task, "other/repo", 7, false)).isFalse();
-        verify(pullRequests, never()).findByHeadRef("other/repo", worktree.generatedBranch());
+        verify(pullRequests, never()).findByHeadRef(anyString(), anyString());
     }
 
     @Test
     void theTaskPullRequestsAreTheAssignedOneElseItsBranchesNewestFirst()
     {
-        when(pullRequests.findByHeadRef("owner/repo", worktree.generatedBranch())).thenReturn(ImmutableList.of(pullRequest(7, "closed", PullRequest.Origin.OTHER)));
-        when(pullRequests.findByHeadRef("owner/repo", "renamed")).thenReturn(ImmutableList.of(pullRequest(9, "open", PullRequest.Origin.AUTHORED),
+        when(pullRequests.findByHostingHeadRef(42L, worktree.generatedBranch())).thenReturn(ImmutableList.of(pullRequest(7, "closed", PullRequest.Origin.OTHER)));
+        when(pullRequests.findByHostingHeadRef(42L, "renamed")).thenReturn(ImmutableList.of(pullRequest(9, "open", PullRequest.Origin.AUTHORED),
                 pullRequest(11, "open", PullRequest.Origin.OTHER)));
 
         // Another author's pull request on the current branch is left out; the generated branch keeps any origin.
         assertThat(ownership.pullRequests(task)).extracting(PullRequest::number).containsExactly(9, 7);
 
         when(assignments.findByTaskId(taskId.toString())).thenReturn(Optional.of(new PullRequestTask(taskId.toString(), "workspace", "owner/repo", 3, "context")));
-        when(pullRequests.findIdByRepoAndNumber("owner/repo", 3)).thenReturn(Optional.of(3L));
-        when(pullRequests.findById(3L)).thenReturn(Optional.of(pullRequest(3, "open", PullRequest.Origin.OTHER)));
+        when(pullRequests.findByHostingRepository(42L, 3)).thenReturn(Optional.of(pullRequest(3, "open", PullRequest.Origin.OTHER)));
 
         assertThat(ownership.pullRequests(task)).extracting(PullRequest::number).containsExactly(3);
     }
@@ -140,20 +137,19 @@ class TestTaskPullRequestOwnership
     @Test
     void theLinkedPullRequestIsTheOneTheGeneratedBranchDeliveredEvenWhenANewerAuthoredOneIsOpen()
     {
-        when(pullRequests.findByHeadRef("owner/repo", worktree.generatedBranch())).thenReturn(ImmutableList.of(pullRequest(10, "merged", PullRequest.Origin.OTHER)));
-        when(pullRequests.findByHeadRef("owner/repo", "renamed")).thenReturn(ImmutableList.of(pullRequest(11, "open", PullRequest.Origin.AUTHORED)));
+        when(pullRequests.findByHostingHeadRef(42L, worktree.generatedBranch())).thenReturn(ImmutableList.of(pullRequest(10, "merged", PullRequest.Origin.OTHER)));
+        when(pullRequests.findByHostingHeadRef(42L, "renamed")).thenReturn(ImmutableList.of(pullRequest(11, "open", PullRequest.Origin.AUTHORED)));
 
         // The tab lists #11 first, but the task links the pull request its generated branch delivered.
         assertThat(ownership.pullRequests(task)).extracting(PullRequest::number).containsExactly(11, 10);
         assertThat(ownership.linkedPullRequest(task)).map(PullRequest::number).contains(10);
 
         // With only a closed row on the generated branch nothing is linked.
-        when(pullRequests.findByHeadRef("owner/repo", worktree.generatedBranch())).thenReturn(ImmutableList.of(pullRequest(10, "closed", PullRequest.Origin.OTHER)));
+        when(pullRequests.findByHostingHeadRef(42L, worktree.generatedBranch())).thenReturn(ImmutableList.of(pullRequest(10, "closed", PullRequest.Origin.OTHER)));
         assertThat(ownership.linkedPullRequest(task)).isEmpty();
 
         when(assignments.findByTaskId(taskId.toString())).thenReturn(Optional.of(new PullRequestTask(taskId.toString(), "workspace", "owner/repo", 3, "context")));
-        when(pullRequests.findIdByRepoAndNumber("owner/repo", 3)).thenReturn(Optional.of(3L));
-        when(pullRequests.findById(3L)).thenReturn(Optional.of(pullRequest(3, "closed", PullRequest.Origin.OTHER)));
+        when(pullRequests.findByHostingRepository(42L, 3)).thenReturn(Optional.of(pullRequest(3, "closed", PullRequest.Origin.OTHER)));
         assertThat(ownership.linkedPullRequest(task)).map(PullRequest::number).contains(3);
     }
 

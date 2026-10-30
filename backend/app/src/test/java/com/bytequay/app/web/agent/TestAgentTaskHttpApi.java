@@ -257,7 +257,7 @@ class TestAgentTaskHttpApi
         String path = "/agent/tasks/" + taskId + "/pull-requests?workspaceId=";
         assertThat(get(path + workspaceId).getBody()).isEmpty();
 
-        pullRequests.saveRepositorySyncPage(REPOSITORY, ImmutableList.of(fetchedPullRequest(482, branch), fetchedPullRequest(483, "feature")));
+        saveListed(REPOSITORY, ImmutableList.of(fetchedPullRequest(482, branch), fetchedPullRequest(483, "feature")));
 
         JsonNode listed = get(path + workspaceId).getBody();
         assertThat(listed).hasSize(1);
@@ -275,7 +275,7 @@ class TestAgentTaskHttpApi
         TaskWorktree worktree = tasks.get(TaskId.valueOf(taskId)).taskWorktree().orElseThrow();
         String branch = "published-" + taskId;
         run("git", "-C", worktree.canonicalWorktree().toString(), "branch", "-m", branch);
-        pullRequests.saveRepositorySyncPage(
+        saveListed(
                 REPOSITORY,
                 ImmutableList.of(fetchedPullRequest(484, worktree.generatedBranch()), fetchedPullRequest(485, branch), fetchedPullRequest(486, "unrelated"),
                         // Another author's fork on the same renamed branch name is not the task's pull request.
@@ -300,7 +300,7 @@ class TestAgentTaskHttpApi
         TaskWorktree worktree = tasks.get(TaskId.valueOf(taskId)).taskWorktree().orElseThrow();
         String branch = "new-pr-" + taskId;
         run("git", "-C", worktree.canonicalWorktree().toString(), "branch", "-m", branch);
-        pullRequests.saveRepositorySyncPage(REPOSITORY, ImmutableList.of(fetchedPullRequest(488, null)));
+        saveListed(REPOSITORY, ImmutableList.of(fetchedPullRequest(488, null)));
         String path = "/agent/tasks/" + taskId + "/pull-requests";
         assertThat(get(path + "?workspaceId=" + workspaceId).getBody()).isEmpty();
         useWorkspaceHosting("alice");
@@ -343,8 +343,8 @@ class TestAgentTaskHttpApi
         assertThat(worktree.physicalRepository()).isEqualTo(task.repository());
         String branch = "cache-table-stats";
         run("git", "-C", worktree.canonicalWorktree().toString(), "branch", "-m", branch);
-        pullRequests.saveRepositorySyncPage(upstream.fullName(), ImmutableList.of(fetchedPullRequest(upstream.fullName(), 41, branch)));
-        pullRequests.saveRepositorySyncPage(fork.fullName(), ImmutableList.of(fetchedPullRequest(fork.fullName(), 123, branch)));
+        saveListed(upstream.fullName(), ImmutableList.of(fetchedPullRequest(upstream.fullName(), 41, branch)));
+        saveListed(fork.fullName(), ImmutableList.of(fetchedPullRequest(fork.fullName(), 123, branch)));
         String path = "/agent/tasks/" + taskId + "/pull-requests";
 
         JsonNode cached = get(path + "?workspaceId=" + workspaceId).getBody();
@@ -377,9 +377,12 @@ class TestAgentTaskHttpApi
         PrRawDetail detail = new PrRawDetail(summary.title(), summary.htmlUrl(), summary.state(), summary.author(), "", summary.createdAt(), summary.updatedAt(),
                 null, "", ImmutableList.of(), ImmutableMap.of(), ImmutableList.of(), null, false, null, null, 0, 0, 0, 0, ImmutableList.of(),
                 head, summary.headRef(), "main", base);
-        var request = new HostingPullRequest(summary.number(), route.repository().id(), summary.number(), summary.githubId().toString());
-        when(workspaceHosting.readPullRequest(route, summary.number())).thenReturn(new HostingPullRequestSnapshot(request, route.session().accountId(),
-                route.session().credentialScope(), summary, detail, Optional.empty(), Instant.now()));
+        var request = new HostingPullRequest(summary.number(), route.repository().id(), summary.number());
+        // A real read stores the request under the workspace repository before returning it.
+        when(workspaceHosting.readPullRequest(route, summary.number())).thenAnswer(invocation -> {
+            saveListed(target.fullName(), ImmutableList.of(summary));
+            return new HostingPullRequestSnapshot(request, route.session().accountId(), route.session().credentialScope(), summary, detail, Optional.empty(), Instant.now());
+        });
     }
 
     private static FetchedPullRequest fetchedPullRequest(int number, String headRef)

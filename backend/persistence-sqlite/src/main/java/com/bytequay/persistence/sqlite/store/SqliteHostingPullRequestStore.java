@@ -15,7 +15,7 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrRawDetail;
-import com.bytequay.core.hosting.HostingFailure;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.store.HostingPullRequestStore;
@@ -44,7 +44,6 @@ import java.util.Set;
 
 import static com.bytequay.core.domain.Checks.checkOptionalText;
 import static com.bytequay.core.domain.Checks.checkText;
-import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -158,27 +157,24 @@ public class SqliteHostingPullRequestStore
     private PullRequestEntity request(Target target, FetchedPullRequest pullRequest, Instant observedAt)
     {
         checkArgument(pullRequest.number() > 0, "number must be positive");
-        checkArgument(pullRequest.githubId() > 0, "remote request ID must be positive");
-        String remoteId = pullRequest.githubId().toString();
         PullRequestEntity request = requests.findByHostingRepositoryIdAndNumber(target.repository().getId(), pullRequest.number()).orElseGet(() -> {
             PullRequestEntity created = PullRequestEntity.from(pullRequest, observedAt);
             created.setHostingRepository(target.repository());
-            created.setRemoteId(remoteId);
-            created.setDashboardVisible(false);
-            created.setWorkspaceVisible(false);
             return requests.save(created);
         });
-        if (!request.getRemoteId().equals(remoteId)) {
-            throw new HostingFailure(INVALID_RESPONSE, "The remote request identity changed for this repository and number");
-        }
         if (request.getUpdatedAt() == null || !pullRequest.updatedAt().isBefore(request.getUpdatedAt())) {
             PullRequestEntity updated = PullRequestEntity.from(pullRequest, observedAt);
             updated.preserveEnrichmentFrom(request);
             boolean changed = !Objects.equals(request.getUpdatedAt(), updated.getUpdatedAt()) || !Objects.equals(request.getTitle(), updated.getTitle())
                     || !Objects.equals(request.getState(), updated.getState()) || request.isDraft() != updated.isDraft()
                     || !ImmutableSet.copyOf(request.getLabels()).equals(ImmutableSet.copyOf(updated.getLabels()));
+            String origin = request.getOrigin();
             request.updateSummary(pullRequest, observedAt);
             request.preserveEnrichmentFrom(updated);
+            // Search has no reviewer list or head ref; only exact detail can remove a known pending request.
+            if (pullRequest.headRef() == null && pullRequest.origin() == PullRequest.Origin.OTHER && PullRequest.Origin.REVIEW_REQUESTED.name().equals(origin)) {
+                request.setOrigin(origin);
+            }
             if (changed) {
                 request.setActivityAt(observedAt);
             }

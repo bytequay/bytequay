@@ -45,8 +45,6 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.WebRequest;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -83,23 +81,9 @@ public class PullRequestController
             return null;
         }
         List<PullRequest> candidates = workspaceId == null ? pullRequests.listAttentionCandidates() : pullRequests.listWorkspaceAttentionCandidates(workspaceId);
-        Map<Long, String> routes = new HashMap<>();
-        Map<Long, Long> accounts = new HashMap<>();
-        if (workspaceId == null) {
-            // Hosted rows open through the watched workspace that lists them, or else through an account that discovered them.
-            List<PullRequest> rows = new ArrayList<>(candidates);
-            pullRequests.listHostedAttentionCandidates().forEach((workspace, hosted) -> hosted.forEach(row -> {
-                rows.add(row);
-                routes.put(row.id(), workspace);
-            }));
-            pullRequests.listDiscoveredAttentionCandidates().forEach((account, discovered) -> discovered.stream()
-                    .filter(row -> !routes.containsKey(row.id()))
-                    .forEach(row -> {
-                        rows.add(row);
-                        accounts.put(row.id(), account);
-                    }));
-            candidates = rows;
-        }
+        // A workspace's own list opens through that workspace; the shared list names each row's route.
+        Map<Long, PullRequestRoute> routes = workspaceId == null ? pullRequests.attentionRoutes(candidates) : ImmutableMap.of();
+        PullRequestRoute none = PullRequestRoute.of(null, null);
         Map<Long, String> avatars = pullRequests.findCachedAuthorAvatarUrls(candidates.stream().map(PullRequest::id).collect(toImmutableSet()));
         Map<Long, PrActivitySummary> activities = pullRequests.findCachedLatestActivities(candidates);
         Map<Long, Instant> attentionActivities = pullRequests.findCachedAttentionActivities(candidates);
@@ -109,8 +93,9 @@ public class PullRequestController
         return candidates.stream()
                 .map(pullRequest -> new AttentionPullRequest(pullRequest, avatars.get(pullRequest.id()), activities.get(pullRequest.id()),
                         attentionActivities.get(pullRequest.id()), commits.getOrDefault(pullRequest.id(), ImmutableList.of()),
-                        failingChecks.getOrDefault(pullRequest.id(), ImmutableList.of()), mentioned.contains(pullRequest.id()), routes.get(pullRequest.id()),
-                        accounts.get(pullRequest.id())))
+                        failingChecks.getOrDefault(pullRequest.id(), ImmutableList.of()), mentioned.contains(pullRequest.id()),
+                        routes.getOrDefault(pullRequest.id(), none).workspaceId().orElse(null),
+                        routes.getOrDefault(pullRequest.id(), none).accountId().stream().boxed().findFirst().orElse(null)))
                 .collect(toImmutableList());
     }
 

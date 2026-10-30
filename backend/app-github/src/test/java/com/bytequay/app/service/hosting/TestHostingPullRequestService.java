@@ -95,7 +95,7 @@ class TestHostingPullRequestService
         when(snapshots.find(anyLong(), eq(30L), eq(7))).thenAnswer(call -> Optional.ofNullable(cache.get(call.<Long>getArgument(0))));
         when(snapshots.save(anyLong(), eq(30L), anyString(), any(), any(), any(), any())).thenAnswer(call -> {
             FetchedPullRequest summary = call.getArgument(3);
-            HostingPullRequestSnapshot snapshot = new HostingPullRequestSnapshot(new HostingPullRequest(40, 30, 7, summary.githubId().toString()),
+            HostingPullRequestSnapshot snapshot = new HostingPullRequestSnapshot(new HostingPullRequest(40, 30, 7),
                     call.getArgument(0), call.getArgument(2), summary, call.getArgument(4), call.getArgument(5), call.getArgument(6));
             cache.put(snapshot.accountId(), snapshot);
             return snapshot;
@@ -118,7 +118,7 @@ class TestHostingPullRequestService
     {
         service = service(provider);
         HostingPullRequestSnapshot result = service.refresh(20, 30, 7);
-        assertThat(result.request()).isEqualTo(new HostingPullRequest(40, 30, 7, "99"));
+        assertThat(result.request()).isEqualTo(new HostingPullRequest(40, 30, 7));
         assertThat(result.pullRequest().title()).isEqualTo("First");
         assertThat(result.validatedAt()).isEqualTo(NOW);
         assertThat(service.cached(20, 30, 7)).contains(result);

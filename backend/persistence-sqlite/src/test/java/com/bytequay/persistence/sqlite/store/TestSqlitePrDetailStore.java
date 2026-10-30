@@ -26,7 +26,12 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.bytequay.persistence.sqlite.entity.PullRequestEntity;
+import com.bytequay.persistence.sqlite.repository.HostingRepositoryJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PrCheckRunJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PrDetailJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PrReviewJpaRepository;
@@ -45,6 +50,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
+import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -52,6 +58,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -71,6 +78,12 @@ class TestSqlitePrDetailStore
 
     @Autowired
     private PullRequestJpaRepository pullRequests;
+
+    @Autowired
+    private SqliteHostingIdentityStore identities;
+
+    @Autowired
+    private HostingRepositoryJpaRepository repositories;
 
     @Autowired
     private PrTimelineJpaRepository timeline;
@@ -94,8 +107,13 @@ class TestSqlitePrDetailStore
     @BeforeEach
     void seedPullRequest()
     {
+        String path = PULL_REQUEST.repoFullName();
+        HostingInstance instance = identities.upsertInstance(new HostingServer(GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com")));
+        HostingRepository repository = identities.upsertRepository(instance.id(), new RemoteHostingRepository("1", path, URI.create("https://github.com/" + path),
+                URI.create("https://github.com/" + path + ".git"), Optional.empty(), Optional.of("main")));
         PullRequestEntity pullRequest = new PullRequestEntity();
-        pullRequest.setRepo(PULL_REQUEST.repoFullName());
+        pullRequest.setHostingRepository(repositories.getReferenceById(repository.id()));
+        pullRequest.setRepo(path);
         pullRequest.setNumber(PULL_REQUEST.number());
         pullRequest.setTitle("CI fix");
         pullRequest.setOrigin("AUTHORED");

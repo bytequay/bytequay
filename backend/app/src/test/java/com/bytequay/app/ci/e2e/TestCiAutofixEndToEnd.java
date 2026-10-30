@@ -67,9 +67,11 @@ import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.RepositoryVisibility;
 import com.bytequay.core.store.CredentialStore;
+import com.bytequay.core.store.HostingIdentityStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.WorkspaceCredentialStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.bytequay.persistence.sqlite.repository.HostingRepositoryJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -198,6 +200,12 @@ class TestCiAutofixEndToEnd
     private PullRequestJpaRepository pullRequests;
 
     @Autowired
+    private HostingIdentityStore identities;
+
+    @Autowired
+    private HostingRepositoryJpaRepository repositories;
+
+    @Autowired
     private PrDetailStore details;
 
     @Autowired
@@ -239,6 +247,8 @@ class TestCiAutofixEndToEnd
                 events,
                 resources,
                 pullRequests,
+                identities,
+                repositories,
                 details,
                 workspaces,
                 workspacePaths,

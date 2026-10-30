@@ -185,20 +185,25 @@ instance and retain the remote repository/project ID; namespace paths and URLs
 can change without creating a new identity. GitLab namespace paths may contain
 multiple groups.
 
-PRs and MRs use the existing `pull_requests` table, keyed by local hosting
-repository ID and request number, with the remote request ID retained separately.
-`pr_metadata_snapshots` stores normalized summary/detail data and ETags for each
+PRs and MRs from every provider use the `pull_requests` table, keyed by local
+hosting repository ID and request number. A repository is identified by its
+remote ID and a number is never reused inside it, so no request ID is kept: one
+provider API may report another ID for the same request (GitHub's issue search
+reports the issue's). `pr_metadata_snapshots` stores normalized summary/detail data and ETags for each
 observing account. Credential source distinguishes connected-account, global and
 workspace credentials. List refresh stores summaries without loading full detail
 or advancing its validation time; cached lists are paged within that account,
 repository and credential source. Cache eviction keeps request identity and local work.
 Hibernate owns the current schema; no migration framework is maintained.
 
-Legacy desktop rows remain separate because matching repository paths cannot
-establish historical remote identity. Shared metadata is projected onto existing
-desktop PR IDs so drafts, reviews and local timeline events keep their references.
-Path-only legacy lookups exclude hosted rows. Hosted reads and local mutations
-use the retained repository or PR ID. Account changes clear remote detail/diff
+Discovery and notifications store a summary under its repository and show the row
+on the dashboard; a full discovery pass hides an account's rows it no longer finds.
+Repository listings and card summaries store rows without showing them there. A
+caller that only knows `owner/repo#number` finds the row by its repository path;
+when two servers share that path, the most recently updated request wins. Needs
+attention lists one shared set of rows, and each opens through a workspace on its
+repository, else a connected account that reads it, else the desktop sign-in. Hosted
+reads and local mutations use the retained repository or PR ID. Account changes clear remote detail/diff
 projections while retaining local timeline events. Review drafts use the retained
 repository ID and request number. Issue caches and repository metadata use local
 hosting repository IDs, so equal project numbers on separate servers cannot collide.
@@ -266,17 +271,16 @@ publishes a saved range on its last line. Merge-train operations fail explicitly
 The GitLab project's merge method remains authoritative.
 
 Account discovery runs through each integration's `PullRequestDiscovery`, for the
-desktop GitHub sign-in and each connected account whose rows name their
-repository. GitHub searches, reads its notifications inbox and summarizes cards
-with GraphQL. GitLab lists the account's merge requests, reads its to-do list and
-summarizes cards from each request's detail; it has no "reviewed by" or
-"involves" filter, and its cards carry no line counts, review decision or
-author-reply check. My Work lists each watched workspace's hosted requests beside
-the path-keyed rows and opens them through that workspace. Requests discovered in
-projects no workspace watches open through a connected account that read them: an
-account route names that account instead of a workspace, and only providers with
-hosted rows take one. A full discovery pass hides the requests an account no
-longer finds or is notified about.
+desktop GitHub sign-in and every other connected account. GitHub searches, reads
+its notifications inbox and summarizes cards with GraphQL. GitLab lists the
+account's merge requests, reads its to-do list and summarizes cards from each
+request's detail; it has no "reviewed by" or "involves" filter, and its cards
+carry no line counts, review decision or author-reply check. My Work lists the
+rows of each watched repository with the rest and opens them through that
+workspace. Requests discovered in repositories no workspace has open through a
+connected account that read them: an account route names that account instead of
+a workspace. A full discovery pass hides the requests an account no longer finds
+or is notified about.
 
 GitHub-specific CI automation, fork/backport operations and remote epic-child
 synchronization still have native GitHub consumers. These need their own provider integration before GitLab parity can be

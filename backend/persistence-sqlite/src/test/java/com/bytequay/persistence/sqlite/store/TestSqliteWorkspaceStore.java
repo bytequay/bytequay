@@ -36,7 +36,6 @@ import com.bytequay.core.review.LocalRun;
 import com.bytequay.persistence.sqlite.entity.BranchRebaseEntity;
 import com.bytequay.persistence.sqlite.entity.CiAutofixAttemptEntity;
 import com.bytequay.persistence.sqlite.entity.CiAutofixRunEntity;
-import com.bytequay.persistence.sqlite.entity.PullRequestEntity;
 import com.bytequay.persistence.sqlite.entity.WorkspaceEntity;
 import com.bytequay.persistence.sqlite.repository.WorkspaceJpaRepository;
 import com.google.common.collect.ImmutableList;
@@ -269,13 +268,6 @@ class TestSqliteWorkspaceStore
         for (long repositoryId : ImmutableList.of(200L, 201L, 300L)) {
             jdbc.update("INSERT INTO commit_enrichment (repository_id, sha, last_seen_at) VALUES (?, 'sha', ?)", repositoryId, NOW.toString());
         }
-        long ownedPr = insertPullRequest("contributor/project", 1, false, false);
-        long sharedPr = insertPullRequest("upstream/project", 2, false, false);
-        long dashboardPr = insertPullRequest("contributor/project", 3, true, false);
-        long monitoredPr = insertPullRequest("contributor/project", 4, false, true);
-        for (long prId : ImmutableList.of(ownedPr, sharedPr, dashboardPr, monitoredPr)) {
-            jdbc.update("INSERT INTO pr_view_state (pr_id, viewed_at) VALUES (?, ?)", prId, NOW.toString());
-        }
 
         store.delete(removed.id());
 
@@ -290,8 +282,6 @@ class TestSqliteWorkspaceStore
                 .containsExactlyInAnyOrder("workspace.agentModel." + retained.id(), "workspace.commitsTargetBranch." + retained.id());
         assertThat(issueCache.findPage(300, RepoRef.of("upstream", "project"), 0, 50).syncedAt()).contains(NOW);
         assertThat(jdbc.queryForList("SELECT repository_id FROM commit_enrichment ORDER BY repository_id", Long.class)).containsExactly(201L, 300L);
-        assertThat(jdbc.queryForList("SELECT id FROM pull_requests ORDER BY id", Long.class)).containsExactly(sharedPr, dashboardPr, monitoredPr);
-        assertThat(jdbc.queryForList("SELECT pr_id FROM pr_view_state ORDER BY pr_id", Long.class)).containsExactly(sharedPr, dashboardPr, monitoredPr);
     }
 
     @Test
@@ -309,36 +299,21 @@ class TestSqliteWorkspaceStore
     }
 
     @Test
-    void recentWordsAndTouchesFollowIssueAndPullRequestOwnership()
+    void recentWordsAndTouchesFollowIssueOwnership()
     {
         Workspace removed = store.createOrGet(fork("removed", 200, 300, 0));
         Workspace retained = store.createOrGet(workspace(
                 "retained", 201, RepoRef.of("other", "project"), Optional.of(300L), Optional.of(RepoRef.of("upstream", "project")),
                 300, RepoRef.of("upstream", "project"), Topology.FORK, Optional.of("https://github.com/upstream/project.git"), 1));
-        long removedPr = insertPullRequest("contributor/project", 1, false, false);
-        long dashboardPr = insertPullRequest("contributor/project", 2, true, false);
-        insertPullRequest("contributor/project", 3, false, true);
-        insertPullRequest("upstream/project", 4, false, false);
-        jdbc.update("UPDATE pull_requests SET repo = 'Contributor/Project' WHERE id IN (?, ?)", removedPr, dashboardPr);
-        entities.clear();
         insertRecent("issue:Contributor/Project#10", "ISSUE", "Contributor/Project", 10, removed.id());
         insertRecent("issue:upstream/project#11", "ISSUE", "upstream/project", 11, removed.id());
-        insertRecent("pr:Contributor/Project#1", "PULL_REQUEST", "Contributor/Project", 1, removed.id());
-        insertRecent("pr:Contributor/Project#2", "PULL_REQUEST", "Contributor/Project", 2, removed.id());
-        insertRecent("pr:contributor/project#3", "PULL_REQUEST", "contributor/project", 3, removed.id());
-        insertRecent("pr:upstream/project#4", "PULL_REQUEST", "upstream/project", 4, removed.id());
 
         store.delete(removed.id());
 
-        assertThat(recent.findTextContaining("words", 30)).extracting(RecentText::itemKey)
-                .containsOnly("issue:upstream/project#11", "pr:Contributor/Project#2", "pr:contributor/project#3", "pr:upstream/project#4");
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM recent_text", Integer.class)).isEqualTo(8);
-        assertThat(jdbc.queryForList("SELECT item_key FROM recent_touch", String.class))
-                .containsExactlyInAnyOrder("issue:upstream/project#11", "pr:Contributor/Project#2", "pr:contributor/project#3", "pr:upstream/project#4");
+        assertThat(recent.findTextContaining("words", 30)).extracting(RecentText::itemKey).containsOnly("issue:upstream/project#11");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM recent_text", Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForList("SELECT item_key FROM recent_touch", String.class)).containsExactly("issue:upstream/project#11");
         assertThat(jdbc.queryForObject("SELECT workspace_id FROM recent_touch WHERE item_key = 'issue:upstream/project#11'", String.class)).isEqualTo(retained.id());
-        assertThat(jdbc.queryForObject("SELECT workspace_id FROM recent_touch WHERE item_key = 'pr:Contributor/Project#2'", String.class)).isNull();
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pull_requests WHERE id = ?", Integer.class, removedPr)).isZero();
-        assertThat(jdbc.queryForObject("SELECT workspace_visible FROM pull_requests WHERE id = ?", Boolean.class, dashboardPr)).isFalse();
     }
 
     private void insertRecent(String key, String type, String repo, int number, String workspaceId)
@@ -409,23 +384,6 @@ class TestSqliteWorkspaceStore
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM branch_rebase", Integer.class)).isZero();
         assertThat(tasks.find(task.id())).isEmpty();
         assertThat(store.findById(workspace.id())).isEmpty();
-    }
-
-    private long insertPullRequest(String repo, int number, boolean dashboard, boolean monitored)
-    {
-        PullRequestEntity entity = new PullRequestEntity();
-        entity.setRepo(repo);
-        entity.setNumber(number);
-        entity.setTitle("PR " + number);
-        entity.setOrigin("AUTHORED");
-        entity.setLabels(ImmutableList.of());
-        entity.setSyncedAt(NOW);
-        entity.setDashboardVisible(dashboard);
-        entity.setWorkspaceVisible(true);
-        entity.setMonitoredAt(monitored ? NOW : null);
-        entities.persist(entity);
-        entities.flush();
-        return entity.getId();
     }
 
     private static CiAutofixRun ciRun(String workspaceId, int index)

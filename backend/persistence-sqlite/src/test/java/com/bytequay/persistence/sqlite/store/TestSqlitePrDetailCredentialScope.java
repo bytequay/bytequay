@@ -18,7 +18,12 @@ import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.StoredPrDetail;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.bytequay.core.review.ReviewDraft;
+import com.bytequay.persistence.sqlite.entity.HostingRepositoryEntity;
 import com.bytequay.persistence.sqlite.entity.PrTimelineEntity;
 import com.bytequay.persistence.sqlite.entity.PullRequestEntity;
 import com.bytequay.persistence.sqlite.repository.PrCheckRunJpaRepository;
@@ -32,9 +37,11 @@ import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.net.URI;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
@@ -66,6 +73,9 @@ class TestSqlitePrDetailCredentialScope
 
     @Autowired
     private EntityManager entities;
+
+    @Autowired
+    private SqliteHostingIdentityStore identities;
 
     @Test
     void absentScopeIsUnknownAndEverySameOwnerSavePreservesTheStamp()
@@ -108,7 +118,7 @@ class TestSqlitePrDetailCredentialScope
         assertThat(reviews.findByPrId(prId)).isEmpty();
         assertThat(checks.findByPrId(prId)).isEmpty();
         assertThat(timeline.findByPrIdOrderByTimestampAscIdAsc(prId)).singleElement().satisfies(event -> assertThat(event.toDomain()).isEqualTo(local));
-        assertThat(requests.findByIdAndHostingRepositoryIsNull(prId)).isPresent();
+        assertThat(requests.findById(prId)).isPresent();
         assertThat(views.findByPrIds(ImmutableSet.of(prId))).containsKey(prId);
         assertThat(drafts.find("owner/project#7")).contains(draft);
 
@@ -131,7 +141,11 @@ class TestSqlitePrDetailCredentialScope
 
     private long request()
     {
+        HostingInstance instance = identities.upsertInstance(new HostingServer(GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com")));
+        HostingRepository repository = identities.upsertRepository(instance.id(), new RemoteHostingRepository("1", "owner/project", URI.create("https://github.com/owner/project"),
+                URI.create("https://github.com/owner/project.git"), Optional.empty(), Optional.of("main")));
         PullRequestEntity row = new PullRequestEntity();
+        row.setHostingRepository(entities.getReference(HostingRepositoryEntity.class, repository.id()));
         row.setRepo("owner/project");
         row.setNumber(7);
         row.setTitle("Title");

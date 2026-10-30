@@ -13,17 +13,15 @@
  */
 package com.bytequay.core.hosting;
 
-import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 
-/** One retained request identity, shared across accounts that can read its repository. */
-public record HostingPullRequest(long id, long repositoryId, int number, String remoteId)
+/** One retained request, identified by its repository and number and shared across accounts that can read that repository. */
+public record HostingPullRequest(long id, long repositoryId, int number)
 {
     public HostingPullRequest
     {
         checkArgument(id > 0, "id must be positive");
         checkArgument(repositoryId > 0, "repositoryId must be positive");
         checkArgument(number > 0, "number must be positive");
-        checkText(remoteId, "remoteId");
     }
 }

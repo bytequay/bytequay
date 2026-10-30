@@ -28,6 +28,8 @@ import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.MockMakers;
 
 import java.net.URI;
@@ -57,69 +59,41 @@ class TestPullRequestRows
     private final PullRequestRows rows = new PullRequestRows(store, workspaces);
     private final PullRequest stored = mock(PullRequest.class, withSettings().mockMaker(MockMakers.INLINE));
 
-    @Test
-    void gitHubRowsAreFoundByRepositoryPath()
+    @ParameterizedTest
+    @EnumSource(HostingProvider.class)
+    void everyProviderFindsTheRowOfItsRetainedRepository(HostingProvider provider)
     {
-        Workspace workspace = workspace(Optional.empty());
-        when(store.findIdByRepoAndNumber("owner/project", 7)).thenReturn(Optional.of(30L));
-        when(store.findById(30)).thenReturn(Optional.of(stored));
-        when(store.findByHeadRef("owner/project", "feature")).thenReturn(ImmutableList.of(stored));
-
-        assertThat(rows.find(workspace, "owner/project", 7)).contains(stored);
-        assertThat(rows.findByHead(workspace, "owner/project", "feature")).containsExactly(stored);
-        assertThat(rows.find(route(GITHUB))).contains(stored);
-        assertThat(rows.findId(route(GITHUB))).contains(30L);
-        verify(store, never()).findByHostingRepository(anyLong(), anyInt());
-    }
-
-    @Test
-    void otherProvidersFindTheRowOfTheirRetainedRepository()
-    {
-        Workspace workspace = workspace(Optional.of(new HostingServer(GITLAB, URI.create("https://gitlab.example"), URI.create("https://gitlab.example/api/v4"))));
+        Workspace workspace = workspace(provider);
         when(workspaces.findHostingRepositoryId("workspace")).thenReturn(Optional.of(2L));
         when(store.findByHostingRepository(2, 7)).thenReturn(Optional.of(stored));
         when(stored.id()).thenReturn(40L);
         when(store.findByHostingHeadRef(2, "feature")).thenReturn(ImmutableList.of(stored));
 
-        assertThat(rows.find(workspace, "group/project", 7)).contains(stored);
-        assertThat(rows.findByHead(workspace, "group/project", "feature")).containsExactly(stored);
-        assertThat(rows.findId(route(GITLAB))).contains(40L);
+        assertThat(rows.find(workspace, 7)).contains(stored);
+        assertThat(rows.findByHead(workspace, "feature")).containsExactly(stored);
+        assertThat(rows.find(route(provider))).contains(stored);
+        assertThat(rows.findId(route(provider))).contains(40L);
         verify(store, never()).findIdByRepoAndNumber(any(), anyInt());
 
         when(workspaces.findHostingRepositoryId("workspace")).thenReturn(Optional.empty());
-        assertThat(rows.find(workspace, "group/project", 7)).isEmpty();
-        assertThat(rows.findByHead(workspace, "group/project", "feature")).isEmpty();
+        assertThat(rows.find(workspace, 7)).isEmpty();
+        assertThat(rows.findByHead(workspace, "feature")).isEmpty();
     }
 
     @Test
-    void refreshUpdatesAGitHubRowButReusesAnExistingHostedRow()
+    void cachedSummaryFillsAMissingRowWithoutOverwritingAStoredOne()
     {
         FetchedPullRequest summary = summary();
-        when(store.saveObserved(summary)).thenReturn(stored);
         when(store.findByHostingRepository(2, 7)).thenReturn(Optional.of(stored));
 
+        assertThat(rows.findOrCreate(2, summary)).isSameAs(stored);
         assertThat(rows.observe(route(GITHUB), summary)).isSameAs(stored);
-        assertThat(rows.observe(route(GITLAB), summary)).isSameAs(stored);
-        verify(store).saveObserved(summary);
         verify(store, never()).saveHosted(anyLong(), any());
-    }
-
-    @Test
-    void cachedSummaryCreatesAMissingRowWithoutOverwritingAStoredOne()
-    {
-        FetchedPullRequest summary = summary();
-        Workspace gitHub = workspace(Optional.empty());
-        Workspace gitLab = workspace(Optional.of(new HostingServer(GITLAB, URI.create("https://gitlab.example"), URI.create("https://gitlab.example/api/v4"))));
-        when(store.findIdByRepoAndNumber("owner/project", 7)).thenReturn(Optional.of(30L));
-        when(store.findById(30)).thenReturn(Optional.of(stored));
-
-        assertThat(rows.findOrCreate(gitHub, 2, summary)).isSameAs(stored);
-        verify(store, never()).saveObserved(any());
 
         PullRequest created = mock(PullRequest.class, withSettings().mockMaker(MockMakers.INLINE));
         when(store.findByHostingRepository(2, 7)).thenReturn(Optional.empty());
         when(store.saveHosted(2, summary)).thenReturn(created);
-        assertThat(rows.findOrCreate(gitLab, 2, summary)).isSameAs(created);
+        assertThat(rows.findOrCreate(2, summary)).isSameAs(created);
     }
 
     private static PullRequestRead route(HostingProvider provider)
@@ -131,8 +105,10 @@ class TestPullRequestRows
         return new PullRequestRead(new HostingReadSession(10, CONNECTED_ACCOUNT, new HostingAccess(instance, "token")), repository, 7, "alice");
     }
 
-    private static Workspace workspace(Optional<HostingServer> server)
+    private static Workspace workspace(HostingProvider provider)
     {
+        Optional<HostingServer> server = provider == GITHUB ? Optional.empty()
+                : Optional.of(new HostingServer(GITLAB, URI.create("https://gitlab.example"), URI.create("https://gitlab.example/api/v4")));
         RepoRef repository = RepoRef.of("owner", "project");
         return new Workspace("workspace", "Project", 42, repository, Optional.empty(), Optional.empty(), 42, repository, Workspace.Topology.DIRECT, "main",
                 "https://github.com/owner/project.git", Optional.empty(), Optional.empty(), "/tmp/project", Optional.empty(), Optional.empty(), 0, NOW, NOW, server);

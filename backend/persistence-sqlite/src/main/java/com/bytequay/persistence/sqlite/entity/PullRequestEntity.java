@@ -32,8 +32,6 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
-import jakarta.persistence.PrePersist;
-import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
@@ -43,7 +41,6 @@ import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -62,11 +59,9 @@ public class PullRequestEntity
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "hosting_repository_id")
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "hosting_repository_id", nullable = false)
     private HostingRepositoryEntity hostingRepository;
-
-    private String remoteId;
 
     @Column(nullable = false)
     private String repo;
@@ -103,13 +98,8 @@ public class PullRequestEntity
     @Column(nullable = false)
     private Instant syncedAt;
 
-    // Nullable so Hibernate can add these columns to existing SQLite databases.
-    // A legacy null means the row belonged to the original global dashboard.
-    @Column(name = "dashboard_visible")
-    private Boolean dashboardVisible;
-
-    @Column(name = "workspace_visible")
-    private Boolean workspaceVisible;
+    @Column(name = "dashboard_visible", nullable = false)
+    private boolean dashboardVisible;
 
     /** Set by the sync job from the accompanying detail fetch. NULL when not yet enriched. */
     @Enumerated(EnumType.STRING)
@@ -177,18 +167,9 @@ public class PullRequestEntity
 
     public PullRequestEntity() {}
 
-    @PrePersist
-    @PreUpdate
-    public void normalizeRepo()
-    {
-        if (hostingRepository == null) {
-            this.repo = repo.toLowerCase(Locale.ROOT);
-        }
-    }
-
     public HostingPullRequest hostingIdentity()
     {
-        return new HostingPullRequest(id, hostingRepository.getId(), number, remoteId);
+        return new HostingPullRequest(id, hostingRepository.getId(), number);
     }
 
     /** The row for a pull request GitHub reported. */

@@ -106,7 +106,7 @@ class TestWorkspaceHostingService
         when(snapshots.find(anyLong(), anyLong(), anyInt())).thenReturn(Optional.empty());
         when(snapshots.save(anyLong(), anyLong(), any(), any(), any(), any(), any())).thenAnswer(call -> {
             FetchedPullRequest summary = call.getArgument(3);
-            return new HostingPullRequestSnapshot(new HostingPullRequest(50, call.getArgument(1), summary.number(), summary.githubId().toString()),
+            return new HostingPullRequestSnapshot(new HostingPullRequest(50, call.getArgument(1), summary.number()),
                     call.getArgument(0), call.getArgument(2), summary, call.getArgument(4), call.getArgument(5), call.getArgument(6));
         });
         when(identities.findAccount(20)).thenReturn(Optional.of(new HostingAccount(20, 10, "42", "alice")));
@@ -181,7 +181,7 @@ class TestWorkspaceHostingService
 
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
-    void readsTheExplicitBindingCacheLocallyAndKeepsGitHubEnrichment(boolean hasProjection)
+    void readsTheExplicitBindingCacheLocallyAndFillsAMissingRow(boolean hasProjection)
     {
         workspaces.bindHosting("workspace", 20, 30, Optional.of(31L));
         workspaces.saveHostingCacheTarget("workspace", new HostingCacheTarget(21, 32, "old-workspace-scope"));
@@ -190,18 +190,15 @@ class TestWorkspaceHostingService
                 OTHER, ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), null, 4, 2, 3, "open", null, null,
                 null, null, null, "topic", NOW, null, null, null);
         when(snapshots.findPage(20, 31, CONNECTED_ACCOUNT, 2, 25)).thenReturn(new PullRequestListPage(ImmutableList.of(summary), true));
-        when(legacy.findIdByRepoAndNumber(summary.repo(), 7)).thenReturn(hasProjection ? Optional.of(12L) : Optional.empty());
-        if (hasProjection) {
-            when(legacy.findById(12)).thenReturn(Optional.of(github));
-        }
-        else {
-            when(legacy.saveObserved(summary)).thenReturn(github);
+        when(legacy.findByHostingRepository(31, 7)).thenReturn(hasProjection ? Optional.of(github) : Optional.empty());
+        if (!hasProjection) {
+            when(legacy.saveHosted(31, summary)).thenReturn(github);
         }
 
         assertThat(service.cachedPullRequests("workspace", 2, 25))
                 .isEqualTo(new WorkspacePullRequestPage(ImmutableList.of(new WorkspacePullRequestRow(summary, github)), true));
         verify(snapshots).findPage(20, 31, CONNECTED_ACCOUNT, 2, 25);
-        verify(legacy, times(hasProjection ? 0 : 1)).saveObserved(summary);
+        verify(legacy, times(hasProjection ? 0 : 1)).saveHosted(31, summary);
         verifyNoInteractions(identities, credentials, repositories, requests, desktop);
     }
 
@@ -218,8 +215,7 @@ class TestWorkspaceHostingService
         when(snapshots.findPage(20, 31, "github-workspace:workspace", 1, 50)).thenReturn(new PullRequestListPage(ImmutableList.of(summary), false));
 
         PullRequest projected = projected(summary);
-        when(legacy.findIdByRepoAndNumber(summary.repo(), summary.number())).thenReturn(Optional.of(12L));
-        when(legacy.findById(12L)).thenReturn(Optional.of(projected));
+        when(legacy.findByHostingRepository(31, summary.number())).thenReturn(Optional.of(projected));
 
         assertThat(service.cachedPullRequests("workspace", 1, 50).items()).containsExactly(new WorkspacePullRequestRow(summary, projected));
         verifyNoInteractions(identities, credentials, repositories, requests, desktop);
@@ -461,7 +457,7 @@ class TestWorkspaceHostingService
     private static HostingPullRequestSnapshot snapshot(long accountId, long repositoryId, String scope)
     {
         PullRequestFetch fetched = fetched();
-        return new HostingPullRequestSnapshot(new HostingPullRequest(50, repositoryId, 7, "99"), accountId, scope,
+        return new HostingPullRequestSnapshot(new HostingPullRequest(50, repositoryId, 7), accountId, scope,
                 fetched.pullRequest().orElseThrow(), fetched.detail().orElseThrow(), fetched.etag(), NOW);
     }
 }

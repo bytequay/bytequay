@@ -98,6 +98,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -153,10 +154,11 @@ class TestLocalReviewService
                 1, new RepoRef("owner", "repo"), Workspace.Topology.DIRECT, "main", "https://github.com/owner/repo.git", Optional.empty(), Optional.empty(),
                 paths.repository("workspace").toString(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH);
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
+        when(workspaces.findHostingRepositoryId("workspace")).thenReturn(Optional.of(1L));
         PullRequest pr = new PullRequest(1, "owner/repo", 7, "Task", "owner", "https://github.com/owner/repo/pull/7", Instant.EPOCH, Instant.EPOCH,
                 PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(), true, null, null, null, ImmutableList.of(), null, 1, 1, 0,
                 "open", null, null, null, null, Instant.EPOCH, worktree.generatedBranch(), null, null, null, null);
-        when(pullRequests.findByHeadRef("owner/repo", worktree.generatedBranch())).thenReturn(ImmutableList.of(pr));
+        when(pullRequests.findByHostingHeadRef(1L, worktree.generatedBranch())).thenReturn(ImmutableList.of(pr));
         AgentTurnSettings settings = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(10),
                 ImmutableList.of(), Optional.empty(), Optional.empty());
         turn = AgentTurn.accepted(TurnId.random(), taskId, "turn", settings, Instant.EPOCH)
@@ -563,7 +565,7 @@ class TestLocalReviewService
     @Test
     void creationMustMatchTheTaskBranch()
     {
-        when(pullRequests.findByHeadRef("owner/repo", task.taskWorktree().orElseThrow().generatedBranch())).thenReturn(ImmutableList.of());
+        when(pullRequests.findByHostingHeadRef(1L, task.taskWorktree().orElseThrow().generatedBranch())).thenReturn(ImmutableList.of());
         assertThatThrownBy(() -> create(0)).hasMessageContaining("does not track");
         verify(turns, never()).start(any());
         assertThat(stored).isEmpty();
@@ -628,7 +630,7 @@ class TestLocalReviewService
     {
         AgentTurn summary = learningTurn(0);
         when(turnStore.list(taskId)).thenReturn(ImmutableList.of(summary));
-        when(pullRequests.findByHeadRef(anyString(), anyString())).thenReturn(ImmutableList.of());
+        when(pullRequests.findByHostingHeadRef(anyLong(), anyString())).thenReturn(ImmutableList.of());
         doAnswer(call -> {
             StartAgentTurnCommand command = call.getArgument(0);
             assertThat(stored).containsKey("learning-thread");

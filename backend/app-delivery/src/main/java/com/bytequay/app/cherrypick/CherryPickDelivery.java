@@ -34,7 +34,7 @@ import com.bytequay.core.cherrypick.CherryPickLifecycle.Squash;
 import com.bytequay.core.cherrypick.CherryPickLifecycle.Stage;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.rebase.BranchRebase;
 import com.bytequay.core.rebase.BranchRebaseId;
 import com.google.common.collect.ImmutableList;
@@ -267,7 +267,7 @@ public class CherryPickDelivery
         if (!due(execution, "merge", MERGE_CHECK_INTERVAL)) {
             return execution;
         }
-        GitHubPullRequestIdentity pull;
+        PullRequestIdentity pull;
         try {
             pull = publication.pullRequest(execution);
         }
@@ -280,7 +280,7 @@ public class CherryPickDelivery
             return execution;
         }
         CherryPickExecution current = execution;
-        if (!current.lifecycle().readyForReview() && pull.state() == GitHubPullRequestIdentity.State.OPEN) {
+        if (!current.lifecycle().readyForReview() && pull.state() == PullRequestIdentity.State.OPEN) {
             try {
                 if (pull.draft()) {
                     publication.markReady(current);

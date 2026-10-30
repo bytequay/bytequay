@@ -15,7 +15,7 @@ package com.bytequay.app.workitem;
 
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
-import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemEvent;
@@ -75,7 +75,7 @@ class TestWorkItemPublicationService
     {
         when(workspaces.findById("workspace").orElseThrow().isGitHub()).thenReturn(false);
         when(workspaces.findById("workspace").orElseThrow().issueHost()).thenReturn("https://gitlab.example.com/team");
-        var source = new GitHubIssueSource("https://gitlab.example.com/team", 42, "org/repo", 9,
+        var source = new HostedIssueSource("https://gitlab.example.com/team", 42, "org/repo", 9,
                 "https://gitlab.example.com/team/org/repo/-/issues/9", "Private repair", "Full accepted context", Instant.EPOCH);
         when(issues.create("workspace", "Private repair", "Full accepted context")).thenReturn(source);
         when(work.beginPublication(eq("workspace"), eq("local"), eq(0L), anyString(), eq("https://gitlab.example.com/team org/repo"))).thenReturn(item());
@@ -139,8 +139,8 @@ class TestWorkItemPublicationService
                 WorkItem.Priority.NORMAL, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
     }
 
-    private static GitHubIssueSource source()
+    private static HostedIssueSource source()
     {
-        return new GitHubIssueSource("github.com", 42, "org/repo", 9, "https://github.com/org/repo/issues/9", "Private repair", "Full accepted context", Instant.EPOCH);
+        return new HostedIssueSource("github.com", 42, "org/repo", 9, "https://github.com/org/repo/issues/9", "Private repair", "Full accepted context", Instant.EPOCH);
     }
 }

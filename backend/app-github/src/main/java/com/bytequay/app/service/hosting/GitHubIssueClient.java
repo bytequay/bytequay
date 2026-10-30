@@ -16,8 +16,8 @@ package com.bytequay.app.service.hosting;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
-import com.bytequay.core.domain.GitHubIssuePreview;
-import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.HostedIssuePreview;
+import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
@@ -81,7 +81,7 @@ public final class GitHubIssueClient
     }
 
     @Override
-    public GitHubIssuePreview preview(HostingTarget target, int number)
+    public HostedIssuePreview preview(HostingTarget target, int number)
     {
         return reads.fetchIssuePreview(target.access().token(), repository(target), number);
     }
@@ -100,14 +100,14 @@ public final class GitHubIssueClient
     }
 
     @Override
-    public GitHubIssueSource source(HostingTarget target, int number, boolean requireOpen)
+    public HostedIssueSource source(HostingTarget target, int number, boolean requireOpen)
     {
         RepoRef ref = repository(target);
         return requireOpen ? reads.fetchOpenIssueSource(target.access().token(), ref, number) : reads.fetchIssueSource(target.access().token(), ref, number);
     }
 
     @Override
-    public GitHubIssueSource create(HostingTarget target, String title, String body)
+    public HostedIssueSource create(HostingTarget target, String title, String body)
     {
         return reads.publishWorkItem(target.access().token(), repository(target), title, body);
     }

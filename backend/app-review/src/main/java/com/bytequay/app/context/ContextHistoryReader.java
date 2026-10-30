@@ -20,7 +20,7 @@ import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.domain.DiffFile;
-import com.bytequay.core.domain.GitHubIssuePreview;
+import com.bytequay.core.domain.HostedIssuePreview;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.RepositoryIssueDetail;
@@ -144,7 +144,7 @@ public class ContextHistoryReader
     private Read issue(WorkspaceRepositoryContext workspace, int number)
     {
         // Open-only issue rows cannot prove terminal state, including when an old row survives a recent close.
-        GitHubIssuePreview preview = issues.preview(workspace.workspaceId(), number);
+        HostedIssuePreview preview = issues.preview(workspace.workspaceId(), number);
         checkArgument(!preview.pullRequest() && preview.state().equals("closed"), "History requires a closed issue, not an open issue or pull request");
         RepositoryIssueDetail detail = issues.detail(workspace.workspaceId(), number);
         long repositoryId = detail.repositoryId();

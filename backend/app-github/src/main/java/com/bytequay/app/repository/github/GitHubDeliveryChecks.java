@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.repository.github;
 
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -22,7 +22,7 @@ import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /** Fresh check evidence for one exact PR revision, separate from the Actions repair result. */
-public record GitHubDeliveryChecks(String nodeId, GitHubPullRequestIdentity pullRequest, List<String> waiting, List<String> failures)
+public record GitHubDeliveryChecks(String nodeId, PullRequestIdentity pullRequest, List<String> waiting, List<String> failures)
 {
     public GitHubDeliveryChecks
     {

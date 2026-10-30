@@ -24,8 +24,8 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.WorkspaceHostingService;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
 import com.bytequay.core.domain.PullRequestDetail;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.PullRequestTaskStore;
@@ -246,9 +246,9 @@ public class DevelopmentGitInspector
     {
         var selected = hosting.captureRead(worktree.workspaceId());
         var reader = integrations.of(selected.target()).contents();
-        Optional<GitHubPullRequestIdentity> assigned = route.assignedPullRequest().map(pr -> {
-            GitHubPullRequestIdentity current = reader.identity(selected.target(), pr.number());
-            checkState(current.pullRequest().equals(pr) && current.state() != GitHubPullRequestIdentity.State.CLOSED
+        Optional<PullRequestIdentity> assigned = route.assignedPullRequest().map(pr -> {
+            PullRequestIdentity current = reader.identity(selected.target(), pr.number());
+            checkState(current.pullRequest().equals(pr) && current.state() != PullRequestIdentity.State.CLOSED
                             && current.headRepository().equals(route.headRepository()) && current.headBranch().equals(route.headBranch())
                             && current.baseRepository().equals(route.baseRepository()) && current.baseBranch().equals(route.baseBranch()),
                     "Assigned pull request destination changed or is unavailable; reload the PR before continuing");
@@ -270,7 +270,7 @@ public class DevelopmentGitInspector
             checkSha(values[0], "remote SHA");
             remoteHead = Optional.of(values[0]);
         }
-        List<GitHubPullRequestIdentity> matches = assigned.<List<GitHubPullRequestIdentity>>map(ImmutableList::of)
+        List<PullRequestIdentity> matches = assigned.<List<PullRequestIdentity>>map(ImmutableList::of)
                 .orElseGet(() -> reader.identitiesByHead(selected.target(), route.headRepository(), route.headBranch()));
         return new DevelopmentPublicationFacts(remoteHead, matches);
     }

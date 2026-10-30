@@ -20,7 +20,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** A durable issue-to-development-task link with its accepted initial context. */
-public record IssueTask(String taskId, String workspaceId, GitHubIssueSource source, Optional<String> instructions, Instant createdAt)
+public record IssueTask(String taskId, String workspaceId, HostedIssueSource source, Optional<String> instructions, Instant createdAt)
 {
     public IssueTask
     {

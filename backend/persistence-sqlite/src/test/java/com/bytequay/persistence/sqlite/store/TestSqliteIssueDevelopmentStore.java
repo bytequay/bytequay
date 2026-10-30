@@ -18,7 +18,7 @@ import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.IssueEpic;
 import com.bytequay.core.domain.IssueTask;
 import com.bytequay.core.domain.RepoRef;
@@ -77,7 +77,7 @@ class TestSqliteIssueDevelopmentStore
         RepositoryIssue issue = issue(42, "alice");
         issues.saveSyncPage(REPOSITORY_ID, ImmutableList.of(issue));
         IssueEpic epic = new IssueEpic("GitHub.COM", issue.id(), "Owner/Repo", issue.number(), true, NOW);
-        GitHubIssueSource source = source(issue);
+        HostedIssueSource source = source(issue);
         IssueTask task = new IssueTask("task-1", "workspace-1", source, Optional.of("Accepted instructions"), NOW);
         store.saveEpic(epic);
         store.insertTask(task);
@@ -130,7 +130,7 @@ class TestSqliteIssueDevelopmentStore
     @Test
     void enforcesOneTaskPerSourceAcrossWorkspaces()
     {
-        GitHubIssueSource source = source(issue(42, "alice"));
+        HostedIssueSource source = source(issue(42, "alice"));
         store.insertTask(new IssueTask("task-1", "workspace-1", source, Optional.of("First accepted context"), NOW));
         entityManager.clear();
 
@@ -142,7 +142,7 @@ class TestSqliteIssueDevelopmentStore
     @Test
     void aRetiredAttemptGivesItsIssueToTheNextAndKeepsItsSource()
     {
-        GitHubIssueSource source = source(issue(43, "alice"));
+        HostedIssueSource source = source(issue(43, "alice"));
         IssueTask first = new IssueTask("task-1", "workspace-1", source, Optional.of("First accepted context"), NOW);
         store.insertTask(first);
         store.retireTask("task-1");
@@ -163,7 +163,7 @@ class TestSqliteIssueDevelopmentStore
     {
         AgentTask original = agentTask();
         AgentTask rejected = agentTask();
-        GitHubIssueSource source = source(issue(9_000, "alice"));
+        HostedIssueSource source = source(issue(9_000, "alice"));
         IssueTask originalLink = new IssueTask(original.id().toString(), "workspace-1", source, Optional.of("First accepted context"), NOW);
         unitOfWork.execute(() -> {
             tasks.insert(original);
@@ -193,7 +193,7 @@ class TestSqliteIssueDevelopmentStore
     void deletesTheIssueLinkWithItsTaskWhileRetainingEpicClassification()
     {
         AgentTask task = agentTask();
-        GitHubIssueSource source = source(issue(42, "alice"));
+        HostedIssueSource source = source(issue(42, "alice"));
         IssueEpic epic = new IssueEpic(source.host(), source.issueId(), source.repo(), source.number(), true, NOW);
         tasks.insert(task);
         store.insertTask(new IssueTask(task.id().toString(), "workspace-1", source, Optional.of("Accepted context"), NOW));
@@ -253,9 +253,9 @@ class TestSqliteIssueDevelopmentStore
         assertThat(issues.find(REPOSITORY_ID, 99)).isEmpty();
     }
 
-    private static GitHubIssueSource source(RepositoryIssue issue)
+    private static HostedIssueSource source(RepositoryIssue issue)
     {
-        return new GitHubIssueSource("GitHub.COM", issue.id(), "Owner/Repo", issue.number(), issue.htmlUrl(), issue.title(), issue.body(), issue.updatedAt());
+        return new HostedIssueSource("GitHub.COM", issue.id(), "Owner/Repo", issue.number(), issue.htmlUrl(), issue.title(), issue.body(), issue.updatedAt());
     }
 
     private static AgentTask agentTask()

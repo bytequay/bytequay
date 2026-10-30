@@ -71,7 +71,7 @@ public class PullRequestRefreshService
 
     public PullRequestDetailRefresh refreshDetail(PullRequestRead route)
     {
-        PullRequestService.DetailRefresh refresh = pullRequests.refreshPullRequestDetailFromGitHub(route);
+        PullRequestService.DetailRefresh refresh = pullRequests.refreshPullRequestDetailFromRemote(route);
         published(route, refresh.detail().id());
         return refresh.full() ? PullRequestDetailRefresh.full(refresh.detail()) : PullRequestDetailRefresh.status(refresh.detail());
     }
@@ -83,7 +83,7 @@ public class PullRequestRefreshService
 
     public PullRequestDetailRefresh refreshChecks(PullRequestRead route)
     {
-        PullRequestService.DetailRefresh refresh = pullRequests.refreshPullRequestChecksFromGitHub(route);
+        PullRequestService.DetailRefresh refresh = pullRequests.refreshPullRequestChecksFromRemote(route);
         published(route, refresh.detail().id());
         return refresh.full() ? PullRequestDetailRefresh.full(refresh.detail()) : PullRequestDetailRefresh.status(refresh.detail());
     }
@@ -95,7 +95,7 @@ public class PullRequestRefreshService
 
     public PullRequestDetailRefresh refreshOpenedDetail(PullRequestRead route)
     {
-        PullRequestService.DetailRefresh refresh = pullRequests.refreshOpenedPullRequestDetailFromGitHub(route);
+        PullRequestService.DetailRefresh refresh = pullRequests.refreshOpenedPullRequestDetailFromRemote(route);
         published(route, refresh.detail().id());
         // Another view may have refreshed the cache while this view was hidden.
         return PullRequestDetailRefresh.full(refresh.detail());
@@ -110,7 +110,7 @@ public class PullRequestRefreshService
     public void warmDetail(String workspaceId, String repo, int number)
     {
         PullRequestRead route = pullRequests.prepareRead(workspaceId, repo, number);
-        PullRequestService.DetailRefresh refresh = pullRequests.refreshPullRequestDetailFromGitHub(route, Duration.ofMinutes(10));
+        PullRequestService.DetailRefresh refresh = pullRequests.refreshPullRequestDetailFromRemote(route, Duration.ofMinutes(10));
         published(route, refresh.detail().id());
     }
 
@@ -122,7 +122,7 @@ public class PullRequestRefreshService
 
     public PullRequestDetail refreshAllDetail(PullRequestRead route)
     {
-        PullRequestDetail detail = pullRequests.refreshAllPullRequestDetailFromGitHub(route);
+        PullRequestDetail detail = pullRequests.refreshAllPullRequestDetailFromRemote(route);
         published(route, detail.id());
         return detail;
     }
@@ -135,7 +135,7 @@ public class PullRequestRefreshService
 
     public List<DiffFile> refreshDiffFiles(PullRequestRead route, String baseSha, String headSha)
     {
-        pullRequests.refreshPullRequestDiffFromGitHub(route, baseSha, headSha);
+        pullRequests.refreshPullRequestDiffFromRemote(route, baseSha, headSha);
         return pullRequests.getPullRequestDiffFiles(route, baseSha, headSha);
     }
 
@@ -147,7 +147,7 @@ public class PullRequestRefreshService
 
     public DiffFileContent refreshDiffFileContent(PullRequestRead route, String path, String baseSha, String headSha)
     {
-        pullRequests.refreshPullRequestDiffFileContentFromGitHub(route, path, baseSha, headSha);
+        pullRequests.refreshPullRequestDiffFileContentFromRemote(route, path, baseSha, headSha);
         return pullRequests.getPullRequestDiffFileContent(route, path, baseSha, headSha);
     }
 

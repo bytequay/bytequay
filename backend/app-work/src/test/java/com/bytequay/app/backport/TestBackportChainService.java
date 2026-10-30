@@ -61,7 +61,7 @@ import com.bytequay.core.cherrypick.MergedPullRequestRange;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.ci.CiAutofixStore;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
@@ -138,7 +138,7 @@ class TestBackportChainService
     private final Map<String, BackportChain> saved = new ConcurrentHashMap<>();
     private final Map<String, CherryPickExecution> children = new ConcurrentHashMap<>();
     private final Map<String, Workspace> workspaceData = new ConcurrentHashMap<>();
-    private final Map<Integer, GitHubPullRequestIdentity> remote = new ConcurrentHashMap<>();
+    private final Map<Integer, PullRequestIdentity> remote = new ConcurrentHashMap<>();
     private AgentTask source;
     private AgentTurn turn;
 
@@ -183,7 +183,7 @@ class TestBackportChainService
         when(workspaces.findAllRetained()).thenAnswer(_ -> ImmutableList.copyOf(workspaceData.values()));
         when(models.agentModel(eq(AgentModelType.DEVELOPMENT), any())).thenReturn(new AgentModelSetting(
                 AgentModelType.DEVELOPMENT, true, "codex", "Codex", "model", "Model", Optional.of("high")));
-        remote.put(4, identity(4, GitHubPullRequestIdentity.State.OPEN, source.taskWorktree().orElseThrow().generatedBranch()));
+        remote.put(4, identity(4, PullRequestIdentity.State.OPEN, source.taskWorktree().orElseThrow().generatedBranch()));
         when(prs.fetchPullRequestIdentities(anyString(), any(), any(), anyString())).thenAnswer(_ -> ImmutableList.of(remote.get(4)));
         when(prs.fetchPullRequestIdentity(anyString(), any())).thenAnswer(call -> remote.get(((PullRequestRef) call.getArgument(1)).number()));
         when(landed.resolve(anyString(), anyString(), any())).thenAnswer(call -> {
@@ -217,7 +217,7 @@ class TestBackportChainService
             var hop = chain.hops().get(index);
             int number = hop.route().repositoryId() == 3 ? 3 : 2;
             var execution = children.get(chain.executionKey(index));
-            remote.put(number, identity(number, GitHubPullRequestIdentity.State.OPEN, execution.workspace().workBranch()));
+            remote.put(number, identity(number, PullRequestIdentity.State.OPEN, execution.workspace().workBranch()));
             return new WorkspacePullRequestService.PullRequestResult(number, number, "https://github.com/test/p" + number + "/pull/" + number,
                     hop.route().repository(), "main", execution.workspace().workBranch());
         });
@@ -239,8 +239,8 @@ class TestBackportChainService
     void existingContributorPrStartsSiblingBackportsWithoutWaitingForEachOther()
     {
         when(relationships.list("p2")).thenReturn(ImmutableList.of(new WorkspaceRelationships.Relationship("p4", WorkspaceRelationships.Kind.FORK, "Direct fork", true)));
-        var pr = identity(4, GitHubPullRequestIdentity.State.OPEN, "contributor-fix");
-        remote.put(4, new GitHubPullRequestIdentity(pr.pullRequest(), pr.url(), RepoRef.of("contributor", "fork"), pr.headBranch(),
+        var pr = identity(4, PullRequestIdentity.State.OPEN, "contributor-fix");
+        remote.put(4, new PullRequestIdentity(pr.pullRequest(), pr.url(), RepoRef.of("contributor", "fork"), pr.headBranch(),
                 pr.headSha(), pr.baseRepository(), pr.baseBranch(), pr.baseSha(), pr.state(), false, "contributor"));
         var service = service();
         var request = new Request("parallel", Optional.empty(), Optional.empty(), ImmutableList.of("p3", "p2"),
@@ -310,10 +310,10 @@ class TestBackportChainService
     void startInCommitsChecksTheSourcePullRequestAndEveryForkHop()
     {
         var service = service();
-        remote.put(4, identity(4, GitHubPullRequestIdentity.State.CLOSED, "closed-fix"));
+        remote.put(4, identity(4, PullRequestIdentity.State.CLOSED, "closed-fix"));
         assertThatThrownBy(() -> service.start("p3", new BackportChainService.StartRequest("p4", 4, ImmutableList.of("p3"), ImmutableList.of(-1))))
                 .hasMessageContaining("closed without merging");
-        remote.put(4, identity(4, GitHubPullRequestIdentity.State.OPEN, "open-fix"));
+        remote.put(4, identity(4, PullRequestIdentity.State.OPEN, "open-fix"));
         when(relationships.list("p3")).thenReturn(ImmutableList.of());
         assertThatThrownBy(() -> service.start("p3", new BackportChainService.StartRequest("p4", 4, ImmutableList.of("p3"), ImmutableList.of(-1))))
                 .hasMessageContaining("list its source as a Fork");
@@ -638,7 +638,7 @@ class TestBackportChainService
     {
         var service = service();
         var chain = save(service, "p3");
-        remote.put(4, identity(4, GitHubPullRequestIdentity.State.CLOSED, chain.sourceBranch()));
+        remote.put(4, identity(4, PullRequestIdentity.State.CLOSED, chain.sourceBranch()));
         service.advance(chain.id());
         assertThat(current(chain).reason()).get().asString().contains("closed without merging");
         assertThat(children).isEmpty();
@@ -670,8 +670,8 @@ class TestBackportChainService
     private void merge(int number)
     {
         var pr = remote.get(number);
-        remote.put(number, new GitHubPullRequestIdentity(pr.pullRequest(), pr.url(), pr.headRepository(), pr.headBranch(), pr.headSha(),
-                pr.baseRepository(), pr.baseBranch(), pr.baseSha(), GitHubPullRequestIdentity.State.MERGED, pr.draft(), pr.author()));
+        remote.put(number, new PullRequestIdentity(pr.pullRequest(), pr.url(), pr.headRepository(), pr.headBranch(), pr.headSha(),
+                pr.baseRepository(), pr.baseBranch(), pr.baseSha(), PullRequestIdentity.State.MERGED, pr.draft(), pr.author()));
     }
 
     @Test
@@ -720,10 +720,10 @@ class TestBackportChainService
                 Optional.of(NOW), Optional.empty(), 0, NOW, NOW);
     }
 
-    private static GitHubPullRequestIdentity identity(int number, GitHubPullRequestIdentity.State state, String branch)
+    private static PullRequestIdentity identity(int number, PullRequestIdentity.State state, String branch)
     {
         var repo = RepoRef.of("test", "p" + number);
-        return new GitHubPullRequestIdentity(PullRequestRef.of("test", "p" + number, number), "https://github.com/" + repo.fullName() + "/pull/" + number,
+        return new PullRequestIdentity(PullRequestRef.of("test", "p" + number, number), "https://github.com/" + repo.fullName() + "/pull/" + number,
                 repo, branch, TARGET, repo, "main", BASE, state, false, "test");
     }
 

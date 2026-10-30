@@ -17,7 +17,7 @@ import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /** Fresh publication facts, including both repository identities for fork-safe matching. */
-public record GitHubPullRequestIdentity(
+public record PullRequestIdentity(
         PullRequestRef pullRequest,
         String url,
         RepoRef headRepository,
@@ -30,7 +30,7 @@ public record GitHubPullRequestIdentity(
         boolean draft,
         String author)
 {
-    public GitHubPullRequestIdentity
+    public PullRequestIdentity
     {
         requireNonNull(pullRequest, "pullRequest is null");
         requireNonNull(headRepository, "headRepository is null");

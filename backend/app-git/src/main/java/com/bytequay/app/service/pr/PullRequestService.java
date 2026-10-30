@@ -444,7 +444,7 @@ public class PullRequestService
             if (monitored && row.monitoredAt() == null) {
                 PullRequestRead route = prepareRead(workspaceId, row.repo(), row.number());
                 checkArgument(storedPullRequestId(route) == prId, "Pull request belongs to another workspace");
-                refreshPullRequestDetailFromGitHub(route);
+                refreshPullRequestDetailFromRemote(route);
             }
             store.setMonitored(prId, monitored);
             return store.findById(prId).orElseThrow();
@@ -1036,7 +1036,7 @@ public class PullRequestService
     public void warmDetail(String repo, int number, Duration freshness)
     {
         try {
-            refreshPullRequestDetailFromGitHub(repo, number, freshness);
+            refreshPullRequestDetailFromRemote(repo, number, freshness);
         }
         catch (RuntimeException failure) {
             if (isRateLimit(failure) || failure instanceof HostingFailure) {
@@ -1115,7 +1115,7 @@ public class PullRequestService
     {
         parseRef(repo, number);
         return findPullRequestDetail(repo, number)
-                .orElseGet(() -> refreshPullRequestDetailFromGitHub(repo, number).detail());
+                .orElseGet(() -> refreshPullRequestDetailFromRemote(repo, number).detail());
     }
 
     public PullRequestDetail getPullRequestDetail(PullRequestRead route)
@@ -1123,7 +1123,7 @@ public class PullRequestService
         prepareRead(route);
         return findStoredId(route)
                 .flatMap(id -> snapshots.findDetail(route.repository().fullPath(), route.number(), id))
-                .orElseGet(() -> refreshPullRequestDetailFromGitHub(route).detail());
+                .orElseGet(() -> refreshPullRequestDetailFromRemote(route).detail());
     }
 
     /** Captures account and repository identity once before reading desktop projections. */
@@ -1223,53 +1223,53 @@ public class PullRequestService
         }
     }
 
-    DetailRefresh refreshPullRequestDetailFromGitHub(String repo, int number)
+    DetailRefresh refreshPullRequestDetailFromRemote(String repo, int number)
     {
-        return refreshPullRequestDetailFromGitHub(prepareRead(repo, number));
+        return refreshPullRequestDetailFromRemote(prepareRead(repo, number));
     }
 
-    DetailRefresh refreshPullRequestDetailFromGitHub(PullRequestRead route)
+    DetailRefresh refreshPullRequestDetailFromRemote(PullRequestRead route)
     {
         return refreshDetailOnce(route, RefreshPolicy.detail());
     }
 
     /** The background warm refresh, which nobody is waiting for. */
-    DetailRefresh refreshPullRequestDetailFromGitHub(String repo, int number, Duration freshness)
+    DetailRefresh refreshPullRequestDetailFromRemote(String repo, int number, Duration freshness)
     {
-        return refreshPullRequestDetailFromGitHub(prepareRead(repo, number), freshness);
+        return refreshPullRequestDetailFromRemote(prepareRead(repo, number), freshness);
     }
 
-    DetailRefresh refreshPullRequestDetailFromGitHub(PullRequestRead route, Duration freshness)
+    DetailRefresh refreshPullRequestDetailFromRemote(PullRequestRead route, Duration freshness)
     {
         return refreshDetailOnce(route, RefreshPolicy.background(freshness));
     }
 
-    DetailRefresh refreshOpenedPullRequestDetailFromGitHub(String repo, int number)
+    DetailRefresh refreshOpenedPullRequestDetailFromRemote(String repo, int number)
     {
-        return refreshOpenedPullRequestDetailFromGitHub(prepareRead(repo, number));
+        return refreshOpenedPullRequestDetailFromRemote(prepareRead(repo, number));
     }
 
-    DetailRefresh refreshOpenedPullRequestDetailFromGitHub(PullRequestRead route)
+    DetailRefresh refreshOpenedPullRequestDetailFromRemote(PullRequestRead route)
     {
         return refreshDetailOnce(route, RefreshPolicy.opened());
     }
 
-    DetailRefresh refreshPullRequestChecksFromGitHub(String repo, int number)
+    DetailRefresh refreshPullRequestChecksFromRemote(String repo, int number)
     {
-        return refreshPullRequestChecksFromGitHub(prepareRead(repo, number));
+        return refreshPullRequestChecksFromRemote(prepareRead(repo, number));
     }
 
-    DetailRefresh refreshPullRequestChecksFromGitHub(PullRequestRead route)
+    DetailRefresh refreshPullRequestChecksFromRemote(PullRequestRead route)
     {
         return refreshDetailOnce(route, RefreshPolicy.checks());
     }
 
-    PullRequestDetail refreshAllPullRequestDetailFromGitHub(String repo, int number)
+    PullRequestDetail refreshAllPullRequestDetailFromRemote(String repo, int number)
     {
-        return refreshAllPullRequestDetailFromGitHub(prepareRead(repo, number));
+        return refreshAllPullRequestDetailFromRemote(prepareRead(repo, number));
     }
 
-    PullRequestDetail refreshAllPullRequestDetailFromGitHub(PullRequestRead route)
+    PullRequestDetail refreshAllPullRequestDetailFromRemote(PullRequestRead route)
     {
         return refreshDetailOnce(route, RefreshPolicy.forced()).detail();
     }
@@ -1475,22 +1475,22 @@ public class PullRequestService
         return snapshots.getFileContent(storedPullRequestId(route), path, baseSha, headSha);
     }
 
-    void refreshPullRequestDiffFromGitHub(String repo, int number, String baseSha, String headSha)
+    void refreshPullRequestDiffFromRemote(String repo, int number, String baseSha, String headSha)
     {
-        refreshPullRequestDiffFromGitHub(prepareRead(repo, number), baseSha, headSha);
+        refreshPullRequestDiffFromRemote(prepareRead(repo, number), baseSha, headSha);
     }
 
-    void refreshPullRequestDiffFromGitHub(PullRequestRead route, String baseSha, String headSha)
+    void refreshPullRequestDiffFromRemote(PullRequestRead route, String baseSha, String headSha)
     {
         snapshots.refreshDiff(route, storedPullRequestId(route), baseSha, headSha);
     }
 
-    void refreshPullRequestDiffFileContentFromGitHub(String repo, int number, String path, String baseSha, String headSha)
+    void refreshPullRequestDiffFileContentFromRemote(String repo, int number, String path, String baseSha, String headSha)
     {
-        refreshPullRequestDiffFileContentFromGitHub(prepareRead(repo, number), path, baseSha, headSha);
+        refreshPullRequestDiffFileContentFromRemote(prepareRead(repo, number), path, baseSha, headSha);
     }
 
-    void refreshPullRequestDiffFileContentFromGitHub(PullRequestRead route, String path, String baseSha, String headSha)
+    void refreshPullRequestDiffFileContentFromRemote(PullRequestRead route, String path, String baseSha, String headSha)
     {
         snapshots.refreshFileContent(route, storedPullRequestId(route), path, baseSha, headSha);
     }

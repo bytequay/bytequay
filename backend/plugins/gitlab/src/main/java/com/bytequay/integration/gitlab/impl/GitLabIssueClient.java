@@ -13,8 +13,8 @@
  */
 package com.bytequay.integration.gitlab.impl;
 
-import com.bytequay.core.domain.GitHubIssuePreview;
-import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.HostedIssuePreview;
+import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.RepositoryContributor;
@@ -98,11 +98,11 @@ public final class GitLabIssueClient
     }
 
     @Override
-    public GitHubIssuePreview preview(HostingTarget target, int number)
+    public HostedIssuePreview preview(HostingTarget target, int number)
     {
         GitLabIssueResponse response = read(target, number);
         RepositoryIssue issue = card(target, response);
-        return new GitHubIssuePreview(issue.title(), issue.body(), issue.author(), issue.labels(), issue.updatedAt(),
+        return new HostedIssuePreview(issue.title(), issue.body(), issue.author(), issue.labels(), issue.updatedAt(),
                 "closed".equals(response.state()) ? "closed" : "open", false, issue.htmlUrl(), issue.authorAvatarUrl());
     }
 
@@ -136,7 +136,7 @@ public final class GitLabIssueClient
     }
 
     @Override
-    public GitHubIssueSource source(HostingTarget target, int number, boolean requireOpen)
+    public HostedIssueSource source(HostingTarget target, int number, boolean requireOpen)
     {
         GitLabIssueResponse issue = read(target, number);
         checkArgument(!requireOpen || "opened".equals(issue.state()), "Issue is closed");
@@ -144,7 +144,7 @@ public final class GitLabIssueClient
     }
 
     @Override
-    public GitHubIssueSource create(HostingTarget target, String title, String body)
+    public HostedIssueSource create(HostingTarget target, String title, String body)
     {
         GitLabIssueResponse issue = http.post(target.access(), projectPath(target) + "/issues", new CreateIssue(checkText(title, "title"), requireNonNull(body, "body is null")),
                 GitLabIssueResponse.class).body().orElseThrow();
@@ -243,10 +243,10 @@ public final class GitLabIssueClient
         return issue;
     }
 
-    private static GitHubIssueSource source(HostingTarget target, GitLabIssueResponse response)
+    private static HostedIssueSource source(HostingTarget target, GitLabIssueResponse response)
     {
         RepositoryIssue issue = card(target, response);
-        return new GitHubIssueSource(target.access().server().webBaseUrl().toASCIIString(), issue.id(), target.repository().fullPath(), issue.number(), issue.htmlUrl(),
+        return new HostedIssueSource(target.access().server().webBaseUrl().toASCIIString(), issue.id(), target.repository().fullPath(), issue.number(), issue.htmlUrl(),
                 issue.title(), issue.body(), issue.updatedAt());
     }
 

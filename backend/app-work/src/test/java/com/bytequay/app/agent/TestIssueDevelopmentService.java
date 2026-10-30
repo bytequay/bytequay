@@ -26,7 +26,7 @@ import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.workitem.WorkItemService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
-import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.IssueEpic;
 import com.bytequay.core.domain.IssueTask;
 import com.bytequay.core.domain.RepoRef;
@@ -72,7 +72,7 @@ class TestIssueDevelopmentService
 {
     private static final Instant NOW = Instant.parse("2026-09-16T00:00:00Z");
     private static final RepoRef REPO = RepoRef.of("upstream", "repo");
-    private static final GitHubIssueSource SOURCE = new GitHubIssueSource("github.com", 70, REPO.fullName(), 7,
+    private static final HostedIssueSource SOURCE = new HostedIssueSource("github.com", 70, REPO.fullName(), 7,
             "https://github.com/upstream/repo/issues/7", "Fix selection", "Keep selection when switching tabs", NOW);
     private static final IssueSourceInput INPUT = new IssueSourceInput(70, 7, NOW, Optional.empty());
     private final IssueDevelopmentStore sources = mock(IssueDevelopmentStore.class);
@@ -141,7 +141,7 @@ class TestIssueDevelopmentService
         TurnId firstId = TurnId.random();
         when(first.id()).thenReturn(firstId);
         when(turns.list(taskId)).thenReturn(ImmutableList.of(first, followup));
-        IssueDevelopmentService.Source<GitHubIssueSource> source = service.source(taskId.toString()).orElseThrow();
+        IssueDevelopmentService.Source<HostedIssueSource> source = service.source(taskId.toString()).orElseThrow();
         assertThat(source.initialTurnId()).contains(firstId.toString());
         assertThat(source.instructions()).isEqualTo("Use the existing selection model");
         linked.set(new IssueTask(taskId.toString(), "workspace", SOURCE, Optional.empty(), NOW));
@@ -172,7 +172,7 @@ class TestIssueDevelopmentService
     @Test
     void changedDescriptionRefreshesCacheAndRequiresAcceptanceBeforeCreation()
     {
-        GitHubIssueSource changed = new GitHubIssueSource("github.com", 70, REPO.fullName(), 7, SOURCE.url(), SOURCE.title(), "New scope", NOW.plusSeconds(1));
+        HostedIssueSource changed = new HostedIssueSource("github.com", 70, REPO.fullName(), 7, SOURCE.url(), SOURCE.title(), "New scope", NOW.plusSeconds(1));
         when(remote.source("workspace", 7, true)).thenReturn(changed);
         assertThatThrownBy(() -> service.start("workspace", taskId, INPUT, "Implement", ignored -> {
             throw new AssertionError("must not create");
@@ -184,7 +184,7 @@ class TestIssueDevelopmentService
     @Test
     void commentOnlyUpdateAcceptsFreshSnapshotAndSuppliesSourceContext()
     {
-        GitHubIssueSource comment = new GitHubIssueSource("github.com", 70, REPO.fullName(), 7, SOURCE.url(), SOURCE.title(), SOURCE.body(), NOW.plusSeconds(1));
+        HostedIssueSource comment = new HostedIssueSource("github.com", 70, REPO.fullName(), 7, SOURCE.url(), SOURCE.title(), SOURCE.body(), NOW.plusSeconds(1));
         when(remote.source("workspace", 7, true)).thenReturn(comment);
         assertThat(service.start("workspace", taskId, INPUT, "Please add regression coverage", source -> {
             service.persistTask(task, source, "Please add regression coverage");
@@ -198,7 +198,7 @@ class TestIssueDevelopmentService
     @Test
     void commentOnlyUpdateDoesNotInvalidateRetryAfterProviderPreflightFailure()
     {
-        GitHubIssueSource comment = new GitHubIssueSource("github.com", 70, REPO.fullName(), 7, SOURCE.url(), SOURCE.title(), SOURCE.body(), NOW.plusSeconds(1));
+        HostedIssueSource comment = new HostedIssueSource("github.com", 70, REPO.fullName(), 7, SOURCE.url(), SOURCE.title(), SOURCE.body(), NOW.plusSeconds(1));
         when(remote.source("workspace", 7, true)).thenReturn(comment);
         assertThatThrownBy(() -> service.start("workspace", taskId, INPUT, "Implement", ignored -> {
             throw new IllegalStateException("provider not ready");

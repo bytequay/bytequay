@@ -13,8 +13,8 @@
  */
 package com.bytequay.core.hosting;
 
-import com.bytequay.core.domain.GitHubIssuePreview;
-import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.HostedIssuePreview;
+import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
@@ -30,13 +30,13 @@ public interface IssueClient
 
     Optional<RepositoryIssue> find(HostingTarget target, int number);
 
-    GitHubIssuePreview preview(HostingTarget target, int number);
+    HostedIssuePreview preview(HostingTarget target, int number);
 
     RepositoryIssueDetail detail(HostingTarget target, int number);
 
-    GitHubIssueSource source(HostingTarget target, int number, boolean requireOpen);
+    HostedIssueSource source(HostingTarget target, int number, boolean requireOpen);
 
-    GitHubIssueSource create(HostingTarget target, String title, String body);
+    HostedIssueSource create(HostingTarget target, String title, String body);
 
     /** Returns the note, or a command result with no remote ID when no note was created. */
     PrTimelineEvent comment(HostingTarget target, int number, String body);

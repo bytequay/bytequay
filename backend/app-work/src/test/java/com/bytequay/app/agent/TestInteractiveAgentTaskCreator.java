@@ -46,7 +46,7 @@ import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
-import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RepoRef;
@@ -484,9 +484,9 @@ class TestInteractiveAgentTaskCreator
         assertThat(command.getValue().generatedBranch()).isEqualTo("contributor/bytequay/review-11111111-11111111");
     }
 
-    private static GitHubIssueSource issue()
+    private static HostedIssueSource issue()
     {
-        return new GitHubIssueSource("github.com", 70, "selected/fork", 31178, "https://github.com/selected/fork/issues/31178",
+        return new HostedIssueSource("github.com", 70, "selected/fork", 31178, "https://github.com/selected/fork/issues/31178",
                 "Duplicate table samples", "TABLESAMPLE produces duplicates", Instant.parse("2026-09-01T00:00:00Z"));
     }
 

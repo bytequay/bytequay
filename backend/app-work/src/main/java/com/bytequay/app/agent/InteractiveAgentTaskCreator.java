@@ -37,7 +37,7 @@ import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
-import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.store.PullRequestStore;
 import com.google.common.hash.Hasher;
@@ -114,7 +114,7 @@ public final class InteractiveAgentTaskCreator
             String idempotencyKey,
             Optional<String> attachmentDigest,
             Optional<DevelopmentAutomation> initialAutomation,
-            Optional<GitHubIssueSource> issueSource,
+            Optional<HostedIssueSource> issueSource,
             Optional<JiraIssueSource> jiraSource,
             Optional<Consumer<AgentTask>> persistTask)
     {
@@ -136,7 +136,7 @@ public final class InteractiveAgentTaskCreator
 
     private AgentTask create(TaskId taskId, String workspaceId, String message, AgentLaneId laneId, AgentTaskDefaults defaults,
             String idempotencyKey, Optional<String> attachmentDigest, Optional<DevelopmentAutomation> initialAutomation,
-            Optional<GitHubIssueSource> issueSource, Optional<JiraIssueSource> jiraSource, Optional<Consumer<AgentTask>> persistTask, Optional<String> startCommit)
+            Optional<HostedIssueSource> issueSource, Optional<JiraIssueSource> jiraSource, Optional<Consumer<AgentTask>> persistTask, Optional<String> startCommit)
     {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(persistTask, "persistTask is null");

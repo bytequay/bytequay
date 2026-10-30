@@ -17,7 +17,7 @@ import com.bytequay.app.service.RepoService;
 import com.bytequay.app.workspace.RepositorySearchResult;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.ContributionCalendar;
-import com.bytequay.core.domain.GitHubIssuePreview;
+import com.bytequay.core.domain.HostedIssuePreview;
 import com.bytequay.core.domain.RecentEvent;
 import com.bytequay.core.domain.UserCommitSummary;
 import com.bytequay.core.domain.UserProfile;
@@ -70,7 +70,7 @@ public class RepoController
     }
 
     @GetMapping("/repos/{owner}/{repo}/issues/{number}/preview")
-    public GitHubIssuePreview getIssuePreview(@PathVariable String owner, @PathVariable String repo, @PathVariable int number)
+    public HostedIssuePreview getIssuePreview(@PathVariable String owner, @PathVariable String repo, @PathVariable int number)
     {
         return repos.getIssuePreview(owner, repo, number);
     }

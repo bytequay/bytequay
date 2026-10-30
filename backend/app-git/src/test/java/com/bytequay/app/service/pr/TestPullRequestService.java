@@ -47,7 +47,6 @@ import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.FetchedPullRequest;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
 import com.bytequay.core.domain.HandledAction;
 import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.MergePullRequestCommand;
@@ -68,6 +67,7 @@ import com.bytequay.core.domain.PullRequestCheckLog;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestDetailRefresh;
 import com.bytequay.core.domain.PullRequestHistoryPage;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestPage;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RecentReason;
@@ -673,8 +673,8 @@ class TestPullRequestService
         FetchedPullRequest found = pullRequest();
         when(workspaces.findById("workspace")).thenReturn(Optional.of(branchWorkspace()));
         when(gitHub.fetchPullRequestIdentities("pat", repository, source, "feature")).thenReturn(ImmutableList.of(
-                new GitHubPullRequestIdentity(PullRequestRef.of("owner", "repo", 7), found.htmlUrl(), source, "feature", "head", repository, "main", "base",
-                        GitHubPullRequestIdentity.State.OPEN, false, "contributor")));
+                new PullRequestIdentity(PullRequestRef.of("owner", "repo", 7), found.htmlUrl(), source, "feature", "head", repository, "main", "base",
+                        PullRequestIdentity.State.OPEN, false, "contributor")));
         when(workspaceHosting.readPullRequest(route, 7)).thenReturn(snapshot(found));
 
         service.syncRepositoryBranch("workspace", "contributor", "feature");
@@ -794,7 +794,7 @@ class TestPullRequestService
         when(viewStateStore.findByPrIds(ImmutableSet.of(12L)))
                 .thenReturn(ImmutableMap.of(12L, previous), ImmutableMap.of(12L, updated));
 
-        service.refreshPullRequestDetailFromGitHub("owner/repo", 7);
+        service.refreshPullRequestDetailFromRemote("owner/repo", 7);
 
         verify(viewStateStore).markReviewed(12L, HandledAction.APPROVED, "head", latestReviewAt);
         verify(viewStateStore, never()).markNeedsReview(12L);
@@ -1105,15 +1105,15 @@ class TestPullRequestService
         service = spy(service);
         List<PullRequest> rows = IntStream.rangeClosed(1, 4).mapToObj(number -> storedPullRequest(pullRequestNumber(number))).toList();
         when(store.findAttentionCandidates()).thenReturn(rows);
-        doReturn(null).when(service).refreshPullRequestDetailFromGitHub(anyString(), anyInt(), eq(Duration.ofMinutes(10)));
+        doReturn(null).when(service).refreshPullRequestDetailFromRemote(anyString(), anyInt(), eq(Duration.ofMinutes(10)));
         doThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub unavailable"))
-                .when(service).refreshPullRequestDetailFromGitHub("owner/repo", 3, Duration.ofMinutes(10));
+                .when(service).refreshPullRequestDetailFromRemote("owner/repo", 3, Duration.ofMinutes(10));
 
         service.warmRecentDetails(10);
 
         var order = inOrder(service);
         for (int number = 4; number >= 1; number--) {
-            order.verify(service).refreshPullRequestDetailFromGitHub("owner/repo", number, Duration.ofMinutes(10));
+            order.verify(service).refreshPullRequestDetailFromRemote("owner/repo", number, Duration.ofMinutes(10));
         }
         verifyNoInteractions(gitHub, actions, accounts, diffStore);
     }
@@ -2046,7 +2046,7 @@ class TestPullRequestService
         HostingFailure denied = new HostingFailure(kind, "request inaccessible");
         when(requests.refresh(session, 20, 7, false)).thenThrow(denied);
 
-        assertThatThrownBy(() -> service.refreshPullRequestDetailFromGitHub("owner/repo", 7)).isSameAs(denied);
+        assertThatThrownBy(() -> service.refreshPullRequestDetailFromRemote("owner/repo", 7)).isSameAs(denied);
 
         verify(detailStore).clearRemote(12L);
         verify(diffStore).deleteByPrIds(ImmutableSet.of(12L));
@@ -2110,12 +2110,12 @@ class TestPullRequestService
         when(detailStore.find(12L)).thenReturn(Optional.empty());
         service = spy(service);
         doReturn(new PullRequestService.DetailRefresh(true, refreshed))
-                .when(service).refreshPullRequestDetailFromGitHub("owner/repo", 7);
+                .when(service).refreshPullRequestDetailFromRemote("owner/repo", 7);
 
         PullRequestDetail result = service.getPullRequestDetail("owner/repo", 7);
 
         assertThat(result.body()).isEqualTo("body");
-        verify(service).refreshPullRequestDetailFromGitHub("owner/repo", 7);
+        verify(service).refreshPullRequestDetailFromRemote("owner/repo", 7);
         verify(detailStore).find(12L);
     }
 
@@ -2124,7 +2124,7 @@ class TestPullRequestService
     {
         ResponseStatusException notFound = new ResponseStatusException(HttpStatus.NOT_FOUND, "Pull request does not exist");
         service = spy(service);
-        doThrow(notFound).when(service).refreshPullRequestDetailFromGitHub("owner/repo", 7);
+        doThrow(notFound).when(service).refreshPullRequestDetailFromRemote("owner/repo", 7);
 
         assertThatThrownBy(() -> service.getPullRequestDetail("owner/repo", 7))
                 .isSameAs(notFound);
@@ -2166,7 +2166,7 @@ class TestPullRequestService
             service.warmRecentDetails(10);
         }
         else {
-            PullRequestService.DetailRefresh refreshed = service.refreshPullRequestDetailFromGitHub("owner/repo", 7);
+            PullRequestService.DetailRefresh refreshed = service.refreshPullRequestDetailFromRemote("owner/repo", 7);
             assertThat(refreshed.full()).isTrue();
             assertThat(refreshed.detail().body()).isEqualTo("body");
         }
@@ -2203,9 +2203,9 @@ class TestPullRequestService
                 .thenReturn(new ConditionalList<>(Optional.of(ImmutableList.of()), Optional.of("commits")));
         when(requests.refresh(session, 20, ref.number(), true)).thenReturn(snapshot(pullRequest()));
 
-        service.refreshPullRequestDetailFromGitHub("owner/repo", 7);
+        service.refreshPullRequestDetailFromRemote("owner/repo", 7);
         verify(diffStore, never()).saveDefault(anyLong(), any(), any());
-        service.refreshPullRequestDetailFromGitHub("owner/repo", 7);
+        service.refreshPullRequestDetailFromRemote("owner/repo", 7);
 
         verify(gitHub, times(2)).fetchPrDiffFiles("pat", ref, oldFiles, Optional.empty());
         verify(diffStore).saveDefault(eq(12L), any(), eq(new PrDiffEtags(Optional.of("new-files"), Optional.of("commits"))));
@@ -2234,8 +2234,8 @@ class TestPullRequestService
         }
 
         PullRequestDetail refreshed = force
-                ? service.refreshAllPullRequestDetailFromGitHub("owner/repo", 7)
-                : service.refreshPullRequestDetailFromGitHub("owner/repo", 7).detail();
+                ? service.refreshAllPullRequestDetailFromRemote("owner/repo", 7)
+                : service.refreshPullRequestDetailFromRemote("owner/repo", 7).detail();
 
         assertThat(refreshed.viewerCanWrite()).isEqualTo(canWrite);
         assertThat(detailStore.find(12L).orElseThrow().viewerCanWrite()).isEqualTo(canWrite);
@@ -2253,7 +2253,7 @@ class TestPullRequestService
         when(actions.refreshPrCheckRuns(eq("pat"), eq("owner"), eq("repo"), eq("head"), anyList(), any(), any()))
                 .thenReturn(new PrCheckRunsFetch(ImmutableList.of(latest), Optional.of("checks"), Optional.of("statuses")));
 
-        PullRequestService.DetailRefresh refreshed = service.refreshPullRequestDetailFromGitHub("owner/repo", 7);
+        PullRequestService.DetailRefresh refreshed = service.refreshPullRequestDetailFromRemote("owner/repo", 7);
 
         assertThat(refreshed.full()).isFalse();
         assertThat(refreshed.detail().body()).isEqualTo("body");
@@ -2288,7 +2288,7 @@ class TestPullRequestService
         when(actions.refreshPrCheckRuns(eq("pat"), eq("owner"), eq("repo"), eq("head"), anyList(), any(), any()))
                 .thenReturn(new PrCheckRunsFetch(ImmutableList.of(), Optional.empty(), Optional.empty()));
 
-        service.refreshPullRequestChecksFromGitHub("owner/repo", 12);
+        service.refreshPullRequestChecksFromRemote("owner/repo", 12);
 
         ArgumentCaptor<Instant> pushedAt = ArgumentCaptor.forClass(Instant.class);
         verify(store).updateEnrichment(eq(12L), any(), any(), anyInt(), anyInt(), anyInt(), any(), any(), pushedAt.capture(), any(), anyList(), any(), any(), any(), any());
@@ -2302,7 +2302,7 @@ class TestPullRequestService
         IllegalStateException failure = new IllegalStateException("stop after request");
         when(requests.refresh(session, 20, ref.number(), true)).thenThrow(failure);
 
-        assertThatThrownBy(() -> service.refreshAllPullRequestDetailFromGitHub("owner/repo", 7))
+        assertThatThrownBy(() -> service.refreshAllPullRequestDetailFromRemote("owner/repo", 7))
                 .isSameAs(failure);
 
         verify(detailStore, never()).findEtag(anyLong());
@@ -2319,7 +2319,7 @@ class TestPullRequestService
         when(actions.refreshPrCheckRuns(eq("pat"), eq("owner"), eq("repo"), eq("head"), anyList(), any(), any()))
                 .thenReturn(new PrCheckRunsFetch(ImmutableList.of(), Optional.empty(), Optional.empty()));
 
-        PullRequestDetail refreshed = service.refreshPullRequestDetailFromGitHub("owner/repo", 7).detail();
+        PullRequestDetail refreshed = service.refreshPullRequestDetailFromRemote("owner/repo", 7).detail();
 
         assertThat(refreshed.mergeable()).isFalse();
         assertThat(refreshed.mergeableState()).isEqualTo("dirty");
@@ -3330,14 +3330,14 @@ class TestPullRequestService
                     row.requestedReviewers(), row.mergeable(), row.mergeableState(), row.headRef()));
         }).toList();
         when(store.findAttentionCandidates()).thenReturn(rows);
-        doReturn(null).when(service).refreshPullRequestDetailFromGitHub(anyString(), anyInt(), eq(Duration.ofMinutes(10)));
+        doReturn(null).when(service).refreshPullRequestDetailFromRemote(anyString(), anyInt(), eq(Duration.ofMinutes(10)));
 
         service.warmRecentDetails(limit);
 
         ArgumentCaptor<Integer> first = ArgumentCaptor.forClass(Integer.class);
         ArgumentCaptor<Integer> second = ArgumentCaptor.forClass(Integer.class);
-        verify(service, times(limit)).refreshPullRequestDetailFromGitHub(eq("owner/repo"), first.capture(), eq(Duration.ofMinutes(10)));
-        verify(service, times(limit)).refreshPullRequestDetailFromGitHub(eq("owner/second"), second.capture(), eq(Duration.ofMinutes(10)));
+        verify(service, times(limit)).refreshPullRequestDetailFromRemote(eq("owner/repo"), first.capture(), eq(Duration.ofMinutes(10)));
+        verify(service, times(limit)).refreshPullRequestDetailFromRemote(eq("owner/second"), second.capture(), eq(Duration.ofMinutes(10)));
         assertThat(first.getAllValues()).containsExactlyElementsOf(IntStream.iterate(35, value -> value - 1).limit(limit).boxed().toList());
         assertThat(second.getAllValues()).containsExactlyElementsOf(IntStream.iterate(70, value -> value - 1).limit(limit).boxed().toList());
         verifyNoInteractions(gitHub, actions);
@@ -3354,7 +3354,7 @@ class TestPullRequestService
         PrTimelineEvent comment = new PrTimelineEvent(3L, "commented", "alice", sourceAt, "New reply", Optional.empty());
         when(gitHub.fetchPrIssueComments("pat", ref)).thenReturn(ImmutableList.of(comment));
 
-        PullRequestService.DetailRefresh result = service.refreshPullRequestDetailFromGitHub("owner/repo", 7);
+        PullRequestService.DetailRefresh result = service.refreshPullRequestDetailFromRemote("owner/repo", 7);
 
         assertThat(result.full()).isTrue();
         verify(detailStore).saveDiscussion(eq(12L), any(), eq(sourceAt));
@@ -3368,7 +3368,7 @@ class TestPullRequestService
     {
         cacheDetail(stored(), freshTimes());
 
-        service.refreshPullRequestDetailFromGitHub("owner/repo", 7, Duration.ofMinutes(10));
+        service.refreshPullRequestDetailFromRemote("owner/repo", 7, Duration.ofMinutes(10));
 
         verifyNoInteractions(gitHub, actions, accounts);
         verify(detailStore, never()).saveDiscussion(anyLong(), any(), any());
@@ -3383,7 +3383,7 @@ class TestPullRequestService
         PullRequest row = storedPullRequest(pullRequest(state, pullRequest().updatedAt(), null).withOrigin(origin));
         cacheDetail(row, stored(), new PrDetailFreshness(Optional.of(stale), Optional.of(stale), Optional.of(stale), Optional.of(row.updatedAt())));
 
-        service.refreshPullRequestDetailFromGitHub("owner/repo", 7, Duration.ofMinutes(10));
+        service.refreshPullRequestDetailFromRemote("owner/repo", 7, Duration.ofMinutes(10));
 
         verifyNoInteractions(gitHub, actions, accounts);
     }
@@ -3396,7 +3396,7 @@ class TestPullRequestService
         Optional<Instant> discussionAt = discussionAgeMinutes < 0 ? Optional.empty() : Optional.of(now.minus(Duration.ofMinutes(discussionAgeMinutes)));
         cacheDetail(stored(), new PrDetailFreshness(Optional.of(now), discussionAt, Optional.of(now), Optional.of(pullRequest().updatedAt())));
 
-        service.refreshPullRequestDetailFromGitHub("owner/repo", 7, Duration.ofSeconds(freshnessSeconds));
+        service.refreshPullRequestDetailFromRemote("owner/repo", 7, Duration.ofSeconds(freshnessSeconds));
 
         verify(gitHub, times(expectedFetches)).fetchPrIssueComments("pat", PullRequestRef.of("owner", "repo", 7));
         verify(detailStore, times(expectedFetches)).saveDiscussion(eq(12L), any(), eq(pullRequest().updatedAt()));
@@ -3415,8 +3415,8 @@ class TestPullRequestService
         when(detailStore.findDiscussionEtags(12L)).thenReturn(etags);
         when(gitHub.probeDiscussion("pat", ref, etags)).thenReturn(new DiscussionProbe(unchanged, ImmutableMap.of("timeline", "\"t2\"")));
 
-        service.refreshPullRequestDetailFromGitHub("owner/repo", 7, Duration.ofSeconds(60));
-        service.refreshPullRequestDetailFromGitHub("owner/repo", 7, Duration.ofSeconds(60));
+        service.refreshPullRequestDetailFromRemote("owner/repo", 7, Duration.ofSeconds(60));
+        service.refreshPullRequestDetailFromRemote("owner/repo", 7, Duration.ofSeconds(60));
 
         // Either way the discussion counts as validated, so the second pass asks nothing.
         verify(gitHub).probeDiscussion("pat", ref, etags);
@@ -3453,7 +3453,7 @@ class TestPullRequestService
         verify(actions, times(warmChecks)).refreshPrCheckRuns(eq("pat"), eq("owner"), eq("repo"), eq("head"), anyList(), any(), any());
 
         // Opening reconciles whatever the warm pass left, and only that.
-        service.refreshOpenedPullRequestDetailFromGitHub("owner/repo", 7);
+        service.refreshOpenedPullRequestDetailFromRemote("owner/repo", 7);
 
         verify(gitHub).fetchPrIssueComments("pat", ref);
         verify(actions).refreshPrCheckRuns(eq("pat"), eq("owner"), eq("repo"), eq("head"), anyList(), any(), any());
@@ -3467,7 +3467,7 @@ class TestPullRequestService
         when(actions.refreshPrCheckRuns(eq("pat"), eq("owner"), eq("repo"), eq("head"), anyList(), any(), any()))
                 .thenReturn(new PrCheckRunsFetch(stored().checkRuns(), Optional.of("checks"), Optional.of("statuses")));
 
-        PullRequestService.DetailRefresh result = service.refreshPullRequestChecksFromGitHub("owner/repo", 7);
+        PullRequestService.DetailRefresh result = service.refreshPullRequestChecksFromRemote("owner/repo", 7);
 
         assertThat(result.full()).isFalse();
         verify(actions).refreshPrCheckRuns(eq("pat"), eq("owner"), eq("repo"), eq("head"), anyList(), any(), any());
@@ -3483,7 +3483,7 @@ class TestPullRequestService
         ResponseStatusException failure = new ResponseStatusException(status, "Access rejected");
         when(actions.refreshPrCheckRuns(eq("pat"), eq("owner"), eq("repo"), eq("head"), anyList(), any(), any())).thenThrow(failure);
 
-        assertThatThrownBy(() -> service.refreshPullRequestChecksFromGitHub("owner/repo", 7)).isSameAs(failure);
+        assertThatThrownBy(() -> service.refreshPullRequestChecksFromRemote("owner/repo", 7)).isSameAs(failure);
 
         verify(detailStore).clearRemote(12L);
         verify(diffStore).deleteByPrIds(ImmutableSet.of(12L));
@@ -3498,8 +3498,8 @@ class TestPullRequestService
         cacheDetail(stored(), new PrDetailFreshness(Optional.of(now), Optional.of(now.minusSeconds(discussionAgeSeconds)),
                 Optional.of(now), Optional.of(pullRequest().updatedAt())));
 
-        assertThat(service.refreshOpenedPullRequestDetailFromGitHub("owner/repo", 7).full()).isEqualTo(discussionAgeSeconds > 60);
-        assertThat(service.refreshOpenedPullRequestDetailFromGitHub("owner/repo", 7).full()).isFalse();
+        assertThat(service.refreshOpenedPullRequestDetailFromRemote("owner/repo", 7).full()).isEqualTo(discussionAgeSeconds > 60);
+        assertThat(service.refreshOpenedPullRequestDetailFromRemote("owner/repo", 7).full()).isFalse();
 
         verify(gitHub, times(discussionAgeSeconds > 60 ? 1 : 0)).fetchPrIssueComments("pat", PullRequestRef.of("owner", "repo", 7));
         // Thread resolutions change no REST response, so opening never trusts ETags.
@@ -3525,7 +3525,7 @@ class TestPullRequestService
         });
         Runnable refresh = () -> {
             try {
-                service.refreshPullRequestDetailFromGitHub("owner/repo", 7);
+                service.refreshPullRequestDetailFromRemote("owner/repo", 7);
             }
             catch (Throwable error) {
                 failure.compareAndSet(null, error);
@@ -3536,10 +3536,10 @@ class TestPullRequestService
         Thread second = Thread.ofVirtual().start(() -> {
             try {
                 if (opened) {
-                    service.refreshOpenedPullRequestDetailFromGitHub("owner/repo", 7);
+                    service.refreshOpenedPullRequestDetailFromRemote("owner/repo", 7);
                 }
                 else {
-                    service.refreshPullRequestDetailFromGitHub("Owner/Repo", 7);
+                    service.refreshPullRequestDetailFromRemote("Owner/Repo", 7);
                 }
             }
             catch (Throwable error) {

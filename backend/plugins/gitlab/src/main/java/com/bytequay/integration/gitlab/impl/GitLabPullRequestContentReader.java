@@ -16,7 +16,6 @@ package com.bytequay.integration.gitlab.impl;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrDiffEtags;
 import com.bytequay.core.domain.PrRawDetail;
@@ -26,6 +25,7 @@ import com.bytequay.core.domain.PrTimelineComment;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestCheckLog;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.StoredPrDetail;
@@ -95,7 +95,7 @@ public final class GitLabPullRequestContentReader
     }
 
     @Override
-    public GitHubPullRequestIdentity identity(HostingTarget target, int number)
+    public PullRequestIdentity identity(HostingTarget target, int number)
     {
         GitLabMergeRequestResponse request = get(target.access(), mergeRequestPath(target, number), GitLabMergeRequestResponse.class);
         if (!Long.valueOf(number).equals(request.iid()) || !target.repository().remoteId().equals(String.valueOf(request.targetProjectId()))) {
@@ -109,14 +109,14 @@ public final class GitLabPullRequestContentReader
         RepoRef targetRepository = repositoryRef(target.repository().fullPath());
         return mapped("merge request", () -> {
             String url = HostingUrls.requireWithinBase(URI.create(request.webUrl()), target.access().server().webBaseUrl()).toASCIIString();
-            GitHubPullRequestIdentity.State state = GitHubPullRequestIdentity.State.valueOf(request.requestState().toUpperCase(Locale.ROOT));
-            return new GitHubPullRequestIdentity(PullRequestRef.of(targetRepository.owner(), targetRepository.repo(), number), url, repositoryRef(source.pathWithNamespace()),
+            PullRequestIdentity.State state = PullRequestIdentity.State.valueOf(request.requestState().toUpperCase(Locale.ROOT));
+            return new PullRequestIdentity(PullRequestRef.of(targetRepository.owner(), targetRepository.repo(), number), url, repositoryRef(source.pathWithNamespace()),
                     request.sourceBranch(), request.sha(), targetRepository, request.targetBranch(), refs.startSha(), state, request.isDraft(), request.author().username());
         });
     }
 
     @Override
-    public List<GitHubPullRequestIdentity> identitiesByHead(HostingTarget target, RepoRef sourceRepository, String branch)
+    public List<PullRequestIdentity> identitiesByHead(HostingTarget target, RepoRef sourceRepository, String branch)
     {
         Project source = get(target.access(), "projects/" + encode(sourceRepository.fullName()), Project.class);
         String path = projectPath(target) + "/merge_requests?scope=all&state=all&source_branch=" + encode(branch);

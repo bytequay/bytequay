@@ -58,7 +58,7 @@ import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.core.ci.CiAutofixAttempt.CiResult;
 import com.bytequay.core.ci.CiAutofixRun;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
@@ -279,9 +279,9 @@ class TestCiAutofixEndToEnd
         AtomicBoolean draft = new AtomicBoolean(true);
         AtomicReference<String> initialPublishedHead = new AtomicReference<>();
         Supplier<String> remoteHead = () -> E2eGitRepository.git(repository.worktree(), "--git-dir=" + repository.bareRemote(), "rev-parse", "refs/heads/" + branch);
-        Supplier<GitHubPullRequestIdentity> identity = () -> new GitHubPullRequestIdentity(
+        Supplier<PullRequestIdentity> identity = () -> new PullRequestIdentity(
                 pr, "https://github.com/" + pr.fullName(), repo, branch, remoteHead.get(), repo, E2eGitRepository.BASE_REF,
-                repository.baseSha(), GitHubPullRequestIdentity.State.OPEN, draft.get(), "author");
+                repository.baseSha(), PullRequestIdentity.State.OPEN, draft.get(), "author");
         when(gh.findBinary()).thenReturn(Optional.of("/fixture/gh"));
         when(gh.readToken()).thenReturn("test-token");
         when(publicationReads.fetchPullRequestIdentities("test-token", repo, repo, branch))

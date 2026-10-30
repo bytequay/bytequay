@@ -19,7 +19,7 @@ import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
-import com.bytequay.core.domain.GitHubIssuePreview;
+import com.bytequay.core.domain.HostedIssuePreview;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
@@ -50,7 +50,7 @@ class TestRepoControllerIssuePreview
     {
         when(credentials.resolveGitHubToken()).thenReturn("pat");
         when(gitHub.fetchIssuePreview("pat", RepoRef.of("owner", "repository"), 30611))
-                .thenReturn(new GitHubIssuePreview(
+                .thenReturn(new HostedIssuePreview(
                         "Kerberos container times out", "Details", "alice", ImmutableList.of("bug"), Instant.parse("2026-08-21T00:00:00Z"), "closed", false,
                         "https://github.com/owner/repository/issues/30611", ""));
 

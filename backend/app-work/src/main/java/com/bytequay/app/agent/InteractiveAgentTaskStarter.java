@@ -26,7 +26,7 @@ import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workitem.WorkItemService;
-import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hasher;
@@ -97,7 +97,7 @@ public class InteractiveAgentTaskStarter
                 .orElseGet(() -> create(start, Optional.empty(), Optional.empty()));
     }
 
-    private AgentTask create(InteractiveTaskStart start, Optional<GitHubIssueSource> source, Optional<JiraIssueSource> jiraSource)
+    private AgentTask create(InteractiveTaskStart start, Optional<HostedIssueSource> source, Optional<JiraIssueSource> jiraSource)
     {
         TaskId taskId = start.taskId();
         List<StoreAgentAttachmentCommand> uploads = start.uploads();

@@ -93,7 +93,7 @@ import com.bytequay.core.ci.CiAutofixRun.PushJournal;
 import com.bytequay.core.ci.CiAutofixRun.RerunJournal;
 import com.bytequay.core.ci.CiAutofixRun.Status;
 import com.bytequay.core.ci.CiAutofixRunId;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
@@ -2161,8 +2161,8 @@ class TestCiAutofixService
 
     private GitHubDeliveryChecks deliveryChecks(boolean draft, List<String> waiting, List<String> failures)
     {
-        GitHubPullRequestIdentity published = publishedPr();
-        GitHubPullRequestIdentity current = new GitHubPullRequestIdentity(published.pullRequest(), published.url(), published.headRepository(), published.headBranch(),
+        PullRequestIdentity published = publishedPr();
+        PullRequestIdentity current = new PullRequestIdentity(published.pullRequest(), published.url(), published.headRepository(), published.headBranch(),
                 store.run.expectedRemoteHead(), published.baseRepository(), published.baseBranch(), published.baseSha(), published.state(), draft, published.author());
         return new GitHubDeliveryChecks("pr-node", current, waiting, failures);
     }
@@ -2281,12 +2281,12 @@ class TestCiAutofixService
         reserveParent(parent);
         assertThatThrownBy(() -> service.startDevelopment(startCommand("future-owned"), parent.id(), publishedPr(), NOW.plusSeconds(1)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("future");
-        GitHubPullRequestIdentity expected = publishedPr();
-        GitHubPullRequestIdentity moved = new GitHubPullRequestIdentity(expected.pullRequest(), expected.url(), expected.headRepository(), expected.headBranch(),
+        PullRequestIdentity expected = publishedPr();
+        PullRequestIdentity moved = new PullRequestIdentity(expected.pullRequest(), expected.url(), expected.headRepository(), expected.headBranch(),
                 FIXED_HEAD, expected.baseRepository(), expected.baseBranch(), expected.baseSha(), expected.state(), expected.draft(), expected.author());
         assertThatThrownBy(() -> service.startDevelopment(startCommand("moved-owned"), parent.id(), moved, NOW))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("changed");
-        GitHubPullRequestIdentity differentFork = new GitHubPullRequestIdentity(expected.pullRequest(), expected.url(), FORK, expected.headBranch(),
+        PullRequestIdentity differentFork = new PullRequestIdentity(expected.pullRequest(), expected.url(), FORK, expected.headBranch(),
                 expected.headSha(), expected.baseRepository(), expected.baseBranch(), expected.baseSha(), expected.state(), expected.draft(), expected.author());
         assertThatThrownBy(() -> service.startDevelopment(startCommand("fork-owned"), parent.id(), differentFork, NOW))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("changed");
@@ -2297,7 +2297,7 @@ class TestCiAutofixService
     @Test
     void deliveryCannotAdoptARetargetedPullRequestDuringCiAdmission()
     {
-        GitHubPullRequestIdentity expected = publishedPr();
+        PullRequestIdentity expected = publishedPr();
         when(gitHub.inspect(any())).thenReturn(changedScopeSnapshot(true));
 
         assertThatThrownBy(() -> service.start(startCommand("delivery-retarget"), expected))
@@ -2310,7 +2310,7 @@ class TestCiAutofixService
     @Test
     void deliveryStartsCiForItsVerifiedPullRequest()
     {
-        GitHubPullRequestIdentity expected = publishedPr();
+        PullRequestIdentity expected = publishedPr();
         CiAutofixRun run = service.start(startCommand("delivery"), expected);
 
         assertThat(run.scope().baseRef()).isEqualTo(snapshot.baseRef());
@@ -2376,11 +2376,11 @@ class TestCiAutofixService
                 new AgentEventPayload.UserMessage(text, ImmutableList.of(), deliveryKind));
     }
 
-    private GitHubPullRequestIdentity publishedPr()
+    private PullRequestIdentity publishedPr()
     {
         RepoRef repository = RepoRef.of(PULL_REQUEST.owner(), PULL_REQUEST.repo());
-        return new GitHubPullRequestIdentity(PULL_REQUEST, snapshot.url(), repository, snapshot.headRef(), HEAD, repository,
-                snapshot.baseRef(), snapshot.baseSha(), GitHubPullRequestIdentity.State.OPEN, true, snapshot.author());
+        return new PullRequestIdentity(PULL_REQUEST, snapshot.url(), repository, snapshot.headRef(), HEAD, repository,
+                snapshot.baseRef(), snapshot.baseSha(), PullRequestIdentity.State.OPEN, true, snapshot.author());
     }
 
     private CiAutofixService service(InMemoryCiAutofixStore requestedStore)
@@ -2509,11 +2509,11 @@ class TestCiAutofixService
                 snapshot.baseRef(), snapshot.baseSha(), snapshot.url(), snapshot.workflowRuns());
     }
 
-    private static GitHubPullRequestIdentity identity(CiHeadSnapshot head)
+    private static PullRequestIdentity identity(CiHeadSnapshot head)
     {
-        return new GitHubPullRequestIdentity(head.pullRequest(), head.url(), head.headRepository(), head.headRef(), head.headSha(),
+        return new PullRequestIdentity(head.pullRequest(), head.url(), head.headRepository(), head.headRef(), head.headSha(),
                 RepoRef.of(head.pullRequest().owner(), head.pullRequest().repo()), head.baseRef(), head.baseSha(),
-                head.open() ? GitHubPullRequestIdentity.State.OPEN : GitHubPullRequestIdentity.State.CLOSED, false, head.author());
+                head.open() ? PullRequestIdentity.State.OPEN : PullRequestIdentity.State.CLOSED, false, head.author());
     }
 
     private CiHeadSnapshot changedScopeSnapshot(boolean baseRetarget)

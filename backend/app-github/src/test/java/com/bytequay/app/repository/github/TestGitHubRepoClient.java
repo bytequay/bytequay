@@ -14,7 +14,7 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.agent.core.AgentConflictException;
-import com.bytequay.core.domain.GitHubIssuePreview;
+import com.bytequay.core.domain.HostedIssuePreview;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryLabel;
@@ -204,7 +204,7 @@ class TestGitHubRepoClient
                          "updated_at":"2026-08-21T00:00:00Z"}
                         """, MediaType.APPLICATION_JSON));
 
-        GitHubIssuePreview preview = client.fetchIssuePreview("pat", REPOSITORY, 30611);
+        HostedIssuePreview preview = client.fetchIssuePreview("pat", REPOSITORY, 30611);
 
         assertThat(preview.title()).isEqualTo("Kerberos container times out");
         assertThat(preview.body()).isEqualTo("Issue details");
@@ -224,7 +224,7 @@ class TestGitHubRepoClient
                          "pull_request":{"url":"https://api.github.test/repos/owner/repo/pulls/8"}}
                         """, MediaType.APPLICATION_JSON));
 
-        GitHubIssuePreview preview = client.fetchIssuePreview("pat", REPOSITORY, 8);
+        HostedIssuePreview preview = client.fetchIssuePreview("pat", REPOSITORY, 8);
 
         assertThat(preview.pullRequest()).isTrue();
         assertThat(preview.state()).isEqualTo("open");

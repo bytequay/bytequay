@@ -21,7 +21,7 @@ import com.bytequay.app.repository.github.actions.CiRerunResult;
 import com.bytequay.app.repository.github.actions.GitHubActionsClient;
 import com.bytequay.app.repository.github.actions.ReadCiLogQuery;
 import com.bytequay.app.repository.github.actions.RerunFailedJobsCommand;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
@@ -123,13 +123,13 @@ final class ScriptedGitHubActionsClient
     }
 
     /** The scripted head as the pull request read reports it, which is not a CI inspection. */
-    synchronized GitHubPullRequestIdentity identity(PullRequestRef pullRequest)
+    synchronized PullRequestIdentity identity(PullRequestRef pullRequest)
     {
         CiHeadSnapshot snapshot = snapshots.get(pullRequest);
         checkState(snapshot != null, "No GitHub Actions snapshot scripted for " + pullRequest.fullName());
         RepoRef base = RepoRef.of(pullRequest.owner(), pullRequest.repo());
-        return new GitHubPullRequestIdentity(pullRequest, snapshot.url(), snapshot.headRepository(), snapshot.headRef(), snapshot.headSha(), base, snapshot.baseRef(),
-                snapshot.baseSha(), snapshot.open() ? GitHubPullRequestIdentity.State.OPEN : GitHubPullRequestIdentity.State.CLOSED, false, snapshot.author());
+        return new PullRequestIdentity(pullRequest, snapshot.url(), snapshot.headRepository(), snapshot.headRef(), snapshot.headSha(), base, snapshot.baseRef(),
+                snapshot.baseSha(), snapshot.open() ? PullRequestIdentity.State.OPEN : PullRequestIdentity.State.CLOSED, false, snapshot.author());
     }
 
     @Override

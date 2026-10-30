@@ -15,8 +15,8 @@ package com.bytequay.app.repository.github;
 
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.app.repository.github.CommitAvatarSnapshot.CommitAvatar;
-import com.bytequay.core.domain.GitHubIssuePreview;
-import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.HostedIssuePreview;
+import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryIssue;
@@ -248,40 +248,40 @@ public class GitHubRepoClient
                 Math.max(0, value.comments()), value.createdAt(), value.updatedAt());
     }
 
-    public GitHubIssueSource publishWorkItem(String pat, RepoRef repo, String title, String body)
+    public HostedIssueSource publishWorkItem(String pat, RepoRef repo, String title, String body)
     {
         checkArgument(!title.isBlank() && title.length() <= 256, "GitHub titles must contain 1–256 characters");
         return translating(() -> {
             IssueResponse issue = requireBody(send(gitHubRestClient, HttpMethod.POST, pat, ImmutableMap.of("title", title, "body", body),
                     "/repos/{owner}/{repo}/issues", repo.owner(), repo.repo()).body(IssueResponse.class), "Empty issue creation response from GitHub");
-            return new GitHubIssueSource("github.com", issue.id(), repo.fullName(), issue.number(),
+            return new HostedIssueSource("github.com", issue.id(), repo.fullName(), issue.number(),
                     "https://github.com/" + repo.fullName() + "/issues/" + issue.number(), issue.title(), Optional.ofNullable(issue.body()).orElse(body), issue.updatedAt());
         });
     }
 
-    public GitHubIssueSource fetchOpenIssueSource(String pat, RepoRef repo, int issueNumber)
+    public HostedIssueSource fetchOpenIssueSource(String pat, RepoRef repo, int issueNumber)
     {
         return fetchIssueSource(pat, repo, issueNumber, true);
     }
 
-    public GitHubIssueSource fetchIssueSource(String pat, RepoRef repo, int issueNumber)
+    public HostedIssueSource fetchIssueSource(String pat, RepoRef repo, int issueNumber)
     {
         return fetchIssueSource(pat, repo, issueNumber, false);
     }
 
-    private GitHubIssueSource fetchIssueSource(String pat, RepoRef repo, int issueNumber, boolean requireOpen)
+    private HostedIssueSource fetchIssueSource(String pat, RepoRef repo, int issueNumber, boolean requireOpen)
     {
         IssueResponse issue = readIssue(pat, repo, issueNumber);
         if (requireOpen && !"open".equals(issue.state()) || issue.pullRequest() != null || issue.number() != issueNumber) {
             throw new AgentConflictException(requireOpen ? "This source is not an open issue. Refresh issues before starting development."
                     : "This source is not a GitHub issue.");
         }
-        return new GitHubIssueSource("github.com", issue.id(), repo.fullName(), issueNumber,
+        return new HostedIssueSource("github.com", issue.id(), repo.fullName(), issueNumber,
                 "https://github.com/" + repo.fullName() + "/issues/" + issueNumber,
                 issue.title(), Optional.ofNullable(issue.body()).orElse(""), issue.updatedAt());
     }
 
-    public GitHubIssuePreview fetchIssuePreview(String pat, RepoRef repo, int issueNumber)
+    public HostedIssuePreview fetchIssuePreview(String pat, RepoRef repo, int issueNumber)
     {
         checkArgument(issueNumber > 0, "issueNumber must be positive");
         return translating(() -> {
@@ -291,7 +291,7 @@ public class GitHubRepoClient
                     .filter(value -> value.title() != null && value.updatedAt() != null)
                     .filter(value -> "open".equals(value.state()) || "closed".equals(value.state()))
                     .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(502), "Incomplete issue response from GitHub"));
-            return new GitHubIssuePreview(
+            return new HostedIssuePreview(
                     issue.title(),
                     Optional.ofNullable(issue.body()).orElse(""),
                     Optional.ofNullable(issue.user()).map(GitHubUser::login).orElse("unknown"),

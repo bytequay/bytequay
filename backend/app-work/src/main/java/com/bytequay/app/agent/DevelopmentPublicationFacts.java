@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.agent;
 
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -22,7 +22,7 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 /** Empty remote HEAD proves absence; failed or incomplete reads throw instead. */
-public record DevelopmentPublicationFacts(Optional<String> remoteHeadSha, List<GitHubPullRequestIdentity> matchingPullRequests)
+public record DevelopmentPublicationFacts(Optional<String> remoteHeadSha, List<PullRequestIdentity> matchingPullRequests)
 {
     public DevelopmentPublicationFacts
     {

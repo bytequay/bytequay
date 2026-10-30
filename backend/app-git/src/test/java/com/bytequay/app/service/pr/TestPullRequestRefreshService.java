@@ -70,7 +70,7 @@ class TestPullRequestRefreshService
     void directDetailRefreshReturnsTheRefreshedResultWithoutRereading()
     {
         PullRequestRefreshService service = service(pullRequests);
-        when(pullRequests.refreshPullRequestDetailFromGitHub(route))
+        when(pullRequests.refreshPullRequestDetailFromRemote(route))
                 .thenReturn(new PullRequestService.DetailRefresh(false, detail()));
 
         PullRequestDetailRefresh result = service.refreshDetail("owner/repo", 7);
@@ -79,7 +79,7 @@ class TestPullRequestRefreshService
         assertThat(result.status().ciStatus()).isEqualTo(PullRequestDetail.CiStatus.PASSING);
 
         verify(pullRequests).prepareRead("owner/repo", 7);
-        verify(pullRequests).refreshPullRequestDetailFromGitHub(route);
+        verify(pullRequests).refreshPullRequestDetailFromRemote(route);
         verify(pullRequests).findHeadSha(route);
     }
 
@@ -90,30 +90,30 @@ class TestPullRequestRefreshService
         List<Object> published = new ArrayList<>();
         PullRequestRefreshService service = new PullRequestRefreshService(pullRequests, credentials(credential("token-a", "alice")), noWorkspaces(), published::add);
 
-        when(pullRequests.refreshPullRequestDetailFromGitHub(route, Duration.ofMinutes(10)))
+        when(pullRequests.refreshPullRequestDetailFromRemote(route, Duration.ofMinutes(10)))
                 .thenReturn(new PullRequestService.DetailRefresh(false, detail()));
 
         service.warmDetail("workspace", "owner/repo", 7);
 
         verify(pullRequests).prepareRead("workspace", "owner/repo", 7);
 
-        verify(pullRequests).refreshPullRequestDetailFromGitHub(route, Duration.ofMinutes(10));
-        verify(pullRequests, never()).refreshPullRequestDetailFromGitHub(route);
+        verify(pullRequests).refreshPullRequestDetailFromRemote(route, Duration.ofMinutes(10));
+        verify(pullRequests, never()).refreshPullRequestDetailFromRemote(route);
         assertThat(published).containsExactly(new PullRequestDetailRefreshed(12L, "owner/repo", 7, Optional.of("head")));
     }
 
     @Test
     void openingReturnsFullDiscussionEvenWhenAnotherViewAlreadyRefreshedTheCache()
     {
-        when(pullRequests.refreshOpenedPullRequestDetailFromGitHub(route))
+        when(pullRequests.refreshOpenedPullRequestDetailFromRemote(route))
                 .thenReturn(new PullRequestService.DetailRefresh(false, detail()));
 
         PullRequestDetailRefresh result = service(pullRequests).refreshOpenedDetail("owner/repo", 7);
 
         assertThat(result.full()).isTrue();
         assertThat(result.detail()).isEqualTo(detail());
-        verify(pullRequests).refreshOpenedPullRequestDetailFromGitHub(route);
-        verify(pullRequests, never()).refreshAllPullRequestDetailFromGitHub(route);
+        verify(pullRequests).refreshOpenedPullRequestDetailFromRemote(route);
+        verify(pullRequests, never()).refreshAllPullRequestDetailFromRemote(route);
     }
 
     @Test
@@ -129,7 +129,7 @@ class TestPullRequestRefreshService
 
         InOrder order = inOrder(pullRequests);
         order.verify(pullRequests).prepareRead("owner/repo", 7);
-        order.verify(pullRequests).refreshPullRequestDiffFromGitHub(route, "base", "head");
+        order.verify(pullRequests).refreshPullRequestDiffFromRemote(route, "base", "head");
         order.verify(pullRequests).getPullRequestDiffFiles(route, "base", "head");
     }
 

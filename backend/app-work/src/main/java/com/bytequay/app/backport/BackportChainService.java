@@ -49,7 +49,7 @@ import com.bytequay.core.cherrypick.CherryPickExecutionStore;
 import com.bytequay.core.cherrypick.CherryPickItem;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixStore;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingCapabilities;
@@ -253,11 +253,11 @@ public class BackportChainService
                     .orElseGet(() -> resolveDestination(request.sourcePullRequest().orElseThrow().workspaceId())));
             Optional<PullRequestRef> sourcePr = request.sourcePullRequest().map(value -> PullRequestRef.of(
                     sourceRoute.repository().owner(), sourceRoute.repository().repo(), value.number()));
-            Optional<GitHubPullRequestIdentity> identity = sourcePr.map(pr -> identity(sourceRoute, pr));
+            Optional<PullRequestIdentity> identity = sourcePr.map(pr -> identity(sourceRoute, pr));
             identity.ifPresent(pr -> {
                 checkArgument(pr.pullRequest().equals(sourcePr.orElseThrow()) && pr.baseRepository().equals(sourceRoute.repository())
                         && pr.baseBranch().equals(sourceRoute.branch()), "Source PR does not match the selected workspace and branch");
-                checkArgument(pr.state() != GitHubPullRequestIdentity.State.CLOSED, "Source PR was closed without merging");
+                checkArgument(pr.state() != PullRequestIdentity.State.CLOSED, "Source PR was closed without merging");
             });
             List<Route> earlier = previous.map(chain -> chain.hops().stream().map(Hop::route).collect(toImmutableList())).orElse(ImmutableList.of());
             List<Hop> next = newHops(sourceRoute, earlier, request.destinations(), parentIndices);
@@ -265,7 +265,7 @@ public class BackportChainService
             if (previous.isPresent()) {
                 return chains.save(previous.orElseThrow().append(authority, next, clock.instant()));
             }
-            String branch = identity.map(GitHubPullRequestIdentity::headBranch).orElseGet(() -> source.orElseThrow().taskWorktree()
+            String branch = identity.map(PullRequestIdentity::headBranch).orElseGet(() -> source.orElseThrow().taskWorktree()
                     .orElseThrow(() -> new IllegalArgumentException("Source has no managed branch")).generatedBranch());
             return chains.createOrGet(new BackportChain(id, owner.workspaceId().orElseThrow(), Optional.of(taskId), request.sourceTaskId(), branch,
                     sourceRoute, sourcePr, false, ImmutableList.of(authority), next, State.ACTIVE, Optional.empty(), 0, clock.instant(), clock.instant()));
@@ -288,10 +288,10 @@ public class BackportChainService
             }
             Route sourceRoute = route(request.sourceWorkspaceId());
             PullRequestRef sourcePr = PullRequestRef.of(sourceRoute.repository().owner(), sourceRoute.repository().repo(), request.number());
-            GitHubPullRequestIdentity pr = identity(sourceRoute, sourcePr);
+            PullRequestIdentity pr = identity(sourceRoute, sourcePr);
             checkArgument(pr.pullRequest().equals(sourcePr) && pr.baseRepository().equals(sourceRoute.repository()) && pr.baseBranch().equals(sourceRoute.branch()),
                     "Backports start from a pull request into %s %s", sourceRoute.repository().fullName(), sourceRoute.branch());
-            checkArgument(pr.state() != GitHubPullRequestIdentity.State.CLOSED, "Source PR was closed without merging");
+            checkArgument(pr.state() != PullRequestIdentity.State.CLOSED, "Source PR was closed without merging");
             List<Hop> hops = newHops(sourceRoute, ImmutableList.of(), request.destinations(), request.sourceHops());
             Acceptance authority = new Acceptance("commits", Optional.empty(), request.destinations(), request.sourceHops());
             return chains.createOrGet(new BackportChain(id, workspaceId, Optional.empty(), Optional.empty(), pr.headBranch(), sourceRoute, Optional.of(sourcePr), false,
@@ -499,7 +499,7 @@ public class BackportChainService
             }
             var pr = matches.getFirst();
             verifyPr(chain.source(), chain.sourceBranch(), pr);
-            checkState(pr.state() != GitHubPullRequestIdentity.State.CLOSED, "Source PR was closed without merging");
+            checkState(pr.state() != PullRequestIdentity.State.CLOSED, "Source PR was closed without merging");
             chains.save(chain.withSource(pr.pullRequest(), clock.instant()));
             return;
         }
@@ -522,8 +522,8 @@ public class BackportChainService
                 else {
                     verifyPr(source, branch, pr);
                 }
-                checkState(pr.state() != GitHubPullRequestIdentity.State.CLOSED, "Source PR was closed without merging");
-                if (pr.state() != GitHubPullRequestIdentity.State.MERGED) {
+                checkState(pr.state() != PullRequestIdentity.State.CLOSED, "Source PR was closed without merging");
+                if (pr.state() != PullRequestIdentity.State.MERGED) {
                     continue;
                 }
                 if (hop.sourceHop() < 0 && !chain.sourceMerged()) {
@@ -589,8 +589,8 @@ public class BackportChainService
             }
             var pr = identity(hop.route(), hop.pullRequest().orElseThrow());
             verifyPr(hop.route(), execution.workspace().workBranch(), pr);
-            checkState(pr.state() != GitHubPullRequestIdentity.State.CLOSED, "Backport PR was closed without merging");
-            if (pr.state() == GitHubPullRequestIdentity.State.MERGED) {
+            checkState(pr.state() != PullRequestIdentity.State.CLOSED, "Backport PR was closed without merging");
+            if (pr.state() == PullRequestIdentity.State.MERGED) {
                 chains.save(chain.withHop(index, hop.finish(false), clock.instant()));
                 return;
             }
@@ -605,7 +605,7 @@ public class BackportChainService
         }
     }
 
-    private GitHubPullRequestIdentity identity(Route route, PullRequestRef pullRequest)
+    private PullRequestIdentity identity(Route route, PullRequestRef pullRequest)
     {
         return read(route, selected -> pullRequests.fetchPullRequestIdentity(selected.githubToken(), canonical(selected, pullRequest)));
     }
@@ -663,7 +663,7 @@ public class BackportChainService
         checkState(hop.executionId().isEmpty() || hop.executionId().orElseThrow().equals(execution.id().toString()), "Backport execution identity changed");
     }
 
-    private static void verifyPr(Route route, String branch, GitHubPullRequestIdentity pr)
+    private static void verifyPr(Route route, String branch, PullRequestIdentity pr)
     {
         checkState(pr.baseRepository().equals(route.repository()) && pr.baseBranch().equals(route.branch())
                         && pr.headRepository().equals(route.pushRepository()) && pr.headBranch().equals(branch),

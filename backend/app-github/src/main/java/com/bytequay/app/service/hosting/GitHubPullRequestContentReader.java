@@ -19,7 +19,6 @@ import com.bytequay.app.repository.github.GitHubNotificationClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.actions.CiHeadSnapshot;
 import com.bytequay.core.domain.DiffFileContent;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrDiffEtags;
 import com.bytequay.core.domain.PrRawDetail;
@@ -28,6 +27,7 @@ import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestCheckLog;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.StoredPrDetail;
@@ -112,13 +112,13 @@ public class GitHubPullRequestContentReader
     }
 
     @Override
-    public GitHubPullRequestIdentity identity(HostingTarget target, int number)
+    public PullRequestIdentity identity(HostingTarget target, int number)
     {
         return gitHub.fetchPullRequestIdentity(target.access().token(), ref(target, number));
     }
 
     @Override
-    public List<GitHubPullRequestIdentity> identitiesByHead(HostingTarget target, RepoRef sourceRepository, String branch)
+    public List<PullRequestIdentity> identitiesByHead(HostingTarget target, RepoRef sourceRepository, String branch)
     {
         PullRequestRef ref = ref(target, 1);
         return gitHub.fetchPullRequestIdentities(target.access().token(), RepoRef.of(ref.owner(), ref.repo()), sourceRepository, branch);

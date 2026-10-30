@@ -14,9 +14,9 @@
 package com.bytequay.app.workitem;
 
 import com.bytequay.app.jira.JiraService;
-import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
+import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.IssueEpic;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.RepoRef;
@@ -187,7 +187,7 @@ class TestWorkItemCatalog
         assertThatThrownBy(() -> catalog.read("workspace", "other")).hasMessageContaining("not found");
         verify(store, never()).insert(any());
 
-        WorkItemLink link = GoalReferenceReader.issueLink(new GitHubIssueSource("github.com", 10, "org/repo", 1, issue.htmlUrl(), issue.title(), issue.body(), now), now);
+        WorkItemLink link = GoalReferenceReader.issueLink(new HostedIssueSource("github.com", 10, "org/repo", 1, issue.htmlUrl(), issue.title(), issue.body(), now), now);
         WorkItem published = new WorkItem(local.id(), local.workspaceId(), local.title(), local.kind(), local.acceptanceCriteria(),
                 local.completionRule(), local.state(), 1, ImmutableList.of(link), local.history(), now, now, local.priority(),
                 ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());

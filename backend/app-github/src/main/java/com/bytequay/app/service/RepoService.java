@@ -18,7 +18,7 @@ import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.ContributionCalendar;
-import com.bytequay.core.domain.GitHubIssuePreview;
+import com.bytequay.core.domain.HostedIssuePreview;
 import com.bytequay.core.domain.RecentEvent;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserCommitSummary;
@@ -87,7 +87,7 @@ public class RepoService
         return accounts.fetchUserProfile(credentialService.resolveGitHubToken(), login);
     }
 
-    public GitHubIssuePreview getIssuePreview(String owner, String repo, int number)
+    public HostedIssuePreview getIssuePreview(String owner, String repo, int number)
     {
         checkText(owner, "owner");
         checkText(repo, "repo");

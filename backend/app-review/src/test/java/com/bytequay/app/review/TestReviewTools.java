@@ -42,7 +42,7 @@ import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.DiffFile;
-import com.bytequay.core.domain.GitHubIssuePreview;
+import com.bytequay.core.domain.HostedIssuePreview;
 import com.bytequay.core.domain.PrTimelineComment;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
@@ -891,7 +891,7 @@ class TestReviewTools
     void uncachedIssueUsesOnlyTheExactSelectedPreview()
     {
         when(issues.preview(WORKSPACE_ID, 42))
-                .thenReturn(new GitHubIssuePreview("Closed issue", "Retained limitation", "alice", ImmutableList.of("bug"), NOW, "closed", false,
+                .thenReturn(new HostedIssuePreview("Closed issue", "Retained limitation", "alice", ImmutableList.of("bug"), NOW, "closed", false,
                         "https://github.com/acme/widgets/issues/42", ""));
 
         JsonNode context = call("review_get_context", ImmutableMap.of("kind", "issue", "number", 42));

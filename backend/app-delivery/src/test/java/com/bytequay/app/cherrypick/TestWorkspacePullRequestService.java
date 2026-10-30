@@ -38,8 +38,8 @@ import com.bytequay.core.cherrypick.CherryPickItem.Disposition;
 import com.bytequay.core.cherrypick.CherryPickLifecycle.Stage;
 import com.bytequay.core.domain.CreatedPullRequest;
 import com.bytequay.core.domain.FetchedPullRequest;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
 import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
@@ -265,8 +265,8 @@ class TestWorkspacePullRequestService
         var repo = fixture.workspace().monitoredRepository();
         when(fixture.git().remoteBranchSha(any(), any())).thenReturn(Optional.of(PARENT_SHA));
         when(fixture.reads().fetchPullRequestIdentities(any(), any(), any(), any())).thenReturn(ImmutableList.of(
-                new GitHubPullRequestIdentity(PullRequestRef.of(repo.owner(), repo.repo(), 12), "https://github.com/owner/project/pull/12",
-                        repo, WORK_BRANCH, PARENT_SHA, repo, "main", SHA, GitHubPullRequestIdentity.State.OPEN, false, "owner")));
+                new PullRequestIdentity(PullRequestRef.of(repo.owner(), repo.repo(), 12), "https://github.com/owner/project/pull/12",
+                        repo, WORK_BRANCH, PARENT_SHA, repo, "main", SHA, PullRequestIdentity.State.OPEN, false, "owner")));
         when(fixture.reads().fetchPullRequestsByHead(any(), any(), any())).thenReturn(ImmutableList.of(
                 new FetchedPullRequest(900L, repo.fullName(), 12, "Backport", "owner", "https://github.com/owner/project/pull/12", NOW, NOW,
                         PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(), false, "open", null, null, ImmutableList.of(), true, "clean", WORK_BRANCH)));
@@ -291,9 +291,9 @@ class TestWorkspacePullRequestService
         verifyNoInteractions(fixture.ciAutofix());
         saved.set(chain);
         var repo = fixture.workspace().monitoredRepository();
-        when(fixture.reads().fetchPullRequestIdentity(any(), any())).thenReturn(new GitHubPullRequestIdentity(
+        when(fixture.reads().fetchPullRequestIdentity(any(), any())).thenReturn(new PullRequestIdentity(
                 PullRequestRef.of(repo.owner(), repo.repo(), 12), "https://github.com/owner/project/pull/12",
-                repo, WORK_BRANCH, PARENT_SHA, repo, "main", SHA, GitHubPullRequestIdentity.State.MERGED, false, "owner"));
+                repo, WORK_BRANCH, PARENT_SHA, repo, "main", SHA, PullRequestIdentity.State.MERGED, false, "owner"));
         assertThat(fixture.service().deliverChain(chain.id(), 0, true).number()).isEqualTo(12);
         verify(fixture.pullRequests()).createPullRequest(any(), any(), any(), any(), any(), any(), anyBoolean());
         verifyNoInteractions(fixture.ciAutofix());
@@ -322,13 +322,13 @@ class TestWorkspacePullRequestService
         assertThatThrownBy(() -> fixture.service().publish(execution.id())).hasMessage("Lost publish response");
         when(fixture.reads().fetchPullRequestsByHead(any(), any(), any())).thenReturn(ImmutableList.of(publishedRow(fixture)));
         RepoRef repository = fixture.workspace().selectedRepository();
-        when(fixture.reads().fetchPullRequestIdentity(any(), any())).thenReturn(new GitHubPullRequestIdentity(
+        when(fixture.reads().fetchPullRequestIdentity(any(), any())).thenReturn(new PullRequestIdentity(
                 PullRequestRef.of(repository.owner(), repository.repo(), 12), "https://github.com/owner/project/pull/12",
                 change.equals("head-repository") ? RepoRef.of("another", "project") : repository,
                 change.equals("head-branch") ? "another-branch" : WORK_BRANCH,
                 change.equals("head") ? SHA : PARENT_SHA,
                 change.equals("base-repository") ? RepoRef.of("another", "project") : repository,
-                change.equals("base") ? "main" : "release", SHA, GitHubPullRequestIdentity.State.OPEN, false, "owner"));
+                change.equals("base") ? "main" : "release", SHA, PullRequestIdentity.State.OPEN, false, "owner"));
 
         assertThatThrownBy(() -> fixture.service().publish(execution.id()))
                 .hasMessageContaining(change.equals("head") ? "published cherry-pick head" : "retargeted");
@@ -366,9 +366,9 @@ class TestWorkspacePullRequestService
         CherryPickExecution execution = fixture.executions().save(publishing(fixture)
                 .recordPush("origin", WORK_BRANCH, PARENT_SHA, NOW).recordPullRequest(900, 12, "https://github.com/owner/project/pull/12", NOW));
         RepoRef repository = fixture.workspace().selectedRepository();
-        when(fixture.reads().fetchPullRequestIdentity(any(), any())).thenReturn(new GitHubPullRequestIdentity(
+        when(fixture.reads().fetchPullRequestIdentity(any(), any())).thenReturn(new PullRequestIdentity(
                 PullRequestRef.of(repository.owner(), repository.repo(), 12), "https://github.com/owner/project/pull/12",
-                repository, WORK_BRANCH, PARENT_SHA, repository, "main", SHA, GitHubPullRequestIdentity.State.MERGED, false, "owner"));
+                repository, WORK_BRANCH, PARENT_SHA, repository, "main", SHA, PullRequestIdentity.State.MERGED, false, "owner"));
 
         assertThatThrownBy(() -> fixture.service().pullRequest(execution)).hasMessageContaining("retargeted");
         assertThatThrownBy(() -> fixture.service().startCi(execution, 1)).hasMessageContaining("retargeted");
@@ -386,9 +386,9 @@ class TestWorkspacePullRequestService
         CherryPickExecution execution = fixture.executions().save(publishing(fixture)
                 .recordPush("origin", WORK_BRANCH, PARENT_SHA, NOW).recordPullRequest(900, 12, "https://github.com/owner/project/pull/12", NOW));
         RepoRef repository = fixture.workspace().selectedRepository();
-        when(fixture.reads().fetchPullRequestIdentity(any(), any())).thenReturn(new GitHubPullRequestIdentity(
+        when(fixture.reads().fetchPullRequestIdentity(any(), any())).thenReturn(new PullRequestIdentity(
                 PullRequestRef.of(repository.owner(), repository.repo(), 12), "https://github.com/owner/project/pull/12",
-                repository, WORK_BRANCH, SHA, repository, "release", SHA, GitHubPullRequestIdentity.State.OPEN, false, "owner"));
+                repository, WORK_BRANCH, SHA, repository, "release", SHA, PullRequestIdentity.State.OPEN, false, "owner"));
 
         fixture.service().startCi(execution, 1);
 
@@ -402,9 +402,9 @@ class TestWorkspacePullRequestService
         CherryPickExecution execution = fixture.executions().save(publishing(fixture)
                 .recordPush("origin", WORK_BRANCH, PARENT_SHA, NOW).recordPullRequest(900, 12, "https://github.com/owner/project/pull/12", NOW));
         RepoRef repository = fixture.workspace().selectedRepository();
-        when(fixture.reads().fetchPullRequestIdentity(any(), any())).thenReturn(new GitHubPullRequestIdentity(
+        when(fixture.reads().fetchPullRequestIdentity(any(), any())).thenReturn(new PullRequestIdentity(
                 PullRequestRef.of(repository.owner(), repository.repo(), 12), "https://github.com/owner/project/pull/12",
-                repository, WORK_BRANCH, PARENT_SHA, repository, "release", SHA, GitHubPullRequestIdentity.State.MERGED, false, "owner"));
+                repository, WORK_BRANCH, PARENT_SHA, repository, "release", SHA, PullRequestIdentity.State.MERGED, false, "owner"));
         when(fixture.git().remoteBranchSha(any(), any())).thenReturn(Optional.of(PARENT_SHA));
 
         assertThat(fixture.service().withdraw(execution, false)).isEmpty();
@@ -483,11 +483,11 @@ class TestWorkspacePullRequestService
         WorkspaceRelationships relationships = mock(WorkspaceRelationships.class);
         BackportChainStore chains = mock(BackportChainStore.class);
         GitHubPullRequestReadClient reads = mock(GitHubPullRequestReadClient.class);
-        when(reads.fetchPullRequestIdentity(any(), any())).thenReturn(new GitHubPullRequestIdentity(
+        when(reads.fetchPullRequestIdentity(any(), any())).thenReturn(new PullRequestIdentity(
                 PullRequestRef.of(workspace.monitoredRepository().owner(), workspace.monitoredRepository().repo(), 12),
                 "https://github.com/" + workspace.monitoredRepository().fullName() + "/pull/12",
                 workspace.selectedRepository(), WORK_BRANCH, PARENT_SHA, workspace.monitoredRepository(), targetBranch, SHA,
-                GitHubPullRequestIdentity.State.OPEN, false, workspace.selectedRepository().owner()));
+                PullRequestIdentity.State.OPEN, false, workspace.selectedRepository().owner()));
         when(credentials.resolveGitHubToken("workspace")).thenReturn("token");
         WorkspacePullRequestService service = new WorkspacePullRequestService(
                 workspaceStore,

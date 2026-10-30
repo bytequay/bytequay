@@ -22,7 +22,7 @@ import java.time.Instant;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-class TestGitHubIssueSource
+class TestHostedIssueSource
 {
     @ParameterizedTest
     @CsvSource({
@@ -32,7 +32,7 @@ class TestGitHubIssueSource
             "https://git.example.com:8443/gitlab, group/subgroup/repo, https://git.example.com:8443/gitlab/group/subgroup/repo/-/work_items/7"})
     void acceptsIssueUrlsWithoutChangingTheirIdentity(String host, String repo, String url)
     {
-        GitHubIssueSource source = new GitHubIssueSource(host, 70, repo, 7, url, "Fix selection", "Context", Instant.EPOCH);
+        HostedIssueSource source = new HostedIssueSource(host, 70, repo, 7, url, "Fix selection", "Context", Instant.EPOCH);
 
         assertThat(source.url()).isEqualTo(url);
         assertThat(source.host()).isEqualTo(host);
@@ -50,7 +50,7 @@ class TestGitHubIssueSource
             "https://git.example.com:8443/gitlab/group/subgroup/repo/-/work_items/8"})
     void rejectsWorkItemUrlsForAnotherIdentity(String url)
     {
-        assertThatThrownBy(() -> new GitHubIssueSource("https://git.example.com:8443/gitlab", 70, "group/subgroup/repo", 7,
+        assertThatThrownBy(() -> new HostedIssueSource("https://git.example.com:8443/gitlab", 70, "group/subgroup/repo", 7,
                 url, "Fix selection", "Context", Instant.EPOCH)).isInstanceOf(IllegalArgumentException.class);
     }
 }

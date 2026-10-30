@@ -33,7 +33,7 @@ import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.DiffFile;
-import com.bytequay.core.domain.GitHubIssuePreview;
+import com.bytequay.core.domain.HostedIssuePreview;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.RepositoryIssue;
@@ -1883,7 +1883,7 @@ public class ReviewTools
                 return cachedIssue(call, cached.orElseThrow(), page);
             }
         }
-        GitHubIssuePreview preview = issues.preview(call.review().workspaceId(), number);
+        HostedIssuePreview preview = issues.preview(call.review().workspaceId(), number);
         ObjectNode node = issueNode(call, number, preview, "hosting-selected-preview",
                 "Remote " + (preview.pullRequest() ? "pull request" : "issue") + " selected preview read by ByteQuay at " + now());
         node.set("activity", objectMapper.createObjectNode().put("missing", true).put("completeness", "unavailable")
@@ -1906,7 +1906,7 @@ public class ReviewTools
             }
         }
         String provenance = "Cached open issue projection; synced at " + syncedAt.map(Instant::toString).orElse("unknown") + "; GitHub issue updated at " + issue.updatedAt();
-        GitHubIssuePreview preview = new GitHubIssuePreview(issue.title(), issue.body(), issue.author(), issue.labels(), issue.updatedAt(), "open", false,
+        HostedIssuePreview preview = new HostedIssuePreview(issue.title(), issue.body(), issue.author(), issue.labels(), issue.updatedAt(), "open", false,
                 issue.htmlUrl(), issue.authorAvatarUrl());
         ObjectNode node = issueNode(call, issue.number(), preview, "workspace-issue-cache", provenance);
         syncedAt.ifPresentOrElse(at -> node.put("projectionSyncedAt", at.toString()), () -> node.putNull("projectionSyncedAt"));
@@ -1951,7 +1951,7 @@ public class ReviewTools
         return node;
     }
 
-    private ObjectNode issueNode(Call call, int number, GitHubIssuePreview preview, String source, String provenance)
+    private ObjectNode issueNode(Call call, int number, HostedIssuePreview preview, String source, String provenance)
     {
         String excerpt = bounded(preview.body(), MAX_EXCERPT);
         String ref = registerEvidence(

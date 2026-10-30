@@ -15,8 +15,8 @@ package com.bytequay.app.workspace;
 
 import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
-import com.bytequay.core.domain.GitHubIssuePreview;
-import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.HostedIssuePreview;
+import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.RecentReason;
 import com.bytequay.core.domain.RecentTextKind;
@@ -121,7 +121,7 @@ public class WorkspaceIssueService
     }
 
     /** Reads an open or closed issue through the workspace's selected hosting account. */
-    public GitHubIssuePreview preview(String workspaceId, int issueNumber)
+    public HostedIssuePreview preview(String workspaceId, int issueNumber)
     {
         requireWorkspace(workspaces, workspaceId);
         checkArgument(issueNumber > 0, "issueNumber must be positive");
@@ -426,13 +426,13 @@ public class WorkspaceIssueService
                         ImmutableList.of(), page, pageSize, 0, false, Optional.empty()));
     }
 
-    public GitHubIssueSource source(String workspaceId, int number, boolean requireOpen)
+    public HostedIssueSource source(String workspaceId, int number, boolean requireOpen)
     {
         WorkspaceHostingRead route = hosting.captureRead(workspaceId);
         return client(route).source(route.target(), number, requireOpen);
     }
 
-    public GitHubIssueSource create(String workspaceId, String title, String body)
+    public HostedIssueSource create(String workspaceId, String title, String body)
     {
         WorkspaceHostingRead route = hosting.captureRead(workspaceId);
         return client(route).create(route.target(), title, body);

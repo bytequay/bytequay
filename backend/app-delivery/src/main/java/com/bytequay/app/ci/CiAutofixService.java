@@ -82,7 +82,7 @@ import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.ci.CiDescriptionChange;
 import com.bytequay.core.ci.CiRerunAssessment;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.rebase.BranchRebase;
@@ -270,19 +270,19 @@ public class CiAutofixService
     }
 
     /** Binds a delivery's CI run to its verified pull request route and accepted starting head. */
-    public CiAutofixRun start(StartCiAutofixCommand command, GitHubPullRequestIdentity expectedPr)
+    public CiAutofixRun start(StartCiAutofixCommand command, PullRequestIdentity expectedPr)
     {
         return start(command, Optional.empty(), Optional.of(requireNonNull(expectedPr, "expectedPr is null")));
     }
 
     /** Starts the run that watches a development task's pull request at a pushed head, keeping when the push authorized it. */
-    public CiAutofixRun startDevelopment(StartCiAutofixCommand command, TaskId parentTaskId, GitHubPullRequestIdentity expectedPr, Instant activatedAt)
+    public CiAutofixRun startDevelopment(StartCiAutofixCommand command, TaskId parentTaskId, PullRequestIdentity expectedPr, Instant activatedAt)
     {
         requireNonNull(parentTaskId, "parentTaskId is null");
         requireNonNull(expectedPr, "expectedPr is null");
         requireNonNull(activatedAt, "activatedAt is null");
         checkArgument(!activatedAt.isAfter(clock.instant()), "Development CI authorization cannot be in the future");
-        checkArgument(expectedPr.state() == GitHubPullRequestIdentity.State.OPEN, "Development CI requires an open pull request");
+        checkArgument(expectedPr.state() == PullRequestIdentity.State.OPEN, "Development CI requires an open pull request");
         ownership.requireParent(parentTaskId);
         // One run watches the task's pull request; a newer push replaces the run watching an older head.
         stopRuns(parentTaskId, run -> run.status() != Status.FINISHED && !run.startIdempotencyKey().equals(command.idempotencyKey()),
@@ -290,7 +290,7 @@ public class CiAutofixService
         return start(command, Optional.of(new DevelopmentStart(parentTaskId, activatedAt)), Optional.of(expectedPr));
     }
 
-    private CiAutofixRun start(StartCiAutofixCommand command, Optional<DevelopmentStart> development, Optional<GitHubPullRequestIdentity> expectedPr)
+    private CiAutofixRun start(StartCiAutofixCommand command, Optional<DevelopmentStart> development, Optional<PullRequestIdentity> expectedPr)
     {
         validateStartCommand(command);
         Optional<CiAutofixRun> existing = store.findByIdempotencyKey(command.idempotencyKey());
@@ -621,8 +621,8 @@ public class CiAutofixService
         }
 
         // Only the head facts matter here; reading every CI job takes seconds on a large matrix, and the next poll reads them.
-        GitHubPullRequestIdentity head = pullRequestReads.fetchPullRequestIdentity(credentials.resolveGitHubToken(), run.scope().pullRequest());
-        checkArgument(head.state() == GitHubPullRequestIdentity.State.OPEN, "Pull request is not open");
+        PullRequestIdentity head = pullRequestReads.fetchPullRequestIdentity(credentials.resolveGitHubToken(), run.scope().pullRequest());
+        checkArgument(head.state() == PullRequestIdentity.State.OPEN, "Pull request is not open");
         checkArgument(head.author().equalsIgnoreCase(currentUser()), "CI Autofix is available only to the pull request author");
         if (!head.headRepository().fullName().equalsIgnoreCase(run.scope().headRepository().fullName())
                 || !head.headBranch().equals(run.scope().headRef())
@@ -1796,7 +1796,7 @@ public class CiAutofixService
         });
     }
 
-    private static void requireExpectedPullRequest(CiHeadSnapshot snapshot, GitHubPullRequestIdentity expected)
+    private static void requireExpectedPullRequest(CiHeadSnapshot snapshot, PullRequestIdentity expected)
     {
         checkArgument(snapshot.pullRequest().equals(expected.pullRequest())
                         && snapshot.pullRequest().repoFullName().equalsIgnoreCase(expected.baseRepository().fullName())
@@ -1806,7 +1806,7 @@ public class CiAutofixService
                 "The published pull request changed before CI attachment");
     }
 
-    private static void requireExpectedPullRequest(CiAutofixRun run, GitHubPullRequestIdentity expected)
+    private static void requireExpectedPullRequest(CiAutofixRun run, PullRequestIdentity expected)
     {
         checkArgument(run.scope().pullRequest().equals(expected.pullRequest())
                         && run.scope().pullRequest().repoFullName().equalsIgnoreCase(expected.baseRepository().fullName())

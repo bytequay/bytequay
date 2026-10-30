@@ -24,9 +24,9 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** The accepted issue context, retained independently of the open-issue cache. */
-public record GitHubIssueSource(String host, long issueId, String repo, int number, String url, String title, String body, Instant updatedAt)
+public record HostedIssueSource(String host, long issueId, String repo, int number, String url, String title, String body, Instant updatedAt)
 {
-    public GitHubIssueSource
+    public HostedIssueSource
     {
         requireNonNull(host, "host is null");
         requireNonNull(repo, "repo is null");

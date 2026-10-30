@@ -19,7 +19,7 @@ import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkspaceStore;
@@ -68,8 +68,8 @@ public class PullRequestConflictService
             var local = repositories.requireLocalRepository(workspace.id());
             RepoRef canonical = workspace.monitoredRepository().fullName().equalsIgnoreCase(requested.fullName())
                     ? workspace.monitoredRepository() : workspace.selectedRepository();
-            GitHubPullRequestIdentity identity = github.fetchPullRequestIdentity(credentials.resolveGitHubToken(workspace.id()), parseRef(canonical.fullName(), number));
-            if (identity.state() != GitHubPullRequestIdentity.State.OPEN) {
+            PullRequestIdentity identity = github.fetchPullRequestIdentity(credentials.resolveGitHubToken(workspace.id()), parseRef(canonical.fullName(), number));
+            if (identity.state() != PullRequestIdentity.State.OPEN) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "This pull request is no longer open. Refresh the pull request.");
             }
             if (!identity.baseRepository().fullName().equalsIgnoreCase(requested.fullName()) || !sha(identity.headSha())) {

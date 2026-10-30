@@ -33,7 +33,7 @@ import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.core.domain.CreatedPullRequest;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.hosting.RepositoryVisibility;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
@@ -241,13 +241,13 @@ public class DevelopmentFollowupCoordinator
             checkState(remote.failure().isEmpty(), "Remote baseline unavailable: %s", remote.failure().orElse(""));
             DevelopmentPublicationFacts original = remote.publication().orElseThrow(() -> new IllegalStateException("The accepted remote baseline is unavailable"));
             DevelopmentPublicationFacts publication = git.inspectPublication(baseline.worktree(), baseline.route());
-            Optional<GitHubPullRequestIdentity> originalPr = matchingPr(baseline.route(), original);
-            Optional<GitHubPullRequestIdentity> currentPr = matchingPr(baseline.route(), publication);
+            Optional<PullRequestIdentity> originalPr = matchingPr(baseline.route(), original);
+            Optional<PullRequestIdentity> currentPr = matchingPr(baseline.route(), publication);
             if (originalPr.isPresent()) {
-                checkState(currentPr.map(GitHubPullRequestIdentity::pullRequest).equals(originalPr.map(GitHubPullRequestIdentity::pullRequest)),
+                checkState(currentPr.map(PullRequestIdentity::pullRequest).equals(originalPr.map(PullRequestIdentity::pullRequest)),
                         "The task's pull request changed during development");
             }
-            if (currentPr.filter(pr -> pr.state() == GitHubPullRequestIdentity.State.MERGED).isPresent()) {
+            if (currentPr.filter(pr -> pr.state() == PullRequestIdentity.State.MERGED).isPresent()) {
                 finish(completion);
                 return;
             }
@@ -258,11 +258,11 @@ public class DevelopmentFollowupCoordinator
                 return;
             }
             boolean alreadyPublished = alreadyPushed
-                    && currentPr.map(GitHubPullRequestIdentity::headSha).filter(local.headSha()::equals).isPresent();
+                    && currentPr.map(PullRequestIdentity::headSha).filter(local.headSha()::equals).isPresent();
             if (!alreadyPublished) {
                 // An explicitly requested CLI push can finish before the generated draft-creation step.
                 checkState(alreadyPushed || publication.remoteHeadSha().equals(original.remoteHeadSha()), "The remote branch changed during development");
-                checkState(currentPr.map(GitHubPullRequestIdentity::pullRequest).equals(originalPr.map(GitHubPullRequestIdentity::pullRequest)),
+                checkState(currentPr.map(PullRequestIdentity::pullRequest).equals(originalPr.map(PullRequestIdentity::pullRequest)),
                         "The pull request changed during development");
                 if (publication.remoteHeadSha().isPresent()) {
                     // The lease replaces commits the task once held, even when a queued turn took over an earlier
@@ -289,12 +289,12 @@ public class DevelopmentFollowupCoordinator
                 DevelopmentLocalFacts after = inspectLocal(baseline);
                 checkState(after.uncommittedFileCount() == 0 && after.headSha().equals(local.headSha()), "Publication changed the verified local revision");
                 publication = git.inspectPublication(baseline.worktree(), baseline.route());
-                Optional<GitHubPullRequestIdentity> verifiedPr = matchingPr(baseline.route(), publication);
+                Optional<PullRequestIdentity> verifiedPr = matchingPr(baseline.route(), publication);
                 if (currentPr.isPresent()) {
-                    checkState(verifiedPr.map(GitHubPullRequestIdentity::pullRequest).equals(currentPr.map(GitHubPullRequestIdentity::pullRequest)),
+                    checkState(verifiedPr.map(PullRequestIdentity::pullRequest).equals(currentPr.map(PullRequestIdentity::pullRequest)),
                             "Publication replaced the task's pull request");
                 }
-                if (verifiedPr.filter(pr -> pr.state() == GitHubPullRequestIdentity.State.MERGED).isPresent()) {
+                if (verifiedPr.filter(pr -> pr.state() == PullRequestIdentity.State.MERGED).isPresent()) {
                     finish(completion);
                     return;
                 }
@@ -308,7 +308,7 @@ public class DevelopmentFollowupCoordinator
             if (automation.autoCiFix()) {
                 action = "CI Autofix";
                 checkState(owns(completion), "Development automation was stopped");
-                GitHubPullRequestIdentity publishedPr = currentPr.orElseThrow();
+                PullRequestIdentity publishedPr = currentPr.orElseThrow();
                 // CI Autofix watches the pull request beside the task, which takes messages again once this finishes.
                 ci.startDevelopment(new StartCiAutofixCommand(
                         completion.task().workspaceId().orElseThrow(),
@@ -369,19 +369,19 @@ public class DevelopmentFollowupCoordinator
         return turns.startGeneratedTurn(source.task().id(), new DevelopmentTurnOrigin(kind, source.turn().id()), prompt).toCompletableFuture().join();
     }
 
-    static Optional<GitHubPullRequestIdentity> matchingPr(DevelopmentPublicationRoute route, DevelopmentPublicationFacts facts)
+    static Optional<PullRequestIdentity> matchingPr(DevelopmentPublicationRoute route, DevelopmentPublicationFacts facts)
     {
         checkState(facts.matchingPullRequests().size() <= 1, "Several pull requests match the task branch");
-        Optional<GitHubPullRequestIdentity> found = facts.matchingPullRequests().stream().findFirst();
-        route.assignedPullRequest().ifPresent(assigned -> checkState(found.map(GitHubPullRequestIdentity::pullRequest).filter(assigned::equals).isPresent(),
+        Optional<PullRequestIdentity> found = facts.matchingPullRequests().stream().findFirst();
+        route.assignedPullRequest().ifPresent(assigned -> checkState(found.map(PullRequestIdentity::pullRequest).filter(assigned::equals).isPresent(),
                 "The assigned pull request is unavailable; no replacement will be created"));
         found.ifPresent(pr -> {
-            checkState(pr.state() != GitHubPullRequestIdentity.State.CLOSED, "The task's pull request is closed without merging");
+            checkState(pr.state() != PullRequestIdentity.State.CLOSED, "The task's pull request is closed without merging");
             checkState(pr.headRepository().equals(route.headRepository()) && pr.headBranch().equals(route.headBranch())
                     && pr.baseRepository().equals(route.baseRepository()) && pr.baseBranch().equals(route.baseBranch()),
                     "Pull request base or head does not match the accepted destination");
             // Merging may delete or advance the source branch; the PR still records the delivered result.
-            checkState(pr.state() == GitHubPullRequestIdentity.State.MERGED || facts.remoteHeadSha().filter(pr.headSha()::equals).isPresent(),
+            checkState(pr.state() == PullRequestIdentity.State.MERGED || facts.remoteHeadSha().filter(pr.headSha()::equals).isPresent(),
                     "Pull request and remote branch revisions do not agree");
         });
         return found;
@@ -412,12 +412,12 @@ public class DevelopmentFollowupCoordinator
         if (baseline.local().uncommittedFileCount() > 0) {
             return false;
         }
-        Optional<GitHubPullRequestIdentity> originalPr = matchingPr(baseline.route(), original);
-        Optional<GitHubPullRequestIdentity> currentPr = matchingPr(baseline.route(), current);
-        boolean samePr = currentPr.map(GitHubPullRequestIdentity::pullRequest).equals(originalPr.map(GitHubPullRequestIdentity::pullRequest));
+        Optional<PullRequestIdentity> originalPr = matchingPr(baseline.route(), original);
+        Optional<PullRequestIdentity> currentPr = matchingPr(baseline.route(), current);
+        boolean samePr = currentPr.map(PullRequestIdentity::pullRequest).equals(originalPr.map(PullRequestIdentity::pullRequest));
         checkState(originalPr.isEmpty() || samePr, "The task's pull request changed during development");
-        if (currentPr.filter(pr -> pr.state() == GitHubPullRequestIdentity.State.MERGED).isPresent()) {
-            return originalPr.filter(pr -> pr.state() == GitHubPullRequestIdentity.State.MERGED).isEmpty();
+        if (currentPr.filter(pr -> pr.state() == PullRequestIdentity.State.MERGED).isPresent()) {
+            return originalPr.filter(pr -> pr.state() == PullRequestIdentity.State.MERGED).isEmpty();
         }
         if (current.remoteHeadSha().equals(original.remoteHeadSha()) && samePr) {
             return false;
@@ -599,8 +599,8 @@ public class DevelopmentFollowupCoordinator
                         .filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR).isPresent(), "Publication was stopped");
         local = git.inspectLocal(worktree, route);
         checkState(local.headSha().equals(window.localHead()) && local.uncommittedFileCount() == 0, "The checked revision changed; publication is held");
-        Optional<GitHubPullRequestIdentity> existing = matchingPr(route, facts);
-        if (existing.filter(pr -> pr.state() == GitHubPullRequestIdentity.State.MERGED).isEmpty()
+        Optional<PullRequestIdentity> existing = matchingPr(route, facts);
+        if (existing.filter(pr -> pr.state() == PullRequestIdentity.State.MERGED).isEmpty()
                 && facts.remoteHeadSha().filter(window.localHead()::equals).isEmpty()) {
             checkState(facts.remoteHeadSha().equals(window.expectedRemoteSha()), "The remote branch changed; publication was not attempted");
             git.pushDevelopmentHead(worktree, route, window.localHead(), window.expectedRemoteSha());
@@ -608,9 +608,9 @@ public class DevelopmentFollowupCoordinator
             existing = matchingPr(route, facts);
         }
         if (existing.isPresent()) {
-            GitHubPullRequestIdentity pullRequest = existing.orElseThrow();
+            PullRequestIdentity pullRequest = existing.orElseThrow();
             window.existingPr().ifPresent(original -> checkState(pullRequest.pullRequest().equals(original.pullRequest()), "Publication replaced the task's pull request"));
-            if (pullRequest.state() == GitHubPullRequestIdentity.State.MERGED) {
+            if (pullRequest.state() == PullRequestIdentity.State.MERGED) {
                 return "Pull request " + pullRequest.url() + " is already merged.";
             }
         }
@@ -645,7 +645,7 @@ public class DevelopmentFollowupCoordinator
             DevelopmentBaseline baseline,
             String localHead,
             Optional<String> expectedRemoteSha,
-            Optional<GitHubPullRequestIdentity> existingPr,
+            Optional<PullRequestIdentity> existingPr,
             boolean publicPublication)
     {
         private PendingPublication
@@ -671,7 +671,7 @@ public class DevelopmentFollowupCoordinator
         return push == RepositoryVisibility.PUBLIC || target == RepositoryVisibility.PUBLIC;
     }
 
-    static String publicationPrompt(DevelopmentBaseline baseline, DevelopmentLocalFacts local, Optional<GitHubPullRequestIdentity> pullRequest, boolean publicPublication)
+    static String publicationPrompt(DevelopmentBaseline baseline, DevelopmentLocalFacts local, Optional<PullRequestIdentity> pullRequest, boolean publicPublication)
     {
         DevelopmentPublicationRoute route = baseline.route();
         String prInstruction = pullRequest

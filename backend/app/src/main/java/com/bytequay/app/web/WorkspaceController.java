@@ -33,7 +33,7 @@ import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRelationships.Relationship;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
-import com.bytequay.core.domain.GitHubIssuePreview;
+import com.bytequay.core.domain.HostedIssuePreview;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestPage;
@@ -188,7 +188,7 @@ public class WorkspaceController
     }
 
     @GetMapping("/{workspaceId}/issues/{issueNumber}/preview")
-    public GitHubIssuePreview issuePreview(@PathVariable String workspaceId, @PathVariable int issueNumber)
+    public HostedIssuePreview issuePreview(@PathVariable String workspaceId, @PathVariable int issueNumber)
     {
         return issues.preview(workspaceId, issueNumber);
     }

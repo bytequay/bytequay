@@ -25,9 +25,9 @@ import com.bytequay.app.workitem.WorkItemCatalog;
 import com.bytequay.app.workitem.WorkItemContextView;
 import com.bytequay.core.domain.Epic;
 import com.bytequay.core.domain.EpicChild;
-import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
+import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.IssueEpic;
 import com.bytequay.core.domain.IssueTask;
 import com.bytequay.core.domain.JiraIssueSource;
@@ -82,7 +82,7 @@ import static org.mockito.Mockito.withSettings;
 class TestIssueContextBridgeResolverImpl
 {
     private static final Instant NOW = Instant.parse("2026-09-16T00:00:00Z");
-    private static final GitHubIssueSource SOURCE = new GitHubIssueSource("github.com", 70, "upstream/repo", 7,
+    private static final HostedIssueSource SOURCE = new HostedIssueSource("github.com", 70, "upstream/repo", 7,
             "https://github.com/upstream/repo/issues/7", "Fix selection", "Accepted description", NOW);
     private final TaskId taskId = TaskId.random();
     private final AgentTaskStore tasks = mock(AgentTaskStore.class);

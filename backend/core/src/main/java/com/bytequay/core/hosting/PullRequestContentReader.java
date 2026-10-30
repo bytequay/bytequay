@@ -16,10 +16,10 @@ package com.bytequay.core.hosting;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrDiffEtags;
 import com.bytequay.core.domain.PullRequestCheckLog;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.StoredPrDiff;
@@ -34,9 +34,9 @@ public interface PullRequestContentReader
 {
     String headRef(int number);
 
-    GitHubPullRequestIdentity identity(HostingTarget target, int number);
+    PullRequestIdentity identity(HostingTarget target, int number);
 
-    List<GitHubPullRequestIdentity> identitiesByHead(HostingTarget target, RepoRef sourceRepository, String branch);
+    List<PullRequestIdentity> identitiesByHead(HostingTarget target, RepoRef sourceRepository, String branch);
 
     boolean viewerCanWrite(HostingTarget target);
 

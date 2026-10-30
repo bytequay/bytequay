@@ -19,7 +19,7 @@ import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
@@ -215,10 +215,10 @@ class TestPullRequestConflictService
         }
     }
 
-    private static GitHubPullRequestIdentity identity(String base, String head)
+    private static PullRequestIdentity identity(String base, String head)
     {
-        return new GitHubPullRequestIdentity(PR, "https://github.com/owner/repo/pull/7", RepoRef.of("contributor", "fork"), "feature", head, REPO, "main", base,
-                GitHubPullRequestIdentity.State.OPEN, false, "contributor");
+        return new PullRequestIdentity(PR, "https://github.com/owner/repo/pull/7", RepoRef.of("contributor", "fork"), "feature", head, REPO, "main", base,
+                PullRequestIdentity.State.OPEN, false, "contributor");
     }
 
     private String command(String... arguments)

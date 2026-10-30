@@ -14,7 +14,7 @@
 package com.bytequay.app.service.pr;
 
 import com.bytequay.app.service.hosting.HostingIntegrations;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.hosting.DiscussionProbe;
@@ -73,7 +73,7 @@ class PullRequestDetailFetcher
         return submit(() -> integrations.of(route.target()).contents().discussion(route.target(), route.number(), existing), ioExecutor);
     }
 
-    List<GitHubPullRequestIdentity> identitiesByHead(PullRequestRead route, RepoRef sourceRepository, String branch)
+    List<PullRequestIdentity> identitiesByHead(PullRequestRead route, RepoRef sourceRepository, String branch)
     {
         return integrations.of(route.target()).contents().identitiesByHead(route.target(), sourceRepository, branch);
     }

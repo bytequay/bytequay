@@ -39,7 +39,7 @@ import com.bytequay.core.cherrypick.CherryPickNotFoundException;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.domain.CreatedPullRequest;
 import com.bytequay.core.domain.FetchedPullRequest;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
@@ -169,10 +169,10 @@ public class WorkspacePullRequestService
                         workspace.monitoredRepository().owner(), workspace.monitoredRepository().repo(), stored.pullRequestNumber().orElseThrow()));
                 checkState(pr.headRepository().equals(workspace.selectedRepository()) && pr.headBranch().equals(execution.workspace().workBranch())
                                 && pr.baseRepository().equals(workspace.monitoredRepository()) && pr.baseBranch().equals(execution.workspace().targetBranch())
-                                && pr.state() != GitHubPullRequestIdentity.State.CLOSED,
+                                && pr.state() != PullRequestIdentity.State.CLOSED,
                         "The saved backport PR was closed or rerouted");
                 requireChain(chainId, index);
-                if (pr.state() == GitHubPullRequestIdentity.State.OPEN) {
+                if (pr.state() == PullRequestIdentity.State.OPEN) {
                     activatePullRequest(workspace, execution, stored);
                 }
                 return pullRequestResult(workspace, execution, stored);
@@ -189,7 +189,7 @@ public class WorkspacePullRequestService
                 checkState(pr.headSha().equals(execution.currentTargetSha()) && pr.baseBranch().equals(execution.workspace().targetBranch())
                                 && pr.baseRepository().equals(workspace.monitoredRepository()) && pr.headRepository().equals(workspace.selectedRepository())
                                 && pr.headBranch().equals(execution.workspace().workBranch())
-                                && pr.state() != GitHubPullRequestIdentity.State.CLOSED,
+                                && pr.state() != PullRequestIdentity.State.CLOSED,
                         "Remote result differs from the saved backport; publication was not repeated");
                 var rows = reads.fetchPullRequestsByHead(credentials.resolveGitHubToken(workspace.id()), workspace.monitoredRepository(),
                         workspace.selectedRepository().owner() + ":" + execution.workspace().workBranch());
@@ -200,7 +200,7 @@ public class WorkspacePullRequestService
                     execution = executions.save(execution.recordPush("origin", execution.workspace().workBranch(), execution.currentTargetSha(), clock.instant()));
                 }
                 execution = executions.save(execution.recordPullRequest(row.githubId(), row.number(), row.htmlUrl(), clock.instant()));
-                if (pr.state() == GitHubPullRequestIdentity.State.OPEN) {
+                if (pr.state() == PullRequestIdentity.State.OPEN) {
                     requireChain(chainId, index);
                     activatePullRequest(workspace, execution, execution.delivery().orElseThrow());
                 }
@@ -257,10 +257,10 @@ public class WorkspacePullRequestService
                         .findFirst();
                 if (existing.isPresent()) {
                     FetchedPullRequest row = existing.orElseThrow();
-                    GitHubPullRequestIdentity identity = reads.fetchPullRequestIdentity(token,
+                    PullRequestIdentity identity = reads.fetchPullRequestIdentity(token,
                             PullRequestRef.of(workspace.monitoredRepository().owner(), workspace.monitoredRepository().repo(), row.number()));
                     requirePullRequestRoute(execution, identity);
-                    checkState(identity.state() == GitHubPullRequestIdentity.State.OPEN && identity.headSha().equals(execution.currentTargetSha())
+                    checkState(identity.state() == PullRequestIdentity.State.OPEN && identity.headSha().equals(execution.currentTargetSha())
                                     && identity.pullRequest().number() == row.number() && identity.url().equals(row.htmlUrl()),
                             "The existing pull request does not match the published cherry-pick head");
                     execution = executions.save(execution.recordPullRequest(row.githubId(), row.number(), row.htmlUrl(), clock.instant()));
@@ -285,11 +285,11 @@ public class WorkspacePullRequestService
                 new AgentLaneId(execution.workspace().laneId()), "cherry-pick-ci:" + execution.id() + ":" + round), expectedCiPullRequest(execution));
     }
 
-    private GitHubPullRequestIdentity expectedCiPullRequest(CherryPickExecution execution)
+    private PullRequestIdentity expectedCiPullRequest(CherryPickExecution execution)
     {
-        GitHubPullRequestIdentity current = pullRequest(execution);
+        PullRequestIdentity current = pullRequest(execution);
         // A lost CI-start response may be retried after that same run already pushed a repair.
-        return new GitHubPullRequestIdentity(current.pullRequest(), current.url(), current.headRepository(), current.headBranch(),
+        return new PullRequestIdentity(current.pullRequest(), current.url(), current.headRepository(), current.headBranch(),
                 execution.currentTargetSha(), current.baseRepository(), current.baseBranch(), current.baseSha(), current.state(), current.draft(), current.author());
     }
 
@@ -306,11 +306,11 @@ public class WorkspacePullRequestService
         }
     }
 
-    public GitHubPullRequestIdentity pullRequest(CherryPickExecution execution)
+    public PullRequestIdentity pullRequest(CherryPickExecution execution)
     {
         Workspace workspace = requireWorkspace(execution.workspace().workspaceId());
         requireExecution(workspace, execution.id());
-        GitHubPullRequestIdentity identity = reads.fetchPullRequestIdentity(credentials.resolveGitHubToken(workspace.id()), pullRequestRef(workspace, execution));
+        PullRequestIdentity identity = reads.fetchPullRequestIdentity(credentials.resolveGitHubToken(workspace.id()), pullRequestRef(workspace, execution));
         requirePullRequestRoute(execution, identity);
         checkState(identity.pullRequest().equals(pullRequestRef(workspace, execution))
                         && execution.delivery().flatMap(Delivery::pullRequestUrl).filter(identity.url()::equals).isPresent(),
@@ -318,15 +318,15 @@ public class WorkspacePullRequestService
         return identity;
     }
 
-    private GitHubPullRequestIdentity requirePublishedHead(CherryPickExecution execution, String headSha)
+    private PullRequestIdentity requirePublishedHead(CherryPickExecution execution, String headSha)
     {
-        GitHubPullRequestIdentity identity = pullRequest(execution);
-        checkState(identity.state() == GitHubPullRequestIdentity.State.OPEN && identity.headSha().equals(headSha),
+        PullRequestIdentity identity = pullRequest(execution);
+        checkState(identity.state() == PullRequestIdentity.State.OPEN && identity.headSha().equals(headSha),
                 "The published cherry-pick head changed or its pull request is no longer open");
         return identity;
     }
 
-    private static void requirePullRequestRoute(CherryPickExecution execution, GitHubPullRequestIdentity identity)
+    private static void requirePullRequestRoute(CherryPickExecution execution, PullRequestIdentity identity)
     {
         if (!identity.headRepository().equals(execution.workspace().physicalRepository())
                 || !identity.headBranch().equals(execution.workspace().workBranch())
@@ -360,7 +360,7 @@ public class WorkspacePullRequestService
         }
         Workspace workspace = requireWorkspace(execution.workspace().workspaceId());
         if (execution.delivery().flatMap(Delivery::pullRequestNumber).isPresent()) {
-            GitHubPullRequestIdentity identity;
+            PullRequestIdentity identity;
             try {
                 identity = pullRequest(execution);
             }
@@ -368,7 +368,7 @@ public class WorkspacePullRequestService
                 return ImmutableList.of("Could not verify the published pull request; its branch was preserved: " + failure.getMessage());
             }
             try {
-                if (closePullRequest && identity.state() == GitHubPullRequestIdentity.State.OPEN) {
+                if (closePullRequest && identity.state() == PullRequestIdentity.State.OPEN) {
                     pullRequests.closePullRequest(credentials.resolveGitHubToken(workspace.id()), pullRequestRef(workspace, execution));
                     pullRequestCatalog.observeWorkspacePullRequest(workspace.id(), pullRequestNumber(execution));
                 }

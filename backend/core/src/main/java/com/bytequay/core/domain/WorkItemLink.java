@@ -20,7 +20,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** The canonical identity is independent of the display key and Jira credential connection. */
-public record WorkItemLink(String identity, GoalItem reference, Optional<GitHubIssueSource> issueSource, Optional<JiraIssueSource> jiraSource)
+public record WorkItemLink(String identity, GoalItem reference, Optional<HostedIssueSource> issueSource, Optional<JiraIssueSource> jiraSource)
 {
     public WorkItemLink
     {

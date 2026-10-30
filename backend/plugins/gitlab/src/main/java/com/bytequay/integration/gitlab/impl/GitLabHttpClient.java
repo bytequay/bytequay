@@ -35,11 +35,14 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.DateTimeException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -115,6 +118,13 @@ final class GitLabHttpClient
                 return items.build();
             }
         }
+    }
+
+    GitLabUser user(HostingAccess access, String login)
+    {
+        GitLabUser[] users = get(access, "users?username=" + encode(login), Optional.empty(), GitLabUser[].class).body().orElseThrow();
+        return Arrays.stream(users).filter(user -> login.equalsIgnoreCase(user.username())).findFirst()
+                .orElseThrow(() -> new HostingFailure(MISSING_OR_INACCESSIBLE, "GitLab user " + login + " was not found"));
     }
 
     String getText(HostingAccess access, String path)
@@ -349,6 +359,17 @@ final class GitLabHttpClient
     static String encode(String value)
     {
         return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
+    /** Payload values that fail mapping are the server's fault, so they must not reach the caller as an invalid request. */
+    static <T> T mapped(String what, Supplier<T> mapping)
+    {
+        try {
+            return mapping.get();
+        }
+        catch (IllegalArgumentException | NullPointerException | DateTimeException | ArithmeticException e) {
+            throw new HostingFailure(INVALID_RESPONSE, "GitLab returned an invalid " + what);
+        }
     }
 
     static String projectPath(HostingAccess access, HostingRepository repository)

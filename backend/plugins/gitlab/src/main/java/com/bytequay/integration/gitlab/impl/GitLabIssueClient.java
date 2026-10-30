@@ -22,6 +22,7 @@ import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryLabel;
 import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingRepositoryUser;
@@ -43,16 +44,17 @@ import com.google.common.collect.ImmutableMap;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Instant;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkText;
+import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.encode;
 import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.issuePath;
+import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.mapped;
 import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.projectPath;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -120,22 +122,22 @@ public final class GitLabIssueClient
         String path = issuePath(access, repository, number);
         ImmutableList.Builder<PrTimelineEvent> events = ImmutableList.builder();
         for (GitLabNote note : http.pages(access, path + "/notes?sort=asc&order_by=created_at", GitLabNote[].class)) {
-            events.add(event(note, issue.webUrl()));
+            events.add(mapped("note", () -> event(note, issue.webUrl())));
         }
         for (ResourceEvent event : http.pages(access, path + "/resource_state_events", ResourceEvent[].class)) {
-            events.add(event.event("closed".equals(event.state()) ? "closed" : "reopened", PrTimelinePayload.empty()));
+            events.add(mapped("state event", () -> event.event("closed".equals(event.state()) ? "closed" : "reopened", PrTimelinePayload.empty())));
         }
         for (ResourceEvent event : http.pages(access, path + "/resource_label_events", ResourceEvent[].class)) {
             // GitLab retains these events after the label has been deleted.
             if (event.label() == null) {
                 continue;
             }
-            events.add(event.event("add".equals(event.action()) ? "labeled" : "unlabeled",
-                    PrTimelinePayload.builder().label(event.label().name()).labelColor(color(event.label().color())).build()));
+            events.add(mapped("label event", () -> event.event("add".equals(event.action()) ? "labeled" : "unlabeled",
+                    PrTimelinePayload.builder().label(event.label().name()).labelColor(color(event.label().color())).build())));
         }
         for (ResourceEvent event : http.pages(access, path + "/resource_milestone_events", ResourceEvent[].class)) {
-            events.add(event.event("add".equals(event.action()) ? "milestoned" : "demilestoned",
-                    PrTimelinePayload.builder().milestoneTitle(event.milestone().title()).build()));
+            events.add(mapped("milestone event", () -> event.event("add".equals(event.action()) ? "milestoned" : "demilestoned",
+                    PrTimelinePayload.builder().milestoneTitle(event.milestone().title()).build())));
         }
         List<String> types = "test_case".equals(issue.issueType()) ? ImmutableList.of("issue", "incident", "test_case") : ImmutableList.of("issue", "incident");
         return new RepositoryIssueDetail(repository.id(), number, events.build().stream()
@@ -162,7 +164,7 @@ public final class GitLabIssueClient
     public PrTimelineEvent comment(HostingAccess access, HostingRepository repository, int number, String body)
     {
         GitLabNote note = http.post(access, issuePath(access, repository, number) + "/notes", new Comment(checkText(body, "body")), GitLabNote.class).body().orElseThrow();
-        return event(note, repository.webUrl() + "/-/issues/" + number);
+        return mapped("note", () -> event(note, repository.webUrl() + "/-/issues/" + number));
     }
 
     @Override
@@ -182,11 +184,7 @@ public final class GitLabIssueClient
     @Override
     public IssueMetadata updateMetadata(HostingAccess access, HostingRepository repository, int number, List<String> assignees, List<String> labels)
     {
-        List<Long> ids = assignees == null ? null : assignees.stream().map(login -> {
-            GitLabUser[] users = http.get(access, "users?username=" + encode(login), Optional.empty(), GitLabUser[].class).body().orElseThrow();
-            return Arrays.stream(users).filter(user -> login.equalsIgnoreCase(user.username())).map(GitLabUser::id).findFirst()
-                    .orElseThrow(() -> new IllegalArgumentException("GitLab user not found: " + login));
-        }).collect(toImmutableList());
+        List<Long> ids = assignees == null ? null : assignees.stream().map(login -> http.user(access, login).id()).collect(toImmutableList());
         GitLabIssueResponse updated = http.put(access, issuePath(access, repository, number),
                 new MetadataChange(ids, labels == null ? null : String.join(",", labels)), GitLabIssueResponse.class).body().orElseThrow();
         RepositoryIssue card = card(access, repository, updated);
@@ -205,10 +203,12 @@ public final class GitLabIssueClient
     {
         String project = projectPath(access, repository);
         ProjectOverview overview = http.get(access, project, Optional.empty(), ProjectOverview.class).body().orElseThrow();
-        checkArgument(repository.remoteId().equals(Long.toString(overview.id())), "Project identity changed");
+        if (!repository.remoteId().equals(Long.toString(overview.id()))) {
+            throw new HostingFailure(INVALID_RESPONSE, "GitLab returned another project");
+        }
         Languages languages = http.get(access, project + "/languages", Optional.empty(), Languages.class).body().orElseThrow();
-        return new RepositoryOverview(overview.description(), overview.stars(), overview.topics(), languages.values().entrySet().stream()
-                .collect(ImmutableMap.toImmutableMap(Map.Entry::getKey, entry -> Math.round(entry.getValue() * 1000))));
+        return mapped("project", () -> new RepositoryOverview(overview.description(), overview.stars(), overview.topics(), languages.values().entrySet().stream()
+                .collect(ImmutableMap.toImmutableMap(Map.Entry::getKey, entry -> Math.round(entry.getValue() * 1000)))));
     }
 
     @Override
@@ -222,8 +222,9 @@ public final class GitLabIssueClient
     @Override
     public List<HostingRepositoryUser> repositoryUsers(HostingAccess access, HostingRepository repository)
     {
-        return http.pages(access, projectPath(access, repository) + "/users", GitLabUser[].class).stream()
-                .map(user -> new HostingRepositoryUser(user.id(), user.username(), user.avatarUrl(), user.bot())).collect(toImmutableList());
+        List<GitLabUser> users = http.pages(access, projectPath(access, repository) + "/users", GitLabUser[].class);
+        return mapped("project member", () -> users.stream()
+                .map(user -> new HostingRepositoryUser(user.id(), user.username(), user.avatarUrl(), user.bot())).collect(toImmutableList()));
     }
 
     @Override
@@ -237,14 +238,16 @@ public final class GitLabIssueClient
     @Override
     public List<RepositoryLabel> repositoryLabels(HostingAccess access, HostingRepository repository)
     {
-        return http.pages(access, projectPath(access, repository) + "/labels", Label[].class).stream()
-                .map(label -> new RepositoryLabel(label.id(), label.name(), color(label.color()))).collect(toImmutableList());
+        List<Label> labels = http.pages(access, projectPath(access, repository) + "/labels", Label[].class);
+        return mapped("label", () -> labels.stream().map(label -> new RepositoryLabel(label.id(), label.name(), color(label.color()))).collect(toImmutableList()));
     }
 
     private GitLabIssueResponse read(HostingAccess access, HostingRepository repository, int number)
     {
         GitLabIssueResponse issue = http.get(access, issuePath(access, repository, number), Optional.empty(), GitLabIssueResponse.class).body().orElseThrow();
-        checkArgument(issue.iid() == number, "Issue identity changed");
+        if (!Integer.valueOf(number).equals(issue.iid())) {
+            throw new HostingFailure(INVALID_RESPONSE, "GitLab returned another issue");
+        }
         card(access, repository, issue);
         return issue;
     }
@@ -258,13 +261,15 @@ public final class GitLabIssueClient
 
     private static RepositoryIssue card(HostingAccess access, HostingRepository repository, GitLabIssueResponse issue)
     {
-        checkArgument(repository.remoteId().equals(requireNonNull(issue.projectId(), "projectId is null").toString()), "Issue belongs to another project");
-        checkArgument("opened".equals(issue.state()) || "closed".equals(issue.state()), "Unknown GitLab issue state");
-        String url = HostingUrls.requireWithinBase(URI.create(issue.webUrl()), access.server().webBaseUrl()).toASCIIString();
-        return new RepositoryIssue(issue.id(), issue.iid(), issue.title(), Optional.ofNullable(issue.description()).orElse(""),
-                issue.author().username(), Optional.ofNullable(issue.author().avatarUrl()).orElse(""), url, issue.labels(),
-                issue.assignees().stream().map(GitLabUser::username).collect(toImmutableList()), issue.commentCount(),
-                Instant.parse(issue.createdAt()), Instant.parse(issue.updatedAt()));
+        return mapped("issue", () -> {
+            checkArgument(repository.remoteId().equals(requireNonNull(issue.projectId(), "projectId is null").toString()), "Issue belongs to another project");
+            checkArgument("opened".equals(issue.state()) || "closed".equals(issue.state()), "Unknown GitLab issue state");
+            String url = HostingUrls.requireWithinBase(URI.create(issue.webUrl()), access.server().webBaseUrl()).toASCIIString();
+            return new RepositoryIssue(issue.id(), issue.iid(), issue.title(), Optional.ofNullable(issue.description()).orElse(""),
+                    issue.author().username(), Optional.ofNullable(issue.author().avatarUrl()).orElse(""), url, issue.labels(),
+                    issue.assignees().stream().map(GitLabUser::username).collect(toImmutableList()), issue.commentCount(),
+                    Instant.parse(issue.createdAt()), Instant.parse(issue.updatedAt()));
+        });
     }
 
     private static PrTimelineEvent event(GitLabNote note, String issueUrl)

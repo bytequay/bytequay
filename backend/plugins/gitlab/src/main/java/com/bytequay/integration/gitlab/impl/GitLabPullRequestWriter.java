@@ -38,7 +38,6 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.regex.Matcher;
@@ -47,6 +46,7 @@ import java.util.regex.Pattern;
 import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
 import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
 import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.encode;
+import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.mapped;
 import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.mergeRequestPath;
 import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.projectPath;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -77,7 +77,7 @@ public final class GitLabPullRequestWriter
     public PrTimelineEvent comment(HostingAccess access, HostingRepository repository, int number, String body)
     {
         GitLabNote note = http.post(access, mergeRequestPath(access, repository, number) + "/notes", new Body(body), GitLabNote.class).body().orElseThrow();
-        return note(note, url(repository, number));
+        return mapped("note", () -> note(note, url(repository, number)));
     }
 
     @Override
@@ -94,7 +94,7 @@ public final class GitLabPullRequestWriter
                 return commandResult(reply.summary());
             }
             List<GitLabNote> notes = ImmutableList.<GitLabNote>builder().addAll(discussion.notes()).add(reply).build();
-            return thread(new GitLabDiscussion(discussion.id(), discussion.individualNote(), notes, null), url(repository, number), current);
+            return mapped("discussion", () -> thread(new GitLabDiscussion(discussion.id(), discussion.individualNote(), notes, null), url(repository, number), current));
         }
         checkHead(current, comment.commitId());
         GitLabDiffPosition position = position(diffs.read(access, path), current, comment);
@@ -122,8 +122,9 @@ public final class GitLabPullRequestWriter
         String path = mergeRequestPath(access, repository, number) + (commentId == null ? "" : "/notes/" + commentId) + "/award_emoji";
         GitLabUser viewer = get(access, "user", GitLabUser.class);
         String emoji = GitLabAward.awardName(content);
-        Optional<GitLabAward> existing = http.pages(access, path, GitLabAward[].class).stream()
-                .filter(award -> award.name().equals(emoji) && viewer.id().equals(award.user().id())).findFirst();
+        List<GitLabAward> awards = http.pages(access, path, GitLabAward[].class);
+        Optional<GitLabAward> existing = mapped("award", () -> awards.stream()
+                .filter(award -> emoji.equals(award.name()) && viewer.id().equals(award.user().id())).findFirst());
         if (existing.isPresent()) {
             http.delete(access, path + "/" + existing.orElseThrow().id(), Void.class);
             return false;
@@ -155,13 +156,14 @@ public final class GitLabPullRequestWriter
     {
         String path = mergeRequestPath(access, repository, number);
         GitLabMergeRequestResponse current = get(access, path, GitLabMergeRequestResponse.class);
-        http.put(access, path, new Title(current.title().replaceFirst("(?i)^(?:draft|wip):\\s*|^\\[(?:draft|wip)\\]\\s*|^\\((?:draft|wip)\\)\\s*", "")), Void.class);
+        String title = mapped("merge request", () -> current.title().replaceFirst("(?i)^(?:draft|wip):\\s*|^\\[(?:draft|wip)\\]\\s*|^\\((?:draft|wip)\\)\\s*", ""));
+        http.put(access, path, new Title(title), Void.class);
     }
 
     @Override
     public void updateMetadata(HostingAccess access, HostingRepository repository, int number, List<String> assignees, List<String> labels)
     {
-        List<Long> ids = assignees.stream().map(login -> user(access, login).id()).collect(toImmutableList());
+        List<Long> ids = assignees.stream().map(login -> http.user(access, login).id()).collect(toImmutableList());
         http.put(access, mergeRequestPath(access, repository, number), new Metadata(ids, String.join(",", labels)), Void.class);
     }
 
@@ -170,8 +172,8 @@ public final class GitLabPullRequestWriter
     {
         String path = mergeRequestPath(access, repository, number);
         GitLabMergeRequestResponse current = get(access, path, GitLabMergeRequestResponse.class);
-        long reviewer = user(access, login).id();
-        List<Long> ids = new ArrayList<>(current.reviewers().stream().map(GitLabUser::id).filter(id -> id != reviewer).collect(toImmutableList()));
+        long reviewer = http.user(access, login).id();
+        List<Long> ids = new ArrayList<>(mapped("merge request", () -> current.reviewers().stream().map(GitLabUser::id).filter(id -> id != reviewer).collect(toImmutableList())));
         if (requested) {
             ids.add(reviewer);
         }
@@ -284,8 +286,8 @@ public final class GitLabPullRequestWriter
         checkArgument(!head.contains(":"), "Select the GitLab source project before creating a merge request from a fork");
         GitLabMergeRequestResponse created = http.post(access, projectPath(access, repository) + "/merge_requests", new Create(head, base, draft ? "Draft: " + title : title, body),
                 GitLabMergeRequestResponse.class).body().orElseThrow();
-        String url = HostingUrls.requireWithinBase(URI.create(created.webUrl()), access.server().webBaseUrl()).toASCIIString();
-        return new CreatedPullRequest(created.id(), toIntExact(created.iid()), url);
+        return mapped("merge request", () -> new CreatedPullRequest(created.id(), toIntExact(created.iid()),
+                HostingUrls.requireWithinBase(URI.create(created.webUrl()), access.server().webBaseUrl()).toASCIIString()));
     }
 
     private PrTimelineEvent createDiscussion(HostingAccess access, HostingRepository repository, int number, String body, GitLabDiffPosition position,
@@ -296,7 +298,7 @@ public final class GitLabPullRequestWriter
         if (created.id() == null && created.summary() != null) {
             return commandResult(created.summary());
         }
-        return thread(created, url(repository, number), current);
+        return mapped("discussion", () -> thread(created, url(repository, number), current));
     }
 
     private static GitLabDiffPosition position(List<GitLabFileDiff> files, GitLabMergeRequestResponse current, InlineReviewComment comment)
@@ -332,15 +334,9 @@ public final class GitLabPullRequestWriter
 
     private GitLabDiscussion discussion(HostingAccess access, HostingRepository repository, int number, long commentId)
     {
-        return http.pages(access, mergeRequestPath(access, repository, number) + "/discussions", GitLabDiscussion[].class).stream()
-                .filter(discussion -> discussion.notes().stream().anyMatch(note -> note.id() == commentId)).findFirst()
+        List<GitLabDiscussion> discussions = http.pages(access, mergeRequestPath(access, repository, number) + "/discussions", GitLabDiscussion[].class);
+        return mapped("discussion", () -> discussions.stream().filter(discussion -> discussion.notes().stream().anyMatch(note -> note.id() == commentId)).findFirst())
                 .orElseThrow(() -> new HostingFailure(REVISION_CONFLICT, "The selected discussion no longer exists"));
-    }
-
-    private GitLabUser user(HostingAccess access, String login)
-    {
-        return Arrays.stream(get(access, "users?username=" + encode(login), GitLabUser[].class)).filter(user -> user.username().equalsIgnoreCase(login)).findFirst()
-                .orElseThrow(() -> new HostingFailure(INVALID_RESPONSE, "GitLab user was not found"));
     }
 
     private <T> T get(HostingAccess access, String path, Class<T> type)

@@ -43,6 +43,8 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.function.Consumer;
 
+import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
+import static com.bytequay.core.hosting.HostingFailure.Kind.MISSING_OR_INACCESSIBLE;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -206,6 +208,27 @@ class TestGitLabPullRequestWriter
             assertThat(event.timestamp()).isEqualTo(Instant.parse("2026-01-01T00:00:00Z"));
             assertThat(event.payload().htmlUrl()).isEqualTo(base + "/group/nested/repo/-/merge_requests/7#note_10");
         });
+    }
+
+    @Test
+    void malformedCreatedNoteIsAnInvalidResponseNotAnInvalidRequest()
+    {
+        responses.put("POST " + PREFIX + "/notes", note().replace("2026-01-01T00:00:00Z", "yesterday"));
+
+        assertThatThrownBy(() -> writer.comment(access, repository, 7, "Comment"))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
+    }
+
+    @Test
+    void unknownReviewerNamesTheMissingAccount()
+    {
+        responses.put("GET " + PREFIX, "{\"sha\":\"" + HEAD + "\",\"reviewers\":[]}");
+        responses.put("GET /gitlab/api/v4/users?username=nobody", "[{\"id\":4,\"username\":\"somebody\"}]");
+
+        assertThatThrownBy(() -> writer.updateReviewer(access, repository, 7, "nobody", true))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(MISSING_OR_INACCESSIBLE))
+                .hasMessageContaining("nobody");
+        assertThat(received).noneMatch(request -> request.key().startsWith("PUT "));
     }
 
     @Test

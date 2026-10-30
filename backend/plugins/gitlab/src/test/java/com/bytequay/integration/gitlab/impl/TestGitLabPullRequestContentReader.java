@@ -495,6 +495,29 @@ class TestGitLabPullRequestContentReader
     }
 
     @Test
+    void malformedNoteMakesTheTimelineUnavailableInsteadOfFailingTheRequest()
+    {
+        discussionData("""
+                [{"id":"thread","individual_note":true,"notes":[{"id":10,"body":"Note","created_at":"2026-01-01T00:00:00Z"}]}]
+                """);
+        responses.put(PREFIX + "/notes/10/award_emoji?per_page=100&page=1", "[]");
+
+        var detail = reader.discussion(access, repository, 7, existing());
+
+        assertThat(detail.unavailableSections()).contains(StoredPrDetail.TIMELINE, StoredPrDetail.COMMENTS, StoredPrDetail.REVIEW_THREADS);
+    }
+
+    @Test
+    void changedHeadWhileReadingChecksIsARevisionConflict()
+    {
+        responses.put(PREFIX, "{\"sha\":\"" + BASE + "\",\"head_pipeline\":{\"id\":9,\"project_id\":42}}");
+
+        assertThatThrownBy(() -> reader.checks(access, repository, 7, HEAD, ImmutableList.of(), Optional.empty(), Optional.empty()))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
+        assertThat(received).containsExactly(PREFIX);
+    }
+
+    @Test
     void optionalJobsAndBridgesDoNotBlockOrFailThePipeline()
     {
         responses.put(PREFIX, "{\"sha\":\"" + HEAD + "\",\"head_pipeline\":{\"id\":9,\"project_id\":42,\"status\":\"success\"}}");

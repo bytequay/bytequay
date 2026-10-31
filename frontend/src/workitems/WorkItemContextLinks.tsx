@@ -20,14 +20,14 @@ import { GOALS_CHANGED } from './changes';
 import { zoomReference } from '../githubReference';
 import { useProviderName } from '../pulls/PullRequestWorkspace';
 
-const SOURCE: Record<Exclude<WorkSource, 'GITHUB'>, string> = { LOCAL: 'Local', JIRA: 'Jira' };
+const SOURCE: Record<Exclude<WorkSource, 'ISSUE'>, string> = { LOCAL: 'Local', JIRA: 'Jira' };
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 export default function WorkItemContextLinks({ work, catalog, onChanged }: {
   work: WorkItemDto; catalog: UnifiedWorkItem[]; onChanged: () => Promise<void>;
 }) {
   const provider = useProviderName();
-  const sourceName = (source: WorkSource) => source === 'GITHUB' ? provider : SOURCE[source];
+  const sourceName = (source: WorkSource) => source === 'ISSUE' ? provider : SOURCE[source];
   const [links, setLinks] = useState<WorkItemContextLink[] | null>(null);
   const [readError, setReadError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);

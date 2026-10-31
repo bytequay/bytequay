@@ -292,7 +292,7 @@ describe('watched repository workspace UI', () => {
     };
 
     const pulls = renderToStaticMarkup(<WorkspaceShell {...props} tab="prs" />);
-    vi.stubGlobal('window', { location: { hash: `#/workspaces/${value.id}/issues?source=github` } });
+    vi.stubGlobal('window', { location: { hash: `#/workspaces/${value.id}/issues?source=issues` } });
     const issues = renderToStaticMarkup(<WorkspaceShell {...props} tab="issues" />);
 
     expect(pulls).toContain('aria-label="Search pull requests by title, number, or author"');

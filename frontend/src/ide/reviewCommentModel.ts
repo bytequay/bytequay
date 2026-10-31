@@ -21,7 +21,7 @@ export type ReviewCommentCard = {
   id: string;
   path: string | null;
   location: string;
-  kind: 'Agent' | 'GitHub' | 'Private' | 'Pending';
+  kind: 'Agent' | 'Posted' | 'Private' | 'Pending';
   status: string;
   resolved: boolean;
   outdated: boolean;
@@ -57,7 +57,7 @@ export function reviewCommentCards({ review, comments }: Pick<IdeContext, 'revie
     const current = !payload.outdated && payload.side === 'RIGHT';
     cards.push({ id: `thread:${activity.remoteId}`, path: payload.path,
       location: location(payload.path, payload.side, payload.line === null ? payload.originalStartLine : payload.startLine, payload.line ?? payload.originalLine),
-      kind: 'GitHub', status: '', resolved: payload.resolved, outdated: payload.outdated,
+      kind: 'Posted', status: '', resolved: payload.resolved, outdated: payload.outdated,
       messages: [...payload.comments.map(comment => ({ author: comment.actor ?? 'GitHub', body: comment.body ?? '', timestamp: comment.timestamp })),
         ...(comments?.pending.filter(comment => root && comment.replyToCommentId === root.remoteId) ?? [])
           .map((comment): ReviewCommentCard['messages'][number] => ({ author: `${user} · Pending`, body: comment.body, timestamp: null }))],

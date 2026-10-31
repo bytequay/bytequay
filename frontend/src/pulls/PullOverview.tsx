@@ -1095,13 +1095,13 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
   const { payload } = activity;
   const hostPending = useContext(PendingReviewComments);
   const pending = pendingReview ?? hostPending;
-  const [replying, setReplying] = useReviewDraft(`github:${activity.remoteId}:replying`, false);
-  const [body, setBody] = useReviewDraft(`github:${activity.remoteId}:body`, '');
+  const [replying, setReplying] = useReviewDraft(`remote:${activity.remoteId}:replying`, false);
+  const [body, setBody] = useReviewDraft(`remote:${activity.remoteId}:body`, '');
   const [preview, setPreview] = useState(false);
   const [posting, setPosting] = useState(false);
   const [changingResolution, setChangingResolution] = useState(false);
   const [optimisticResolved, setOptimisticResolved] = useState<boolean | null>(null);
-  const [edit, setEdit] = useReviewDraft<{ commentId: number; draft: string } | null>(`github:${activity.remoteId}:edit`, null);
+  const [edit, setEdit] = useReviewDraft<{ commentId: number; draft: string } | null>(`remote:${activity.remoteId}:edit`, null);
   const [error, setError] = useState('');
   const [drafting, setDrafting] = useState(false);
   // The editor holds the agent's draft until the user chooses to post it or add it to a review.

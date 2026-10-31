@@ -145,7 +145,7 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
   const sourceName = source === null ? 'Local work item' : source.jira ? source.jira.key : `#${source.number}`;
   const listed = shown.filter((item) => filter === 'ALL' || item.state === filter);
   const from = (kind: GoalItemKind | null): number => shown.filter((item) => (sourceOfWork(item)?.kind ?? null) === kind).length;
-  const mix = { local: from(null), github: from('ISSUE'), jira: from('JIRA') };
+  const mix = { local: from(null), issue: from('ISSUE'), jira: from('JIRA') };
   const proposals = record?.proposals ?? [];
   const chosen = picked.filter((id) => proposals.some((proposal) => proposal.id === id));
 
@@ -227,7 +227,7 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
           </div>
           <div className="epic-view__mix" aria-label="Where the work comes from">
             {mix.local > 0 && <span className="is-local"><LockKeyhole size={11} aria-hidden="true" />{mix.local} Local</span>}
-            {mix.github > 0 && <span className="card-src is-issue"><SourceIcon source="issue" size={12} />{mix.github} {provider}</span>}
+            {mix.issue > 0 && <span className="card-src is-issue"><SourceIcon source="issue" size={12} />{mix.issue} {provider}</span>}
             {mix.jira > 0 && <span className="card-src is-jira"><SourceIcon source="jira" size={12} />{mix.jira} Jira</span>}
           </div>
         </div>

@@ -30,7 +30,7 @@ export async function run() {
   cards.push({ ...source, id: 'other', path: 'src/Other.java', location: 'src/Other.java:R5', kind: 'Pending', title: 'Check the fallback',
     status: 'Not posted', messages: [{ author: 'You', body: 'Please check the **fallback** path with `fallback()`.\n\n```java\nfallback();\n```', timestamp: null }],
     target: { path: 'src/Other.java', start: null, end: 5, revision: 'head' } });
-  cards.push({ ...source, id: 'resolved', kind: 'GitHub', resolved: true });
+  cards.push({ ...source, id: 'resolved', kind: 'Posted', resolved: true });
   let selectedPath: string | null = source.path;
   let closed = false, failed = false, composed = false;
   const jumps: ReviewCommentTarget[] = [];

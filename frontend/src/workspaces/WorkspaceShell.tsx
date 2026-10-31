@@ -267,7 +267,7 @@ function WorkspaceContent({ workspace, taskAttention, tab, relatedWorkspaceId = 
       );
     }
     if (tab === 'issues' || tab === 'jira') {
-      return <WorkItemsScreen workspace={workspace} tab={tab} github={<WorkspaceIssuesScreen
+      return <WorkItemsScreen workspace={workspace} tab={tab} issues={<WorkspaceIssuesScreen
         workspaceId={workspace.id}
         repository={monitoredRepository}
         initialIssueNumber={initialIssueNumber}

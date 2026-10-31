@@ -44,7 +44,7 @@ export default function DraftCard({ item, created, onCreated, onOpen }: {
     setMade(true);
     await window.bridge.setLocalWorkItemEpic(draft.workspaceId, work.id, true);
     if (!work.links.some(link => link.kind === 'ISSUE')) {
-      await window.bridge.publishWorkItem(draft.workspaceId, work.id, { source: 'GITHUB', expectedRevision: work.revision });
+      await window.bridge.publishWorkItem(draft.workspaceId, work.id, { source: 'ISSUE', expectedRevision: work.revision });
     }
     await window.bridge.recordAssistantDraft(item.conversationId, item.id);
     onCreated();

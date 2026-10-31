@@ -709,7 +709,7 @@ async function createsADraftedIssueAsAnEpic(): Promise<void> {
     const [, workspace, request] = steps[1] as [string, string, Record<string, unknown>];
     assert(workspace === 'ws1' && request.id === 'w-new' && request.title === 'Iceberg snapshot ids' && request.acceptanceCriteria === 'Track the work that exposes snapshot ids.',
       `The work takes the user's edits and the draft's id: ${JSON.stringify(request)}`);
-    assert(JSON.stringify(steps[3]) === '["publish","ws1","w-new",{"source":"GITHUB","expectedRevision":1}]', `It is pushed to GitHub as an issue: ${JSON.stringify(steps[3])}`);
+    assert(JSON.stringify(steps[3]) === '["publish","ws1","w-new",{"source":"ISSUE","expectedRevision":1}]', `It is pushed to GitHub as an issue: ${JSON.stringify(steps[3])}`);
     assert(view.host.querySelector<HTMLInputElement>('.assistant-draft__title')?.disabled === true
       && view.host.querySelector('.assistant-draft__note')?.textContent === 'Saved as a local Epic' && view.host.querySelectorAll('.assistant-draft__lock').length === 2,
       'Once made, the work keeps the words it was made with, and its fields say so');

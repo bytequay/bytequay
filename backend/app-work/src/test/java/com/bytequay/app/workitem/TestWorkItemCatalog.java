@@ -182,7 +182,7 @@ class TestWorkItemCatalog
         when(work.list("workspace")).thenReturn(ImmutableList.of(view));
         WorkItemCatalog catalog = new WorkItemCatalog(workspaces, issues, jira, store, work, mock(IssueDevelopmentStore.class));
         assertThat(catalog.list("workspace")).extracting(UnifiedWorkItem::source)
-                .containsExactlyInAnyOrder(UnifiedWorkItem.Source.LOCAL, UnifiedWorkItem.Source.GITHUB, UnifiedWorkItem.Source.JIRA);
+                .containsExactlyInAnyOrder(UnifiedWorkItem.Source.LOCAL, UnifiedWorkItem.Source.ISSUE, UnifiedWorkItem.Source.JIRA);
         assertThat(catalog.read("workspace", "local").description()).isEqualTo("Private context");
         assertThatThrownBy(() -> catalog.read("workspace", "other")).hasMessageContaining("not found");
         verify(store, never()).insert(any());
@@ -194,7 +194,7 @@ class TestWorkItemCatalog
         when(store.list("workspace")).thenReturn(ImmutableList.of(published));
         assertThat(catalog.list("workspace")).hasSize(2);
         UnifiedWorkItem exposed = catalog.read("workspace", "local");
-        assertThat(exposed.source()).isEqualTo(UnifiedWorkItem.Source.GITHUB);
+        assertThat(exposed.source()).isEqualTo(UnifiedWorkItem.Source.ISSUE);
         assertThat(exposed.work().orElseThrow().acceptanceCriteria()).isEqualTo("Private context");
         assertThat(exposed.description()).isEqualTo("Remote context");
     }
@@ -264,7 +264,7 @@ class TestWorkItemCatalog
         ContextFixture fixture = new ContextFixture();
         fixture.owner(ImmutableList.of(new WorkItemContextLink("ISSUE:github.com:999", "Closed issue")));
         assertThat(fixture.catalog.contextLinks("workspace", "owner"))
-                .containsExactly(new WorkItemContextView("ISSUE:github.com:999", "ISSUE:github.com:999", UnifiedWorkItem.Source.GITHUB,
+                .containsExactly(new WorkItemContextView("ISSUE:github.com:999", "ISSUE:github.com:999", UnifiedWorkItem.Source.ISSUE,
                         "Closed issue", "Unavailable", false, Optional.empty()));
         fixture.catalog.unlinkContext("workspace", "owner", 0, "ISSUE:github.com:999");
         verify(fixture.work).changeContextLinks("workspace", "owner", 0, ImmutableList.of(), "Unlinked context: Closed issue");
@@ -303,7 +303,7 @@ class TestWorkItemCatalog
         when(fixture.markers.findEpic("github.com", 88)).thenReturn(Optional.of(new IssueEpic("github.com", 88, "other/repo", 6, true, Instant.EPOCH)));
 
         UnifiedWorkItem epic = fixture.catalog.read("workspace", "ISSUE:github.com:77");
-        assertThat(epic.source()).isEqualTo(UnifiedWorkItem.Source.GITHUB);
+        assertThat(epic.source()).isEqualTo(UnifiedWorkItem.Source.ISSUE);
         assertThat(epic.title()).isEmpty();
         assertThat(epic.reference()).contains(new GoalItem(GoalItemKind.ISSUE, "org/repo#5", "#5", "", Instant.EPOCH));
         assertThatThrownBy(() -> fixture.catalog.read("workspace", "ISSUE:github.com:88")).hasMessageContaining("not found");

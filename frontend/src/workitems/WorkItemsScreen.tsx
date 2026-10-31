@@ -91,9 +91,9 @@ function StateIcon({ state, size = 16 }: { state: WorkItemDto['state']; size?: n
   return <Icon size={size} strokeWidth={1.6} aria-hidden="true" />;
 }
 
-const TABS = [['local', 'Local'], ['github', 'Issues'], ['jira', 'Jira']] as const;
+const TABS = [['local', 'Local'], ['issues', 'Issues'], ['jira', 'Jira']] as const;
 
-export default function WorkItemsScreen({ workspace, tab, github }: { workspace: WorkspaceDto; tab: 'issues' | 'jira'; github: ReactNode }) {
+export default function WorkItemsScreen({ workspace, tab, issues }: { workspace: WorkspaceDto; tab: 'issues' | 'jira'; issues: ReactNode }) {
   const provider = useProviderName();
   const [hash, setHash] = useState(() => typeof window === 'undefined' ? '' : window.location.hash);
   useEffect(() => {
@@ -103,11 +103,11 @@ export default function WorkItemsScreen({ workspace, tab, github }: { workspace:
   }, []);
   const [path, search] = hash.split('?');
   const query = new URLSearchParams(search);
-  const active = hash ? path.endsWith('/jira') ? 'jira' : query.get('source') === 'github' || /\/issues\/\d+$/.test(path) ? 'github' : 'local'
+  const active = hash ? path.endsWith('/jira') ? 'jira' : query.get('source') === 'issues' || /\/issues\/\d+$/.test(path) ? 'issues' : 'local'
     : tab === 'jira' ? 'jira' : 'local';
   const select = (source: typeof TABS[number][0]) => {
     window.location.hash = source === 'local' ? workItemRoute(workspace.id)
-      : source === 'jira' ? workspaceRoute(workspace.id, 'jira') : `${workspaceRoute(workspace.id, 'issues')}?source=github`;
+      : source === 'jira' ? workspaceRoute(workspace.id, 'jira') : `${workspaceRoute(workspace.id, 'issues')}?source=issues`;
   };
   return <div className="work-sources">
     <div className="work-sources__tabs" role="tablist" aria-label="Work item sources">
@@ -119,10 +119,10 @@ export default function WorkItemsScreen({ workspace, tab, github }: { workspace:
           if (next === null) return;
           event.preventDefault(); select(TABS[next][0]);
           event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
-        }}>{source === 'github' ? `${provider} issues` : label}</button>)}
+        }}>{source === 'issues' ? `${provider} issues` : label}</button>)}
     </div>
     <div className="work-sources__panel" id={`work-panel-${active}`} role="tabpanel" aria-labelledby={`work-source-${active}`}>
-      {active === 'github' ? github : active === 'jira' ? <JiraScreen workspace={workspace} /> : <LocalWorkItems key={workspace.id} workspace={workspace} />}
+      {active === 'issues' ? issues : active === 'jira' ? <JiraScreen workspace={workspace} /> : <LocalWorkItems key={workspace.id} workspace={workspace} />}
     </div>
   </div>;
 }
@@ -234,7 +234,7 @@ export function LocalWorkItems({ workspace, zoomedItemId, headerAction }: { work
         <select aria-label="Filter work items by where they are" value={where} onChange={event => setWhere(event.target.value)}>
           <option value="">Local + remote</option>
           <option value="LOCAL">Local only</option>
-          <option value="GITHUB">On {provider}</option>
+          <option value="ISSUE">On {provider}</option>
           <option value="JIRA">On Jira</option>
         </select>
       </div>
@@ -559,7 +559,7 @@ function WorkItemDetail({ workspace, item, all, catalog, epic, publishing, onPub
 }
 
 function PublishWorkItem({ workspace, item, onChanged, onClose }: { workspace: WorkspaceDto; item: WorkItemDto; onChanged: () => Promise<void>; onClose: () => void }) {
-  const [source, setSource] = useState<'GITHUB' | 'JIRA'>(() => item.links.some(link => link.kind === 'ISSUE') ? 'JIRA' : 'GITHUB');
+  const [source, setSource] = useState<'ISSUE' | 'JIRA'>(() => item.links.some(link => link.kind === 'ISSUE') ? 'JIRA' : 'ISSUE');
   const provider = useProviderName();
   const [connections, setConnections] = useState<JiraConnection[]>([]);
   const [site, setSite] = useState('');
@@ -571,7 +571,7 @@ function PublishWorkItem({ workspace, item, onChanged, onClose }: { workspace: W
   useEffect(() => { void window.bridge.listJiraConnections().then(setConnections).catch(cause => setError(errorText(cause))); }, [setError]);
   const [connectionId, cloudId] = site.split('/');
   const pending = item.history.some(event => event.action === 'PUBLISH_STARTED' && !item.history.some(done => done.operationId === `${event.operationId}:settled`));
-  const already = item.links.some(link => link.kind === (source === 'GITHUB' ? 'ISSUE' : 'JIRA'));
+  const already = item.links.some(link => link.kind === source);
   const destination: Publication = { source, expectedRevision: item.revision, ...(source === 'JIRA' ? { connectionId, cloudId, project, issueTypeId: type } : {}) };
   const loadTypes = () => run(async () => {
     const values = await window.bridge.workItemJiraTypes(workspace.id, connectionId, cloudId, project); setTypes(values); setType(values[0]?.id ?? '');
@@ -584,7 +584,7 @@ function PublishWorkItem({ workspace, item, onChanged, onClose }: { workspace: W
     }
     catch (cause) { setError(errorText(cause)); await onChanged().catch(() => {}); }
   });
-  const destinations = [['GITHUB', `${provider} issue`, `${workspace.monitoredOwner}/${workspace.monitoredRepo}`, 'issue'], ['JIRA', 'Jira ticket', 'A connected Jira site', 'jira']] as const;
+  const destinations = [['ISSUE', `${provider} issue`, `${workspace.monitoredOwner}/${workspace.monitoredRepo}`, 'issue'], ['JIRA', 'Jira ticket', 'A connected Jira site', 'jira']] as const;
   return <article className="pr-card work-items__publish" aria-label={`Push to ${provider} or Jira`}>
     <header className="pr-card__header">
       <Upload size={15} aria-hidden="true" /><strong>Push to {provider} or Jira</strong>
@@ -619,11 +619,11 @@ function PublishWorkItem({ workspace, item, onChanged, onClose }: { workspace: W
       {error && <div className="issues-error" role="alert">{error}</div>}
       <div className="pr-description-editor__actions work-items__publish-actions">
         <button type="button" className="is-primary" disabled={busy || already || pending || (source === 'JIRA' && !type)} onClick={() => void publish(false)}>
-          {busy ? 'Working…' : source === 'GITHUB' ? `Create ${provider} issue` : 'Create Jira ticket'}
+          {busy ? 'Working…' : source === 'ISSUE' ? `Create ${provider} issue` : 'Create Jira ticket'}
         </button>
         <button type="button" disabled={busy} onClick={onClose}>Cancel</button>
         <span>or link existing</span>
-        <input aria-label={source === 'GITHUB' ? 'Issue number in this repository' : 'Ticket key on the selected site'} placeholder={source === 'GITHUB' ? 'Issue #' : 'ENG-123'}
+        <input aria-label={source === 'ISSUE' ? 'Issue number in this repository' : 'Ticket key on the selected site'} placeholder={source === 'ISSUE' ? 'Issue #' : 'ENG-123'}
           value={key} onChange={event => setKey(event.target.value)} />
         <button type="button" disabled={busy || already || !key.trim() || (source === 'JIRA' && !site)} onClick={() => void publish(true)}><Link2 size={14} aria-hidden="true" />Link</button>
       </div>

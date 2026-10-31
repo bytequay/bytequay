@@ -57,7 +57,7 @@ class TestWorkItemPublicationService
     private final WorkspaceIssueService issues = mock(WorkspaceIssueService.class);
     private final JiraService jira = mock(JiraService.class);
     private final WorkItemPublicationService service = new WorkItemPublicationService(work, workspaces, issues, jira, Clock.systemUTC());
-    private final WorkItemPublicationService.Publication request = new WorkItemPublicationService.Publication(UnifiedWorkItem.Source.GITHUB, 0,
+    private final WorkItemPublicationService.Publication request = new WorkItemPublicationService.Publication(UnifiedWorkItem.Source.ISSUE, 0,
             Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
     private final RepoRef repo = RepoRef.of("org", "repo");
 

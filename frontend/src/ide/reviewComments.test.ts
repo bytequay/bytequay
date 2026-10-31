@@ -34,7 +34,7 @@ const comments: NonNullable<IdeContext['comments']> = {
 describe('review comment browser', () => {
   it('includes all card sources, resolved discussions, and pending replies in their existing thread', () => {
     const cards = reviewCommentCards({ review, comments });
-    expect(new Set(cards.map(card => card.kind))).toEqual(new Set(['Agent', 'GitHub', 'Private', 'Pending']));
+    expect(new Set(cards.map(card => card.kind))).toEqual(new Set(['Agent', 'Posted', 'Private', 'Pending']));
     expect(cards.filter(card => card.kind === 'Pending')).toHaveLength(1);
     expect(cards.find(card => card.id === 'thread:20')).toMatchObject({ resolved: true, target: { path: 'A.java', start: 10, end: 12 },
       messages: [{ body: 'GitHub feedback' }, { body: 'Pending reply' }] });
@@ -67,7 +67,7 @@ describe('review comment browser', () => {
       const thread = comments.threads.activities[0];
       const cards = reviewCommentCards({ review, comments: { ...comments,
         threads: { ...comments.threads, activities: [{ ...thread, payload: { ...thread.payload, ...change } }] } } });
-      expect(cards.find(card => card.kind === 'GitHub')?.target).toEqual({ path: 'A.java', start: null, end: null, revision: null });
+      expect(cards.find(card => card.kind === 'Posted')?.target).toEqual({ path: 'A.java', start: null, end: null, revision: null });
     }
   });
 

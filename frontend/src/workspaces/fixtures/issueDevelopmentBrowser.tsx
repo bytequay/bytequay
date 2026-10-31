@@ -431,7 +431,7 @@ async function localDevelopmentThroughWorkspace(): Promise<void> {
       kind: 'DEVELOP', completionRule: 'MERGED_DELIVERY', state: 'PLANNED', revision: 0, links: [], history: [], createdAt: f.issue.createdAt,
       updatedAt: f.issue.updatedAt, priority: 'NORMAL', blockedBy: [], epicId: 'ISSUE:github.com:7001', epicRank: 0 },
   };
-  const epic: UnifiedWorkItem = { id: 'ISSUE:github.com:7001', source: 'GITHUB', title: 'Master reader memory accounting', description: '', status: 'Open',
+  const epic: UnifiedWorkItem = { id: 'ISSUE:github.com:7001', source: 'ISSUE', title: 'Master reader memory accounting', description: '', status: 'Open',
     closed: false, updatedAt: f.issue.updatedAt, work: null,
     reference: { kind: 'ISSUE', key: 'upstream/app#7', label: '#7', title: 'Master reader memory accounting', addedAt: f.issue.createdAt } };
   let finishCreation = (): void => {};

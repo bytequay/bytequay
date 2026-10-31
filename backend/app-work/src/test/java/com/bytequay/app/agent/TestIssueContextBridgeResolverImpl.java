@@ -369,9 +369,9 @@ class TestIssueContextBridgeResolverImpl
                 WorkItem.Priority.NORMAL, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of(new WorkItemContextLink(targetId, "Linked background")));
         when(workItems.findByIdentity(WorkItemLink.taskIdentity(taskId.toString()))).thenReturn(Optional.of(item));
         when(catalog.contextLinks("workspace", "local")).thenReturn(ImmutableList.of(
-                new WorkItemContextView(targetId, "resolved-local", UnifiedWorkItem.Source.GITHUB, "Linked background", "Open", true, Optional.empty())));
-        for (String source : ImmutableList.of("LOCAL", "GITHUB", "JIRA")) {
-            when(sources.findByTaskId(taskId.toString())).thenReturn(source.equals("GITHUB")
+                new WorkItemContextView(targetId, "resolved-local", UnifiedWorkItem.Source.ISSUE, "Linked background", "Open", true, Optional.empty())));
+        for (String source : ImmutableList.of("LOCAL", "ISSUE", "JIRA")) {
+            when(sources.findByTaskId(taskId.toString())).thenReturn(source.equals("ISSUE")
                     ? Optional.of(new IssueTask(taskId.toString(), "workspace", SOURCE, Optional.empty(), NOW)) : Optional.empty());
             JiraIssueSource jiraSource = new JiraIssueSource("connection", "cloud", "10001", "APP-7", "https://company.atlassian.net/browse/APP-7",
                     "Jira assignment", "Jira body", NOW);

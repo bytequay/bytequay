@@ -148,9 +148,9 @@ class TestWorkItemBridgeResolver
                 Instant.EPOCH, Optional.empty(), Optional.of(view));
         String targetId = "ISSUE:github.com:42";
         when(catalog.read("workspace", "local-item")).thenReturn(item);
-        when(catalog.read("workspace", targetId)).thenReturn(new UnifiedWorkItem(targetId, UnifiedWorkItem.Source.GITHUB, "Related issue", "Full target context", "Open",
+        when(catalog.read("workspace", targetId)).thenReturn(new UnifiedWorkItem(targetId, UnifiedWorkItem.Source.ISSUE, "Related issue", "Full target context", "Open",
                 false, Instant.EPOCH, Optional.empty(), Optional.empty()));
-        WorkItemContextView summary = new WorkItemContextView(targetId, targetId, UnifiedWorkItem.Source.GITHUB, "Related issue", "Open", true, Optional.empty());
+        WorkItemContextView summary = new WorkItemContextView(targetId, targetId, UnifiedWorkItem.Source.ISSUE, "Related issue", "Open", true, Optional.empty());
         when(catalog.contextLinks("workspace", "local-item")).thenReturn(ImmutableList.of(summary), ImmutableList.of(summary), ImmutableList.of());
         DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
         beans.registerSingleton("catalog", catalog);

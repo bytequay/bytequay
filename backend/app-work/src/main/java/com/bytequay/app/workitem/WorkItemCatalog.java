@@ -135,7 +135,7 @@ public class WorkItemCatalog
                                 return;
                             }
                             GoalItem reference = new GoalItem(GoalItemKind.ISSUE, GoalItem.numberedKey(epic.repo(), epic.number()), "#" + epic.number(), "", epic.updatedAt());
-                            result.put(epicId, new UnifiedWorkItem(epicId, UnifiedWorkItem.Source.GITHUB, "", "", "Epic", false, epic.updatedAt(), Optional.of(reference),
+                            result.put(epicId, new UnifiedWorkItem(epicId, UnifiedWorkItem.Source.ISSUE, "", "", "Epic", false, epic.updatedAt(), Optional.of(reference),
                                     Optional.empty()));
                         }));
         return result.values().stream().sorted(Comparator.comparing(UnifiedWorkItem::updatedAt).reversed()).collect(toImmutableList());
@@ -230,13 +230,13 @@ public class WorkItemCatalog
     private static UnifiedWorkItem.Source sourceOf(String id)
     {
         if (id.startsWith("ISSUE:")) {
-            return UnifiedWorkItem.Source.GITHUB;
+            return UnifiedWorkItem.Source.ISSUE;
         }
         return id.startsWith("JIRA:") ? UnifiedWorkItem.Source.JIRA : UnifiedWorkItem.Source.LOCAL;
     }
 
     private static UnifiedWorkItem.Source type(GoalItemKind kind)
     {
-        return kind == GoalItemKind.ISSUE ? UnifiedWorkItem.Source.GITHUB : UnifiedWorkItem.Source.JIRA;
+        return kind == GoalItemKind.ISSUE ? UnifiedWorkItem.Source.ISSUE : UnifiedWorkItem.Source.JIRA;
     }
 }

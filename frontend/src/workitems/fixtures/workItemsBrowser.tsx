@@ -137,12 +137,12 @@ export async function contextLinks() {
       { kind: 'TASK', key: 'attempt', label: 'Task', title: 'Existing attempt', addedAt: now, state: 'ENDED', status: 'Completed', blocked: false, url: null, activity: null }] };
   const retained = JSON.stringify({ links: work.links, epicId: work.epicId, blockedBy: work.blockedBy });
   const related: UnifiedWorkItem[] = [projected(local('local-reference', 'Local design notes', 'Details.')),
-    { id: 'ISSUE:github.com:43', source: 'GITHUB', title: 'GitHub regression request', description: 'Details.', status: 'Open', closed: false, updatedAt: now,
+    { id: 'ISSUE:github.com:43', source: 'ISSUE', title: 'GitHub regression request', description: 'Details.', status: 'Open', closed: false, updatedAt: now,
       reference: { ...reference, key: 'other/repository#43', label: '#43', title: 'GitHub regression request' }, work: null },
     { id: 'JIRA:connection:site:7', source: 'JIRA', title: 'Jira compatibility request', description: 'Details.', status: 'In progress', closed: false, updatedAt: now,
       reference: { kind: 'JIRA', key: 'connection:site:7', label: 'BQ-7', title: 'Jira compatibility request', addedAt: now }, work: null },
-    { ...projected(local('published-reference', 'Published local reference', 'Details.')), source: 'GITHUB', reference: { ...reference, key: 'example-org/example-repo#50', label: '#50' } }];
-  const owner = (): UnifiedWorkItem => ({ ...projected(work), source: 'GITHUB', reference });
+    { ...projected(local('published-reference', 'Published local reference', 'Details.')), source: 'ISSUE', reference: { ...reference, key: 'example-org/example-repo#50', label: '#50' } }];
+  const owner = (): UnifiedWorkItem => ({ ...projected(work), source: 'ISSUE', reference });
   const contextCount = () => work.contextLinks.length;
   const requests: string[] = [];
   const catalogReads: boolean[] = [];
@@ -238,7 +238,7 @@ export async function run() {
   const publicationCount = () => publications;
   const seed = projected(local('seed', 'Improve work item context', '## Outcome\nAgents retain the request, acceptance criteria and prior attempts.\n\n- Preserve local privacy\n- Keep one identity after publication'));
   let items: UnifiedWorkItem[] = [seed,
-    { id: 'github', source: 'GITHUB', title: 'Handle interrupted agent sessions', description: 'An existing GitHub request.', status: 'Open', closed: false, updatedAt: now,
+    { id: 'github', source: 'ISSUE', title: 'Handle interrupted agent sessions', description: 'An existing GitHub request.', status: 'Open', closed: false, updatedAt: now,
       reference: { kind: 'ISSUE', key: 'example-org/example-repo#42', label: '#42', title: 'Handle interrupted agent sessions', addedAt: now }, work: null },
     { id: 'jira', source: 'JIRA', title: 'Add repository onboarding guidance', description: 'An existing Jira request.', status: 'In progress', closed: false, updatedAt: now,
       reference: { kind: 'JIRA', key: 'connection:site:7', label: 'BQ-7', title: 'Add repository onboarding guidance', addedAt: now }, work: null }];
@@ -250,11 +250,11 @@ export async function run() {
     listJiraConnections: async () => [],
     createWorkItem: async (_workspace, request) => { const work = local(request.id, request.title, request.acceptanceCriteria); items = [...items, projected(work)]; return work; },
     publishWorkItem: async (_workspace, id, request) => {
-      assert(request.source === 'GITHUB' && request.expectedRevision === 0, 'Publication uses the selected destination and preview revision');
+      assert(request.source === 'ISSUE' && request.expectedRevision === 0, 'Publication uses the selected destination and preview revision');
       publications++; const item = items.find(value => value.id === id); assert(item?.work != null, 'The local item exists before publication');
       const reference = { kind: 'ISSUE' as const, key: 'example-org/example-repo#43', label: '#43', title: item.title, addedAt: now };
       const work: WorkItemDto = { ...item.work, links: [{ ...reference, state: 'IDLE', status: 'Open', blocked: false, url: null, activity: null }] };
-      items = items.map(value => value.id === id ? { ...value, source: 'GITHUB', reference, work } : value);
+      items = items.map(value => value.id === id ? { ...value, source: 'ISSUE', reference, work } : value);
       return work;
     },
     decideWorkItem: async (_workspace, id, command) => {
@@ -265,7 +265,7 @@ export async function run() {
     },
   } satisfies Partial<Bridge> });
   const host = document.createElement('main'); host.style.cssText = 'height:100vh'; document.body.append(host);
-  createRoot(host).render(<WorkItemsScreen workspace={workspace} tab="issues" github={<WorkspaceIssuesScreen
+  createRoot(host).render(<WorkItemsScreen workspace={workspace} tab="issues" issues={<WorkspaceIssuesScreen
     workspaceId={workspace.id} repository="example-org/example-repo" initialIssueNumber={null} />} />); await settle(); await settle();
   assert([...document.querySelectorAll('[role="tab"]')].map(value => value.textContent).join('|') === 'Local|GitHub issues|Jira', 'Local is the leftmost source tab');
   assert(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent === 'Local' && document.querySelector('.work-items') !== null, 'Work items opens on Local by default');
@@ -297,13 +297,13 @@ export async function run() {
   button('Push to remote…').click(); await settle();
   assert(publicationCount() === 0 && document.querySelector('.work-items__publish')?.textContent?.includes('one request is active per workspace'), 'Preview is reviewable before the explicit remote action');
   button('Create GitHub issue').click(); await settle(); await settle();
-  assert(publicationCount() === 1 && items[3].id === savedId && items[3].source === 'GITHUB', 'Explicit publication keeps the same local identity');
+  assert(publicationCount() === 1 && items[3].id === savedId && items[3].source === 'ISSUE', 'Explicit publication keeps the same local identity');
   assert(rows().length === 2 && rows()[1].querySelector('.card-key')?.textContent === '#43', 'Pushed work stays in Local, naming its remote copy');
   assert(document.querySelector('.work-items__publish') === null && document.querySelector('.work-items .pr-meta')?.textContent?.includes('Local + GitHub #43') === true,
     'The pushed item says where it is visible');
   const where = document.querySelector<HTMLSelectElement>('[aria-label="Filter work items by where they are"]'); assert(where != null, 'The where filter exists');
   const show = async (value: string) => { where.value = value; where.dispatchEvent(new Event('change', { bubbles: true })); await settle(); };
-  await show('GITHUB');
+  await show('ISSUE');
   assert(rows().length === 1 && states() === 'Open 1Done 0Closed 0', 'On GitHub lists only pushed work, and the tabs count what the filters leave');
   await show('LOCAL');
   assert(rows().length === 1 && rows()[0].textContent?.includes('Improve work item context') === true, 'Local only lists work that was never pushed');
@@ -440,7 +440,7 @@ export async function localEpic() {
       const item = items.find(item => item.id === id); assert(item?.work != null, 'The published Epic exists');
       const reference = { kind: 'ISSUE' as const, key: 'example-org/example-repo#50', label: '#50', title: item.title, addedAt: now };
       const work: WorkItemDto = { ...item.work, links: [{ ...reference, state: 'IDLE', status: 'Open', blocked: false, url: null, activity: null }] };
-      items = items.map(value => value.id === id ? { ...value, source: 'GITHUB', reference, work } : value);
+      items = items.map(value => value.id === id ? { ...value, source: 'ISSUE', reference, work } : value);
       return work;
     },
     listJiraConnections: async () => [],

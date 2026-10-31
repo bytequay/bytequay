@@ -27,7 +27,7 @@ const WORKSPACE = {
   selectedRepo: 'repository',
   monitoredOwner: 'owner',
   monitoredRepo: 'repository',
-  localRepositoryPath: '/managed/ws-1/repository',
+  hostingServer: { provider: 'GITHUB', webBaseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' }, localRepositoryPath: '/managed/ws-1/repository',
   topology: 'DIRECT',
 } as unknown as WorkspaceDto;
 

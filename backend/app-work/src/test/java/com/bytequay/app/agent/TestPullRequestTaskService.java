@@ -115,7 +115,6 @@ class TestPullRequestTaskService
     void setUp()
     {
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
-        when(workspace.isGitHub()).thenReturn(true);
         when(workspace.monitoredRepository()).thenReturn(RepoRef.of("upstream", "repo"));
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
         when(pullRequests.prepareRead("workspace", "upstream/repo", 7)).thenReturn(selected);

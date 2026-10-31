@@ -179,7 +179,7 @@ class TestWorkspaceMetadataService
         Workspace gitlab = new Workspace("gitlab", "GitLab project", 100, DIRECT, Optional.empty(), Optional.empty(), 100, DIRECT,
                 Topology.DIRECT, "main", "https://gitlab.com/owner/project.git", Optional.empty(), Optional.empty(), "/tmp/gitlab-project",
                 Optional.empty(), Optional.empty(), 0, NOW, NOW,
-                Optional.of(new HostingServer(GITLAB, URI.create("https://gitlab.com"), URI.create("https://gitlab.com/api/v4"))));
+                new HostingServer(GITLAB, URI.create("https://gitlab.com"), URI.create("https://gitlab.com/api/v4")));
         workspaces.put("gitlab", gitlab);
         var route = WorkspaceIssueTestData.route(gitlab);
         when(hosting.captureRead("gitlab")).thenReturn(route);
@@ -461,6 +461,7 @@ class TestWorkspaceMetadataService
                 Optional.empty(),
                 0,
                 NOW,
-                NOW);
+                NOW,
+                HostingServer.GITHUB_COM);
     }
 }

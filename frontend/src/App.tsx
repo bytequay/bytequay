@@ -669,7 +669,7 @@ function AppContent() {
   // The server and capabilities a zoomed request's workspace selects.
   const workspacePresentation = (workspaceId: string) => {
     const found = workspace?.id === workspaceId ? workspace : settingsWorkspaces.find(item => item.id === workspaceId);
-    return { server: found?.hostingServer ?? undefined, capabilities: found?.capabilities };
+    return { server: found?.hostingServer, capabilities: found?.capabilities };
   };
 
   const openPr = (owner: string, repo: string, number?: number) => {
@@ -829,7 +829,7 @@ function AppContent() {
               )}
               {layer.kind === 'issue' && (
                 <PullRequestWorkspaceProvider workspaceId={layer.workspaceId} repository={layer.repo}
-                  server={(workspace?.id === layer.workspaceId ? workspace : settingsWorkspaces.find(item => item.id === layer.workspaceId))?.hostingServer ?? undefined}>
+                  server={(workspace?.id === layer.workspaceId ? workspace : settingsWorkspaces.find(item => item.id === layer.workspaceId))?.hostingServer}>
                 <WorkspaceIssuesScreen
                   workspaceId={layer.workspaceId}
                   repository={layer.repo}

@@ -210,7 +210,7 @@ final class SqliteWorkspacePurge
 
     private static Optional<Long> hostingRepositoryId(WorkspaceEntity workspace)
     {
-        return workspace.hostingBinding().map(binding -> binding.monitoredRepositoryId()).or(() -> workspace.hostingCacheTarget().map(target -> target.repositoryId()));
+        return workspace.hostingBinding().map(binding -> binding.monitoredRepositoryId());
     }
 
     private boolean exists(String statement, Map<String, Object> parameters)

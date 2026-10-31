@@ -19,7 +19,7 @@ import { useHostingPresentation, useProviderName } from '../pulls/PullRequestWor
 
 /**
  * `#123`, GitLab's `!123`, `123`, or a link to a request of `slug` on the workspace's server; anything else is ordinary search text. A
- * workspace without a server is on github.com.
+ * screen with no server reads github.com.
  */
 export function typedPullRequestNumber(query: string, slug: string | null, server?: HostingServerDto): number | null {
   const value = query.trim();

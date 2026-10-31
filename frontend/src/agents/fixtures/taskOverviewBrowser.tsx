@@ -148,7 +148,7 @@ async function everyWorkspace(): Promise<void> {
     { ...base, id: 'running', workspaceId: 'workspace-2', title: 'Running elsewhere', updatedAt: '2026-08-20T08:00:00Z', mutationClaim: turn },
   ];
   bridge.listWorkspaces = async () => ([['workspace-1', 'app'], ['workspace-2', 'docs']] as const)
-    .map(([id, repo]) => ({ id, monitoredOwner: 'example', monitoredRepo: repo, hostingServer: null }) as unknown as WorkspaceDto);
+    .map(([id, repo]) => ({ id, monitoredOwner: 'example', monitoredRepo: repo, hostingServer: { provider: 'GITHUB', webBaseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' } }) as unknown as WorkspaceDto);
   bridge.listAgentTasks = async id => tasks.filter(task => task.workspaceId === id);
   bridge.getAgentTask = async id => tasks.find(task => task.id === id) ?? tasks[0];
   bridge.readAgentHistory = async () => ({ events: [], beforeCursor: null, afterCursor: null, latestSequence: 0 });

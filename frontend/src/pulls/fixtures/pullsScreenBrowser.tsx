@@ -1808,7 +1808,7 @@ export async function runPreparePrivateThreads(mode: 'ready' | 'failure' | 'mode
   const repository = { owner: 'comment-tests', repo: mode };
   const workspace = workspaceFixture({
     id: 'workspace-1', name: 'repo', selectedRepositoryId: 1, selectedOwner: repository.owner, selectedRepo: repository.repo,
-    monitoredRepositoryId: 1, monitoredOwner: repository.owner, monitoredRepo: repository.repo, localRepositoryPath: '/managed/repo',
+    monitoredRepositoryId: 1, monitoredOwner: repository.owner, monitoredRepo: repository.repo, hostingServer: { provider: 'GITHUB', webBaseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' }, localRepositoryPath: '/managed/repo',
   });
   let watched = false;
   const cacheKey = `private-thread-drafts:${localId}`;

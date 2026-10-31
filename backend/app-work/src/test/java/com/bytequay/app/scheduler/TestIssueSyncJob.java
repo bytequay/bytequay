@@ -42,8 +42,8 @@ class TestIssueSyncJob
     {
         WorkspaceIssueService issues = mock(WorkspaceIssueService.class);
         WorkspaceStore workspaces = mock(WorkspaceStore.class);
-        Workspace gitlab = workspace("gitlab", 1, Optional.of(new HostingServer(HostingProvider.GITLAB,
-                URI.create("https://gitlab.com"), URI.create("https://gitlab.com/api/v4"))));
+        Workspace gitlab = workspace("gitlab", 1, new HostingServer(HostingProvider.GITLAB,
+                URI.create("https://gitlab.com"), URI.create("https://gitlab.com/api/v4")));
         when(workspaces.findAll()).thenReturn(ImmutableList.of(gitlab, workspace("first", 1), workspace("second", 1), workspace("third", 2)));
 
         new IssueSyncJob(issues, workspaces, mock(AppSettingsService.class)).tick();
@@ -59,10 +59,10 @@ class TestIssueSyncJob
 
     private static Workspace workspace(String id, long repositoryId)
     {
-        return workspace(id, repositoryId, Optional.empty());
+        return workspace(id, repositoryId, HostingServer.GITHUB_COM);
     }
 
-    private static Workspace workspace(String id, long repositoryId, Optional<HostingServer> server)
+    private static Workspace workspace(String id, long repositoryId, HostingServer server)
     {
         RepoRef repository = RepoRef.of("owner", "repo-" + repositoryId);
         Instant now = Instant.parse("2026-08-22T00:00:00Z");

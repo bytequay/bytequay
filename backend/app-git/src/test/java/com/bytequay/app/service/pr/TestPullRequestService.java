@@ -89,6 +89,7 @@ import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.PullRequestCardSummary;
 import com.bytequay.core.hosting.PullRequestContentReader;
@@ -3918,7 +3919,7 @@ class TestPullRequestService
         RepoRef repository = RepoRef.of("owner", "repo");
         return new Workspace("workspace", "Repository", 1, repository, Optional.empty(), Optional.empty(), 1, repository, Workspace.Topology.DIRECT,
                 "main", "https://github.com/owner/repo.git", Optional.empty(), Optional.empty(), "/tmp/repo", Optional.empty(), Optional.empty(),
-                0, REVIEWED_AT, REVIEWED_AT);
+                0, REVIEWED_AT, REVIEWED_AT, HostingServer.GITHUB_COM);
     }
 
     /** A target read with the token these tests sign in with. */

@@ -493,7 +493,7 @@ class TestHostingController
         HostingServer server = new HostingServer(GITLAB, WEB, API);
         Workspace workspace = new Workspace("workspace", "Project", 42, project, Optional.empty(), Optional.empty(), 42, project,
                 Workspace.Topology.DIRECT, "main", WEB + "/group/subgroup/project.git", Optional.empty(), Optional.empty(), "/tmp/managed/repository",
-                Optional.empty(), Optional.empty(), 0, now, now, Optional.of(server));
+                Optional.empty(), Optional.empty(), 0, now, now, server);
         when(workspaces.watch(7, 11, Optional.of("Project"))).thenReturn(workspace);
 
         mvc(connections).perform(post("/api/hosting/accounts/7/workspaces").header(SESSION_HEADER, SESSION).contentType(MediaType.APPLICATION_JSON)

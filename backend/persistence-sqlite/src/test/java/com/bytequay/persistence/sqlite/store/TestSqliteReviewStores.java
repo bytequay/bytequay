@@ -16,10 +16,12 @@ package com.bytequay.persistence.sqlite.store;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.RemoteHostingAccount;
 import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewAnchor;
@@ -581,9 +583,18 @@ class TestSqliteReviewStores
                 monitored ? Optional.of(remoteId) : Optional.empty(), monitored ? Optional.of(target) : Optional.empty(), remoteId, target,
                 monitored ? Workspace.Topology.FORK : Workspace.Topology.DIRECT, "main", "https://github.com/" + selected.fullName() + ".git",
                 monitored ? Optional.of("main") : Optional.empty(), monitored ? Optional.of("https://github.com/bytequay/sample.git") : Optional.empty(),
-                "/tmp/draft-workspace", Optional.empty(), Optional.empty(), 0, NOW, NOW);
-        workspaces.createOrGet(workspace);
+                "/tmp/draft-workspace", Optional.empty(), Optional.empty(), 0, NOW, NOW, HostingServer.GITHUB_COM);
+        HostingInstance instance = identities.upsertInstance(HostingServer.GITHUB_COM);
+        HostingAccount account = identities.upsertAccount(instance.id(), new RemoteHostingAccount("1", "alice"));
+        long selectedId = workspaceRepository(instance, workspace.selectedRepositoryId(), selected).id();
+        workspaces.createHosted(workspace, account.id(), selectedId, workspace.upstreamRepositoryId().map(id -> workspaceRepository(instance, id, target).id()));
         workspaces.setWatched(workspace.id(), false);
+    }
+
+    private HostingRepository workspaceRepository(HostingInstance instance, long remoteId, RepoRef path)
+    {
+        return identities.upsertRepository(instance.id(), new RemoteHostingRepository(Long.toString(remoteId), path.fullName(),
+                URI.create("https://github.com/" + path.fullName()), URI.create("https://github.com/" + path.fullName() + ".git"), Optional.empty(), Optional.of("main")));
     }
 
     @Test

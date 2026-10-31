@@ -87,8 +87,8 @@ export default function CircleDialog({ circle, initialName = '', directory, busy
     Promise.resolve().then(() => window.bridge.listWorkspaces())
       .then(workspaces => {
         if (!current) return;
-        // A workspace without a server is a GitHub.com one; only the account's own server can be followed.
-        const onServer = workspaces.filter(workspace => base(workspace.hostingServer?.webBaseUrl ?? 'https://github.com') === base(server.webBaseUrl));
+        // Only the account's own server can be followed.
+        const onServer = workspaces.filter(workspace => base(workspace.hostingServer.webBaseUrl) === base(server.webBaseUrl));
         setWatched([...new Set(onServer.map(workspace => `${workspace.monitoredOwner}/${workspace.monitoredRepo}`.toLowerCase()))].sort());
       })
       .catch(() => { /* Suggestions are optional; typing a repository still works. */ });

@@ -41,7 +41,7 @@ export default function DeleteWorkspaceDialog({ workspace, onDeleted, onCancel }
 
   return <DeleteWorkspaceConfirmation
     repositoryName={repositoryName}
-    provider={providerName(workspace.hostingServer ?? undefined)}
+    provider={providerName(workspace.hostingServer)}
     finalConfirmation={finalConfirmation}
     confirmation={confirmation}
     busy={busy}

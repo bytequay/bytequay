@@ -163,7 +163,7 @@ class TestWorkspaceRelationships
     void offersGitLabWorkspacesForForkWorkflows()
     {
         add("oss", 1);
-        add("project", 2, Optional.of(new HostingServer(GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"))));
+        add("project", 2, new HostingServer(GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4")));
 
         assertThat(relationships.backportWorkspaces()).extracting(WorkspaceRelationships.BackportWorkspace::workspaceId).containsExactlyInAnyOrder("oss", "project");
     }
@@ -183,13 +183,13 @@ class TestWorkspaceRelationships
 
     private Workspace add(String id, long repositoryId)
     {
-        return add(id, repositoryId, Optional.empty());
+        return add(id, repositoryId, GITHUB_COM);
     }
 
-    private Workspace add(String id, long repositoryId, Optional<HostingServer> server)
+    private Workspace add(String id, long repositoryId, HostingServer server)
     {
         Workspace workspace = new Workspace(id, id, repositoryId, RepoRef.of("owner", id), Optional.empty(), Optional.empty(),
-                repositoryId, RepoRef.of("owner", id), Workspace.Topology.DIRECT, "main", server.orElse(GITHUB_COM).webBaseUrl() + "/owner/" + id + ".git",
+                repositoryId, RepoRef.of("owner", id), Workspace.Topology.DIRECT, "main", server.webBaseUrl() + "/owner/" + id + ".git",
                 Optional.empty(), Optional.empty(), "/managed/" + id, Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, server);
         return workspaces.save(workspace);
     }

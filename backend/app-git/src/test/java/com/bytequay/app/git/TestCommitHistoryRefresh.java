@@ -120,7 +120,7 @@ class TestCommitHistoryRefresh
         service = new CommitHistoryService(workspaces, hosting, provisioning, git, store, credentials, gitHub, pullRequests, avatars, clock, mock(ApplicationContext.class));
 
         readyWorkspace();
-        when(workspaces.getWorkspace(WORKSPACE_ID)).thenReturn(summary(null));
+        when(workspaces.getWorkspace(WORKSPACE_ID)).thenReturn(summary(HostingServer.GITHUB_COM));
         when(provisioning.synchronizeCode(WORKSPACE_ID))
                 .thenReturn(new WorkspaceCodeSyncResult(WORKSPACE_ID, true, Optional.of(NOW), ImmutableSet.of()));
         when(credentials.resolveGitHubToken(WORKSPACE_ID)).thenReturn("test-token");

@@ -32,7 +32,7 @@ import { Badge, SettingsCard, SettingsRow } from './primitives';
 function Eyebrow({ workspace }: { workspace: WorkspaceDto }) {
   return (
     <div className="setw-eyebrow">
-      <RepoAvatar github={workspace.hostingServer?.provider !== 'GITLAB'} owner={workspace.selectedOwner} repo={workspace.selectedRepo} size={17} radius={4} />
+      <RepoAvatar github={workspace.hostingServer.provider !== 'GITLAB'} owner={workspace.selectedOwner} repo={workspace.selectedRepo} size={17} radius={4} />
       <span>{workspace.selectedOwner}/{workspace.selectedRepo}</span>
     </div>
   );
@@ -284,7 +284,7 @@ export function WorkspaceAdvancedPage({ workspace, busy, error, onUnwatch, onDel
             {busy ? 'Unwatching…' : 'Unwatch'}
           </button>
         </SettingsRow>
-        <SettingsRow title="Delete local data" subtitle={`Keeps everything on ${providerName(workspace.hostingServer ?? undefined)}`}>
+        <SettingsRow title="Delete local data" subtitle={`Keeps everything on ${providerName(workspace.hostingServer)}`}>
           <button type="button" className="setw-btn is-danger" disabled={busy} onClick={onDelete}>Delete…</button>
         </SettingsRow>
       </SettingsCard>

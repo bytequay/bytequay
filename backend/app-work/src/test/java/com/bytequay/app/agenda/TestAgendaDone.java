@@ -27,6 +27,7 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.EpicStore;
 import com.bytequay.core.store.PullRequestStore;
@@ -117,7 +118,7 @@ class TestAgendaDone
     {
         Workspace repository = new Workspace("ws1", "Repository", 1, RepoRef.of("owner", "repository"), Optional.empty(), Optional.empty(), 1, RepoRef.of("owner", "repository"),
                 Workspace.Topology.DIRECT, "master", "https://github.com/owner/repository.git", Optional.empty(), Optional.empty(), "/managed/repository", Optional.empty(),
-                Optional.empty(), 0, MADE, MADE);
+                Optional.empty(), 0, MADE, MADE, HostingServer.GITHUB_COM);
         when(workspaces.findAll()).thenReturn(ImmutableList.of(repository));
         when(issues.find(any(), any(), eq(77))).thenReturn(Optional.of(new RepositoryIssue(901, 77, "Snapshot ids in $snapshots", "body", "marlo-t", "",
                 "https://github.com/owner/repository/issues/77", ImmutableList.of(), ImmutableList.of(), 0, MADE, MADE)));

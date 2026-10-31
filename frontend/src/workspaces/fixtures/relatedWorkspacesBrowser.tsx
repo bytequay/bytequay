@@ -26,7 +26,7 @@ import '../../css/settings-window.css';
 const workspace = (id: string, repositoryId: number, name: string): WorkspaceDto => workspaceFixture({
   id, name, selectedOwner: 'owner', selectedRepo: id, monitoredOwner: 'apache', monitoredRepo: id,
   selectedRepositoryId: repositoryId, monitoredRepositoryId: repositoryId,
-  localRepositoryPath: `/managed/${id}`, lastCodeSyncAt: '2026-01-01T00:00:00Z',
+  hostingServer: { provider: 'GITHUB', webBaseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' }, localRepositoryPath: `/managed/${id}`, lastCodeSyncAt: '2026-01-01T00:00:00Z',
 });
 const repository = workspace('repo', 1, 'Repository');
 const iceberg = workspace('iceberg', 2, 'Apache Iceberg');

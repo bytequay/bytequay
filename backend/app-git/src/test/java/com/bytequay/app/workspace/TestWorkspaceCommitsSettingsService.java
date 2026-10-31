@@ -18,6 +18,7 @@ import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingServer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullSource;
@@ -143,6 +144,6 @@ class TestWorkspaceCommitsSettingsService
                 linked ? Optional.of(200L) : Optional.empty(), linked ? Optional.of(upstream) : Optional.empty(),
                 linked ? 200 : 100, linked ? upstream : selected, Topology.FORK, "fork-main", "https://github.com/owner/project.git",
                 linked ? Optional.of("master") : Optional.empty(), linked ? Optional.of("https://github.com/upstream/project.git") : Optional.empty(),
-                "/not-provisioned/repository", Optional.empty(), Optional.empty(), 0, NOW, NOW);
+                "/not-provisioned/repository", Optional.empty(), Optional.empty(), 0, NOW, NOW, HostingServer.GITHUB_COM);
     }
 }

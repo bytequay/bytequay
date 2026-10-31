@@ -280,7 +280,7 @@ async function mount(initial: TeamDirectory | TeamDirectory[] = seededDirectory(
   await settled();
   return { queries, opened, created, removed, added, get directory() { return directories[0]; }, get refreshes() { return refreshes; },
     get workspaceReads() { return workspaceReads; }, issueEtags,
-    watchWorkspace() { workspaces = [{ id: 'workspace-1', monitoredOwner: 'owner', monitoredRepo: 'repository' } as WorkspaceDto]; },
+    watchWorkspace() { workspaces = [{ id: 'workspace-1', monitoredOwner: 'owner', monitoredRepo: 'repository', hostingServer: { provider: 'GITHUB', webBaseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' } } as WorkspaceDto]; },
     failRefresh() { failRefresh = true; }, delayRefresh() { delayRefresh = true; }, finishRefresh() { finishRefresh(); },
     failCreate(message: string | null) { createFailure = message; },
     /** The desktop sign-in becomes another account, which owns its own directory. */

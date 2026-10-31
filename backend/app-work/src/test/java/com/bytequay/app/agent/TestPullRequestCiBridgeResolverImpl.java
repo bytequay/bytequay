@@ -55,6 +55,7 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.PullRequestCi;
 import com.bytequay.core.hosting.PullRequestContentReader;
 import com.bytequay.core.hosting.PullRequestWriter;
@@ -158,7 +159,7 @@ class TestPullRequestCiBridgeResolverImpl
         when(workspaces.findById("workspace")).thenReturn(Optional.of(new Workspace(
                 "workspace", "Repository", 1, FORK, Optional.of(2L), Optional.of(UPSTREAM), 2, UPSTREAM, Workspace.Topology.FORK,
                 "master", "https://github.com/alice/repository.git", Optional.of("master"), Optional.of("https://github.com/owner/repository.git"),
-                "/tmp/repository", Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW)));
+                "/tmp/repository", Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW, HostingServer.GITHUB_COM)));
         when(worktrees.currentBranch(worktree)).thenReturn(Optional.of(BRANCH));
         when(worktrees.inspect(worktree)).thenReturn(new WorktreeSnapshot(worktree, HEAD, false, false, false));
         when(pullRequests.findByHeadRef(UPSTREAM.fullName(), BRANCH)).thenReturn(ImmutableList.of(row(PR)));

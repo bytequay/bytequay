@@ -14,7 +14,6 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.hosting.HostingCacheTarget;
 import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import com.bytequay.core.store.WorkspaceStore;
@@ -36,7 +35,6 @@ final class InMemoryWorkspaceStore
     private final Map<String, Workspace> byId = new LinkedHashMap<>();
     private final Set<String> unwatched = new HashSet<>();
     private final Map<String, WorkspaceHostingBinding> bindings = new LinkedHashMap<>();
-    private final Map<String, HostingCacheTarget> cacheTargets = new LinkedHashMap<>();
 
     @Override
     public synchronized List<Workspace> findAll()
@@ -95,34 +93,29 @@ final class InMemoryWorkspaceStore
     }
 
     @Override
-    public synchronized Workspace createOrGet(Workspace workspace)
-    {
-        Optional<Workspace> existing = findBySelectedRepository(workspace.server(), workspace.selectedRepositoryId());
-        if (existing.isPresent()) {
-            return existing.orElseThrow();
-        }
-        byId.put(workspace.id(), workspace);
-        return workspace;
-    }
-
-    @Override
     public synchronized Workspace createHosted(Workspace workspace, long accountId, long selectedRepositoryId, Optional<Long> upstreamRepositoryId)
     {
-        Workspace saved = createOrGet(workspace);
+        Workspace saved = findBySelectedRepository(workspace.server(), workspace.selectedRepositoryId()).orElse(workspace);
+        byId.putIfAbsent(saved.id(), saved);
         bindHosting(saved.id(), accountId, selectedRepositoryId, upstreamRepositoryId);
         setWatched(saved.id(), true);
         return saved;
+    }
+
+    /** Creates a workspace bound to account 1 and to hosting repositories numbered like its remote repositories. */
+    public Workspace create(Workspace workspace)
+    {
+        return createHosted(workspace, 1, workspace.selectedRepositoryId(), workspace.upstreamRepositoryId());
     }
 
     @Override
     public synchronized Workspace save(Workspace workspace)
     {
         Workspace previous = byId.put(workspace.id(), workspace);
-        if (previous != null && (!previous.hostingServer().equals(workspace.hostingServer()) || previous.selectedRepositoryId() != workspace.selectedRepositoryId()
+        if (previous != null && (!previous.server().equals(workspace.server()) || previous.selectedRepositoryId() != workspace.selectedRepositoryId()
                 || !previous.upstreamRepositoryId().equals(workspace.upstreamRepositoryId())
                 || previous.monitoredRepositoryId() != workspace.monitoredRepositoryId() || previous.topology() != workspace.topology())) {
             bindings.remove(workspace.id());
-            cacheTargets.remove(workspace.id());
         }
         return workspace;
     }
@@ -131,18 +124,6 @@ final class InMemoryWorkspaceStore
     public synchronized Optional<WorkspaceHostingBinding> findHostingBinding(String workspaceId)
     {
         return Optional.ofNullable(bindings.get(workspaceId));
-    }
-
-    @Override
-    public synchronized Optional<HostingCacheTarget> findHostingCacheTarget(String workspaceId)
-    {
-        return Optional.ofNullable(cacheTargets.get(workspaceId));
-    }
-
-    @Override
-    public synchronized void saveHostingCacheTarget(String workspaceId, HostingCacheTarget target)
-    {
-        cacheTargets.put(workspaceId, target);
     }
 
     @Override
@@ -160,6 +141,5 @@ final class InMemoryWorkspaceStore
         byId.remove(workspaceId);
         unwatched.remove(workspaceId);
         bindings.remove(workspaceId);
-        cacheTargets.remove(workspaceId);
     }
 }

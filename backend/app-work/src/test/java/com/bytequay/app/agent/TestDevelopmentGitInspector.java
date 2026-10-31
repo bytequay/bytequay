@@ -895,7 +895,7 @@ class TestDevelopmentGitInspector
                 fork ? Optional.of(2L) : Optional.empty(), fork ? Optional.of(BASE_REPOSITORY) : Optional.empty(),
                 fork ? 2 : 1, fork ? BASE_REPOSITORY : REPOSITORY, fork ? Workspace.Topology.FORK : Workspace.Topology.DIRECT,
                 baseBranch, ORIGIN, fork ? Optional.of(baseBranch) : Optional.empty(), fork ? Optional.of(UPSTREAM) : Optional.empty(),
-                repository.toString(), Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW);
+                repository.toString(), Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW, HostingServer.GITHUB_COM);
     }
 
     private String run(Path directory, String... arguments)

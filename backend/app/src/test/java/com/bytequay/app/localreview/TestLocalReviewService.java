@@ -56,6 +56,7 @@ import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.localreview.LocalReviewLearningAnchor;
 import com.bytequay.core.localreview.LocalReviewMessage.Author;
 import com.bytequay.core.localreview.LocalReviewStore;
@@ -152,7 +153,7 @@ class TestLocalReviewService
         when(tasks.get(taskId)).thenReturn(task);
         Workspace workspace = new Workspace("workspace", "Repository", 1, new RepoRef("owner", "repo"), Optional.empty(), Optional.empty(),
                 1, new RepoRef("owner", "repo"), Workspace.Topology.DIRECT, "main", "https://github.com/owner/repo.git", Optional.empty(), Optional.empty(),
-                paths.repository("workspace").toString(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH);
+                paths.repository("workspace").toString(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, HostingServer.GITHUB_COM);
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
         when(workspaces.findHostingRepositoryId("workspace")).thenReturn(Optional.of(1L));
         PullRequest pr = new PullRequest(1, "owner/repo", 7, "Task", "owner", "https://github.com/owner/repo/pull/7", Instant.EPOCH, Instant.EPOCH,

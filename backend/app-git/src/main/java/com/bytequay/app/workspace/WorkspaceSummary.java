@@ -21,7 +21,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;
 
-import static com.bytequay.core.hosting.HostingServer.GITHUB_COM;
+import static java.util.Objects.requireNonNull;
 
 public record WorkspaceSummary(
         String id,
@@ -44,6 +44,11 @@ public record WorkspaceSummary(
         int displayOrder,
         HostingServer hostingServer)
 {
+    public WorkspaceSummary
+    {
+        requireNonNull(hostingServer, "hostingServer is null");
+    }
+
     public static WorkspaceSummary of(Workspace workspace)
     {
         return new WorkspaceSummary(
@@ -65,12 +70,12 @@ public record WorkspaceSummary(
                 workspace.lastCodeSyncAt().orElse(null),
                 workspace.lastMetadataSyncAt().orElse(null),
                 workspace.displayOrder(),
-                workspace.hostingServer().orElse(null));
+                workspace.server());
     }
 
     @JsonProperty
     public HostingCapabilities capabilities()
     {
-        return (hostingServer == null ? GITHUB_COM : hostingServer).provider().capabilities();
+        return hostingServer.provider().capabilities();
     }
 }

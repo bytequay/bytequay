@@ -55,7 +55,7 @@ export default function TaskOverview({
         setTasks(workspaces === null ? open
           : open.sort((a, b) => Number(running(b)) - Number(running(a)) || b.updatedAt.localeCompare(a.updatedAt)));
         setRepositories(workspaces === null ? undefined : new Map(workspaces.map((workspace) => [workspace.id,
-          { owner: workspace.monitoredOwner, repo: workspace.monitoredRepo, github: workspace.hostingServer?.provider !== 'GITLAB' }])));
+          { owner: workspace.monitoredOwner, repo: workspace.monitoredRepo, github: workspace.hostingServer.provider !== 'GITLAB' }])));
         setNotice(null);
       })
       .catch((failure: unknown) => {

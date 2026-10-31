@@ -27,7 +27,7 @@ export function PullRequestWorkspaceProvider({ workspaceId, accountId, server, c
   return <PullRequestWorkspace value={value}>{children}</PullRequestWorkspace>;
 }
 
-/** The provider's name for people; a workspace without a server is on GitHub. */
+/** The provider's name for people; a screen with no server reads through the GitHub sign-in. */
 export function providerName(server: HostingServerDto | undefined): string {
   return server?.provider === 'GITLAB' ? 'GitLab' : 'GitHub';
 }
@@ -77,7 +77,7 @@ export function WorkspacePullRequestScope({ workspaceId, children }: { workspace
     if (workspaceId === undefined) return;
     let current = true;
     void globalThis.window?.bridge.getWorkspace(workspaceId)
-      .then(workspace => { if (current) setServer(workspace.hostingServer ?? undefined); })
+      .then(workspace => { if (current) setServer(workspace.hostingServer); })
       .catch(() => { /* Text still renders; only its links wait for the server. */ });
     return () => { current = false; };
   }, [workspaceId]);

@@ -69,6 +69,7 @@ import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.RepositoryVisibility;
 import com.bytequay.core.store.AppSettingsStore;
+import com.bytequay.core.store.HostingCredentialStore;
 import com.bytequay.core.store.HostingIdentityStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.WorkspaceCredentialStore;
@@ -206,6 +207,9 @@ class TestCiAutofixEndToEnd
     private HostingIdentityStore identities;
 
     @Autowired
+    private HostingCredentialStore hostingCredentials;
+
+    @Autowired
     private HostingRepositoryJpaRepository repositories;
 
     @Autowired
@@ -251,6 +255,7 @@ class TestCiAutofixEndToEnd
                 resources,
                 pullRequests,
                 identities,
+                hostingCredentials,
                 repositories,
                 details,
                 workspaces,

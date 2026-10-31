@@ -22,13 +22,12 @@ import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
 import com.google.common.collect.ImmutableList;
 
 import java.net.URI;
 import java.time.Instant;
 import java.util.Optional;
-
-import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 
 final class WorkspaceIssueTestData
 {
@@ -38,7 +37,7 @@ final class WorkspaceIssueTestData
 
     static WorkspaceHostingRead route(Workspace workspace)
     {
-        var server = workspace.hostingServer().orElse(GITHUB_SERVER);
+        HostingServer server = workspace.server();
         HostingAccess access = new HostingAccess(new HostingInstance(1, server.provider(), server.webBaseUrl(), server.apiBaseUrl()), "token");
         String url = server.webBaseUrl() + "/" + workspace.monitoredRepository().fullName();
         HostingRepository repository = new HostingRepository(workspace.monitoredRepositoryId(), 1, Long.toString(workspace.monitoredRepositoryId()),
@@ -83,6 +82,7 @@ final class WorkspaceIssueTestData
                 Optional.of(NOW),
                 0,
                 NOW,
-                NOW);
+                NOW,
+                HostingServer.GITHUB_COM);
     }
 }

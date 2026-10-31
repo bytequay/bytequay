@@ -478,7 +478,7 @@ class TestBackportChainService
         var repo = RepoRef.of("test", "p3");
         workspaceData.put("project", new Workspace("project", "Project", 30, repo, Optional.empty(), Optional.empty(), 30, repo, Workspace.Topology.DIRECT, "main",
                 "https://gitlab.example.com/test/p3.git", Optional.empty(), Optional.empty(), "/tmp/project", Optional.of(NOW), Optional.empty(), 0, NOW, NOW,
-                Optional.of(new HostingServer(GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4")))));
+                new HostingServer(GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"))));
 
         assertThatThrownBy(() -> save(service(), "test/p3")).hasMessageContaining("unambiguous owner/repository");
     }
@@ -736,7 +736,7 @@ class TestBackportChainService
         var repo = RepoRef.of("test", "p" + number);
         return new Workspace("p" + number, "Project " + number, number, repo, Optional.empty(), Optional.empty(), number, repo, Workspace.Topology.DIRECT,
                 "main", "https://github.com/" + repo.fullName() + ".git", Optional.empty(), Optional.empty(), "/tmp/p" + number,
-                Optional.of(NOW), Optional.empty(), 0, NOW, NOW);
+                Optional.of(NOW), Optional.empty(), 0, NOW, NOW, HostingServer.GITHUB_COM);
     }
 
     private static PullRequestIdentity identity(int number, PullRequestIdentity.State state, String branch)

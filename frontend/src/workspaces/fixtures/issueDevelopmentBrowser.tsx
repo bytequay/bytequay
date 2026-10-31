@@ -417,7 +417,7 @@ async function decidedStart(): Promise<void> {
 }
 
 const WORKSPACE: WorkspaceDto = {
-  id: 'workspace-fork', name: 'me/app', localRepositoryPath: '/managed/workspace-fork/repository', defaultBranch: 'main', upstreamDefaultBranch: 'main',
+  id: 'workspace-fork', name: 'me/app', hostingServer: { provider: 'GITHUB', webBaseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' }, localRepositoryPath: '/managed/workspace-fork/repository', defaultBranch: 'main', upstreamDefaultBranch: 'main',
   selectedRepositoryId: 41, selectedOwner: 'me', selectedRepo: 'app', upstreamRepositoryId: 40, upstreamOwner: 'upstream', upstreamRepo: 'app',
   monitoredRepositoryId: 40, monitoredOwner: 'upstream', monitoredRepo: 'app', topology: 'FORK', lastCodeSyncAt: null, lastMetadataSyncAt: null, displayOrder: 0,
 };

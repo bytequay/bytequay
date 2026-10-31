@@ -53,24 +53,25 @@ class TestWorkspace
                 Optional.empty(),
                 0,
                 NOW,
-                NOW))
+                NOW,
+                GITHUB_COM))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("upstream ID");
     }
 
     @Test
-    void workspaceWithoutAHostingServerIsOnGitHubCom()
+    void workspaceNamesItsServerAndProvider()
     {
         HostingServer gitlab = new HostingServer(GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"));
 
         assertThat(GITHUB_COM).isEqualTo(new HostingServer(GITHUB, URI.create("https://github.com/"), URI.create("https://api.github.com")));
-        assertThat(workspace(Optional.empty()).server()).isEqualTo(GITHUB_COM);
-        assertThat(workspace(Optional.empty()).provider()).isEqualTo(GITHUB);
-        assertThat(workspace(Optional.of(gitlab)).server()).isEqualTo(gitlab);
-        assertThat(workspace(Optional.of(gitlab)).provider()).isEqualTo(GITLAB);
+        assertThat(workspace(GITHUB_COM).server()).isEqualTo(GITHUB_COM);
+        assertThat(workspace(GITHUB_COM).provider()).isEqualTo(GITHUB);
+        assertThat(workspace(gitlab).server()).isEqualTo(gitlab);
+        assertThat(workspace(gitlab).provider()).isEqualTo(GITLAB);
     }
 
-    private static Workspace workspace(Optional<HostingServer> server)
+    private static Workspace workspace(HostingServer server)
     {
         RepoRef repository = RepoRef.of("owner", "project");
         return new Workspace("workspace", "owner/project", 100, repository, Optional.empty(), Optional.empty(), 100, repository, Topology.DIRECT, "main",

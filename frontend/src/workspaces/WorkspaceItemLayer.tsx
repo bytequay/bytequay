@@ -35,7 +35,7 @@ export default function WorkspaceItemLayer({ target, onClose }: { target: Target
     return () => { active = false; };
   }, [target.workspaceId]);
   const actions = <ZoomActions {...zoom} label={target.kind === 'work' ? 'work item' : 'task'} className={target.kind === 'task' ? 'agt-headbtn' : 'pull-detail__icon-action'} />;
-  return <PullRequestWorkspaceProvider workspaceId={target.workspaceId} server={workspace?.hostingServer ?? undefined}
+  return <PullRequestWorkspaceProvider workspaceId={target.workspaceId} server={workspace?.hostingServer}
     repository={workspace === null ? undefined : `${workspace.monitoredOwner}/${workspace.monitoredRepo}`}>
     {!zoom.full && <ZoomScrim onClose={zoom.close} />}
     <section className={zoom.cardClass} role="dialog" aria-modal="true" data-navigation-layer aria-label={target.kind === 'work' ? 'Local work item' : 'Task'}>

@@ -49,6 +49,7 @@ import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewRun;
@@ -104,7 +105,8 @@ class TestRunningTaskReader
         when(clock.instant()).thenReturn(NOW);
         RepoRef repo = new RepoRef("owner", "repo");
         Workspace workspace = new Workspace("workspace", "Repository", 1, repo, Optional.empty(), Optional.empty(), 1, repo, Workspace.Topology.DIRECT,
-                "main", "https://github.com/owner/repo.git", Optional.empty(), Optional.empty(), "/tmp/repository", Optional.empty(), Optional.empty(), 0, NOW, NOW);
+                "main", "https://github.com/owner/repo.git", Optional.empty(), Optional.empty(), "/tmp/repository", Optional.empty(), Optional.empty(), 0, NOW, NOW,
+                HostingServer.GITHUB_COM);
         when(workspaces.findAllRetained()).thenReturn(ImmutableList.of(workspace));
     }
 

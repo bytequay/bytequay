@@ -41,7 +41,6 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingAccess;
-import com.bytequay.core.hosting.HostingCacheTarget;
 import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.RemoteHostingAccount;
 import com.bytequay.core.hosting.RemoteHostingRepository;
@@ -257,7 +256,7 @@ abstract class AbstractTestAgentHttpApi
 
         Instant now = Instant.now();
         RepoRef selected = RepoRef.of("bytequay", "agent-e2e");
-        workspaces.createOrGet(new Workspace(
+        useWorkspaceHosting(new Workspace(
                 workspaceId,
                 "Agent HTTP test",
                 repositoryId,
@@ -276,14 +275,17 @@ abstract class AbstractTestAgentHttpApi
                 Optional.of(now),
                 0,
                 now,
-                now));
-        useWorkspaceHosting("contributor");
+                now, HostingServer.GITHUB_COM), "contributor");
         when(provisioning.synchronizeCode(workspaceId)).thenReturn(new WorkspaceCodeSyncResult(workspaceId, true, Optional.of(now), ImmutableSet.of()));
     }
 
     protected void useWorkspaceHosting(String login)
     {
-        Workspace workspace = workspaces.findById(workspaceId).orElseThrow();
+        useWorkspaceHosting(workspaces.findById(workspaceId).orElseThrow(), login);
+    }
+
+    private void useWorkspaceHosting(Workspace workspace, String login)
+    {
         var instance = hostingIdentities.upsertInstance(new HostingServer(GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com")));
         var account = hostingIdentities.upsertAccount(instance.id(), new RemoteHostingAccount(login, login));
         HostingReadSession session = new HostingReadSession(account.id(), "test-workspace:" + workspaceId, new HostingAccess(instance, "pat"));
@@ -291,7 +293,12 @@ abstract class AbstractTestAgentHttpApi
         var hosted = hostingIdentities.upsertRepository(instance.id(), new RemoteHostingRepository(Long.toString(workspace.monitoredRepositoryId()), path,
                 URI.create("https://github.com/" + path), URI.create("https://github.com/" + path + ".git"), Optional.empty(),
                 Optional.of(workspace.upstreamDefaultBranch().orElse(workspace.defaultBranch()))));
-        workspaces.saveHostingCacheTarget(workspaceId, new HostingCacheTarget(account.id(), hosted.id(), session.credentialScope()));
+        // A fork binds its selected repository too; the monitored one is its upstream.
+        String selectedPath = workspace.selectedRepository().fullName();
+        long selected = workspace.upstreamRepositoryId().isEmpty() ? hosted.id() : hostingIdentities.upsertRepository(instance.id(), new RemoteHostingRepository(
+                Long.toString(workspace.selectedRepositoryId()), selectedPath, URI.create("https://github.com/" + selectedPath), URI.create(workspace.originCloneUrl()),
+                Optional.empty(), Optional.of(workspace.defaultBranch()))).id();
+        workspaces.createHosted(workspace, account.id(), selected, workspace.upstreamRepositoryId().map(ignored -> hosted.id()));
         when(workspaceHosting.captureRead(workspaceId)).thenReturn(new WorkspaceHostingRead(session, hosted, login));
         when(workspaceHosting.storedRead(workspaceId)).thenReturn(new WorkspaceHostingRead(session, hosted, login));
         when(workspaceHosting.viewerLogin(workspaceId)).thenReturn(Optional.of(login));

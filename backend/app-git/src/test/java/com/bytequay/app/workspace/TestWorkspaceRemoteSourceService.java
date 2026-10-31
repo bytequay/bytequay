@@ -19,6 +19,7 @@ import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
@@ -143,6 +144,7 @@ class TestWorkspaceRemoteSourceService
                 Optional.of(NOW),
                 0,
                 NOW,
-                NOW);
+                NOW,
+                HostingServer.GITHUB_COM);
     }
 }

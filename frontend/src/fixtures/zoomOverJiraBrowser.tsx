@@ -108,7 +108,7 @@ function installBridge() {
       posted.push(body);
       return detail();
     },
-    listWorkspaces: async () => [{ id: 'workspace', name: 'Repository', monitoredOwner: 'owner', monitoredRepo: 'repository' } as WorkspaceDto],
+    listWorkspaces: async () => [{ id: 'workspace', name: 'Repository', hostingServer: { provider: 'GITHUB', webBaseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' }, monitoredOwner: 'owner', monitoredRepo: 'repository' } as WorkspaceDto],
     fetchWorkspaceIssueAttention: async () => ({ etag: null, snapshot: null }),
     fetchWorkspaceIssue: async () => issue,
     fetchWorkspaceIssues: async () => ({ repositoryId: 40, repository, issues: [issue], page: 0, pageSize: 50, totalIssues: 1, hasMore: false, syncedAt: null }),
@@ -220,7 +220,8 @@ async function myWorkOverHome(): Promise<void> {
 async function localWorkAndTasksOverEpic(): Promise<void> {
   await withApp('#/home', async () => {
     await until(() => document.querySelector('.mw-card') !== null, 'Home is ready');
-    const workspace: WorkspaceDto = { id: 'workspace', name: 'Repository', monitoredOwner: 'owner', monitoredRepo: 'repository', selectedOwner: 'owner', selectedRepo: 'repository',
+    const workspace: WorkspaceDto = { id: 'workspace', name: 'Repository', hostingServer: { provider: 'GITHUB', webBaseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' },
+      monitoredOwner: 'owner', monitoredRepo: 'repository', selectedOwner: 'owner', selectedRepo: 'repository',
       topology: 'DIRECT', localRepositoryPath: '/managed/repository', defaultBranch: 'master', upstreamDefaultBranch: null, upstreamOwner: null, upstreamRepo: null,
       selectedRepositoryId: 40, monitoredRepositoryId: 40, upstreamRepositoryId: null, lastCodeSyncAt: null, lastMetadataSyncAt: null, displayOrder: 0 };
     const work: WorkItemDto = { id: 'local-work', workspaceId: workspace.id, isEpic: false, contextLinks: [], epicId: `ISSUE:github.com:${issue.id}`, title: 'Retain Arrow memory context',

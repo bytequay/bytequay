@@ -95,7 +95,6 @@ class TestIssueDevelopmentService
     void setUp()
     {
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
-        when(workspace.isGitHub()).thenReturn(true);
         when(workspace.issueHost()).thenReturn("github.com");
         when(workspace.id()).thenReturn("workspace");
         when(workspaces.findHostingRepositoryId("workspace")).thenReturn(Optional.of(2L));
@@ -211,7 +210,6 @@ class TestIssueDevelopmentService
     void changedWorkspaceRepositoryRefusesPreparedTaskAndSourceWrite()
     {
         Workspace changed = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
-        when(changed.isGitHub()).thenReturn(true);
         when(changed.issueHost()).thenReturn("github.com");
         when(changed.monitoredRepository()).thenReturn(RepoRef.of("different", "upstream"));
         when(workspaces.findById("workspace")).thenReturn(Optional.of(changed));

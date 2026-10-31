@@ -458,7 +458,7 @@ public class WorkspaceRepositoryService
                 displayOrder,
                 now,
                 now,
-                Optional.of(GITHUB_COM));
+                GITHUB_COM);
         // The main GitHub sign-in read these repositories, so the workspace is bound to that account and to them.
         HostingReadSession session = credentials.captureHostingRead();
         HostingRepository selectedRepository = connections.resolveRepositoryById(session, Long.toString(selected.id()));

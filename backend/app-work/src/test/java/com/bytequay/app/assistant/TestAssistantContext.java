@@ -66,6 +66,7 @@ import com.bytequay.core.domain.ServedRef;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingPullRequest;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.AgendaStore;
 import com.bytequay.core.store.EpicStore;
@@ -186,7 +187,7 @@ class TestAssistantContext
                 "Kept the old cache key and " + "checked every reader of it. ".repeat(30), NOW.minusSeconds(60), Optional.empty())), Optional.empty(), Optional.of(failed))));
         Workspace repository = new Workspace("ws1", "Repository", 1, RepoRef.of("owner", "repository"), Optional.empty(), Optional.empty(), 1, RepoRef.of("owner", "repository"),
                 Workspace.Topology.DIRECT, "master", "https://github.com/owner/repository.git", Optional.empty(), Optional.empty(), "/managed/repository", Optional.empty(),
-                Optional.empty(), 0, NOW, NOW);
+                Optional.empty(), 0, NOW, NOW, HostingServer.GITHUB_COM);
         when(workspaces.findAll()).thenReturn(ImmutableList.of(repository));
         when(pullRequests.findHostingIdentity(7L)).thenReturn(Optional.of(new HostingPullRequest(7, 20, 31402)));
         when(workspaces.findByHostingRepositoryId(20)).thenReturn(Optional.of(repository));

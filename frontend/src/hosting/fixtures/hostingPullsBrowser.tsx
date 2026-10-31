@@ -32,7 +32,7 @@ async function sharedRequests(workspace: WorkspaceDto) {
   const failure = 'Server offline (HTTP 503).\n\nRequest: GET /api/v4/projects/:project/merge_requests\nTime (UTC): 2026-01-01T12:00:00Z\nGitLab request ID: request-456';
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => { copied.push(value); } } });
   const repository = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
-  const htmlUrl = workspace.hostingServer ? `${server.webBaseUrl}/${repository}/-/merge_requests/7` : `https://github.com/${repository}/pull/7`;
+  const htmlUrl = workspace.hostingServer.provider === 'GITLAB' ? `${server.webBaseUrl}/${repository}/-/merge_requests/7` : `https://github.com/${repository}/pull/7`;
   let title = 'Shared request';
   let monitored = false;
   let failSync = false;
@@ -92,7 +92,7 @@ async function sharedRequests(workspace: WorkspaceDto) {
     element<HTMLButtonElement>('.pull-row', view.host).click();
     await until(() => view.host.textContent?.includes('Shared detail') === true, 'Existing request detail did not open');
     assert(view.host.querySelector('.pull-detail') !== null, 'Detail must use the existing review screen');
-    if (workspace.hostingServer) {
+    if (workspace.hostingServer.provider === 'GITLAB') {
       element<HTMLAnchorElement>('a[href$="/-/issues/9"]', view.host).click();
       await until(() => opened.length > 0, 'Private server issue reference did not open');
       assert(opened[0] === `${server.webBaseUrl}/${repository}/-/issues/9`, 'Issue reference lost its private server or nested namespace');

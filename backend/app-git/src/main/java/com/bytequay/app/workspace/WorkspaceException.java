@@ -52,12 +52,10 @@ public final class WorkspaceException
         return workspace;
     }
 
-    /** A workspace with no hosting account bound reads through the GitHub credential, so it must be a GitHub workspace. */
-    public static void requireGitHub(Workspace workspace)
+    /** Every workspace reads through the hosting account bound to it. */
+    public static WorkspaceException accountRequired()
     {
-        if (!workspace.isGitHub()) {
-            throw unavailable();
-        }
+        return new WorkspaceException("WORKSPACE_ACCOUNT_REQUIRED", HttpStatus.CONFLICT, "Choose the account this workspace uses in its settings.", false);
     }
 
     private static WorkspaceException unavailable()

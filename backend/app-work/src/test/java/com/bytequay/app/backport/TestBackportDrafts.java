@@ -287,7 +287,7 @@ class TestBackportDrafts
     void linksAndTemplateFollowTheWorkspaceProvider()
     {
         HostingServer gitlab = new HostingServer(GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"));
-        doAnswer(call -> Optional.of(workspace(call.getArgument(0), Optional.of(gitlab)))).when(workspaces).findById(anyString());
+        doAnswer(call -> Optional.of(workspace(call.getArgument(0), gitlab))).when(workspaces).findById(anyString());
         HostingInstance instance = new HostingInstance(1, GITLAB, gitlab.webBaseUrl(), gitlab.apiBaseUrl());
         HostingRepository target = new HostingRepository(2, 1, "2", "test/p2", URI.create("https://gitlab.example.com/test/p2"),
                 URI.create("https://gitlab.example.com/test/p2.git"), Optional.empty(), Optional.of("main"));
@@ -309,10 +309,10 @@ class TestBackportDrafts
 
     private static Workspace workspace(String id)
     {
-        return workspace(id, Optional.empty());
+        return workspace(id, HostingServer.GITHUB_COM);
     }
 
-    private static Workspace workspace(String id, Optional<HostingServer> server)
+    private static Workspace workspace(String id, HostingServer server)
     {
         RepoRef repository = RepoRef.of("test", id);
         return new Workspace(id, id, 1, repository, Optional.empty(), Optional.empty(), 1, repository, Workspace.Topology.DIRECT, "main",

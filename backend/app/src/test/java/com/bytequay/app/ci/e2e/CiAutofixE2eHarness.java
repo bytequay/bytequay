@@ -42,9 +42,14 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingAccount;
+import com.bytequay.core.hosting.HostingCredential;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.RemoteHostingAccount;
 import com.bytequay.core.hosting.RemoteHostingRepository;
+import com.bytequay.core.store.HostingCredentialStore;
 import com.bytequay.core.store.HostingIdentityStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -100,6 +105,7 @@ final class CiAutofixE2eHarness
     private final AgentResourceService resources;
     private final PullRequestJpaRepository pullRequests;
     private final HostingIdentityStore identities;
+    private final HostingCredentialStore credentials;
     private final HostingRepositoryJpaRepository repositories;
     private final PrDetailStore details;
     private final WorkspaceStore workspaces;
@@ -120,6 +126,7 @@ final class CiAutofixE2eHarness
             AgentResourceService resources,
             PullRequestJpaRepository pullRequests,
             HostingIdentityStore identities,
+            HostingCredentialStore credentials,
             HostingRepositoryJpaRepository repositories,
             PrDetailStore details,
             WorkspaceStore workspaces,
@@ -138,6 +145,7 @@ final class CiAutofixE2eHarness
         this.resources = resources;
         this.pullRequests = pullRequests;
         this.identities = identities;
+        this.credentials = credentials;
         this.repositories = repositories;
         this.details = details;
         this.workspaces = workspaces;
@@ -153,7 +161,7 @@ final class CiAutofixE2eHarness
         PullRequestRef pullRequest = PullRequestRef.of("bytequay", name + "-" + suffix, toIntExact(number));
         E2eGitRepository repository = E2eGitRepository.create(workspacePaths.workspace(workspaceId), pullRequest);
         seedWorkspace(workspaceId, name, number, repository);
-        long prId = seedPullRequest(repository);
+        long prId = seedPullRequest(number, repository);
         return new Fixture(workspaceId, prId, repository, number * 10 + 1, number * 10 + 2);
     }
 
@@ -381,11 +389,16 @@ final class CiAutofixE2eHarness
         return new WorkspaceHostingRead(new HostingReadSession(1, "ci-e2e", new HostingAccess(instance, "test-token")), repository, "author");
     }
 
-    private long seedPullRequest(E2eGitRepository repository)
+    private HostingRepository hostedRepository(long repositoryId, String path)
+    {
+        return identities.upsertRepository(identities.upsertInstance(GITHUB_SERVER).id(), new RemoteHostingRepository(Long.toString(repositoryId), path,
+                URI.create("https://github.com/" + path), URI.create("https://github.com/" + path + ".git"), Optional.empty(), Optional.of("main")));
+    }
+
+    private long seedPullRequest(long repositoryId, E2eGitRepository repository)
     {
         String path = repository.pullRequest().repoFullName();
-        HostingRepository hosted = identities.upsertRepository(identities.upsertInstance(GITHUB_SERVER).id(), new RemoteHostingRepository(path, path,
-                URI.create("https://github.com/" + path), URI.create("https://github.com/" + path + ".git"), Optional.empty(), Optional.of("main")));
+        HostingRepository hosted = hostedRepository(repositoryId, path);
         PullRequestEntity entity = new PullRequestEntity();
         entity.setHostingRepository(repositories.getReferenceById(hosted.id()));
         entity.setRepo(path);
@@ -430,8 +443,12 @@ final class CiAutofixE2eHarness
                 Optional.of(now),
                 0,
                 now,
-                now);
-        workspaces.createOrGet(workspace);
+                now,
+                HostingServer.GITHUB_COM);
+        HostingRepository hosted = hostedRepository(repositoryId, repo.fullName());
+        HostingAccount account = identities.upsertAccount(hosted.instanceId(), new RemoteHostingAccount("1", "author"));
+        credentials.save(account.id(), "test-token", HostingCredential.Source.TOKEN);
+        workspaces.createHosted(workspace, account.id(), hosted.id(), Optional.empty());
         try {
             Files.writeString(workspacePaths.workspace(workspaceId).resolve(".bytequay-workspace"), workspaceId + "\n" + repositoryId + "\n");
         }

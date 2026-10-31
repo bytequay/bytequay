@@ -21,6 +21,7 @@ import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.store.RemoteSourceStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -137,7 +138,8 @@ class TestWorkspaceRepositoryIdentity
                 Optional.of(NOW),
                 0,
                 NOW,
-                NOW);
+                NOW,
+                HostingServer.GITHUB_COM);
     }
 
     private static Workspace linkedWorkspace(String id, long selectedRepositoryId, RepoRef selectedRepository, long upstreamRepositoryId, RepoRef upstreamRepository)
@@ -161,7 +163,8 @@ class TestWorkspaceRepositoryIdentity
                 Optional.of(NOW),
                 0,
                 NOW,
-                NOW);
+                NOW,
+                HostingServer.GITHUB_COM);
     }
 
     private static String cloneUrl(RepoRef repository)

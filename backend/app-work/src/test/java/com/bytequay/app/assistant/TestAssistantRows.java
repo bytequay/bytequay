@@ -99,7 +99,7 @@ class TestAssistantRows
     private static final Workspace WORKSPACE = new Workspace("ws1", "Repository", 1, RepoRef.of("owner", "repository"), Optional.empty(), Optional.empty(), 1,
             RepoRef.of("owner", "repository"),
             Workspace.Topology.DIRECT, "master", "https://github.com/owner/repository.git", Optional.empty(), Optional.empty(), "/managed/repository", Optional.empty(),
-            Optional.empty(), 0, NOW, NOW);
+            Optional.empty(), 0, NOW, NOW, HostingServer.GITHUB_COM);
 
     private final PullRequestStore pullRequests = mock(PullRequestStore.class);
     private final PrDetailStore details = mock(PrDetailStore.class);
@@ -318,7 +318,7 @@ class TestAssistantRows
         RepoRef repository = RepoRef.of(path.substring(0, path.lastIndexOf('/')), path.substring(path.lastIndexOf('/') + 1));
         return new Workspace(id, path, 2, repository, Optional.empty(), Optional.empty(), 2, repository, Workspace.Topology.DIRECT, "main",
                 "https://gitlab.example.com/" + path + ".git", Optional.empty(), Optional.empty(), "/managed/" + id, Optional.empty(), Optional.empty(), 0, NOW, NOW,
-                Optional.of(new HostingServer(HostingProvider.GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"))));
+                new HostingServer(HostingProvider.GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4")));
     }
 
     @Test

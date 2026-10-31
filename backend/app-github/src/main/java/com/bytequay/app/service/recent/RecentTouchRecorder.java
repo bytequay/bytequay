@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.service.recent;
 
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RecentItemType;
 import com.bytequay.core.domain.RecentReason;
@@ -23,7 +22,6 @@ import com.bytequay.core.domain.RecentTouch;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingAccount;
-import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.store.HostingIdentityStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.RecentStore;
@@ -59,7 +57,6 @@ public class RecentTouchRecorder
     private final RepositoryIssueStore issues;
     private final WorkspaceStore workspaces;
     private final HostingIdentityStore hostingIdentities;
-    private final CredentialService credentials;
     private final Clock clock;
 
     public RecentTouchRecorder(
@@ -68,7 +65,6 @@ public class RecentTouchRecorder
             RepositoryIssueStore issues,
             WorkspaceStore workspaces,
             HostingIdentityStore hostingIdentities,
-            CredentialService credentials,
             Clock clock)
     {
         this.recent = requireNonNull(recent, "recent is null");
@@ -76,7 +72,6 @@ public class RecentTouchRecorder
         this.issues = requireNonNull(issues, "issues is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.hostingIdentities = requireNonNull(hostingIdentities, "hostingIdentities is null");
-        this.credentials = requireNonNull(credentials, "credentials is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -280,11 +275,8 @@ public class RecentTouchRecorder
         }
         Workspace found = workspace.orElseThrow();
         String repo = found.monitoredRepository().fullName();
-        Optional<Long> accountId = workspaces.findHostingBinding(workspaceId).map(binding -> binding.accountId())
-                .or(() -> workspaces.findHostingCacheTarget(workspaceId).map(target -> target.accountId()));
-        // A workspace with no account of its own reads through the desktop sign-in, which only a github.com workspace can use.
-        Optional<String> viewer = accountId.flatMap(hostingIdentities::findAccount).map(HostingAccount::login)
-                .or(() -> accountId.isEmpty() && found.server().equals(HostingServer.GITHUB_COM) ? credentials.cachedLogin() : Optional.empty());
+        Optional<String> viewer = workspaces.findHostingBinding(workspaceId).flatMap(binding -> hostingIdentities.findAccount(binding.accountId()))
+                .map(HostingAccount::login);
         boolean mine = issue.map(RepositoryIssue::author).flatMap(author -> viewer.map(author::equalsIgnoreCase)).orElse(false);
         return Optional.of(new RecentItem(
                 RecentItemType.ISSUE,

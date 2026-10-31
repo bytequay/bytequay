@@ -27,6 +27,7 @@ import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.memory.Memory;
 import com.bytequay.core.memory.MemorySource;
 import com.bytequay.core.review.AgentReview;
@@ -261,7 +262,8 @@ class TestMemoryBridgeResolverImpl
     {
         Workspace destination = new Workspace("iceberg", "Iceberg", 2, RepoRef.of("apache", "iceberg"), Optional.empty(), Optional.empty(),
                 2, RepoRef.of("apache", "iceberg"), Workspace.Topology.DIRECT, "main", "https://github.com/apache/iceberg.git",
-                Optional.empty(), Optional.empty(), "/managed/iceberg", Optional.empty(), Optional.empty(), 0, java.time.Instant.EPOCH, java.time.Instant.EPOCH);
+                Optional.empty(), Optional.empty(), "/managed/iceberg", Optional.empty(), Optional.empty(), 0, java.time.Instant.EPOCH, java.time.Instant.EPOCH,
+                HostingServer.GITHUB_COM);
         when(relationships.requireReadable("workspace", "iceberg")).thenReturn(destination);
         for (int number = 1; number <= 25; number++) {
             store.save(rule("m" + number, "iceberg", "Rule " + number, ImmutableList.of()));

@@ -35,6 +35,7 @@ import com.bytequay.app.service.settings.AgentSkillService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.store.WorkspaceStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -342,7 +343,8 @@ class TestBetterWordsService
                 Optional.empty(),
                 0,
                 now,
-                now);
+                now,
+                HostingServer.GITHUB_COM);
         WorkspaceStore workspaces = mock(WorkspaceStore.class);
         when(workspaces.findById(workspaceId)).thenReturn(Optional.of(workspace));
         return workspaces;
@@ -370,7 +372,8 @@ class TestBetterWordsService
                 Optional.empty(),
                 0,
                 now,
-                now);
+                now,
+                HostingServer.GITHUB_COM);
         WorkspaceStore workspaces = mock(WorkspaceStore.class);
         when(workspaces.findById(workspaceId)).thenReturn(Optional.of(workspace));
         return workspaces;

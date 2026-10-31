@@ -31,7 +31,7 @@ import '../../css/reference-card.css';
 
 const workspace = workspaceFixture({
   id: 'workspace', name: 'Example', selectedOwner: 'example-org', selectedRepo: 'example-repo', monitoredOwner: 'example-org', monitoredRepo: 'example-repo',
-  selectedRepositoryId: 1, monitoredRepositoryId: 1, localRepositoryPath: '/managed/example-repo',
+  selectedRepositoryId: 1, monitoredRepositoryId: 1, hostingServer: { provider: 'GITHUB', webBaseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' }, localRepositoryPath: '/managed/example-repo',
 });
 const now = '2026-10-07T00:00:00Z';
 function local(id: string, title: string, body: string): WorkItemDto {

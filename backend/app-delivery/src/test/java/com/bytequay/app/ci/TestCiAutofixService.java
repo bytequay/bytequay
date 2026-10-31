@@ -100,6 +100,7 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.PullRequestCi;
 import com.bytequay.core.hosting.PullRequestContentReader;
 import com.bytequay.core.hosting.PullRequestWriter;
@@ -2730,6 +2731,6 @@ class TestCiAutofixService
         RepoRef repository = RepoRef.of(PULL_REQUEST.owner(), PULL_REQUEST.repo());
         return new Workspace("workspace-1", "Sample", 42, repository, Optional.empty(), Optional.empty(), 42, repository, Workspace.Topology.DIRECT, "main",
                 WEB_BASE + "/" + repository.fullName() + ".git", Optional.empty(), Optional.empty(), "/workspaces/workspace-1", Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW,
-                Optional.empty());
+                HostingServer.GITHUB_COM);
     }
 }

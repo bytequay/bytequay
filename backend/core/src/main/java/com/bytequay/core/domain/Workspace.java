@@ -21,8 +21,6 @@ import java.util.Locale;
 import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkText;
-import static com.bytequay.core.hosting.HostingProvider.GITHUB;
-import static com.bytequay.core.hosting.HostingServer.GITHUB_COM;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -53,11 +51,11 @@ public record Workspace(
         int displayOrder,
         Instant createdAt,
         Instant updatedAt,
-        Optional<HostingServer> hostingServer)
+        HostingServer server)
 {
     public Workspace
     {
-        requireNonNull(hostingServer, "hostingServer is null");
+        requireNonNull(server, "server is null");
         checkText(id, "id");
         checkText(name, "name");
         checkArgument(selectedRepositoryId > 0, "selectedRepositoryId must be positive");
@@ -99,30 +97,9 @@ public record Workspace(
         }
     }
 
-    public Workspace(String id, String name, long selectedRepositoryId, RepoRef selectedRepository, Optional<Long> upstreamRepositoryId,
-            Optional<RepoRef> upstreamRepository, long monitoredRepositoryId, RepoRef monitoredRepository, Topology topology, String defaultBranch,
-            String originCloneUrl, Optional<String> upstreamDefaultBranch, Optional<String> upstreamCloneUrl, String localRepositoryPath,
-            Optional<Instant> lastCodeSyncAt, Optional<Instant> lastMetadataSyncAt, int displayOrder, Instant createdAt, Instant updatedAt)
-    {
-        this(id, name, selectedRepositoryId, selectedRepository, upstreamRepositoryId, upstreamRepository, monitoredRepositoryId, monitoredRepository,
-                topology, defaultBranch, originCloneUrl, upstreamDefaultBranch, upstreamCloneUrl, localRepositoryPath, lastCodeSyncAt, lastMetadataSyncAt,
-                displayOrder, createdAt, updatedAt, Optional.empty());
-    }
-
-    /** A workspace without a hosting server predates GitLab support and is a GitHub.com workspace. */
-    public HostingServer server()
-    {
-        return hostingServer.orElse(GITHUB_COM);
-    }
-
     public HostingProvider provider()
     {
-        return server().provider();
-    }
-
-    public boolean isGitHub()
-    {
-        return provider() == GITHUB;
+        return server.provider();
     }
 
     public Workspace withName(String nextName, Instant now)
@@ -131,7 +108,7 @@ public record Workspace(
                 id, nextName, selectedRepositoryId, selectedRepository, upstreamRepositoryId,
                 upstreamRepository, monitoredRepositoryId, monitoredRepository, topology,
                 defaultBranch, originCloneUrl, upstreamDefaultBranch, upstreamCloneUrl, localRepositoryPath,
-                lastCodeSyncAt, lastMetadataSyncAt, displayOrder, createdAt, now, hostingServer);
+                lastCodeSyncAt, lastMetadataSyncAt, displayOrder, createdAt, now, server);
     }
 
     public Workspace withCodeSyncAt(Optional<Instant> nextLastCodeSyncAt, Instant now)
@@ -140,7 +117,7 @@ public record Workspace(
                 id, name, selectedRepositoryId, selectedRepository, upstreamRepositoryId,
                 upstreamRepository, monitoredRepositoryId, monitoredRepository, topology,
                 defaultBranch, originCloneUrl, upstreamDefaultBranch, upstreamCloneUrl, localRepositoryPath,
-                nextLastCodeSyncAt, lastMetadataSyncAt, displayOrder, createdAt, now, hostingServer);
+                nextLastCodeSyncAt, lastMetadataSyncAt, displayOrder, createdAt, now, server);
     }
 
     public Workspace withMetadataSyncAt(Optional<Instant> nextLastMetadataSyncAt, Instant now)
@@ -149,7 +126,7 @@ public record Workspace(
                 id, name, selectedRepositoryId, selectedRepository, upstreamRepositoryId,
                 upstreamRepository, monitoredRepositoryId, monitoredRepository, topology,
                 defaultBranch, originCloneUrl, upstreamDefaultBranch, upstreamCloneUrl, localRepositoryPath,
-                lastCodeSyncAt, nextLastMetadataSyncAt, displayOrder, createdAt, now, hostingServer);
+                lastCodeSyncAt, nextLastMetadataSyncAt, displayOrder, createdAt, now, server);
     }
 
     public Workspace withRepositoryRouting(
@@ -169,13 +146,13 @@ public record Workspace(
                 nextUpstreamRepository, nextMonitoredRepositoryId,
                 nextMonitoredRepository, nextUpstreamRepositoryId.isPresent() ? Topology.FORK : Topology.DIRECT, nextDefaultBranch, nextOriginCloneUrl,
                 nextUpstreamDefaultBranch, nextUpstreamCloneUrl, localRepositoryPath,
-                lastCodeSyncAt, lastMetadataSyncAt, displayOrder, createdAt, now, hostingServer);
+                lastCodeSyncAt, lastMetadataSyncAt, displayOrder, createdAt, now, server);
     }
 
     /** How stored issue and Epic sources name this workspace's server. */
     public String issueHost()
     {
-        return server().host();
+        return server.host();
     }
 
     /** The one key an issue of the monitored repository has in agenda and assistant refs, Recent, and Needs attention marks. */

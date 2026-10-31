@@ -14,7 +14,6 @@
 package com.bytequay.core.store;
 
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.hosting.HostingCacheTarget;
 import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 
@@ -50,12 +49,9 @@ public interface WorkspaceStore
 
     Optional<WorkspaceHostingBinding> findHostingBinding(String workspaceId);
 
-    Optional<HostingCacheTarget> findHostingCacheTarget(String workspaceId);
-
     default Optional<Long> findHostingRepositoryId(String workspaceId)
     {
-        return findHostingBinding(workspaceId).map(WorkspaceHostingBinding::monitoredRepositoryId)
-                .or(() -> findHostingCacheTarget(workspaceId).map(HostingCacheTarget::repositoryId));
+        return findHostingBinding(workspaceId).map(WorkspaceHostingBinding::monitoredRepositoryId);
     }
 
     /** The workspace that monitors this hosting repository, a watched one first. */
@@ -67,18 +63,13 @@ public interface WorkspaceStore
                 .findFirst();
     }
 
-    void saveHostingCacheTarget(String workspaceId, HostingCacheTarget target);
-
     /** Selects an account and retained repository identities on the workspace's hosting server. */
     WorkspaceHostingBinding bindHosting(String workspaceId, long accountId, long selectedRepositoryId, Optional<Long> upstreamRepositoryId);
 
     /**
-     * Creates a workspace or returns the row that already owns the selected hosting repository.
+     * Creates a workspace and its account binding together, or binds the row that already owns the selected repository on that server.
      * The database unique constraint is the final concurrency guard.
      */
-    Workspace createOrGet(Workspace workspace);
-
-    /** Creates a hosted workspace and its account binding together. */
     Workspace createHosted(Workspace workspace, long accountId, long selectedRepositoryId, Optional<Long> upstreamRepositoryId);
 
     /** Saves an existing workspace without changing its watch-list membership. */

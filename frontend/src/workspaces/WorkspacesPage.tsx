@@ -291,7 +291,7 @@ export default function WorkspacesPage({ onOpen, defaultProvider = 'GITHUB' }: {
       /> : <RetiredWorkspaceCards
         workspaces={retired}
         onOpen={onOpen}
-        onWatch={workspace => openWatch(workspace.hostingServer?.provider === 'GITLAB' ? undefined : workspace.selectedRepositoryId, workspace)}
+        onWatch={workspace => openWatch(workspace.hostingServer.provider === 'GITLAB' ? undefined : workspace.selectedRepositoryId, workspace)}
         onDelete={setDeleting}
       />)}
 
@@ -353,7 +353,7 @@ export function RetiredWorkspaceCards({ workspaces, onOpen, onWatch, onDelete }:
         const repository = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
         return <article className="ws-card" key={workspace.id} data-workspace-id={workspace.id}>
           <div className="ws-card-title">
-            <RepoAvatar github={workspace.hostingServer?.provider !== 'GITLAB'} owner={workspace.monitoredOwner} repo={workspace.monitoredRepo} size={20} />
+            <RepoAvatar github={workspace.hostingServer.provider !== 'GITLAB'} owner={workspace.monitoredOwner} repo={workspace.monitoredRepo} size={20} />
             <span className="ws-card-name">{workspace.name}</span>
             <span className="ws-topo">Retired</span>
           </div>
@@ -465,7 +465,7 @@ export function WorkspaceCards({
               onClick={event => { event.preventDefault(); onOpen(workspace.id); }}
             />
             <div className="ws-card-title">
-              <RepoAvatar github={workspace.hostingServer?.provider !== 'GITLAB'}
+              <RepoAvatar github={workspace.hostingServer.provider !== 'GITLAB'}
                 owner={workspace.monitoredOwner}
                 repo={workspace.monitoredRepo}
                 size={20}

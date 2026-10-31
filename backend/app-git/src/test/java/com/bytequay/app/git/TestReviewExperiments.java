@@ -24,6 +24,7 @@ import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorktreeProcesses;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.store.WorkspaceStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -93,7 +94,7 @@ class TestReviewExperiments
         target = run(repository, "rev-parse", "HEAD");
         Workspace workspace = new Workspace(WORKSPACE_ID, "Review experiments", 1, REPOSITORY, Optional.empty(), Optional.empty(),
                 1, REPOSITORY, Workspace.Topology.DIRECT, "main", ORIGIN, Optional.empty(), Optional.empty(), repository.toString(),
-                Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW);
+                Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW, HostingServer.GITHUB_COM);
         WorkspaceStore store = mock(WorkspaceStore.class);
         when(store.findById(WORKSPACE_ID)).thenReturn(Optional.of(workspace));
         worktrees = new ManagedWorktreeService(paths, store, git, mock(WorktreeProcesses.class));

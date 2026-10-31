@@ -31,6 +31,7 @@ import com.bytequay.core.domain.AssistantReceipt;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.ServedRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -99,7 +100,7 @@ class TestAssistantShow
         show = new AssistantShow(actions, rows, workspaces, agenda, mapper, clock);
         when(workspaces.findById("ws1")).thenReturn(Optional.of(new Workspace("ws1", "Repository", 1, RepoRef.of("owner", "repository"), Optional.empty(), Optional.empty(), 1,
                 RepoRef.of("owner", "repository"), Workspace.Topology.DIRECT, "master", "https://github.com/owner/repository.git", Optional.empty(), Optional.empty(),
-                "/managed/repository", Optional.empty(), Optional.empty(), 0, NOW, NOW)));
+                "/managed/repository", Optional.empty(), Optional.empty(), 0, NOW, NOW, HostingServer.GITHUB_COM)));
         AgendaTarget pull = AgendaTarget.pull(1, "owner/repository", 31402, Optional.of("ws1"));
         when(rows.rows(ImmutableList.of(PULL))).thenReturn(ImmutableMap.of(PULL, new AssistantRow(PULL, AssistantRow.Kind.PULL, "Retry Iceberg commit on conflict",
                 Optional.of("#31402"), Optional.of("open"), Optional.of("failing"), Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.empty(),

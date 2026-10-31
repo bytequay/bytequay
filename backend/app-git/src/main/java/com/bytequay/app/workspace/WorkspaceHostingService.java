@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.workspace;
 
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
 import com.bytequay.app.service.hosting.HostingReadSession;
@@ -62,12 +61,11 @@ public class WorkspaceHostingService
     private final HostingPullRequestService requests;
     private final PullRequestStore pullRequests;
     private final PullRequestRows rows;
-    private final CredentialService desktopCredentials;
     private final WorkspacePaths paths;
     private final Clock clock;
 
     public WorkspaceHostingService(WorkspaceStore workspaces, HostingIdentityStore identities,
-            HostingConnectionService connections, HostingPullRequestService requests, CredentialService desktopCredentials,
+            HostingConnectionService connections, HostingPullRequestService requests,
             WorkspacePaths paths, Clock clock, PullRequestStore pullRequests)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
@@ -76,7 +74,6 @@ public class WorkspaceHostingService
         this.requests = requireNonNull(requests, "requests is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.rows = new PullRequestRows(pullRequests, workspaces);
-        this.desktopCredentials = requireNonNull(desktopCredentials, "desktopCredentials is null");
         this.paths = requireNonNull(paths, "paths is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
@@ -124,7 +121,7 @@ public class WorkspaceHostingService
         long remoteId = Long.parseLong(selected.remoteId());
         Workspace workspace = new Workspace(id, name.map(String::trim).orElse(selected.fullPath()), remoteId, coordinates, Optional.empty(), Optional.empty(),
                 remoteId, coordinates, Workspace.Topology.DIRECT, branch, selected.httpCloneUrl().toString(), Optional.empty(), Optional.empty(), paths.repository(id).toString(),
-                Optional.empty(), Optional.empty(), order, now, now, Optional.of(server));
+                Optional.empty(), Optional.empty(), order, now, now, server);
         return workspaces.createHosted(workspace, accountId, selected.id(), Optional.empty());
     }
 
@@ -140,22 +137,19 @@ public class WorkspaceHostingService
     public WorkspaceHostingRead captureRead(String workspaceId)
     {
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
-        Optional<WorkspaceHostingBinding> binding = workspaces.findHostingBinding(workspaceId);
-        HostingReadSession session = session(workspace);
+        WorkspaceHostingBinding binding = binding(workspaceId);
+        HostingReadSession session = session(workspace, binding);
         HostingRepository repository = connections.resolveRepositoryById(session, Long.toString(workspace.monitoredRepositoryId()));
         HostingAccount account = account(session);
         checkArgument(repository.remoteId().equals(Long.toString(workspace.monitoredRepositoryId())), "Workspace repository identity changed");
-        binding.ifPresent(value -> checkArgument(repository.id() == value.monitoredRepositoryId(), "Workspace repository identity changed"));
-        if (binding.isEmpty()) {
-            workspaces.saveHostingCacheTarget(workspaceId, new HostingCacheTarget(session.accountId(), repository.id(), session.credentialScope()));
-        }
+        checkArgument(repository.id() == binding.monitoredRepositoryId(), "Workspace repository identity changed");
         return new WorkspaceHostingRead(session, repository, account.login());
     }
 
     /** Another repository on the workspace's server, read with the workspace's account, such as a cherry-pick source. */
     public HostingTarget repositoryTarget(String workspaceId, String fullPath)
     {
-        HostingReadSession session = session(requireWorkspace(workspaces, workspaceId));
+        HostingReadSession session = session(requireWorkspace(workspaces, workspaceId), binding(workspaceId));
         return new HostingTarget(session.access(), connections.resolveRepository(session, fullPath));
     }
 
@@ -183,25 +177,28 @@ public class WorkspaceHostingService
     }
 
     /**
-     * The route a verified read stored, without contacting the provider; for steps that repeat often, such as CI polling. A workspace
-     * with no stored repository for this account and remote repository verifies once.
+     * The route the workspace's binding names, without contacting the provider; for steps that repeat often, such as CI polling. A
+     * monitored repository whose stored coordinates no longer match the workspace verifies once.
      */
     public WorkspaceHostingRead storedRead(String workspaceId)
     {
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
-        HostingReadSession session = session(workspace);
-        return cacheTarget(workspaceId)
-                .filter(target -> target.accountId() == session.accountId())
-                .flatMap(target -> identities.findRepository(target.repositoryId()))
+        WorkspaceHostingBinding binding = binding(workspaceId);
+        HostingReadSession session = session(workspace, binding);
+        return identities.findRepository(binding.monitoredRepositoryId())
                 .filter(repository -> repository.remoteId().equals(Long.toString(workspace.monitoredRepositoryId())))
                 .map(repository -> new WorkspaceHostingRead(session, repository, account(session).login()))
                 .orElseGet(() -> captureRead(workspaceId));
     }
 
-    private HostingReadSession session(Workspace workspace)
+    private WorkspaceHostingBinding binding(String workspaceId)
     {
-        HostingReadSession session = workspaces.findHostingBinding(workspace.id()).map(binding -> connections.readSession(binding.accountId()))
-                .orElseGet(() -> desktopCredentials.captureWorkspaceHostingRead(workspace.id()));
+        return workspaces.findHostingBinding(workspaceId).orElseThrow(WorkspaceException::accountRequired);
+    }
+
+    private HostingReadSession session(Workspace workspace, WorkspaceHostingBinding binding)
+    {
+        HostingReadSession session = connections.readSession(binding.accountId());
         checkArgument(session.access().server().equals(workspace.server()), "Hosting account belongs to another workspace server");
         return session;
     }
@@ -277,7 +274,6 @@ public class WorkspaceHostingService
     private Optional<HostingCacheTarget> cacheTarget(String workspaceId)
     {
         return workspaces.findHostingBinding(workspaceId)
-                .map(binding -> new HostingCacheTarget(binding.accountId(), binding.monitoredRepositoryId(), CONNECTED_ACCOUNT))
-                .or(() -> workspaces.findHostingCacheTarget(workspaceId));
+                .map(binding -> new HostingCacheTarget(binding.accountId(), binding.monitoredRepositoryId(), CONNECTED_ACCOUNT));
     }
 }

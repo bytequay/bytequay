@@ -251,14 +251,14 @@ class TestSqlitePullRequestWorkspaceScope
     @Test
     void mergedRepositoryPullRequestsAreNewestMergeFirstAndSearchable()
     {
-        workspaceStore.createOrGet(workspace("current", 100, RepoRef.of("owner", "project")));
+        create(workspace("current", 100, RepoRef.of("owner", "project")));
         Instant older = Instant.parse("2026-08-10T00:00:00Z");
         Instant newer = Instant.parse("2026-08-12T00:00:00Z");
         saveRepositoryPage(ImmutableList.of(
                 merged(11L, 11, "Fix the parquet reader", older),
                 merged(12L, 12, "Retry S3 reads", newer),
                 pullRequest(13L, "owner/project", 13)));
-        long project = identities.findRepositories(HostingServer.GITHUB_COM, "owner/project").getFirst().id();
+        long project = identities.findRepository(HostingServer.GITHUB_COM, "owner/project").orElseThrow().id();
 
         assertThat(store.findMergedRepositoryPullRequests(project, "", 50)).extracting(PullRequest::number).containsExactly(12, 11);
         assertThat(store.findMergedRepositoryPullRequests(project, "parquet", 50)).extracting(PullRequest::number).containsExactly(11);
@@ -459,7 +459,7 @@ class TestSqlitePullRequestWorkspaceScope
     void attentionIncludesOrdinaryWatchedRepositoryUpdatesWithoutADetailSnapshot()
     {
         Workspace workspace = workspace("updates", 100, RepoRef.of("owner", "project"));
-        workspaceStore.createOrGet(workspace);
+        create(workspace);
         PullRequest watched = saveRepositoryPage(ImmutableList.of(
                 pullRequest(1, "owner/project", 1).withOrigin(PullRequest.Origin.OTHER))).getFirst();
         saveRepositoryPage(ImmutableList.of(pullRequest(2, "unwatched/project", 2).withOrigin(PullRequest.Origin.OTHER)));
@@ -477,7 +477,7 @@ class TestSqlitePullRequestWorkspaceScope
         FetchedPullRequest workspaceOnly = pullRequest(3, "owner/project", 3);
         FetchedPullRequest otherWorkspace = pullRequest(4, "other/project", 4);
         Workspace workspace = workspace("current", 100, RepoRef.of("owner", "project"));
-        workspaceStore.createOrGet(workspace);
+        create(workspace);
 
         saveDashboardPage(ImmutableList.of(global, shared));
         saveRepositoryPage(ImmutableList.of(shared, workspaceOnly));
@@ -652,6 +652,16 @@ class TestSqlitePullRequestWorkspaceScope
                 headRef);
     }
 
+    private void create(Workspace workspace)
+    {
+        HostingInstance instance = identities.upsertInstance(workspace.server());
+        HostingAccount account = identities.upsertAccount(instance.id(), new RemoteHostingAccount("1", "alice"));
+        String path = workspace.selectedRepository().fullName();
+        HostingRepository selected = identities.upsertRepository(instance.id(), new RemoteHostingRepository(Long.toString(workspace.selectedRepositoryId()), path,
+                URI.create("https://github.com/" + path), URI.create("https://github.com/" + path + ".git"), Optional.empty(), Optional.of("main")));
+        workspaceStore.createHosted(workspace, account.id(), selected.id(), Optional.empty());
+    }
+
     private static Workspace workspace(String id, long repositoryId, RepoRef repository)
     {
         Instant now = Instant.parse("2026-08-21T00:00:00Z");
@@ -674,6 +684,7 @@ class TestSqlitePullRequestWorkspaceScope
                 Optional.empty(),
                 0,
                 now,
-                now);
+                now,
+                HostingServer.GITHUB_COM);
     }
 }

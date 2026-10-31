@@ -32,7 +32,7 @@ function workspace(id: string, owner: string, repo: string) {
     selectedRepo: repo,
     monitoredOwner: owner,
     monitoredRepo: repo,
-    localRepositoryPath: `/managed/${id}/repository`,
+    hostingServer: { provider: 'GITHUB', webBaseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' }, localRepositoryPath: `/managed/${id}/repository`,
   };
 }
 

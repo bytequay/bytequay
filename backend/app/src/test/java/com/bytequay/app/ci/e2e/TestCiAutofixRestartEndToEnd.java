@@ -47,6 +47,7 @@ import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.hosting.HostingIntegration;
 import com.bytequay.core.store.AppSettingsStore;
+import com.bytequay.core.store.HostingCredentialStore;
 import com.bytequay.core.store.HostingIdentityStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.WorkspaceCredentialStore;
@@ -270,6 +271,7 @@ class TestCiAutofixRestartEndToEnd
                 context.getBean(AgentResourceService.class),
                 context.getBean(PullRequestJpaRepository.class),
                 context.getBean(HostingIdentityStore.class),
+                context.getBean(HostingCredentialStore.class),
                 context.getBean(HostingRepositoryJpaRepository.class),
                 context.getBean(PrDetailStore.class),
                 context.getBean(WorkspaceStore.class),

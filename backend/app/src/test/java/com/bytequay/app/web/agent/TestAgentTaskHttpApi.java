@@ -42,6 +42,7 @@ import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.integration.jira.JiraDtos;
 import com.bytequay.integration.jira.JiraIssue;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -331,7 +332,7 @@ class TestAgentTaskHttpApi
                 workspaceId, previous.name(), previous.selectedRepositoryId(), fork,
                 Optional.of(upstreamId), Optional.of(upstream), upstreamId, upstream, Workspace.Topology.FORK,
                 "main", origin, Optional.of("master"), Optional.of(upstreamUrl), repository.toString(),
-                previous.lastCodeSyncAt(), previous.lastMetadataSyncAt(), previous.displayOrder(), previous.createdAt(), Instant.now()));
+                previous.lastCodeSyncAt(), previous.lastMetadataSyncAt(), previous.displayOrder(), previous.createdAt(), Instant.now(), HostingServer.GITHUB_COM));
         run("git", "-C", repository.toString(), "remote", "set-url", "origin", origin);
         run("git", "-C", repository.toString(), "remote", "add", "upstream", upstreamUrl);
         run("git", "-C", repository.toString(), "update-ref", "refs/remotes/upstream/master", "HEAD");

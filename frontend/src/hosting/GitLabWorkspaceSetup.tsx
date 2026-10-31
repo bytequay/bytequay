@@ -54,7 +54,7 @@ export default function GitLabWorkspaceSetup({ initialWorkspace, onAdded }: { in
 
   return <>
     <div className="hosting-watch-accounts">
-      <GitLabAccounts selected={account?.account.id} server={initialWorkspace?.hostingServer ?? undefined} onSelect={selectAccount} autoSelectFirst disabled={adding !== null} />
+      <GitLabAccounts selected={account?.account.id} server={initialWorkspace?.hostingServer} onSelect={selectAccount} autoSelectFirst disabled={adding !== null} />
     </div>
     {account !== null && <>
       <div className="modal__search-row">

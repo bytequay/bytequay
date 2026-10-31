@@ -29,7 +29,7 @@ export function WorkspaceHostingAccount({ workspace }: { workspace: WorkspaceDto
   return <div className="setw-page">
     <h1>GitLab account</h1><p>{workspace.monitoredOwner}/{workspace.monitoredRepo}</p>
     <p className="setw-footnote">Choose the account used for this project.</p>
-    <GitLabAccounts selected={accountId} server={workspace.hostingServer ?? undefined} onSelect={async account => {
+    <GitLabAccounts selected={accountId} server={workspace.hostingServer} onSelect={async account => {
       const binding = await window.bridge.setWorkspaceHosting(workspace.id, account.account.id);
       setAccountId(binding.accountId); setError(null);
     }} />

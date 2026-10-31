@@ -58,7 +58,7 @@ class TestPullRequestSyncJob
         Workspace first = workspace("first", 1, shared);
         Workspace second = workspace("second", 1, shared);
         Workspace third = workspace("third", 3, other);
-        Workspace gitlab = workspace("gitlab", 1, shared, Optional.of(GITLAB));
+        Workspace gitlab = workspace("gitlab", 1, shared, GITLAB);
         Workspace unbound = workspace("unbound", 4, RepoRef.of("owner", "unbound"));
         when(workspaces.findAll()).thenReturn(ImmutableList.of(gitlab, first, second, third, unbound));
         when(workspaces.findHostingRepositoryId("gitlab")).thenReturn(Optional.of(10L));
@@ -129,7 +129,7 @@ class TestPullRequestSyncJob
         PullRequestRefreshService refreshService = mock(PullRequestRefreshService.class);
         WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
         WorkspaceStore workspaces = mock(WorkspaceStore.class);
-        when(workspaces.findAll()).thenReturn(ImmutableList.of(workspace("bound", 1, RepoRef.of("group", "project"), Optional.of(GITLAB))));
+        when(workspaces.findAll()).thenReturn(ImmutableList.of(workspace("bound", 1, RepoRef.of("group", "project"), GITLAB)));
         when(workspaces.findHostingRepositoryId("bound")).thenReturn(Optional.of(5L));
         CredentialService credentials = mock(CredentialService.class);
         MutableClock clock = new MutableClock(Instant.parse("2026-09-10T08:00:00Z"));
@@ -219,10 +219,10 @@ class TestPullRequestSyncJob
 
     private static Workspace workspace(String id, long repositoryId, RepoRef repository)
     {
-        return workspace(id, repositoryId, repository, Optional.empty());
+        return workspace(id, repositoryId, repository, HostingServer.GITHUB_COM);
     }
 
-    private static Workspace workspace(String id, long repositoryId, RepoRef repository, Optional<HostingServer> server)
+    private static Workspace workspace(String id, long repositoryId, RepoRef repository, HostingServer server)
     {
         Instant now = Instant.parse("2026-08-22T00:00:00Z");
         return new Workspace(

@@ -31,7 +31,6 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.hosting.HostingAccount;
-import com.bytequay.core.hosting.HostingCacheTarget;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
@@ -127,8 +126,8 @@ class TestSqliteWorkspaceStore
     @Test
     void roundTripsUnlinkedAndLinkedRouting()
     {
-        Workspace direct = store.createOrGet(direct("direct", 100, 0));
-        Workspace fork = store.createOrGet(fork("fork", 200, 300, 1));
+        Workspace direct = create(direct("direct", 100, 0));
+        Workspace fork = create(fork("fork", 200, 300, 1));
 
         assertThat(store.findById(direct.id())).contains(direct);
         assertThat(store.findById(fork.id())).contains(fork);
@@ -141,8 +140,8 @@ class TestSqliteWorkspaceStore
     @Test
     void repeatedStableRepositoryIdReturnsExistingWorkspace()
     {
-        Workspace first = store.createOrGet(direct("first", 100, 0));
-        Workspace repeated = store.createOrGet(direct("second", 100, 1));
+        Workspace first = create(direct("first", 100, 0));
+        Workspace repeated = create(direct("second", 100, 1));
 
         assertThat(repeated.id()).isEqualTo(first.id());
         assertThat(repository.count()).isEqualTo(1);
@@ -151,9 +150,9 @@ class TestSqliteWorkspaceStore
     @Test
     void createRejectsAnIdOwnedByAnotherRepository()
     {
-        Workspace original = store.createOrGet(direct("same-id", 100, 0));
+        Workspace original = create(direct("same-id", 100, 0));
 
-        assertThatThrownBy(() -> store.createOrGet(direct("same-id", 200, 1)))
+        assertThatThrownBy(() -> create(direct("same-id", 200, 1)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Workspace already exists");
 
@@ -176,8 +175,8 @@ class TestSqliteWorkspaceStore
     @Test
     void unwatchRetainsIdentityAndRoutingUntilExplicitlyWatchedAgain()
     {
-        Workspace direct = store.createOrGet(direct("direct", 100, 0));
-        Workspace fork = store.createOrGet(fork("fork", 200, 300, 1));
+        Workspace direct = create(direct("direct", 100, 0));
+        Workspace fork = create(fork("fork", 200, 300, 1));
         assertThat(store.isWatched(fork.id())).isTrue();
 
         store.setWatched(fork.id(), false);
@@ -188,8 +187,6 @@ class TestSqliteWorkspaceStore
         assertThat(store.findAllRetained()).containsExactly(direct, fork);
         assertThat(store.findById(fork.id())).contains(fork);
         assertThat(store.findBySelectedRepository(HostingServer.GITHUB_COM, fork.selectedRepositoryId())).contains(fork);
-        assertThat(store.createOrGet(fork("replacement", 200, 300, 2))).isEqualTo(fork);
-        assertThat(store.isWatched(fork.id())).isFalse();
 
         Workspace renamed = store.save(fork.withName("Retained local work", NOW.plusSeconds(60)));
         assertThat(store.findAll()).containsExactly(direct);
@@ -218,7 +215,7 @@ class TestSqliteWorkspaceStore
     @Test
     void commitsTargetBranchSurvivesUnwatchAndRewatchUntilWorkspaceDeletion()
     {
-        Workspace workspace = store.createOrGet(direct("target-settings", 100, 0));
+        Workspace workspace = create(direct("target-settings", 100, 0));
         String key = "workspace.commitsTargetBranch." + workspace.id();
         settings.put(key, "release/next");
 
@@ -239,8 +236,8 @@ class TestSqliteWorkspaceStore
     @Test
     void deletePurgesTheWorkspaceLocalRunsWithoutAReview()
     {
-        Workspace removed = store.createOrGet(direct("runs-removed", 100, 0));
-        Workspace retained = store.createOrGet(direct("runs-retained", 101, 1));
+        Workspace removed = create(direct("runs-removed", 100, 0));
+        Workspace retained = create(direct("runs-retained", 101, 1));
         for (Workspace workspace : ImmutableList.of(removed, retained)) {
             LocalRun run = localRuns.insert(LocalRun.started("run-" + workspace.id(), "task-" + workspace.id(), workspace.id(), 1, "src/test/java/TestCode.java", "TestCode",
                     Optional.empty(), Optional.empty(), "./mvnw -B -Dtest=TestCode test", "a".repeat(40), ImmutableList.of(), "fingerprint", "launch", NOW));
@@ -256,8 +253,8 @@ class TestSqliteWorkspaceStore
     @Test
     void deletePurgesOwnedDataAndPreservesRetainedSharedAndAccountData()
     {
-        Workspace removed = store.createOrGet(fork("removed", 200, 300, 0));
-        Workspace retained = store.createOrGet(workspace(
+        Workspace removed = create(fork("removed", 200, 300, 0));
+        Workspace retained = create(workspace(
                 "retained", 201, RepoRef.of("other", "project"), Optional.of(300L), Optional.of(RepoRef.of("upstream", "project")),
                 300, RepoRef.of("upstream", "project"), Topology.FORK, Optional.of("https://github.com/upstream/project.git"), 1));
         store.setWatched(retained.id(), false);
@@ -278,8 +275,6 @@ class TestSqliteWorkspaceStore
         }
         settings.put("workspace.linked-work." + removed.id(), "[]");
         settings.put("linked-work.source.target-task", removed.id());
-        store.saveHostingCacheTarget(removed.id(), new HostingCacheTarget(1, 300, "connected-account"));
-        store.saveHostingCacheTarget(retained.id(), new HostingCacheTarget(1, 300, "connected-account"));
         issueCache.completeSync(300, ImmutableSet.of(), NOW);
         HostingInstance gitHub = identities.upsertInstance(HostingServer.GITHUB_COM);
         HostingRepository fork = repository(gitHub, "200", "contributor/project");
@@ -309,9 +304,9 @@ class TestSqliteWorkspaceStore
     {
         HostingServer server = new HostingServer(HostingProvider.GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"));
         HostingInstance gitLab = identities.upsertInstance(server);
-        Workspace removed = store.createOrGet(onServer(workspace("removed", 600, RepoRef.of("group", "project"), Optional.empty(), Optional.empty(), 600,
+        Workspace removed = create(onServer(workspace("removed", 600, RepoRef.of("group", "project"), Optional.empty(), Optional.empty(), 600,
                 RepoRef.of("group", "project"), Topology.DIRECT, Optional.empty(), 0), server));
-        store.createOrGet(direct("github", 600, 1));
+        create(direct("github", 600, 1));
         HostingRepository project = repository(gitLab, "600", "group/project");
         HostingRepository gitHubRepository = repository(identities.upsertInstance(HostingServer.GITHUB_COM), "600", "owner/project");
         insertCommitRow(project.id());
@@ -330,8 +325,8 @@ class TestSqliteWorkspaceStore
     @Test
     void extraRemoteProtectsRepositoryCacheWithoutResolvedProviderIdentity()
     {
-        Workspace removed = store.createOrGet(fork("removed", 200, 300, 0));
-        Workspace retained = store.createOrGet(direct("retained", 100, 1));
+        Workspace removed = create(fork("removed", 200, 300, 0));
+        Workspace retained = create(direct("retained", 100, 1));
         jdbc.update("INSERT INTO workspace_remote_sources (id, workspace_id, name, url) VALUES ('remote', ?, 'extra', 'git@github.com:contributor/project.git')", retained.id());
         issueCache.completeSync(200, ImmutableSet.of(), NOW);
 
@@ -344,18 +339,16 @@ class TestSqliteWorkspaceStore
     @Test
     void deleteDropsItsIssueRecentsAndMovesPullRequestTouchesToAnotherWorkspaceOnTheRepository()
     {
-        HostingInstance instance = identities.upsertInstance(new HostingServer(HostingProvider.GITLAB, URI.create("https://gitlab.example.com"),
-                URI.create("https://gitlab.example.com/api/v4")));
+        HostingServer server = new HostingServer(HostingProvider.GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"));
+        // Three forks monitor the same upstream repository.
+        Workspace removed = create(onServer(fork("removed", 100, 91, 0), server));
+        Workspace unwatched = create(onServer(fork("unwatched", 101, 91, 1), server));
+        Workspace watched = create(onServer(fork("watched", 102, 91, 2), server));
+        store.setWatched(unwatched.id(), false);
+        HostingInstance instance = identities.upsertInstance(server);
         HostingAccount account = identities.upsertAccount(instance.id(), new RemoteHostingAccount("1", "alice"));
         HostingRepository shared = repository(instance, "91", "group/project");
         HostingRepository alone = repository(instance, "92", "group/alone");
-        Workspace removed = store.createOrGet(direct("removed", 100, 0));
-        Workspace unwatched = store.createOrGet(direct("unwatched", 101, 1));
-        Workspace watched = store.createOrGet(direct("watched", 102, 2));
-        store.setWatched(unwatched.id(), false);
-        for (Workspace workspace : ImmutableList.of(removed, unwatched, watched)) {
-            store.saveHostingCacheTarget(workspace.id(), new HostingCacheTarget(account.id(), shared.id(), CONNECTED_ACCOUNT));
-        }
         String sharedRequest = "pr:" + pullRequest(account, shared, 7);
         String aloneRequest = "pr:" + pullRequest(account, alone, 8);
         insertRecent(sharedRequest, "PULL_REQUEST", "group/project", 7, removed.id());
@@ -372,6 +365,16 @@ class TestSqliteWorkspaceStore
         assertThat(touches).containsOnlyKeys(sharedRequest, aloneRequest, watched.issueKey(11))
                 .containsEntry(sharedRequest, watched.id()).containsEntry(aloneRequest, null).containsEntry(watched.issueKey(11), watched.id());
         assertThat(jdbc.queryForList("SELECT DISTINCT item_key FROM recent_text", String.class)).containsExactlyInAnyOrder(sharedRequest, aloneRequest, watched.issueKey(11));
+    }
+
+    private Workspace create(Workspace workspace)
+    {
+        HostingInstance instance = identities.upsertInstance(workspace.server());
+        HostingAccount account = identities.upsertAccount(instance.id(), new RemoteHostingAccount("1", "alice"));
+        HostingRepository selected = repository(instance, Long.toString(workspace.selectedRepositoryId()), workspace.selectedRepository().fullName());
+        Optional<Long> upstream = workspace.upstreamRepository()
+                .map(path -> repository(instance, Long.toString(workspace.upstreamRepositoryId().orElseThrow()), path.fullName()).id());
+        return store.createHosted(workspace, account.id(), selected.id(), upstream);
     }
 
     private HostingRepository repository(HostingInstance instance, String remoteId, String path)
@@ -406,7 +409,7 @@ class TestSqliteWorkspaceStore
     @Test
     void allWorkflowHistoryIsCheckedAndPurgedWithoutRecentListLimits()
     {
-        Workspace workspace = store.createOrGet(direct("workflow", 100, 0));
+        Workspace workspace = create(direct("workflow", 100, 0));
         CiAutofixRun active = ciRun(workspace.id(), 0);
         entities.persist(CiAutofixRunEntity.fromDomain(active));
         for (int index = 1; index <= 205; index++) {
@@ -435,7 +438,7 @@ class TestSqliteWorkspaceStore
     @Test
     void taskDeletionRejectsActiveRebasesAndRemovesFinishedRebaseAssociations()
     {
-        Workspace workspace = store.createOrGet(direct("with-task", 100, 0));
+        Workspace workspace = create(direct("with-task", 100, 0));
         AgentTask task = created(TaskId.random(), Optional.of(workspace.id()), false, "Retained task", AgentLaneId.CODEX_CLI,
                 new RepositoryIdentity("owner", "project"), Path.of("/tmp/task"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
         tasks.insert(task);
@@ -481,8 +484,8 @@ class TestSqliteWorkspaceStore
     @Test
     void multipleWorkspacesCanShareOneNonUniqueUpstream()
     {
-        Workspace first = store.createOrGet(fork("first", 200, 300, 0));
-        Workspace second = store.createOrGet(fork("second", 201, 300, 1));
+        Workspace first = create(fork("first", 200, 300, 0));
+        Workspace second = create(fork("second", 201, 300, 1));
 
         assertThat(first.upstreamRepositoryId()).contains(300L);
         assertThat(second.upstreamRepositoryId()).contains(300L);
@@ -532,7 +535,7 @@ class TestSqliteWorkspaceStore
         return new Workspace(workspace.id(), workspace.name(), workspace.selectedRepositoryId(), workspace.selectedRepository(), workspace.upstreamRepositoryId(),
                 workspace.upstreamRepository(), workspace.monitoredRepositoryId(), workspace.monitoredRepository(), workspace.topology(), workspace.defaultBranch(),
                 workspace.originCloneUrl(), workspace.upstreamDefaultBranch(), workspace.upstreamCloneUrl(), workspace.localRepositoryPath(), workspace.lastCodeSyncAt(),
-                workspace.lastMetadataSyncAt(), workspace.displayOrder(), workspace.createdAt(), workspace.updatedAt(), Optional.of(server));
+                workspace.lastMetadataSyncAt(), workspace.displayOrder(), workspace.createdAt(), workspace.updatedAt(), server);
     }
 
     private static Workspace workspace(
@@ -566,6 +569,7 @@ class TestSqliteWorkspaceStore
                 Optional.empty(),
                 displayOrder,
                 NOW,
-                NOW);
+                NOW,
+                HostingServer.GITHUB_COM);
     }
 }

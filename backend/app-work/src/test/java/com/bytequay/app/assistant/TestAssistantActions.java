@@ -172,7 +172,7 @@ class TestAssistantActions
     private final Workspace repository = new Workspace("ws1", "Repository", 1, RepoRef.of("owner", "repository"), Optional.empty(), Optional.empty(), 1,
             RepoRef.of("owner", "repository"),
             Workspace.Topology.DIRECT, "master", "https://github.com/owner/repository.git", Optional.empty(), Optional.empty(), "/managed/repository", Optional.empty(),
-            Optional.empty(), 0, NOW, NOW);
+            Optional.empty(), 0, NOW, NOW, HostingServer.GITHUB_COM);
     private AssistantActions actions;
     private AssistantWork work;
 
@@ -675,7 +675,7 @@ class TestAssistantActions
     {
         Workspace gitlab = new Workspace("ws2", "Project", 2, RepoRef.of("group", "project"), Optional.empty(), Optional.empty(), 2, RepoRef.of("group", "project"),
                 Workspace.Topology.DIRECT, "main", "https://gitlab.example.com/group/project.git", Optional.empty(), Optional.empty(), "/managed/project", Optional.empty(),
-                Optional.empty(), 0, NOW, NOW, Optional.of(new HostingServer(GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"))));
+                Optional.empty(), 0, NOW, NOW, new HostingServer(GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4")));
         when(workspaces.findById("ws2")).thenReturn(Optional.of(gitlab));
         named("issue:ws2:group/project#5", "Merge train", AgendaTarget.issue("group/project", 5, "ws2"));
 

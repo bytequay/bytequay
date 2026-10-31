@@ -16,6 +16,7 @@ package com.bytequay.core.store;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingServer;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
@@ -55,6 +56,7 @@ class TestWorkspaceStore
     {
         RepoRef repository = RepoRef.of("owner", id);
         return new Workspace(id, id, 100, repository, Optional.empty(), Optional.empty(), 100, repository, Topology.DIRECT, "main",
-                "https://example.com/owner/" + id + ".git", Optional.empty(), Optional.empty(), "/tmp/" + id, Optional.empty(), Optional.empty(), 0, NOW, NOW);
+                "https://example.com/owner/" + id + ".git", Optional.empty(), Optional.empty(), "/tmp/" + id, Optional.empty(), Optional.empty(), 0, NOW, NOW,
+                HostingServer.GITHUB_COM);
     }
 }

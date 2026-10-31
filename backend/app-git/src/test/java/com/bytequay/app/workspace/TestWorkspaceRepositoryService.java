@@ -28,6 +28,7 @@ import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import com.bytequay.core.store.RemoteSourceStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -673,7 +674,7 @@ class TestWorkspaceRepositoryService
         Workspace original = new Workspace("original-workspace", "upstream/project", 300, RepoRef.of("upstream", "project"),
                 Optional.empty(), Optional.empty(), 300, RepoRef.of("upstream", "project"), Topology.DIRECT,
                 "main", "https://github.com/upstream/project.git", Optional.empty(), Optional.empty(),
-                "/tmp/bytequay-workspaces/original-workspace/repository", Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW);
+                "/tmp/bytequay-workspaces/original-workspace/repository", Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW, HostingServer.GITHUB_COM);
         store.save(original);
         UserRepo upstream = direct(300, "upstream");
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(upstream));

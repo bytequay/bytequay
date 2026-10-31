@@ -271,7 +271,7 @@ class TestTeamActivityService
         Instant createdAt = Instant.now().minusSeconds(120);
         Workspace workspace = new Workspace("workspace", "Repository", 1, repository, Optional.empty(), Optional.empty(), 1, repository,
                 Workspace.Topology.DIRECT, "main", "https://github.com/owner/repo.git", Optional.empty(), Optional.empty(), "/tmp/repo",
-                Optional.empty(), Optional.empty(), 0, createdAt, createdAt);
+                Optional.empty(), Optional.empty(), 0, createdAt, createdAt, GITHUB_COM);
         when(fixture.workspaces().findAll()).thenReturn(ImmutableList.of(workspace));
         TeamObservation empty = new TeamObservation(ImmutableList.of(), ImmutableList.of(), false);
         when(fixture.reader().personActivity(any(), anyString(), any())).thenReturn(empty);
@@ -304,9 +304,9 @@ class TestTeamActivityService
         Fixture fixture = fixture();
         when(fixture.teams().directory(ACCOUNT)).thenReturn(new TeamDirectory(1, "viewer", GITHUB_COM, ImmutableList.of(
                 new TeamCircle("all", "All", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of(ALICE)))));
-        when(fixture.workspaces().findAll()).thenReturn(ImmutableList.of(workspace("github", RepoRef.of("owner", "repo"), Optional.empty()),
+        when(fixture.workspaces().findAll()).thenReturn(ImmutableList.of(workspace("github", RepoRef.of("owner", "repo"), GITHUB_COM),
                 workspace("gitlab", RepoRef.of("group", "project"),
-                        Optional.of(new HostingServer(GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"))))));
+                        new HostingServer(GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4")))));
         TeamObservation empty = new TeamObservation(ImmutableList.of(), ImmutableList.of(), false);
         when(fixture.reader().personActivity(any(), anyString(), any())).thenReturn(empty);
         when(fixture.reader().repositoryActivity(any(), anyString(), any(), anyInt(), any())).thenReturn(empty);
@@ -327,7 +327,7 @@ class TestTeamActivityService
         verify(activity, never()).collect();
     }
 
-    private static Workspace workspace(String id, RepoRef repository, Optional<HostingServer> server)
+    private static Workspace workspace(String id, RepoRef repository, HostingServer server)
     {
         Instant createdAt = Instant.now().minusSeconds(120);
         return new Workspace(id, id, 1, repository, Optional.empty(), Optional.empty(), 1, repository, Workspace.Topology.DIRECT, "main",

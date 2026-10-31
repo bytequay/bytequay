@@ -22,6 +22,7 @@ import com.bytequay.core.domain.PullRequestDetailRefresh;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
@@ -556,7 +557,8 @@ class TestPullRequestRefreshService
                 Optional.empty(),
                 displayOrder,
                 now,
-                now);
+                now,
+                HostingServer.GITHUB_COM);
     }
 
     private static CredentialService credentials(GitHubCredential credential)

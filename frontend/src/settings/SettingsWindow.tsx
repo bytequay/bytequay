@@ -153,9 +153,9 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   }, [report]);
 
   useEffect(() => {
-    if (section !== 'github' && (section !== 'ws-token' || workspace?.hostingServer?.provider === 'GITLAB')) return;
+    if (section !== 'github' && (section !== 'ws-token' || workspace?.hostingServer.provider === 'GITLAB')) return;
     loadAccount();
-  }, [section, loadAccount, workspace?.hostingServer?.provider]);
+  }, [section, loadAccount, workspace?.hostingServer.provider]);
 
   useEffect(() => {
     if (section !== 'general' && section !== 'features' || quietHoursSaving.current) return;
@@ -442,7 +442,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
               <div className="setw-row-empty">Watch a repository to get workspace settings.</div>
             </div>
           )}
-          {section === 'ws-token' && workspace?.hostingServer?.provider === 'GITLAB' && <WorkspaceHostingAccount key={workspace.id} workspace={workspace} />}
+          {section === 'ws-token' && workspace?.hostingServer.provider === 'GITLAB' && <WorkspaceHostingAccount key={workspace.id} workspace={workspace} />}
           {section === 'ws-repository' && workspace !== null && (
             <WorkspaceRepositoryPage
               key={workspace.id}
@@ -488,7 +488,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
               onRestrictClaudeAccount={restrictClaudeAccount}
             />
           )}
-          {section === 'ws-token' && workspace !== null && workspace.hostingServer?.provider !== 'GITLAB' && (
+          {section === 'ws-token' && workspace !== null && workspace.hostingServer.provider !== 'GITLAB' && (
             <WorkspaceTokenPage
               key={workspace.id}
               workspace={workspace}

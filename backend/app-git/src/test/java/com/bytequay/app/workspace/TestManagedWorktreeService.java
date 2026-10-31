@@ -26,6 +26,7 @@ import com.bytequay.app.git.command.GitCommandRunner.Result;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.store.RemoteSourceStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -572,7 +573,8 @@ class TestManagedWorktreeService
                 Optional.of(now),
                 0,
                 now,
-                now);
+                now,
+                HostingServer.GITHUB_COM);
     }
 
     private Path reportedPath(Path worktree, String name)

@@ -411,7 +411,7 @@ export type HostingPullRequestSnapshotDto = {
 };
 
 export type WorkspaceDto = {
-  hostingServer?: HostingServerDto | null;
+  hostingServer: HostingServerDto;
   capabilities?: HostingCapabilitiesDto;
   id: string;
   name: string;

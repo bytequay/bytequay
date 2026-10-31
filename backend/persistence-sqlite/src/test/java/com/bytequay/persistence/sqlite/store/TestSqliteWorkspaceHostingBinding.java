@@ -16,7 +16,6 @@ package com.bytequay.persistence.sqlite.store;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingAccount;
-import com.bytequay.core.hosting.HostingCacheTarget;
 import com.bytequay.core.hosting.HostingCredential.Source;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingProvider;
@@ -67,30 +66,12 @@ class TestSqliteWorkspaceHostingBinding
     private JdbcTemplate jdbc;
 
     @Test
-    void retainsCacheRoutingWithoutChangingAccountSelection()
-    {
-        Workspace workspace = store.createOrGet(workspace());
-        HostingCacheTarget target = new HostingCacheTarget(20, 30, "github-workspace:" + workspace.id());
-        store.saveHostingCacheTarget(workspace.id(), target);
-        entities.flush();
-        entities.clear();
-
-        assertThat(store.findHostingCacheTarget(workspace.id())).contains(target);
-        assertThat(store.findHostingBinding(workspace.id())).isEmpty();
-        store.save(workspace.withName("Renamed", NOW.plusSeconds(1)));
-        assertThat(store.findHostingCacheTarget(workspace.id())).contains(target);
-        store.save(withUpstream(workspace));
-        assertThat(store.findHostingCacheTarget(workspace.id())).isEmpty();
-    }
-
-    @Test
     void attachesRenamedRepositoryWithoutChangingWorkspaceData()
     {
-        Workspace workspace = store.createOrGet(workspace());
+        Workspace workspace = create(workspace());
         HostingInstance instance = identities.upsertInstance(GITHUB);
         HostingAccount account = account(instance, "1");
         HostingRepository selected = repository(instance, "100", "renamed/project");
-        assertThat(store.findHostingBinding(workspace.id())).isEmpty();
 
         WorkspaceHostingBinding binding = store.bindHosting(workspace.id(), account.id(), selected.id(), Optional.empty());
         entities.flush();
@@ -109,7 +90,7 @@ class TestSqliteWorkspaceHostingBinding
     @Test
     void keepsBindingAcrossRepositoryRenameAndUnwatch()
     {
-        Workspace workspace = store.createOrGet(workspace());
+        Workspace workspace = create(workspace());
         HostingInstance instance = identities.upsertInstance(GITHUB);
         HostingAccount account = account(instance, "1");
         HostingRepository selected = repository(instance, "100", "owner/project");
@@ -132,7 +113,7 @@ class TestSqliteWorkspaceHostingBinding
     @Test
     void invalidatesBindingWhenUpstreamChanges()
     {
-        Workspace workspace = store.createOrGet(workspace());
+        Workspace workspace = create(workspace());
         HostingInstance instance = identities.upsertInstance(GITHUB);
         HostingAccount account = account(instance, "1");
         HostingRepository selected = repository(instance, "100", "owner/project");
@@ -153,7 +134,7 @@ class TestSqliteWorkspaceHostingBinding
     @Test
     void rejectsMismatchedRepositoryAndUpstreamWithoutChangingBinding()
     {
-        Workspace workspace = store.createOrGet(workspace());
+        Workspace workspace = create(workspace());
         HostingInstance instance = identities.upsertInstance(GITHUB);
         HostingAccount account = account(instance, "1");
         HostingRepository selected = repository(instance, "100", "owner/project");
@@ -172,21 +153,22 @@ class TestSqliteWorkspaceHostingBinding
     @Test
     void rejectsRepositoryFromAnotherInstanceWithTheSameRemoteId()
     {
-        Workspace workspace = store.createOrGet(workspace());
+        Workspace workspace = create(workspace());
+        WorkspaceHostingBinding binding = store.findHostingBinding(workspace.id()).orElseThrow();
         HostingAccount account = account(identities.upsertInstance(GITHUB), "1");
         HostingInstance other = identities.upsertInstance(new HostingServer(HostingProvider.GITLAB, URI.create("https://gitlab.com"), URI.create("https://gitlab.com/api/v4")));
         HostingRepository selected = repository(other, "100", "owner/project");
 
         assertThatIllegalArgumentException().isThrownBy(() -> store.bindHosting(workspace.id(), account.id(), selected.id(), Optional.empty()))
                 .withMessage("Hosting repository belongs to another instance");
-        assertThat(store.findHostingBinding(workspace.id())).isEmpty();
+        assertThat(store.findHostingBinding(workspace.id())).contains(binding);
     }
 
     @ParameterizedTest
     @MethodSource("unsupportedServers")
     void rejectsServersOutsideTheLegacyGithubComBoundary(HostingServer server)
     {
-        Workspace workspace = store.createOrGet(workspace());
+        Workspace workspace = create(workspace());
         HostingInstance instance = identities.upsertInstance(server);
         HostingAccount account = account(instance, "1");
         HostingRepository selected = repository(instance, "100", "owner/project");
@@ -198,7 +180,7 @@ class TestSqliteWorkspaceHostingBinding
     @Test
     void retainsDisconnectedIdentitiesAndDoesNotDeleteThemWithTheWorkspace()
     {
-        Workspace workspace = store.createOrGet(workspace());
+        Workspace workspace = create(workspace());
         HostingInstance instance = identities.upsertInstance(GITHUB);
         HostingAccount account = account(instance, "1");
         HostingRepository selected = repository(instance, "100", "owner/project");
@@ -220,7 +202,7 @@ class TestSqliteWorkspaceHostingBinding
     @Test
     void rejectsUnknownAndInvalidIdentities()
     {
-        Workspace workspace = store.createOrGet(workspace());
+        Workspace workspace = create(workspace());
         HostingInstance instance = identities.upsertInstance(GITHUB);
         HostingAccount account = account(instance, "1");
         HostingRepository selected = repository(instance, "100", "owner/project");
@@ -236,7 +218,7 @@ class TestSqliteWorkspaceHostingBinding
     @Test
     void keepsIdenticalRemoteIdsOnDifferentServersSeparate()
     {
-        Workspace github = store.createOrGet(workspace());
+        Workspace github = create(workspace());
         HostingInstance publicInstance = identities.upsertInstance(new HostingServer(HostingProvider.GITLAB,
                 URI.create("https://gitlab.com"), URI.create("https://gitlab.com/api/v4")));
         HostingInstance privateInstance = identities.upsertInstance(new HostingServer(HostingProvider.GITLAB,
@@ -256,7 +238,7 @@ class TestSqliteWorkspaceHostingBinding
         assertThat(store.findBySelectedHostingRepositoryId(publicRepository.id())).contains(publicWorkspace);
         assertThat(store.findBySelectedHostingRepositoryId(privateRepository.id())).contains(privateWorkspace);
         assertThat(store.findHostingBinding(publicWorkspace.id())).contains(new WorkspaceHostingBinding("public", publicAccount.id(), publicRepository.id(), Optional.empty()));
-        assertThat(publicWorkspace.withName("Renamed", NOW).hostingServer()).isEqualTo(publicWorkspace.hostingServer());
+        assertThat(publicWorkspace.withName("Renamed", NOW).server()).isEqualTo(publicWorkspace.server());
     }
 
     @Test
@@ -357,7 +339,7 @@ class TestSqliteWorkspaceHostingBinding
         long remoteId = Long.parseLong(repository.remoteId());
         return new Workspace(id, repository.fullPath(), remoteId, coordinates, Optional.empty(), Optional.empty(), remoteId, coordinates, Workspace.Topology.DIRECT,
                 "main", repository.httpCloneUrl().toString(), Optional.empty(), Optional.empty(), "/tmp/" + id, Optional.empty(), Optional.empty(), 0, NOW, NOW,
-                Optional.of(new HostingServer(instance.provider(), instance.webBaseUrl(), instance.apiBaseUrl())));
+                new HostingServer(instance.provider(), instance.webBaseUrl(), instance.apiBaseUrl()));
     }
 
     private static Stream<HostingServer> unsupportedServers()
@@ -366,7 +348,6 @@ class TestSqliteWorkspaceHostingBinding
                 new HostingServer(HostingProvider.GITLAB, URI.create("https://github.com"), URI.create("https://api.github.com")),
                 new HostingServer(HostingProvider.GITHUB, URI.create("https://git.company.com"), URI.create("https://git.company.com/api/v3")),
                 new HostingServer(HostingProvider.GITHUB, URI.create("https://github.com/company"), URI.create("https://api.github.com")),
-                new HostingServer(HostingProvider.GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com/custom")),
                 new HostingServer(HostingProvider.GITHUB, URI.create("https://github.com:8443"), URI.create("https://api.github.com")));
     }
 
@@ -381,11 +362,19 @@ class TestSqliteWorkspaceHostingBinding
                 URI.create(instance.webBaseUrl() + "/" + path + ".git"), Optional.empty(), Optional.of("main")));
     }
 
+    private Workspace create(Workspace workspace)
+    {
+        HostingInstance instance = identities.upsertInstance(workspace.server());
+        HostingRepository selected = repository(instance, Long.toString(workspace.selectedRepositoryId()), workspace.selectedRepository().fullName());
+        return store.createHosted(workspace, account(instance, "1").id(), selected.id(), Optional.empty());
+    }
+
     private static Workspace workspace()
     {
         RepoRef repository = RepoRef.of("owner", "project");
         return new Workspace("workspace", "Project", 100, repository, Optional.empty(), Optional.empty(), 100, repository, Workspace.Topology.DIRECT,
-                "main", "https://github.com/owner/project.git", Optional.empty(), Optional.empty(), "/retained/workspace", Optional.empty(), Optional.empty(), 0, NOW, NOW);
+                "main", "https://github.com/owner/project.git", Optional.empty(), Optional.empty(), "/retained/workspace", Optional.empty(), Optional.empty(), 0, NOW, NOW,
+                HostingServer.GITHUB_COM);
     }
 
     private static Workspace withUpstream(Workspace workspace)

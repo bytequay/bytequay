@@ -15,7 +15,6 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingAccount;
-import com.bytequay.core.hosting.HostingCacheTarget;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
@@ -123,22 +122,6 @@ public class SqliteWorkspaceStore
     }
 
     @Override
-    public Optional<HostingCacheTarget> findHostingCacheTarget(String workspaceId)
-    {
-        return repository.findById(checkText(workspaceId, "workspaceId")).flatMap(WorkspaceEntity::hostingCacheTarget);
-    }
-
-    @Override
-    @Transactional
-    public void saveHostingCacheTarget(String workspaceId, HostingCacheTarget target)
-    {
-        requireNonNull(target, "target is null");
-        WorkspaceEntity entity = repository.findById(workspaceId).orElseThrow(() -> new IllegalArgumentException("Workspace not found: " + workspaceId));
-        entity.setHostingCacheTarget(target);
-        repository.save(entity);
-    }
-
-    @Override
     @Transactional
     public WorkspaceHostingBinding bindHosting(String workspaceId, long accountId, long selectedRepositoryId, Optional<Long> upstreamRepositoryId)
     {
@@ -177,23 +160,12 @@ public class SqliteWorkspaceStore
 
     @Override
     @Transactional
-    public Workspace createOrGet(Workspace workspace)
-    {
-        requireNonNull(workspace, "workspace is null");
-        Optional<Workspace> existing = repository.findByRepositoryKey(WorkspaceEntity.repositoryKey(workspace)).map(WorkspaceEntity::toDomain);
-        if (existing.isPresent()) {
-            return existing.orElseThrow();
-        }
-        checkArgument(!repository.existsById(workspace.id()), "Workspace already exists: %s", workspace.id());
-        return repository.saveAndFlush(WorkspaceEntity.fromDomain(workspace)).toDomain();
-    }
-
-    @Override
-    @Transactional
     public Workspace createHosted(Workspace workspace, long accountId, long selectedRepositoryId, Optional<Long> upstreamRepositoryId)
     {
-        checkArgument(workspace.hostingServer().isPresent(), "Hosted workspace has no server");
-        WorkspaceEntity entity = repository.findByRepositoryKey(WorkspaceEntity.repositoryKey(workspace)).orElseGet(() -> WorkspaceEntity.fromDomain(workspace));
+        WorkspaceEntity entity = repository.findByRepositoryKey(WorkspaceEntity.repositoryKey(workspace)).orElseGet(() -> {
+            checkArgument(!repository.existsById(workspace.id()), "Workspace already exists: %s", workspace.id());
+            return WorkspaceEntity.fromDomain(workspace);
+        });
         bind(entity, accountId, selectedRepositoryId, upstreamRepositoryId);
         entity.setWatched(true);
         return repository.saveAndFlush(entity).toDomain();

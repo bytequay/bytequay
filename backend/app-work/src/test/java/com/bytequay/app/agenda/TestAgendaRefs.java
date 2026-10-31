@@ -33,9 +33,9 @@ import static org.mockito.Mockito.when;
 class TestAgendaRefs
 {
     private static final Instant NOW = Instant.parse("2026-10-17T10:00:00Z");
-    private static final Workspace GITHUB_WORKSPACE = workspace("ws1", RepoRef.of("Owner", "Repo"), Optional.empty());
+    private static final Workspace GITHUB_WORKSPACE = workspace("ws1", RepoRef.of("Owner", "Repo"), HostingServer.GITHUB_COM);
     private static final Workspace GITLAB_WORKSPACE = workspace("ws2", RepoRef.of("Group/Sub", "Project"),
-            Optional.of(new HostingServer(GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"))));
+            new HostingServer(GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4")));
 
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
 
@@ -68,13 +68,13 @@ class TestAgendaRefs
         assertThat(AgendaRefs.issueWorkspace(new AgendaRefs.Numbered("owner/repo", 3), workspaces)).contains(GITHUB_WORKSPACE);
         assertThat(AgendaRefs.issueWorkspace(new AgendaRefs.Numbered("other/repo", 3), workspaces)).isEmpty();
 
-        Workspace twin = workspace("ws3", RepoRef.of("owner", "repo"), GITLAB_WORKSPACE.hostingServer());
+        Workspace twin = workspace("ws3", RepoRef.of("owner", "repo"), GITLAB_WORKSPACE.server());
         when(workspaces.findAll()).thenReturn(ImmutableList.of(GITHUB_WORKSPACE, twin));
         assertThatIllegalArgumentException().isThrownBy(() -> AgendaRefs.issueWorkspace(new AgendaRefs.Numbered("owner/repo", 3), workspaces))
                 .withMessage("owner/repo#3 is ambiguous: more than one watched repository has that path; name the workspace");
     }
 
-    private static Workspace workspace(String id, RepoRef repository, Optional<HostingServer> server)
+    private static Workspace workspace(String id, RepoRef repository, HostingServer server)
     {
         return new Workspace(id, repository.repo(), 1, repository, Optional.empty(), Optional.empty(), 1, repository, Workspace.Topology.DIRECT, "main",
                 "https://example.com/" + repository.fullName() + ".git", Optional.empty(), Optional.empty(), "/managed/" + id, Optional.empty(), Optional.empty(), 0, NOW, NOW,

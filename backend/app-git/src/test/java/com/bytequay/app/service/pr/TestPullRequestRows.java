@@ -107,8 +107,8 @@ class TestPullRequestRows
 
     private static Workspace workspace(HostingProvider provider)
     {
-        Optional<HostingServer> server = provider == GITHUB ? Optional.empty()
-                : Optional.of(new HostingServer(GITLAB, URI.create("https://gitlab.example"), URI.create("https://gitlab.example/api/v4")));
+        HostingServer server = provider == GITHUB ? HostingServer.GITHUB_COM
+                : new HostingServer(GITLAB, URI.create("https://gitlab.example"), URI.create("https://gitlab.example/api/v4"));
         RepoRef repository = RepoRef.of("owner", "project");
         return new Workspace("workspace", "Project", 42, repository, Optional.empty(), Optional.empty(), 42, repository, Workspace.Topology.DIRECT, "main",
                 "https://github.com/owner/project.git", Optional.empty(), Optional.empty(), "/tmp/project", Optional.empty(), Optional.empty(), 0, NOW, NOW, server);

@@ -68,7 +68,6 @@ class TestWorkItemCatalog
     void gitLabCatalogReadsTheSameWorkspaceIssueProjection()
     {
         ContextFixture fixture = new ContextFixture();
-        when(fixture.workspace.isGitHub()).thenReturn(false);
         when(fixture.workspace.issueHost()).thenReturn("https://gitlab.example.com");
         RepositoryIssue issue = new RepositoryIssue(10, 1, "Remote request", "Remote context", "alice", "", "https://gitlab.example.com/org/repo/-/work_items/1",
                 ImmutableList.of(), ImmutableList.of(), 0, Instant.EPOCH, Instant.EPOCH);
@@ -158,7 +157,6 @@ class TestWorkItemCatalog
         Instant now = Instant.EPOCH;
         WorkspaceStore workspaces = mock(WorkspaceStore.class);
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
-        when(workspace.isGitHub()).thenReturn(true);
         when(workspace.issueHost()).thenReturn("github.com");
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
         when(workspace.monitoredRepositoryId()).thenReturn(1L);
@@ -337,7 +335,6 @@ class TestWorkItemCatalog
         private ContextFixture()
         {
             WorkspaceStore workspaces = mock(WorkspaceStore.class);
-            when(workspace.isGitHub()).thenReturn(true);
             when(workspace.issueHost()).thenReturn("github.com");
             when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
             when(workspace.monitoredRepositoryId()).thenReturn(1L);

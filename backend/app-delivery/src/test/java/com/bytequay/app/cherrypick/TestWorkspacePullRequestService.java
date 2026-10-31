@@ -584,7 +584,8 @@ class TestWorkspacePullRequestService
                 Optional.of(NOW),
                 0,
                 NOW,
-                NOW);
+                NOW,
+                GITHUB_COM);
     }
 
     private static HostingRepository repository(long id, long remoteId, RepoRef path)

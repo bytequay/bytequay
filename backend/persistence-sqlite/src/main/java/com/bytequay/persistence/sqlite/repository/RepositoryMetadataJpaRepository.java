@@ -15,8 +15,14 @@ package com.bytequay.persistence.sqlite.repository;
 
 import com.bytequay.persistence.sqlite.entity.RepositoryMetadataEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import java.util.List;
 
 public interface RepositoryMetadataJpaRepository
         extends JpaRepository<RepositoryMetadataEntity, Long>
 {
+    @Query("SELECT m FROM RepositoryMetadataEntity m WHERE m.repositoryId IN (SELECT r.id FROM HostingRepositoryEntity r WHERE r.instance.id = :instanceId)")
+    List<RepositoryMetadataEntity> findByInstanceId(@Param("instanceId") long instanceId);
 }

@@ -18,6 +18,9 @@ import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryLabel;
 import com.bytequay.core.domain.RepositoryPickerUser;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.bytequay.persistence.sqlite.repository.RepositoryMetadataJpaRepository;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -27,10 +30,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.net.URI;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.stream.IntStream;
 
+import static com.bytequay.core.hosting.HostingProvider.GITLAB;
+import static com.bytequay.core.hosting.HostingServer.GITHUB_COM;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -48,6 +54,9 @@ class TestSqliteRepositoryMetadataStore
 
     @Autowired
     private RepositoryMetadataJpaRepository repository;
+
+    @Autowired
+    private SqliteHostingIdentityStore identities;
 
     @Autowired
     private EntityManager entityManager;
@@ -88,20 +97,38 @@ class TestSqliteRepositoryMetadataStore
     }
 
     @Test
-    void listsContributorsAcrossRepositoriesWithLatestIdentityAndStableOrder()
+    void listsThePeopleOfOneInstanceWithLatestIdentityAndStableOrder()
     {
-        store.upsertContributors(100, REPOSITORY, ImmutableList.of(
+        HostingInstance github = identities.upsertInstance(GITHUB_COM);
+        HostingInstance gitlab = identities.upsertInstance(new HostingServer(GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4")));
+        long first = repository(github, "100", "owner/project");
+        long second = repository(github, "200", "other/project");
+        long empty = repository(github, "300", "empty/project");
+        long project = repository(gitlab, "100", "group/project");
+        store.upsertContributors(first, REPOSITORY, ImmutableList.of(
                 new RepositoryContributor(1, "old-alice", "old-avatar", false),
                 new RepositoryContributor(2, "bob", "bob-avatar", false)), NOW.minusSeconds(60));
-        store.upsertContributors(200, RepoRef.of("other", "project"), ImmutableList.of(
+        store.upsertContributors(second, RepoRef.of("other", "project"), ImmutableList.of(
                 new RepositoryContributor(3, "Bot", "bot-avatar", true),
                 new RepositoryContributor(1, "Alice", "new-avatar", false)), NOW);
-        store.upsertOverview(300, RepoRef.of("empty", "project"), "", 0, ImmutableList.of(), ImmutableMap.of(), NOW);
+        store.replacePickerUsers(second, RepoRef.of("other", "project"), ImmutableList.of(
+                new RepositoryPickerUser(2, "bob", Optional.of("bob-key"), false), new RepositoryPickerUser(4, "carol", Optional.empty(), false)), NOW);
+        store.upsertOverview(empty, RepoRef.of("empty", "project"), "", 0, ImmutableList.of(), ImmutableMap.of(), NOW);
+        // GitLab has no contributor accounts, only users who can be assigned; ids on another server are other people.
+        store.replacePickerUsers(project, RepoRef.of("group", "project"), ImmutableList.of(new RepositoryPickerUser(1, "gitlab-user", Optional.empty(), false)), NOW);
 
-        assertThat(store.findAllContributors()).containsExactly(
+        assertThat(store.findPeople(github.id())).containsExactly(
                 new RepositoryContributor(1, "Alice", "new-avatar", false),
                 new RepositoryContributor(2, "bob", "bob-avatar", false),
-                new RepositoryContributor(3, "Bot", "bot-avatar", true));
+                new RepositoryContributor(3, "Bot", "bot-avatar", true),
+                new RepositoryContributor(4, "carol", "", false));
+        assertThat(store.findPeople(gitlab.id())).containsExactly(new RepositoryContributor(1, "gitlab-user", "", false));
+    }
+
+    private long repository(HostingInstance instance, String remoteId, String path)
+    {
+        return identities.upsertRepository(instance.id(), new RemoteHostingRepository(remoteId, path, URI.create(instance.webBaseUrl() + "/" + path),
+                URI.create(instance.webBaseUrl() + "/" + path + ".git"), Optional.empty(), Optional.of("main"))).id();
     }
 
     @Test

@@ -179,7 +179,7 @@ class TestTeamService
     void contributorSuggestionsOnlyReadLocalMetadata()
     {
         var contributors = ImmutableList.of(new RepositoryContributor(42, "bob", "", false));
-        when(metadata.findAllContributors()).thenReturn(contributors);
+        when(metadata.findPeople(1)).thenReturn(contributors);
         assertThat(service.contributors(1)).isEqualTo(contributors);
         verifyNoInteractions(reader);
     }

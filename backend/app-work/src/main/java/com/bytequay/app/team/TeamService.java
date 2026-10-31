@@ -90,10 +90,10 @@ public class TeamService
         return read(account);
     }
 
+    /** The people cached for the repositories on the account's server, to pick circle members from. */
     public List<RepositoryContributor> contributors(long accountId)
     {
-        accounts.require(accountId);
-        return metadata.findAllContributors();
+        return metadata.findPeople(accounts.require(accountId).account().instanceId());
     }
 
     public TeamDirectory create(long accountId, String name, String description, Avatar avatar, List<String> repositories, List<TeamMemberInput> selected)

@@ -530,6 +530,9 @@ reproduce failures.
 
 Choose **Circles → Create a circle**, then pick people and repositories. It
 sends no invitations, and **Insights** cover only what ByteQuay has collected.
+Each circle belongs to one signed-in GitHub or GitLab account and holds people
+from that account's server; with several accounts, pick one under **Account**.
+GitLab activity comes from your watched GitLab projects.
 
 <a id="jira"></a>
 

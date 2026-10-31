@@ -14,6 +14,7 @@
 package com.bytequay.integration.gitlab.impl;
 
 import com.bytequay.core.domain.InlineReviewComment;
+import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.hosting.CommentTarget;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingFailure;
@@ -116,7 +117,7 @@ class TestGitLabPullRequestWriter
     {
         responses.put("POST /gitlab/api/v4/projects/42/merge_requests", "{\"id\":321,\"iid\":7,\"web_url\":\"" + base + "/group/nested/repo/-/merge_requests/7\"}");
 
-        var created = writer.create(target(), "feature", "main", "Change", "Body", true);
+        var created = writer.create(target(), RepoRef.of("group/nested", "repo"), "feature", "main", "Change", "Body", true);
 
         assertThat(created.id()).isEqualTo(321);
         assertThat(created.number()).isEqualTo(7);
@@ -124,6 +125,14 @@ class TestGitLabPullRequestWriter
         assertThat(request.source()).isEqualTo("feature");
         assertThat(request.target()).isEqualTo("main");
         assertThat(request.title()).isEqualTo("Draft: Change");
+    }
+
+    @Test
+    void refusesAMergeRequestFromAFork()
+    {
+        assertThatThrownBy(() -> writer.create(target(), RepoRef.of("someone", "repo"), "feature", "main", "Change", "Body", true))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("GitLab merge requests from a fork are not supported yet");
+        assertThat(received).isEmpty();
     }
 
     @Test

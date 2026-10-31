@@ -37,7 +37,6 @@ import com.bytequay.app.cherrypick.StartCherryPickExecutionCommand;
 import com.bytequay.app.cherrypick.WorkspacePullRequestService;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.git.command.GitCommandRunner;
-import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
@@ -61,6 +60,7 @@ import com.bytequay.core.cherrypick.MergedPullRequestRange;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.ci.CiAutofixStore;
+import com.bytequay.core.domain.MergedPullRequest;
 import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
@@ -70,6 +70,8 @@ import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.PullRequestContentReader;
+import com.bytequay.core.hosting.PullRequestWriter;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
@@ -92,6 +94,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.pullRequests;
 import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static com.google.common.base.Preconditions.checkState;
@@ -100,6 +104,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
@@ -125,7 +130,7 @@ class TestBackportChainService
     private final WorkspaceRepositoryService repositories = mock(WorkspaceRepositoryService.class);
     private final WorkspaceRemoteSourceService remotes = mock(WorkspaceRemoteSourceService.class);
     private final ModelSettingsService models = mock(ModelSettingsService.class);
-    private final GitHubPullRequestReadClient prs = mock(GitHubPullRequestReadClient.class);
+    private final PullRequestContentReader prs = mock(PullRequestContentReader.class);
     private final WorkspaceHostingService hosting = mock(WorkspaceHostingService.class);
     private final Map<String, WorkspaceHostingRead> hostingReads = new ConcurrentHashMap<>();
     private final GitCommandRunner git = mock(GitCommandRunner.class);
@@ -186,8 +191,8 @@ class TestBackportChainService
         when(models.agentModel(eq(AgentModelType.DEVELOPMENT), any())).thenReturn(new AgentModelSetting(
                 AgentModelType.DEVELOPMENT, true, "codex", "Codex", "model", "Model", Optional.of("high")));
         remote.put(4, identity(4, PullRequestIdentity.State.OPEN, source.taskWorktree().orElseThrow().generatedBranch()));
-        when(prs.fetchPullRequestIdentities(anyString(), any(), any(), anyString())).thenAnswer(_ -> ImmutableList.of(remote.get(4)));
-        when(prs.fetchPullRequestIdentity(anyString(), any())).thenAnswer(call -> remote.get(((PullRequestRef) call.getArgument(1)).number()));
+        when(prs.identitiesByHead(any(), any(), anyString())).thenAnswer(_ -> ImmutableList.of(remote.get(4)));
+        when(prs.identity(any(), anyInt())).thenAnswer(call -> remote.get(call.<Integer>getArgument(1)));
         when(landed.resolve(anyString(), anyString(), any())).thenAnswer(call -> {
             PullRequestRef pr = call.getArgument(2);
             String sha = pr.number() == 4 ? P4_SHA : P3_SHA;
@@ -220,8 +225,7 @@ class TestBackportChainService
             int number = hop.route().repositoryId() == 3 ? 3 : 2;
             var execution = children.get(chain.executionKey(index));
             remote.put(number, identity(number, PullRequestIdentity.State.OPEN, execution.workspace().workBranch()));
-            return new WorkspacePullRequestService.PullRequestResult(number, number, "https://github.com/test/p" + number + "/pull/" + number,
-                    hop.route().repository(), "main", execution.workspace().workBranch());
+            return number;
         });
     }
 
@@ -395,7 +399,7 @@ class TestBackportChainService
             merge(4);
         }
         else {
-            when(prs.fetchPullRequestIdentities(anyString(), any(), any(), anyString())).thenReturn(ImmutableList.of());
+            when(prs.identitiesByHead(any(), any(), anyString())).thenReturn(ImmutableList.of());
         }
         var chain = save(service, destination);
         service.advance(chain.id());
@@ -403,7 +407,7 @@ class TestBackportChainService
             assertThat(current(chain).sourcePullRequest()).isEmpty();
             assertThat(children).isEmpty();
             merge(4);
-            when(prs.fetchPullRequestIdentities(anyString(), any(), any(), anyString())).thenReturn(ImmutableList.of(remote.get(4)));
+            when(prs.identitiesByHead(any(), any(), anyString())).thenReturn(ImmutableList.of(remote.get(4)));
         }
         for (int tick = 0; tick < 5; tick++) {
             service.advance(chain.id());
@@ -630,7 +634,7 @@ class TestBackportChainService
         service.advance(chain.id());
         assertThat(current(chain).sourceMerged()).isTrue();
         var request = new BackportChainService.SelectSource(current(chain).version(), 0, P4_SHA, P4_SHA);
-        when(prs.fetchMergedPullRequest(anyString(), any())).thenReturn(new GitHubPullRequestReadClient.MergedPullRequest(remote.get(4), 4, NOW, P4_SHA, ImmutableList.of(P4_SHA)));
+        when(prs.merged(any(), anyInt())).thenReturn(new MergedPullRequest(remote.get(4), 4, NOW, P4_SHA, ImmutableList.of(P4_SHA)));
         when(previews.preview(any())).thenReturn(new CherryPickPreview("manual", "p3", workspace(3).monitoredRepository(), RepoRef.of("test", "p4"),
                 "p4", "origin", "main", "origin-main", BASE, P4_SHA, BASE, ImmutableList.of(commit(P4_SHA)), ImmutableList.of(), NOW, NOW.plusSeconds(300)));
         when(git.run(any(), eq("merge-base"), eq("--is-ancestor"), eq(P4_SHA), anyString())).thenReturn(new GitCommandRunner.Result(1, "", false));
@@ -695,7 +699,8 @@ class TestBackportChainService
 
         service().start("p3", new BackportChainService.StartRequest("p4", 4, ImmutableList.of("p3"), ImmutableList.of(-1)));
 
-        verify(prs).fetchPullRequestIdentity("workspace-account-token", PullRequestRef.of("test", "p4", 4));
+        verify(prs).identity(argThat(target -> target.access().token().equals("workspace-account-token")
+                && target.repository().fullPath().equals("test/p4")), eq(4));
     }
 
     @Test
@@ -705,7 +710,7 @@ class TestBackportChainService
 
         assertThatThrownBy(() -> service().start("p3", new BackportChainService.StartRequest("p4", 4, ImmutableList.of("p3"), ImmutableList.of(-1))))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(HostingFailure.Kind.REVISION_CONFLICT));
-        verify(prs, never()).fetchPullRequestIdentity(anyString(), any());
+        verify(prs, never()).identity(any(), anyInt());
         assertThat(saved).isEmpty();
     }
 
@@ -721,8 +726,9 @@ class TestBackportChainService
 
     private BackportChainService service()
     {
-        return new BackportChainService(chains, workspaces, tasks, turns, related, relationships, repositories, remotes, models, prs,
-                hosting, landed, previews, executions, executionStore, delivery, ciStore, ci, Clock.fixed(NOW, ZoneOffset.UTC), git, drafts);
+        return new BackportChainService(chains, workspaces, tasks, turns, related, relationships, repositories, remotes, models,
+                integrations(pullRequests(GITHUB, prs, mock(PullRequestWriter.class))), hosting, landed, previews, executions, executionStore, delivery, ciStore, ci,
+                Clock.fixed(NOW, ZoneOffset.UTC), git, drafts);
     }
 
     private static Workspace workspace(int number)

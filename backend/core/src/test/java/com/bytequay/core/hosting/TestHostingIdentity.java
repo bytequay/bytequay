@@ -68,6 +68,15 @@ class TestHostingIdentity
                 .isEqualTo(URI.create("https://git.example.com/gitlab/group/subgroup/project/-/merge_requests/7"));
     }
 
+    @Test
+    void buildsEachProvidersCommitPage()
+    {
+        String sha = "a".repeat(40);
+        assertThat(HostingProvider.GITHUB.commitUrl(URI.create("https://github.com"), "owner/repo", sha)).isEqualTo(URI.create("https://github.com/owner/repo/commit/" + sha));
+        assertThat(HostingProvider.GITLAB.commitUrl(URI.create("https://git.example.com/gitlab"), "group/project", sha))
+                .isEqualTo(URI.create("https://git.example.com/gitlab/group/project/-/commit/" + sha));
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"http://localhost:8080/gitlab", "http://127.0.0.1:8080", "http://127.1.2.3:8080", "http://[::1]:8080/gitlab"})
     void permitsExplicitLoopbackTestInstances(String value)

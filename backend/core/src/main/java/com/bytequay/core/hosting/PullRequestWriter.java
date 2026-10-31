@@ -17,6 +17,7 @@ import com.bytequay.core.domain.CreatedPullRequest;
 import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.MergeResult;
 import com.bytequay.core.domain.PrTimelineEvent;
+import com.bytequay.core.domain.RepoRef;
 
 import java.util.List;
 
@@ -60,5 +61,6 @@ public interface PullRequestWriter
 
     boolean hasMergeQueue(HostingTarget target, String baseRef);
 
-    CreatedPullRequest create(HostingTarget target, String head, String base, String title, String body, boolean draft);
+    /** Opens a request from {@code branch} of {@code headRepository}, the target repository itself or a fork of it. */
+    CreatedPullRequest create(HostingTarget target, RepoRef headRepository, String branch, String base, String title, String body, boolean draft);
 }

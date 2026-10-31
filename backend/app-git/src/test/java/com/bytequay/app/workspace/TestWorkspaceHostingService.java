@@ -35,6 +35,7 @@ import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepositories;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.hosting.PullRequestReader;
@@ -157,8 +158,8 @@ class TestWorkspaceHostingService
         WorkspaceHostingRead route = service.captureRead("workspace");
 
         assertThat(route.repository().id()).isEqualTo(31);
-        assertThat(route.githubRepository()).isEqualTo(RepoRef.of("moved", "project"));
-        assertThat(route.githubToken()).isEqualTo("secret");
+        assertThat(route.repositoryRef()).isEqualTo(RepoRef.of("moved", "project"));
+        assertThat(route.session().access().token()).isEqualTo("secret");
         verifyNoInteractions(desktop);
     }
 
@@ -171,8 +172,8 @@ class TestWorkspaceHostingService
         WorkspaceHostingRead route = service.captureRead("workspace");
         HostingPullRequestSnapshot snapshot = service.readPullRequest(route, 7);
 
-        assertThat(route.githubToken()).isEqualTo("workspace-token");
-        assertThat(route.githubRepository()).isEqualTo(RepoRef.of("renamed", "project"));
+        assertThat(route.session().access().token()).isEqualTo("workspace-token");
+        assertThat(route.repositoryRef()).isEqualTo(RepoRef.of("renamed", "project"));
         assertThat(route.login()).isEqualTo("alice");
         assertThat(snapshot.credentialScope()).isEqualTo("workspace-override");
         verify(repositories).findById(any(), eq("200"));
@@ -327,16 +328,40 @@ class TestWorkspaceHostingService
     }
 
     @Test
-    void nativeConsumersRejectOtherServers()
+    void namesANestedRepositoryByItsLastPathSegment()
     {
         HostingInstance other = new HostingInstance(90, GITLAB, URI.create("https://gitlab.com"), URI.create("https://gitlab.com/api/v4"));
         HostingReadSession session = new HostingReadSession(20, "scope", new HostingAccess(other, "secret"));
-        HostingRepository repository = new HostingRepository(30, 90, "42", "group/project", URI.create("https://gitlab.com/group/project"),
-                URI.create("https://gitlab.com/group/project.git"), Optional.empty(), Optional.of("main"));
-        WorkspaceHostingRead route = new WorkspaceHostingRead(session, repository, "alice");
+        HostingRepository repository = new HostingRepository(30, 90, "42", "group/sub/project", URI.create("https://gitlab.com/group/sub/project"),
+                URI.create("https://gitlab.com/group/sub/project.git"), Optional.empty(), Optional.of("main"));
 
-        assertThatThrownBy(route::githubToken).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(route::githubRepository).isInstanceOf(IllegalArgumentException.class);
+        assertThat(new WorkspaceHostingRead(session, repository, "alice").repositoryRef()).isEqualTo(RepoRef.of("group/sub", "project"));
+    }
+
+    @Test
+    void pushTargetIsTheSelectedForkWhileTheRoutingStillMatches()
+    {
+        for (String id : ImmutableList.of("100", "200")) {
+            String path = id.equals("100") ? "old-owner/fork" : "old-owner/project";
+            doReturn(new RemoteHostingRepository(id, path, URI.create("https://github.com/" + path), URI.create("https://github.com/" + path + ".git"), Optional.empty(),
+                    Optional.of("main"))).when(repositories).findById(any(), eq(id));
+        }
+        when(desktop.captureWorkspaceHostingRead("workspace")).thenReturn(new HostingReadSession(20, "scope", new HostingAccess(INSTANCE, "token")));
+        WorkspaceHostingRead read = service.captureRead("workspace");
+
+        HostingTarget pushed = service.pushTarget("workspace", read);
+
+        assertThat(pushed.repository().fullPath()).isEqualTo("old-owner/fork");
+        assertThat(pushed.access()).isEqualTo(read.session().access());
+    }
+
+    @Test
+    void pushTargetWaitsForASyncAfterARename()
+    {
+        when(desktop.captureWorkspaceHostingRead("workspace")).thenReturn(new HostingReadSession(20, "scope", new HostingAccess(INSTANCE, "token")));
+        WorkspaceHostingRead read = service.captureRead("workspace");
+
+        assertThatThrownBy(() -> service.pushTarget("workspace", read)).isInstanceOf(WorkspaceException.class).hasMessageContaining("Synchronize the workspace");
     }
 
     @Test

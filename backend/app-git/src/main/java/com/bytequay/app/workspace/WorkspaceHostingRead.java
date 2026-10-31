@@ -19,7 +19,6 @@ import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingTarget;
 
 import static com.bytequay.core.domain.Checks.checkText;
-import static com.bytequay.core.hosting.HostingServer.GITHUB_COM;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -39,22 +38,9 @@ public record WorkspaceHostingRead(HostingReadSession session, HostingRepository
         return new HostingTarget(session.access(), repository);
     }
 
-    public RepoRef githubRepository()
+    /** The repository's coordinates, its last path segment as the name. */
+    public RepoRef repositoryRef()
     {
-        requireGitHub();
-        String[] coordinates = repository.fullPath().split("/", -1);
-        checkArgument(coordinates.length == 2, "GitHub repository must have owner/repository coordinates");
-        return RepoRef.of(coordinates[0], coordinates[1]);
-    }
-
-    public String githubToken()
-    {
-        requireGitHub();
-        return session.access().token();
-    }
-
-    private void requireGitHub()
-    {
-        checkArgument(session.access().server().equals(GITHUB_COM), "This operation requires a GitHub.com workspace");
+        return WorkspaceHostingService.repositoryRef(repository);
     }
 }

@@ -19,6 +19,7 @@ import com.bytequay.app.repository.github.GitHubNotificationClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.core.ci.CiHeadSnapshot;
 import com.bytequay.core.domain.DiffFileContent;
+import com.bytequay.core.domain.MergedPullRequest;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrDiffEtags;
 import com.bytequay.core.domain.PrRawDetail;
@@ -47,6 +48,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.net.URI;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -128,6 +132,21 @@ public class GitHubPullRequestContentReader
     {
         PullRequestRef ref = ref(target, 1);
         return gitHub.fetchPullRequestIdentities(target.access().token(), RepoRef.of(ref.owner(), ref.repo()), sourceRepository, branch);
+    }
+
+    @Override
+    public MergedPullRequest merged(HostingTarget target, int number)
+    {
+        return gitHub.fetchMergedPullRequest(target.access().token(), ref(target, number));
+    }
+
+    @Override
+    public List<String> recentMergedTitles(HostingTarget target, String baseBranch, Instant since, int limit)
+    {
+        PullRequestRef ref = ref(target, 1);
+        String query = "repo:" + ref.repoFullName() + " is:pr is:merged merged:>=" + LocalDate.ofInstant(since, ZoneOffset.UTC)
+                + " base:\"" + baseBranch.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+        return gitHub.searchPullRequestsPaged(target.access().token(), query, 1, limit).items().stream().map(pr -> pr.title()).collect(toImmutableList());
     }
 
     @Override

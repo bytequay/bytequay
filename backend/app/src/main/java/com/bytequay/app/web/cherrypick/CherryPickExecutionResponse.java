@@ -115,21 +115,20 @@ public record CherryPickExecutionResponse(
     }
 
     /** Where the work branch was pushed and the pull request it opened. */
-    public record DeliveryResponse(String pushRemote, String head, String sha, Optional<Long> pullRequestId, Optional<Integer> pullRequestNumber, Optional<String> pullRequestUrl)
+    public record DeliveryResponse(String pushRemote, String head, String sha, Optional<Integer> pullRequestNumber, Optional<String> pullRequestUrl)
     {
         public DeliveryResponse
         {
             requireNonNull(pushRemote, "pushRemote is null");
             requireNonNull(head, "head is null");
             requireNonNull(sha, "sha is null");
-            requireNonNull(pullRequestId, "pullRequestId is null");
             requireNonNull(pullRequestNumber, "pullRequestNumber is null");
             requireNonNull(pullRequestUrl, "pullRequestUrl is null");
         }
 
         private static DeliveryResponse of(CherryPickExecution.Delivery delivery)
         {
-            return new DeliveryResponse(delivery.pushRemote(), delivery.head(), delivery.sha(), delivery.pullRequestId(), delivery.pullRequestNumber(), delivery.pullRequestUrl());
+            return new DeliveryResponse(delivery.pushRemote(), delivery.head(), delivery.sha(), delivery.pullRequestNumber(), delivery.pullRequestUrl());
         }
     }
 

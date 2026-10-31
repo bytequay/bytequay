@@ -16,13 +16,12 @@ package com.bytequay.app.cherrypick;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.StartCiAutofixCommand;
-import com.bytequay.app.repository.github.GitHubAccountClient;
-import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
-import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
-import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.ManagedWorkspaceGit;
 import com.bytequay.app.workspace.WorkspaceException;
+import com.bytequay.app.workspace.WorkspaceHostingRead;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.core.backport.BackportChain;
@@ -38,12 +37,11 @@ import com.bytequay.core.cherrypick.CherryPickLifecycle;
 import com.bytequay.core.cherrypick.CherryPickNotFoundException;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.domain.CreatedPullRequest;
-import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
-import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingIntegration;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Striped;
@@ -55,7 +53,6 @@ import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 
 import static com.bytequay.app.utils.Locks.withLock;
-import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
@@ -67,44 +64,39 @@ public class WorkspacePullRequestService
     private final WorkspaceStore workspaces;
     private final CherryPickExecutionStore executions;
     private final WorkspaceProvisioningService provisioning;
-    private final GitHubAccountClient repositories;
-    private final GitHubPullRequestWriteClient pullRequests;
-    private final CredentialService credentials;
+    private final WorkspaceHostingService hosting;
+    private final HostingIntegrations integrations;
     private final ManagedWorkspaceGit git;
     private final PullRequestService pullRequestCatalog;
     private final CiAutofixService ciAutofix;
     private final Clock clock;
     private final WorkspaceRelationships relationships;
     private final BackportChainStore chains;
-    private final GitHubPullRequestReadClient reads;
     private final Striped<Lock> locks = Striped.lock(64);
 
     public WorkspacePullRequestService(
             WorkspaceStore workspaces,
             CherryPickExecutionStore executions,
             WorkspaceProvisioningService provisioning,
-            GitHubAccountClient repositories,
-            GitHubPullRequestWriteClient pullRequests,
-            CredentialService credentials,
+            WorkspaceHostingService hosting,
+            HostingIntegrations integrations,
             ManagedWorkspaceGit git,
             PullRequestService pullRequestCatalog,
             CiAutofixService ciAutofix,
             Clock clock,
-            WorkspaceRelationships relationships, BackportChainStore chains, GitHubPullRequestReadClient reads)
+            WorkspaceRelationships relationships, BackportChainStore chains)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.executions = requireNonNull(executions, "executions is null");
         this.provisioning = requireNonNull(provisioning, "provisioning is null");
-        this.repositories = requireNonNull(repositories, "repositories is null");
-        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
-        this.credentials = requireNonNull(credentials, "credentials is null");
+        this.hosting = requireNonNull(hosting, "hosting is null");
+        this.integrations = requireNonNull(integrations, "integrations is null");
         this.git = requireNonNull(git, "git is null");
         this.pullRequestCatalog = requireNonNull(pullRequestCatalog, "pullRequestCatalog is null");
         this.ciAutofix = requireNonNull(ciAutofix, "ciAutofix is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.relationships = requireNonNull(relationships, "relationships is null");
         this.chains = requireNonNull(chains, "chains is null");
-        this.reads = requireNonNull(reads, "reads is null");
     }
 
     private CherryPickExecution push(Workspace workspace, CherryPickExecution execution)
@@ -113,10 +105,7 @@ public class WorkspacePullRequestService
         if (execution.delivery().isPresent()) {
             return execution;
         }
-        UserRepo selected = requireCurrentSelected(workspace);
-        if (!selected.viewerCanPush()) {
-            throw WorkspaceException.pushNotWritable();
-        }
+        requireWritable(workspace, remote(workspace));
         String branch = execution.workspace().workBranch();
         try {
             git.pushBranch(workspace, branch, execution.currentTargetSha());
@@ -127,32 +116,28 @@ public class WorkspacePullRequestService
         return executions.save(execution.recordPush("origin", branch, execution.currentTargetSha(), clock.instant()));
     }
 
-    private PullRequestResult createPullRequest(Workspace workspace, CherryPickExecution execution, Runnable requireAuthority)
+    private int createPullRequest(Workspace workspace, CherryPickExecution execution, Runnable requireAuthority)
     {
         requireAuthority.run();
         relationships.requireTransferAllowed(execution.workspace().sourceRepository(), execution.workspace().repository());
-        requireCurrentSelected(workspace);
+        Remote remote = remote(workspace);
+        hosting.pushTarget(workspace.id(), remote.read());
         PullRequestDraft draft = execution.pullRequestDraft().orElseThrow();
-        String head = head(workspace, execution);
         requireAuthority.run();
-        CreatedPullRequest created = pullRequests.createPullRequest(
-                credentials.resolveGitHubToken(workspace.id()),
-                workspace.monitoredRepository(),
-                head,
-                execution.workspace().targetBranch(),
-                draft.title(),
-                draft.body(),
-                false);
-        CherryPickExecution saved = executions.save(execution.recordPullRequest(
-                created.id(), created.number(), created.url(), clock.instant()));
-        Delivery savedDelivery = saved.delivery().orElseThrow();
+        CreatedPullRequest created = remote.integration().writer().create(remote.target(), workspace.selectedRepository(), execution.workspace().workBranch(),
+                execution.workspace().targetBranch(), draft.title(), draft.body(), false);
+        CherryPickExecution saved = executions.save(execution.recordPullRequest(created.number(), created.url(), clock.instant()));
         requireAuthority.run();
-        activatePullRequest(workspace, saved, savedDelivery);
-        return pullRequestResult(workspace, saved, savedDelivery);
+        activatePullRequest(workspace, saved, saved.delivery().orElseThrow());
+        return created.number();
     }
 
-    /** Publishes only the execution named by an active, accepted chain; uncertain writes are inspected, never repeated. */
-    public PullRequestResult deliverChain(String chainId, int index, boolean uncertain)
+    /**
+     * Publishes only the execution named by an active, accepted chain; uncertain writes are inspected, never repeated.
+     *
+     * @return the number of the hop's pull request
+     */
+    public int deliverChain(String chainId, int index, boolean uncertain)
     {
         var chain = requireChain(chainId, index);
         var hop = chain.hops().get(index);
@@ -163,10 +148,10 @@ public class WorkspacePullRequestService
             CherryPickExecution execution = requireExecution(workspace, executionId);
             checkState(execution.startIdempotencyKey().equals(chain.executionKey(index)), "Execution is not owned by this chain");
             requireDeliverable(execution);
-            if (execution.delivery().flatMap(Delivery::pullRequestId).isPresent()) {
+            if (execution.delivery().flatMap(Delivery::pullRequestNumber).isPresent()) {
                 var stored = execution.delivery().orElseThrow();
-                var pr = reads.fetchPullRequestIdentity(credentials.resolveGitHubToken(workspace.id()), PullRequestRef.of(
-                        workspace.monitoredRepository().owner(), workspace.monitoredRepository().repo(), stored.pullRequestNumber().orElseThrow()));
+                Remote remote = remote(workspace);
+                var pr = remote.integration().contents().identity(remote.target(), stored.pullRequestNumber().orElseThrow());
                 checkState(pr.headRepository().equals(workspace.selectedRepository()) && pr.headBranch().equals(execution.workspace().workBranch())
                                 && pr.baseRepository().equals(workspace.monitoredRepository()) && pr.baseBranch().equals(execution.workspace().targetBranch())
                                 && pr.state() != PullRequestIdentity.State.CLOSED,
@@ -175,15 +160,15 @@ public class WorkspacePullRequestService
                 if (pr.state() == PullRequestIdentity.State.OPEN) {
                     activatePullRequest(workspace, execution, stored);
                 }
-                return pullRequestResult(workspace, execution, stored);
+                return stored.pullRequestNumber().orElseThrow();
             }
             if (uncertain) {
                 // An attempted publication never becomes another write merely because its response was lost.
-                requireCurrentSelected(workspace);
+                Remote remote = remote(workspace);
+                hosting.pushTarget(workspace.id(), remote.read());
                 checkState(git.remoteBranchSha(workspace, execution.workspace().workBranch()).filter(execution.currentTargetSha()::equals).isPresent(),
                         "Remote result unknown: the exact pushed branch was not verified. Inspect the existing branch and PR.");
-                var matches = reads.fetchPullRequestIdentities(credentials.resolveGitHubToken(workspace.id()), workspace.monitoredRepository(),
-                        workspace.selectedRepository(), execution.workspace().workBranch());
+                var matches = remote.integration().contents().identitiesByHead(remote.target(), workspace.selectedRepository(), execution.workspace().workBranch());
                 checkState(matches.size() == 1, "Remote result unknown: no unique published PR was verified. Inspect it before continuing.");
                 var pr = matches.getFirst();
                 checkState(pr.headSha().equals(execution.currentTargetSha()) && pr.baseBranch().equals(execution.workspace().targetBranch())
@@ -191,20 +176,16 @@ public class WorkspacePullRequestService
                                 && pr.headBranch().equals(execution.workspace().workBranch())
                                 && pr.state() != PullRequestIdentity.State.CLOSED,
                         "Remote result differs from the saved backport; publication was not repeated");
-                var rows = reads.fetchPullRequestsByHead(credentials.resolveGitHubToken(workspace.id()), workspace.monitoredRepository(),
-                        workspace.selectedRepository().owner() + ":" + execution.workspace().workBranch());
-                var row = rows.stream().filter(value -> value.number() == pr.pullRequest().number() && value.htmlUrl().equals(pr.url())).findFirst()
-                        .orElseThrow(() -> new IllegalStateException("Published PR identity is unavailable"));
                 requireChain(chainId, index);
                 if (execution.delivery().isEmpty()) {
                     execution = executions.save(execution.recordPush("origin", execution.workspace().workBranch(), execution.currentTargetSha(), clock.instant()));
                 }
-                execution = executions.save(execution.recordPullRequest(row.remoteId(), row.number(), row.htmlUrl(), clock.instant()));
+                execution = executions.save(execution.recordPullRequest(pr.pullRequest().number(), pr.url(), clock.instant()));
                 if (pr.state() == PullRequestIdentity.State.OPEN) {
                     requireChain(chainId, index);
                     activatePullRequest(workspace, execution, execution.delivery().orElseThrow());
                 }
-                return pullRequestResult(workspace, execution, execution.delivery().orElseThrow());
+                return pr.pullRequest().number();
             }
             requireChain(chainId, index);
             execution = push(workspace, execution);
@@ -233,13 +214,11 @@ public class WorkspacePullRequestService
             relationships.requireTransferAllowed(execution.workspace().sourceRepository(), execution.workspace().repository());
             checkState(execution.lifecycle().delivers() && execution.lifecycle().stage() == CherryPickLifecycle.Stage.PUBLISH && execution.status() == Status.RUNNING,
                     "Execution is not publishing");
-            UserRepo selected = requireCurrentSelected(workspace);
+            Remote remote = remote(workspace);
             String branch = execution.workspace().workBranch();
             try {
                 if (execution.delivery().isEmpty()) {
-                    if (!selected.viewerCanPush()) {
-                        throw WorkspaceException.pushNotWritable();
-                    }
+                    requireWritable(workspace, remote);
                     if (git.remoteBranchSha(workspace, branch).filter(execution.currentTargetSha()::equals).isEmpty()) {
                         git.pushBranch(workspace, branch, execution.currentTargetSha());
                     }
@@ -249,27 +228,22 @@ public class WorkspacePullRequestService
             catch (ManagedWorkspaceGit.Failure failure) {
                 throw WorkspaceException.deliveryFailed(failure.safeMessage());
             }
-            if (execution.delivery().flatMap(Delivery::pullRequestId).isEmpty()) {
-                String token = credentials.resolveGitHubToken(workspace.id());
-                Optional<FetchedPullRequest> existing = reads.fetchPullRequestsByHead(token, workspace.monitoredRepository(), workspace.selectedRepository().owner() + ":" + branch)
+            if (execution.delivery().flatMap(Delivery::pullRequestNumber).isEmpty()) {
+                Optional<PullRequestIdentity> existing = remote.integration().contents().identitiesByHead(remote.target(), workspace.selectedRepository(), branch)
                         .stream()
-                        .filter(row -> "open".equalsIgnoreCase(row.state()))
+                        .filter(identity -> identity.state() == PullRequestIdentity.State.OPEN)
                         .findFirst();
                 if (existing.isPresent()) {
-                    FetchedPullRequest row = existing.orElseThrow();
-                    PullRequestIdentity identity = reads.fetchPullRequestIdentity(token,
-                            PullRequestRef.of(workspace.monitoredRepository().owner(), workspace.monitoredRepository().repo(), row.number()));
+                    PullRequestIdentity identity = existing.orElseThrow();
                     requirePullRequestRoute(execution, identity);
-                    checkState(identity.state() == PullRequestIdentity.State.OPEN && identity.headSha().equals(execution.currentTargetSha())
-                                    && identity.pullRequest().number() == row.number() && identity.url().equals(row.htmlUrl()),
-                            "The existing pull request does not match the published cherry-pick head");
-                    execution = executions.save(execution.recordPullRequest(row.remoteId(), row.number(), row.htmlUrl(), clock.instant()));
+                    checkState(identity.headSha().equals(execution.currentTargetSha()), "The existing pull request does not match the published cherry-pick head");
+                    execution = executions.save(execution.recordPullRequest(identity.pullRequest().number(), identity.url(), clock.instant()));
                 }
                 else {
                     PullRequestDraft draft = execution.pullRequestDraft().orElseThrow();
-                    CreatedPullRequest created = pullRequests.createPullRequest(token, workspace.monitoredRepository(), head(workspace, execution),
+                    CreatedPullRequest created = remote.integration().writer().create(remote.target(), workspace.selectedRepository(), branch,
                             execution.workspace().targetBranch(), draft.title(), draft.body(), true);
-                    execution = executions.save(execution.recordPullRequest(created.id(), created.number(), created.url(), clock.instant()));
+                    execution = executions.save(execution.recordPullRequest(created.number(), created.url(), clock.instant()));
                 }
                 pullRequestCatalog.observeWorkspacePullRequest(workspace.id(), pullRequestNumber(execution));
             }
@@ -310,7 +284,8 @@ public class WorkspacePullRequestService
     {
         Workspace workspace = requireWorkspace(execution.workspace().workspaceId());
         requireExecution(workspace, execution.id());
-        PullRequestIdentity identity = reads.fetchPullRequestIdentity(credentials.resolveGitHubToken(workspace.id()), pullRequestRef(workspace, execution));
+        Remote remote = remote(workspace);
+        PullRequestIdentity identity = remote.integration().contents().identity(remote.target(), pullRequestNumber(execution));
         requirePullRequestRoute(execution, identity);
         checkState(identity.pullRequest().equals(pullRequestRef(workspace, execution))
                         && execution.delivery().flatMap(Delivery::pullRequestUrl).filter(identity.url()::equals).isPresent(),
@@ -341,10 +316,8 @@ public class WorkspacePullRequestService
     {
         Workspace workspace = requireWorkspace(execution.workspace().workspaceId());
         requirePublishedHead(execution, execution.currentTargetSha());
-        String token = credentials.resolveGitHubToken(workspace.id());
-        String nodeId = pullRequests.pullRequestNodeId(token, pullRequestRef(workspace, execution))
-                .orElseThrow(() -> WorkspaceException.deliveryFailed("GitHub returned no pull request node ID"));
-        pullRequests.markReadyForReview(token, nodeId);
+        Remote remote = remote(workspace);
+        remote.integration().writer().markReady(remote.target(), pullRequestNumber(execution));
         pullRequestCatalog.observeWorkspacePullRequest(workspace.id(), pullRequestNumber(execution));
     }
 
@@ -369,7 +342,8 @@ public class WorkspacePullRequestService
             }
             try {
                 if (closePullRequest && identity.state() == PullRequestIdentity.State.OPEN) {
-                    pullRequests.closePullRequest(credentials.resolveGitHubToken(workspace.id()), pullRequestRef(workspace, execution));
+                    Remote remote = remote(workspace);
+                    remote.integration().writer().close(remote.target(), pullRequestNumber(execution));
                     pullRequestCatalog.observeWorkspacePullRequest(workspace.id(), pullRequestNumber(execution));
                 }
             }
@@ -445,44 +419,26 @@ public class WorkspacePullRequestService
         return execution;
     }
 
-    private UserRepo requireCurrentSelected(Workspace workspace)
+    private Remote remote(Workspace workspace)
     {
-        UserRepo selected = repositories.fetchRepository(
-                        credentials.resolveGitHubToken(workspace.id()), workspace.selectedRepositoryId())
-                .orElseThrow(() -> WorkspaceException.repositoryNotFound(workspace.selectedRepositoryId()));
-        if (!routingMatches(workspace, selected)) {
-            throw WorkspaceException.deliveryUnavailable(
-                    "Repository routing changed. Synchronize the workspace before delivery.");
-        }
-        return selected;
+        WorkspaceHostingRead read = hosting.captureRead(workspace.id());
+        return new Remote(integrations.of(read.target()), read);
     }
 
-    private boolean routingMatches(Workspace workspace, UserRepo selected)
+    private void requireWritable(Workspace workspace, Remote remote)
     {
-        if (selected.id() != workspace.selectedRepositoryId()
-                || !RepoRef.of(selected.owner(), selected.name()).equals(workspace.selectedRepository())
-                || !selected.cloneUrl().equals(workspace.originCloneUrl())) {
-            return false;
+        if (!remote.integration().contents().viewerCanWrite(hosting.pushTarget(workspace.id(), remote.read()))) {
+            throw WorkspaceException.pushNotWritable();
         }
-        if (workspace.upstreamRepositoryId().isEmpty()) {
-            return workspace.upstreamRepository().isEmpty()
-                    && workspace.upstreamDefaultBranch().isEmpty()
-                    && workspace.upstreamCloneUrl().isEmpty()
-                    && workspace.monitoredRepositoryId() == workspace.selectedRepositoryId()
-                    && workspace.monitoredRepository().equals(workspace.selectedRepository());
+    }
+
+    /** The workspace's verified repository and the provider integration that reaches it. */
+    private record Remote(HostingIntegration integration, WorkspaceHostingRead read)
+    {
+        HostingTarget target()
+        {
+            return read.target();
         }
-        long upstreamId = workspace.upstreamRepositoryId().orElseThrow();
-        return repositories.fetchRepository(credentials.resolveGitHubToken(workspace.id()), upstreamId)
-                .filter(upstream -> upstream.id() == upstreamId)
-                .filter(upstream -> workspace.upstreamRepository()
-                        .filter(RepoRef.of(upstream.owner(), upstream.name())::equals).isPresent())
-                .filter(upstream -> workspace.upstreamDefaultBranch()
-                        .filter(upstream.defaultBranch()::equals).isPresent())
-                .filter(upstream -> workspace.upstreamCloneUrl()
-                        .filter(upstream.cloneUrl()::equals).isPresent())
-                .filter(upstream -> workspace.monitoredRepositoryId() == upstream.id())
-                .filter(upstream -> workspace.monitoredRepository().equals(RepoRef.of(upstream.owner(), upstream.name())))
-                .isPresent();
     }
 
     private static void requireDeliverable(CherryPickExecution execution)
@@ -518,45 +474,5 @@ public class WorkspacePullRequestService
     private static String ciAutofixKey(CherryPickExecution execution)
     {
         return "cherry-pick-delivery-ci:" + execution.id();
-    }
-
-    private static PullRequestResult pullRequestResult(
-            Workspace workspace,
-            CherryPickExecution execution,
-            Delivery delivery)
-    {
-        return new PullRequestResult(
-                delivery.pullRequestId().orElseThrow(),
-                delivery.pullRequestNumber().orElseThrow(),
-                delivery.pullRequestUrl().orElseThrow(),
-                workspace.monitoredRepository(),
-                execution.workspace().targetBranch(),
-                head(workspace, execution));
-    }
-
-    private static String head(Workspace workspace, CherryPickExecution execution)
-    {
-        return workspace.upstreamRepositoryId().isPresent()
-                ? workspace.selectedRepository().owner() + ":" + execution.workspace().workBranch()
-                : execution.workspace().workBranch();
-    }
-
-    public record PullRequestResult(
-            long providerId,
-            int number,
-            String url,
-            RepoRef baseRepository,
-            String baseBranch,
-            String head)
-    {
-        public PullRequestResult
-        {
-            checkArgument(providerId > 0, "providerId is not positive");
-            checkArgument(number > 0, "number is not positive");
-            checkText(url, "url");
-            requireNonNull(baseRepository, "baseRepository is null");
-            checkText(baseBranch, "baseBranch");
-            checkText(head, "head");
-        }
     }
 }

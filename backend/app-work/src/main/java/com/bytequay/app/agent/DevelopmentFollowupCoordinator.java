@@ -618,12 +618,11 @@ public class DevelopmentFollowupCoordinator
         if (existing.isPresent()) {
             return "Pushed " + window.localHead() + "; pull request " + existing.orElseThrow().url() + " already tracks this branch.";
         }
-        String head = route.headRepository().equals(route.baseRepository()) ? route.headBranch() : route.headRepository().owner() + ":" + route.headBranch();
         var selected = hosting.captureRead(worktree.workspaceId());
         checkState(selected.session().access().server().equals(route.server()) && selected.repository().fullPath().equals(route.baseRepository().fullName()),
                 "The publication repository changed");
         CreatedPullRequest created = integrations.of(selected.target()).writer().create(selected.target(),
-                head, route.baseBranch(), withoutAttribution(title), withoutAttribution(body), true);
+                route.headRepository(), route.headBranch(), route.baseBranch(), withoutAttribution(title), withoutAttribution(body), true);
         return "Pushed " + window.localHead() + "; created draft pull request " + created.url();
     }
 

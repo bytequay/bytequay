@@ -27,6 +27,7 @@ import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import com.bytequay.core.store.HostingIdentityStore;
@@ -149,6 +150,30 @@ public class WorkspaceHostingService
             workspaces.saveHostingCacheTarget(workspaceId, new HostingCacheTarget(session.accountId(), repository.id(), session.credentialScope()));
         }
         return new WorkspaceHostingRead(session, repository, account.login());
+    }
+
+    /** Another repository on the workspace's server, read with the workspace's account, such as a cherry-pick source. */
+    public HostingTarget repositoryTarget(String workspaceId, String fullPath)
+    {
+        HostingReadSession session = session(requireWorkspace(workspaces, workspaceId));
+        return new HostingTarget(session.access(), connections.resolveRepository(session, fullPath));
+    }
+
+    /**
+     * The verified repository a workspace pushes its branches to: the read's own repository, or the fork the workspace selected. Both must
+     * still have the workspace's coordinates, so a renamed or moved repository waits for a sync.
+     */
+    public HostingTarget pushTarget(String workspaceId, WorkspaceHostingRead read)
+    {
+        Workspace workspace = requireWorkspace(workspaces, workspaceId);
+        HostingRepository selected = workspace.selectedRepositoryId() == workspace.monitoredRepositoryId()
+                ? read.repository()
+                : connections.resolveRepositoryById(read.session(), Long.toString(workspace.selectedRepositoryId()));
+        checkArgument(selected.remoteId().equals(Long.toString(workspace.selectedRepositoryId())), "Workspace repository identity changed");
+        if (!read.repositoryRef().equals(workspace.monitoredRepository()) || !repositoryRef(selected).equals(workspace.selectedRepository())) {
+            throw WorkspaceException.deliveryUnavailable("Repository routing changed. Synchronize the workspace before delivery.");
+        }
+        return new HostingTarget(read.session().access(), selected);
     }
 
     /**

@@ -16,6 +16,7 @@ package com.bytequay.integration.gitlab.impl;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
+import com.bytequay.core.domain.MergedPullRequest;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrDiffEtags;
 import com.bytequay.core.domain.PrRawDetail;
@@ -140,6 +141,18 @@ public final class GitLabPullRequestContentReader
         return http.pages(target.access(), path, GitLabMergeRequestResponse[].class).stream()
                 .filter(request -> request.sourceProjectId() != null && request.sourceProjectId() == source.id())
                 .map(request -> identity(target, mapped("merge request", () -> toIntExact(request.iid())))).collect(toImmutableList());
+    }
+
+    @Override
+    public MergedPullRequest merged(HostingTarget target, int number)
+    {
+        throw new HostingFailure(UNAVAILABLE, "GitLab merge requests cannot be backported yet");
+    }
+
+    @Override
+    public List<String> recentMergedTitles(HostingTarget target, String baseBranch, Instant since, int limit)
+    {
+        throw new HostingFailure(UNAVAILABLE, "GitLab merge requests cannot be backported yet");
     }
 
     private static RepoRef repositoryRef(String path)

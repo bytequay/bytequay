@@ -19,6 +19,7 @@ import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.FetchedPullRequest;
+import com.bytequay.core.domain.MergedPullRequest;
 import com.bytequay.core.domain.PrMergeQueueRemoval;
 import com.bytequay.core.domain.PrReaction;
 import com.bytequay.core.domain.PrReviewState;
@@ -207,17 +208,6 @@ public class GitHubPullRequestReadClient
         return requireBody(translating(() -> get(gitHubRestClient, pat, "/repos/{owner}/{repo}/pulls/{number}",
                 pullRequest.owner(), pullRequest.repo(), pullRequest.number()).retrieve().body(PublicationPullRequest.class)),
                 "GitHub returned no pull-request merge evidence");
-    }
-
-    public record MergedPullRequest(PullRequestIdentity identity, long repositoryId, Instant mergedAt, String mergeSha, List<String> commits)
-    {
-        public MergedPullRequest
-        {
-            requireNonNull(identity, "identity is null");
-            requireNonNull(mergedAt, "mergedAt is null");
-            checkSha(mergeSha, "mergeSha");
-            commits = ImmutableList.copyOf(commits);
-        }
     }
 
     /** Reads complete current-head checks and both classic and ruleset requirements without a cached success fallback. */

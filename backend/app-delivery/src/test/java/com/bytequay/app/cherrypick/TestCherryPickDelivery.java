@@ -114,7 +114,7 @@ class TestCherryPickDelivery
         CherryPickExecution publishing = save(execution(copy).withLifecycle(lifecycle -> lifecycle.inStage(Stage.PUBLISH), CLOCK.instant()));
         when(publication.publish(publishing.id())).thenAnswer(invocation -> store.save(store.find(publishing.id()).orElseThrow()
                 .recordPush("origin", "work", copy, CLOCK.instant())
-                .recordPullRequest(7, 17, "https://github.com/acme/demo/pull/17", CLOCK.instant())));
+                .recordPullRequest(17, "https://github.com/acme/demo/pull/17", CLOCK.instant())));
 
         CherryPickExecution published = delivery.advance(publishing);
 
@@ -335,7 +335,7 @@ class TestCherryPickDelivery
         when(ci.get(run.id())).thenReturn(run);
         return execution.withLifecycle(lifecycle -> lifecycle.inStage(Stage.PUBLISH), CLOCK.instant())
                 .recordPush("origin", "work", execution.currentTargetSha(), CLOCK.instant())
-                .recordPullRequest(7, 17, "https://github.com/acme/demo/pull/17", CLOCK.instant())
+                .recordPullRequest(17, "https://github.com/acme/demo/pull/17", CLOCK.instant())
                 .withLifecycle(lifecycle -> lifecycle.inStage(stage).withCiRun(run.id().toString()).withBranch(base, branchCommits()), CLOCK.instant());
     }
 

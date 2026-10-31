@@ -1104,7 +1104,6 @@ export type CherryPickExecution = {
     pushRemote: string;
     head: string;
     sha: string;
-    pullRequestId?: number | null;
     pullRequestNumber?: number | null;
     pullRequestUrl?: string | null;
   } | null;

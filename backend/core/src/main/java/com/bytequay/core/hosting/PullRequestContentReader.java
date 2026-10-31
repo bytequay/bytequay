@@ -16,6 +16,7 @@ package com.bytequay.core.hosting;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
+import com.bytequay.core.domain.MergedPullRequest;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrDiffEtags;
 import com.bytequay.core.domain.PullRequestCheckLog;
@@ -25,6 +26,7 @@ import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.StoredPrDiff;
 import com.google.common.collect.ImmutableList;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -40,6 +42,12 @@ public interface PullRequestContentReader
     String description(HostingTarget target, int number);
 
     List<PullRequestIdentity> identitiesByHead(HostingTarget target, RepoRef sourceRepository, String branch);
+
+    /** Fresh evidence that request {@code number} merged, read twice so a request that changed in between is refused. */
+    MergedPullRequest merged(HostingTarget target, int number);
+
+    /** Titles of at most {@code limit} requests merged into {@code baseBranch} since {@code since}, newest first. */
+    List<String> recentMergedTitles(HostingTarget target, String baseBranch, Instant since, int limit);
 
     boolean viewerCanWrite(HostingTarget target);
 

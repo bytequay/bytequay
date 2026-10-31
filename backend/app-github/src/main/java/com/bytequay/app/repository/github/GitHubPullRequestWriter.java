@@ -232,9 +232,11 @@ public class GitHubPullRequestWriter
     }
 
     @Override
-    public CreatedPullRequest create(HostingTarget target, String head, String base, String title, String body, boolean draft)
+    public CreatedPullRequest create(HostingTarget target, RepoRef headRepository, String branch, String base, String title, String body, boolean draft)
     {
         PullRequestRef ref = ref(target, 1);
+        // GitHub names a fork's branch owner:branch.
+        String head = headRepository.fullName().equalsIgnoreCase(ref.repoFullName()) ? branch : headRepository.owner() + ":" + branch;
         return writes.createPullRequest(target.access().token(), RepoRef.of(ref.owner(), ref.repo()), head, base, title, body, draft);
     }
 

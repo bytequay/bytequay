@@ -20,6 +20,7 @@ import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineComment;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
+import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.hosting.CommentTarget;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingFailure;
@@ -271,10 +272,11 @@ public final class GitLabPullRequestWriter
     }
 
     @Override
-    public CreatedPullRequest create(HostingTarget target, String head, String base, String title, String body, boolean draft)
+    public CreatedPullRequest create(HostingTarget target, RepoRef headRepository, String branch, String base, String title, String body, boolean draft)
     {
-        checkArgument(!head.contains(":"), "Select the GitLab source project before creating a merge request from a fork");
-        GitLabMergeRequestResponse created = http.post(target.access(), projectPath(target) + "/merge_requests", new Create(head, base, draft ? "Draft: " + title : title, body),
+        // ponytail: same-project merge requests only, as GitLab workspaces cannot select a fork; a fork's would post to its project with target_project_id.
+        checkArgument(headRepository.fullName().equals(target.repository().fullPath()), "GitLab merge requests from a fork are not supported yet");
+        GitLabMergeRequestResponse created = http.post(target.access(), projectPath(target) + "/merge_requests", new Create(branch, base, draft ? "Draft: " + title : title, body),
                 GitLabMergeRequestResponse.class).body().orElseThrow();
         return mapped("merge request", () -> new CreatedPullRequest(created.id(), toIntExact(created.iid()),
                 HostingUrls.requireWithinBase(URI.create(created.webUrl()), target.access().server().webBaseUrl()).toASCIIString()));

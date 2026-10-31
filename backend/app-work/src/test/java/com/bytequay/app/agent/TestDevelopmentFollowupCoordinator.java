@@ -632,7 +632,7 @@ class TestDevelopmentFollowupCoordinator
 
         verify(turns).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), anyString());
         verify(git, never()).pushDevelopmentHead(any(), any(), anyString(), any());
-        verifyCreated(route.headBranch(), route.baseBranch(), "Add a thing", "Body", true);
+        verifyCreated(route.headRepository(), route.headBranch(), route.baseBranch(), "Add a thing", "Body", true);
         assertThat(remote.get().matchingPullRequests()).containsExactly(pr(HEAD, true));
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
@@ -673,7 +673,7 @@ class TestDevelopmentFollowupCoordinator
         order.verify(ci).startDevelopment(any(), eq(taskId), eq(pr(HEAD, true)), eq(NOW));
         order.verify(turns).finishDevelopmentContinuation(taskId, source.id());
         assertThat(remote.get().remoteHeadSha()).contains(HEAD);
-        verify(writes, never()).create(any(), anyString(), anyString(), anyString(), anyString(), anyBoolean());
+        verify(writes, never()).create(any(), any(), anyString(), anyString(), anyString(), anyString(), anyBoolean());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
     }
 
@@ -1268,7 +1268,7 @@ class TestDevelopmentFollowupCoordinator
         advance();
 
         verify(git).pushDevelopmentHead(worktree, route, HEAD, Optional.empty());
-        verifyCreated(route.headBranch(), route.baseBranch(), "Add a thing", "Body", true);
+        verifyCreated(route.headRepository(), route.headBranch(), route.baseBranch(), "Add a thing", "Body", true);
         assertThat(remote.get().remoteHeadSha()).contains(HEAD);
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
     }
@@ -1296,7 +1296,7 @@ class TestDevelopmentFollowupCoordinator
         advance();
 
         verify(git).pushDevelopmentHead(renamed, route, HEAD, Optional.empty());
-        verifyCreated(renamed.generatedBranch(), "main", "Convert Parquet time", "Body", true);
+        verifyCreated(route.headRepository(), renamed.generatedBranch(), "main", "Convert Parquet time", "Body", true);
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
         verify(git, never()).pushDevelopmentHead(eq(worktree), any(), anyString(), any());
@@ -1383,7 +1383,7 @@ class TestDevelopmentFollowupCoordinator
         advance();
 
         verify(git).pushDevelopmentHead(worktree, route, HEAD, Optional.of(BASE));
-        verify(writes, never()).create(any(), anyString(), anyString(), anyString(), anyString(), anyBoolean());
+        verify(writes, never()).create(any(), any(), anyString(), anyString(), anyString(), anyString(), anyBoolean());
         assertThat(remote.get().remoteHeadSha()).contains(HEAD);
     }
 
@@ -1416,7 +1416,7 @@ class TestDevelopmentFollowupCoordinator
     }
 
     @Test
-    void publishSendsAForkQualifiedHeadForACrossRepositoryRoute()
+    void publishNamesTheForkAsHeadForACrossRepositoryRoute()
     {
         route = new DevelopmentPublicationRoute(GITHUB_SERVER, new RepoRef("forker", "repo"), new RepoRef("upstream", "repo"),
                 "https://github.com/forker/repo.git", "upstream", "release", BASE, worktree.generatedBranch(), Optional.empty());
@@ -1427,17 +1427,17 @@ class TestDevelopmentFollowupCoordinator
 
         advance();
 
-        verifyCreated("forker:" + route.headBranch(), "release", "Add a thing", "Body", true);
+        verifyCreated(new RepoRef("forker", "repo"), route.headBranch(), "release", "Add a thing", "Body", true);
     }
 
     /**
      * Models the remote the way publication moves it: the push lands the revision, and creating the
      * pull request is what makes one appear on the branch.
      */
-    private void verifyCreated(String head, String base, String title, String body, boolean draft)
+    private void verifyCreated(RepoRef headRepository, String branch, String base, String title, String body, boolean draft)
     {
         var target = org.mockito.ArgumentCaptor.forClass(HostingTarget.class);
-        verify(writes).create(target.capture(), eq(head), eq(base), eq(title), eq(body), eq(draft));
+        verify(writes).create(target.capture(), eq(headRepository), eq(branch), eq(base), eq(title), eq(body), eq(draft));
         assertThat(target.getValue().repository()).isEqualTo(HostingTestFixture.route(route.server(), route.baseRepository().fullName(), "token").repository());
         assertThat(target.getValue().access().token()).isEqualTo("token");
         assertThat(target.getValue().access().server()).isEqualTo(route.server());
@@ -1451,7 +1451,7 @@ class TestDevelopmentFollowupCoordinator
             remote.set(publication(Optional.of(HEAD), existing.map(ignored -> pr(HEAD, true))));
             return null;
         }).when(git).pushDevelopmentHead(worktree, route, HEAD, remoteHead);
-        when(writes.create(any(), anyString(), anyString(), anyString(), anyString(), anyBoolean()))
+        when(writes.create(any(), any(), anyString(), anyString(), anyString(), anyString(), anyBoolean()))
                 .thenAnswer(call -> {
                     remote.set(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
                     return new CreatedPullRequest(1, 7, pr(HEAD, true).url());

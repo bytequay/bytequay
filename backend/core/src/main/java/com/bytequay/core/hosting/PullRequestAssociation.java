@@ -37,7 +37,7 @@ public record PullRequestAssociation(int number, String title, String url, Strin
         requireNonNull(mergedAt, "mergedAt is null");
     }
 
-    /** GitHub's merge time; a value that does not parse only costs the display. */
+    /** The provider's merge time; a value that does not parse only costs the display. */
     public Optional<Instant> mergedTime()
     {
         try {

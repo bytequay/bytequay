@@ -21,6 +21,7 @@ import com.bytequay.app.repository.github.CommitAvatarSnapshot.CommitAvatar;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
@@ -29,10 +30,12 @@ import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.CommitRefreshMetadata;
 import com.bytequay.core.domain.CommitRefreshStatus;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.PullRequestAssociation;
 import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.web.context.WebServerApplicationContext;
@@ -69,6 +72,7 @@ public class CommitHistoryService
     private static final Duration AVATAR_REFRESH_INTERVAL = Duration.ofDays(1);
 
     private final WorkspaceRepositoryService workspaces;
+    private final WorkspaceHostingService hosting;
     private final WorkspaceProvisioningService provisioning;
     private final GitBrowseService git;
     private final CommitHistoryStore store;
@@ -81,6 +85,7 @@ public class CommitHistoryService
 
     public CommitHistoryService(
             WorkspaceRepositoryService workspaces,
+            WorkspaceHostingService hosting,
             WorkspaceProvisioningService provisioning,
             GitBrowseService git,
             CommitHistoryStore store,
@@ -92,6 +97,7 @@ public class CommitHistoryService
             ApplicationContext applicationContext)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.hosting = requireNonNull(hosting, "hosting is null");
         this.provisioning = requireNonNull(provisioning, "provisioning is null");
         this.git = requireNonNull(git, "git is null");
         this.store = requireNonNull(store, "store is null");
@@ -304,7 +310,9 @@ public class CommitHistoryService
                 .filter(commit -> CommitEnrichment.associationDue(commit.committedAt(), Optional.ofNullable(existing.get(commit.sha())), now))
                 .map(Commit::sha)
                 .toList();
-        PullRequestLookupResult associationSnapshot = pullRequests.lookUpResult(token, repository, dueAssociations, ref.providerRef(), new ArrayList<>());
+        PullRequestLookupResult associationSnapshot = dueAssociations.isEmpty()
+                ? new PullRequestLookupResult(ImmutableList.of(), ImmutableSet.of())
+                : pullRequests.lookUpResult(target(context.workspaceId(), repositoryId, repository), dueAssociations, ref.providerRef(), new ArrayList<>());
         checkState(associationSnapshot.failedShas().isEmpty(), "commit pull-request synchronization failed");
         Map<String, PullRequestAssociation> associations = associationSnapshot.associations().stream()
                 .collect(toImmutableMap(PullRequestLookupResult.Association::sha, PullRequestLookupResult.Association::pullRequest));
@@ -319,6 +327,14 @@ public class CommitHistoryService
                         dueAssociations.contains(commit.sha()),
                         now))
                 .toList();
+    }
+
+    /** The ref's repository read with the workspace's account; one renamed or replaced since the last sync waits for the next sync. */
+    private HostingTarget target(String workspaceId, long repositoryId, RepoRef repository)
+    {
+        HostingTarget target = hosting.repositoryTarget(workspaceId, repository.fullName());
+        checkState(target.repository().remoteId().equals(Long.toString(repositoryId)), "commit history repository identity changed");
+        return target;
     }
 
     private static int avatarScanLimit(List<Commit> commits, Map<String, CommitEnrichment> existing, Instant now)

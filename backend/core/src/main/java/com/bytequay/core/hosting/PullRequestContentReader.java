@@ -49,6 +49,9 @@ public interface PullRequestContentReader
     /** Titles of at most {@code limit} requests merged into {@code baseBranch} since {@code since}, newest first. */
     List<String> recentMergedTitles(HostingTarget target, String baseBranch, Instant since, int limit);
 
+    /** Merged requests that contain commit {@code sha}; a list the provider cannot return in full fails rather than returning part of it. */
+    List<PullRequestAssociation> mergedWithCommit(HostingTarget target, String sha);
+
     boolean viewerCanWrite(HostingTarget target);
 
     /** A provider signal that the viewer was asked to review, such as a team request the request's own reviewer list does not name. */

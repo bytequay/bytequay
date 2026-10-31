@@ -13,20 +13,18 @@
  */
 package com.bytequay.app.git;
 
-import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.core.domain.RepoRef;
+import com.bytequay.app.service.hosting.HostingIntegrations;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.PullRequestAssociation;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonProperty;
+import com.bytequay.core.hosting.PullRequestContentReader;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -35,16 +33,14 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.function.Supplier;
 
-import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
  * Reads which merged pull request introduced each source commit.
  *
- * <p>Read-only, and never load-bearing: when GitHub is unavailable or the
+ * <p>Read-only, and never load-bearing: when the provider is unavailable or the
  * association is ambiguous, the commit stays visible, selectable, and
  * ungrouped.
  */
@@ -54,62 +50,35 @@ public class CherryPickPullRequestLookup
     /** Bounded so a 300-commit range cannot open 300 simultaneous requests. */
     private static final int CONCURRENCY = 8;
     private static final int MAX_CACHED = 2000;
-    private static final int ASSOCIATION_PAGE_SIZE = 100;
 
-    private final RestClient gitHub;
-    private final Supplier<String> tokenSupplier;
+    private final HostingIntegrations integrations;
     /** Read from eight threads at once, so it has to be thread-safe on its own. */
     private final Cache<CacheKey, PullRequestAssociation> cache = CacheBuilder.newBuilder()
             .maximumSize(MAX_CACHED)
             .build();
 
-    @Autowired
-    CherryPickPullRequestLookup(RestClient gitHubRestClient, CredentialService credentials)
+    public CherryPickPullRequestLookup(HostingIntegrations integrations)
     {
-        this(gitHubRestClient, credentials::resolveGitHubToken);
+        this.integrations = requireNonNull(integrations, "integrations is null");
     }
 
-    CherryPickPullRequestLookup(RestClient gitHub, Supplier<String> tokenSupplier)
+    /** Looks up only the requested SHAs in the target repository and reports provider failures separately from checked negatives. */
+    public PullRequestLookupResult lookUpResult(HostingTarget target, List<String> sourceShas, String sourceBranch, List<String> warnings)
     {
-        this.gitHub = requireNonNull(gitHub, "gitHub is null");
-        this.tokenSupplier = requireNonNull(tokenSupplier, "tokenSupplier is null");
-    }
-
-    /** Looks up only the requested SHAs and reports provider failures separately from checked negatives. */
-    public PullRequestLookupResult lookUpResult(RepoRef repository, List<String> sourceShas, String sourceBranch, List<String> warnings)
-    {
-        requireNonNull(repository, "repository is null");
+        requireNonNull(target, "target is null");
         requireNonNull(sourceShas, "sourceShas is null");
+        requireNonNull(sourceBranch, "sourceBranch is null");
         requireNonNull(warnings, "warnings is null");
         if (sourceShas.isEmpty()) {
             return new PullRequestLookupResult(ImmutableList.of(), ImmutableSet.of());
         }
-        String token;
-        try {
-            token = tokenSupplier.get();
-        }
-        catch (RuntimeException e) {
-            warnings.add("Pull-request grouping is unavailable without GitHub credentials. " + "Every commit is listed individually and stays selectable.");
-            return new PullRequestLookupResult(ImmutableList.of(), ImmutableSet.copyOf(sourceShas));
-        }
-
-        return lookUpResult(token, repository, sourceShas, sourceBranch, warnings);
-    }
-
-    /** Uses the workspace-selected credential for commit enrichment. */
-    public PullRequestLookupResult lookUpResult(String token, RepoRef repository, List<String> sourceShas, String sourceBranch, List<String> warnings)
-    {
-        requireNonNull(token, "token is null");
-        requireNonNull(repository, "repository is null");
-        requireNonNull(sourceShas, "sourceShas is null");
-        requireNonNull(warnings, "warnings is null");
+        PullRequestContentReader contents = integrations.of(target).contents();
         List<PullRequestLookupResult.Association> associations = new ArrayList<>();
-        Set<String> failedShas = new java.util.LinkedHashSet<>();
-        int ambiguous = 0;
+        Set<String> failedShas = new LinkedHashSet<>();
         try (ExecutorService pool = Executors.newFixedThreadPool(CONCURRENCY)) {
             List<PendingLookup> futures = new ArrayList<>(sourceShas.size());
             for (String sha : sourceShas) {
-                Callable<Lookup> task = () -> new Lookup(sha, associate(repository, sha, sourceBranch, token));
+                Callable<Lookup> task = () -> new Lookup(sha, associate(contents, target, sha, sourceBranch));
                 futures.add(new PendingLookup(sha, pool.submit(task)));
             }
             for (PendingLookup pending : futures) {
@@ -126,11 +95,9 @@ public class CherryPickPullRequestLookup
                 }
             }
         }
-        ambiguous = sourceShas.size() - associations.size() - failedShas.size();
+        int ambiguous = sourceShas.size() - associations.size() - failedShas.size();
         if (!failedShas.isEmpty()) {
-            warnings.add(failedShas.size() + " commit(s) could not be checked against GitHub. "
-                    + "Responses were unavailable or incomplete, including responses reaching the " + ASSOCIATION_PAGE_SIZE + "-item page limit. "
-                    + "They are listed individually and stay selectable.");
+            warnings.add(failedShas.size() + " commit(s) could not be checked: responses were unavailable or incomplete. " + "They are listed individually and stay selectable.");
         }
         if (ambiguous > 0) {
             warnings.add(ambiguous + " commit(s) have no single merged pull request. " + "They are listed individually rather than grouped under a guess.");
@@ -138,31 +105,17 @@ public class CherryPickPullRequestLookup
         return new PullRequestLookupResult(associations, failedShas);
     }
 
-    private Optional<PullRequestAssociation> associate(RepoRef repository, String sha, String sourceBranch, String token)
+    private Optional<PullRequestAssociation> associate(PullRequestContentReader contents, HostingTarget target, String sha, String sourceBranch)
     {
-        CacheKey key = new CacheKey(repository, sha, sourceBranch);
+        CacheKey key = new CacheKey(target.repository().id(), sha, sourceBranch);
         Optional<PullRequestAssociation> cached = Optional.ofNullable(cache.getIfPresent(key));
         if (cached.isPresent()) {
             return cached;
         }
-        Optional<PullRequestAssociation> association = choose(fetch(repository, sha, token), sourceBranch);
+        Optional<PullRequestAssociation> association = choose(contents.mergedWithCommit(target, sha), sourceBranch);
         // Durable enrichment owns negative retry timing; memoizing a miss here would suppress a due retry.
         association.ifPresent(value -> cache.put(key, value));
         return association;
-    }
-
-    private List<AssociatedPullRequest> fetch(RepoRef repository, String sha, String token)
-    {
-        AssociatedPullRequest[] response = gitHub.get()
-                .uri(uri -> uri.path("/repos/{owner}/{repo}/commits/{sha}/pulls")
-                        .queryParam("per_page", ASSOCIATION_PAGE_SIZE)
-                        .build(repository.owner(), repository.repo(), sha))
-                .header("Authorization", "Bearer " + token)
-                .retrieve()
-                .body(AssociatedPullRequest[].class);
-        requireNonNull(response, "GitHub association response is null");
-        checkState(response.length < ASSOCIATION_PAGE_SIZE, "GitHub association response reached the page limit");
-        return ImmutableList.copyOf(response);
     }
 
     /**
@@ -171,27 +124,15 @@ public class CherryPickPullRequestLookup
      * <p>Returns empty rather than guessing: an ungrouped commit is a smaller
      * problem than one filed under the wrong pull request.
      */
-    private static Optional<PullRequestAssociation> choose(List<AssociatedPullRequest> candidates, String sourceBranch)
+    private static Optional<PullRequestAssociation> choose(List<PullRequestAssociation> merged, String sourceBranch)
     {
-        List<AssociatedPullRequest> merged = candidates.stream()
-                .filter(candidate -> candidate.mergedAt() != null && candidate.base() != null)
-                .collect(toImmutableList());
         if (merged.size() > 1) {
-            List<AssociatedPullRequest> onSourceBranch = merged.stream()
-                    .filter(candidate -> sourceBranch.equals(candidate.base().ref()))
+            List<PullRequestAssociation> onSourceBranch = merged.stream()
+                    .filter(candidate -> sourceBranch.equals(candidate.baseRef()))
                     .collect(toImmutableList());
             merged = onSourceBranch.size() == 1 ? onSourceBranch : merged;
         }
-        if (merged.size() != 1) {
-            return Optional.empty();
-        }
-        AssociatedPullRequest chosen = merged.getFirst();
-        return Optional.of(new PullRequestAssociation(
-                chosen.number(),
-                chosen.title() == null ? "" : chosen.title(),
-                chosen.htmlUrl() == null ? "" : chosen.htmlUrl(),
-                chosen.base().ref(),
-                chosen.mergedAt()));
+        return merged.size() == 1 ? Optional.of(merged.getFirst()) : Optional.empty();
     }
 
     private record Lookup(String sha, Optional<PullRequestAssociation> association)
@@ -205,12 +146,6 @@ public class CherryPickPullRequestLookup
 
     private record PendingLookup(String sha, Future<Lookup> future) {}
 
-    private record CacheKey(RepoRef repository, String sha, String sourceBranch) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record AssociatedPullRequest(int number, String title, @JsonProperty("html_url") String htmlUrl, @JsonProperty("merged_at") String mergedAt, Base base)
-    {
-        @JsonIgnoreProperties(ignoreUnknown = true)
-        private record Base(String ref) {}
-    }
+    /** Keyed by the retained hosting repository, which is unique across servers. */
+    private record CacheKey(long repositoryId, String sha, String sourceBranch) {}
 }

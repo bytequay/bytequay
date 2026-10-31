@@ -16,6 +16,7 @@ package com.bytequay.app.context;
 import com.bytequay.app.git.CherryPickPullRequestLookup;
 import com.bytequay.app.git.PullRequestLookupResult;
 import com.bytequay.app.git.command.GitCommandRunner;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.hosting.PullRequestAssociation;
@@ -57,13 +58,15 @@ public class SelectedCommitPullRequestReader
     private final CommitHistoryStore enrichment;
     private final GitCommandRunner git;
     private final CherryPickPullRequestLookup lookup;
+    private final WorkspaceHostingService hosting;
     private final Clock clock;
 
-    public SelectedCommitPullRequestReader(CommitHistoryStore enrichment, GitCommandRunner git, CherryPickPullRequestLookup lookup, Clock clock)
+    public SelectedCommitPullRequestReader(CommitHistoryStore enrichment, GitCommandRunner git, CherryPickPullRequestLookup lookup, WorkspaceHostingService hosting, Clock clock)
     {
         this.enrichment = requireNonNull(enrichment, "enrichment is null");
         this.git = requireNonNull(git, "git is null");
         this.lookup = requireNonNull(lookup, "lookup is null");
+        this.hosting = requireNonNull(hosting, "hosting is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -151,7 +154,7 @@ public class SelectedCommitPullRequestReader
         PullRequestLookupResult response;
         Map<String, PullRequestAssociation> associations = new LinkedHashMap<>();
         try {
-            response = lookup.lookUpResult(workspace.monitoredRepository(), ImmutableList.copyOf(due), workspace.defaultBranch(), gaps);
+            response = lookup.lookUpResult(hosting.captureRead(workspace.workspaceId()).target(), ImmutableList.copyOf(due), workspace.defaultBranch(), gaps);
             checkState(due.containsAll(response.failedShas()), "Provider failures contain an unrequested commit");
             for (PullRequestLookupResult.Association association : response.associations()) {
                 checkState(due.contains(association.sha()) && !response.failedShas().contains(association.sha()), "Provider association identity or outcome is invalid");

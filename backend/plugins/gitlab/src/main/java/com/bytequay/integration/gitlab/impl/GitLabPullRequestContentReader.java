@@ -35,6 +35,7 @@ import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.HostingUrls;
+import com.bytequay.core.hosting.PullRequestAssociation;
 import com.bytequay.core.hosting.PullRequestContentReader;
 import com.bytequay.integration.gitlab.impl.GitLabMergeRequestResponse.DiffRefs;
 import com.bytequay.integration.gitlab.impl.GitLabMergeRequestResponse.Pipeline;
@@ -184,6 +185,19 @@ public final class GitLabPullRequestContentReader
         return mapped("merge request", () -> Arrays.stream(requests).filter(request -> request.mergedAt() != null && !instant(request.mergedAt()).isBefore(since))
                 .sorted(comparing((GitLabMergeRequestResponse request) -> instant(request.mergedAt())).reversed())
                 .map(GitLabMergeRequestResponse::title).limit(limit).collect(toImmutableList()));
+    }
+
+    @Override
+    public List<PullRequestAssociation> mergedWithCommit(HostingTarget target, String sha)
+    {
+        List<GitLabMergeRequestResponse> requests = http.pages(target.access(), projectPath(target) + "/repository/commits/" + encode(sha) + "/merge_requests",
+                GitLabMergeRequestResponse[].class);
+        return mapped("merge request", () -> requests.stream()
+                .filter(request -> "merged".equals(request.state()) && target.repository().remoteId().equals(String.valueOf(request.targetProjectId())))
+                .map(request -> new PullRequestAssociation(toIntExact(request.iid()), Optional.ofNullable(request.title()).orElse(""),
+                        HostingUrls.requireWithinBase(URI.create(request.webUrl()), target.access().server().webBaseUrl()).toASCIIString(), request.targetBranch(),
+                        Optional.ofNullable(request.mergedAt()).orElse("")))
+                .collect(toImmutableList()));
     }
 
     private static RepoRef repositoryRef(String path)

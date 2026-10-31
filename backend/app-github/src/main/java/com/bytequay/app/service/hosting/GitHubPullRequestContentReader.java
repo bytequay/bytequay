@@ -35,6 +35,7 @@ import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.StoredPrDiff;
 import com.bytequay.core.hosting.DiscussionProbe;
 import com.bytequay.core.hosting.HostingTarget;
+import com.bytequay.core.hosting.PullRequestAssociation;
 import com.bytequay.core.hosting.PullRequestContentReader;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -147,6 +148,13 @@ public class GitHubPullRequestContentReader
         String query = "repo:" + ref.repoFullName() + " is:pr is:merged merged:>=" + LocalDate.ofInstant(since, ZoneOffset.UTC)
                 + " base:\"" + baseBranch.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
         return gitHub.searchPullRequestsPaged(target.access().token(), query, 1, limit).items().stream().map(pr -> pr.title()).collect(toImmutableList());
+    }
+
+    @Override
+    public List<PullRequestAssociation> mergedWithCommit(HostingTarget target, String sha)
+    {
+        PullRequestRef ref = ref(target, 1);
+        return gitHub.fetchMergedPullRequestsWithCommit(target.access().token(), RepoRef.of(ref.owner(), ref.repo()), sha);
     }
 
     @Override

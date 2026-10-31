@@ -33,6 +33,7 @@ import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepoUser;
 import com.bytequay.core.hosting.DiscussionProbe;
+import com.bytequay.core.hosting.PullRequestAssociation;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
@@ -202,6 +203,29 @@ public class GitHubPullRequestReadClient
         checkState(before.equals(readPublication(pat, pullRequest)), "The pull request changed while its merge evidence was being read");
         return new MergedPullRequest(identity, before.base().repo().id(), before.mergedAt(), before.mergeCommitSha(), sequence);
     }
+
+    /** Merged pull requests that contain {@code sha}; a full page fails, because the rest of the list is unknown. */
+    public List<PullRequestAssociation> fetchMergedPullRequestsWithCommit(String pat, RepoRef repository, String sha)
+    {
+        requirePat(pat);
+        requireNonNull(repository, "repository is null");
+        requireNonNull(sha, "sha is null");
+        List<CommitPullRequest> candidates = requireBody(translating(() -> get(gitHubRestClient, pat, uri -> uri.path("/repos/{owner}/{repo}/commits/{sha}/pulls")
+                .queryParam("per_page", GitHubPaginator.PAGE_SIZE)
+                .build(repository.owner(), repository.repo(), sha))
+                .retrieve()
+                .body(new ParameterizedTypeReference<List<CommitPullRequest>>() {})), "GitHub returned no commit pull-request response");
+        checkState(candidates.size() < GitHubPaginator.PAGE_SIZE, "GitHub's commit pull-request list reached the page limit");
+        return candidates.stream()
+                .filter(candidate -> candidate.mergedAt() != null && candidate.base() != null)
+                .map(candidate -> new PullRequestAssociation(candidate.number(), Optional.ofNullable(candidate.title()).orElse(""),
+                        Optional.ofNullable(candidate.htmlUrl()).orElse(""), candidate.base().ref(), candidate.mergedAt()))
+                .collect(toImmutableList());
+    }
+
+    private record CommitPullRequest(int number, String title, @JsonProperty("html_url") String htmlUrl, @JsonProperty("merged_at") String mergedAt, CommitPullRequestBase base) {}
+
+    private record CommitPullRequestBase(String ref) {}
 
     private PublicationPullRequest readPublication(String pat, PullRequestRef pullRequest)
     {

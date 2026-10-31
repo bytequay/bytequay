@@ -16,10 +16,18 @@ package com.bytequay.app.context;
 import com.bytequay.app.git.CherryPickPullRequestLookup;
 import com.bytequay.app.git.PullRequestLookupResult;
 import com.bytequay.app.git.command.GitCommandRunner;
+import com.bytequay.app.service.hosting.HostingReadSession;
+import com.bytequay.app.workspace.WorkspaceHostingRead;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.CommitEnrichmentSnapshot;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.PullRequestAssociation;
 import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.collect.ImmutableList;
@@ -32,6 +40,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -66,10 +75,16 @@ class TestSelectedCommitPullRequestReader
     private static final RepoRef MONITORED = RepoRef.of("owner", "project");
     private static final Path REPOSITORY = Path.of("/tmp/selected-commit-reader");
     private static final long REPOSITORY_ID = 42;
+    private static final HostingInstance INSTANCE = new HostingInstance(1, HostingProvider.GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
+    private static final WorkspaceHostingRead READ = new WorkspaceHostingRead(new HostingReadSession(7, "account", new HostingAccess(INSTANCE, "token")),
+            new HostingRepository(3, 1, "42", MONITORED.fullName(), URI.create("https://github.com/owner/project"), URI.create("https://github.com/owner/project.git"),
+                    Optional.empty(), Optional.of("main")), "viewer");
+    private static final HostingTarget TARGET = READ.target();
 
     private CommitHistoryStore enrichment;
     private GitCommandRunner git;
     private CherryPickPullRequestLookup lookup;
+    private WorkspaceHostingService hosting;
     private SelectedCommitPullRequestReader reader;
 
     @BeforeEach
@@ -78,7 +93,9 @@ class TestSelectedCommitPullRequestReader
         enrichment = mock(CommitHistoryStore.class);
         git = mock(GitCommandRunner.class);
         lookup = mock(CherryPickPullRequestLookup.class);
-        reader = new SelectedCommitPullRequestReader(enrichment, git, lookup, Clock.fixed(NOW, ZoneOffset.UTC));
+        hosting = mock(WorkspaceHostingService.class);
+        when(hosting.captureRead("workspace")).thenReturn(READ);
+        reader = new SelectedCommitPullRequestReader(enrichment, git, lookup, hosting, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
@@ -109,7 +126,7 @@ class TestSelectedCommitPullRequestReader
         metadata(SECOND, NOW.minus(Duration.ofDays(8)));
         metadata(THIRD, NOW.minus(Duration.ofDays(7)));
         metadata(fourth, NOW.minus(Duration.ofDays(100)));
-        when(lookup.lookUpResult(eq(MONITORED), eq(ImmutableList.of(THIRD, fourth)), eq("main"), anyList())).thenReturn(negative());
+        when(lookup.lookUpResult(eq(TARGET), eq(ImmutableList.of(THIRD, fourth)), eq("main"), anyList())).thenReturn(negative());
         CommitEnrichment checkedThird = stored(REPOSITORY_ID, THIRD, Optional.empty(), Optional.of(NOW));
         CommitEnrichment checkedFourth = stored(REPOSITORY_ID, fourth, Optional.empty(), Optional.of(NOW));
         when(enrichment.findEnrichment(REPOSITORY_ID, ImmutableList.of(THIRD, fourth))).thenReturn(snapshot(checkedThird, checkedFourth));
@@ -134,13 +151,13 @@ class TestSelectedCommitPullRequestReader
         when(enrichment.findEnrichment(REPOSITORY_ID, ImmutableList.of(FIRST)))
                 .thenReturn(snapshot(), snapshot(stored(REPOSITORY_ID, FIRST, Optional.of(9), Optional.of(NOW))));
         metadata(FIRST, NOW);
-        when(lookup.lookUpResult(eq(MONITORED), eq(ImmutableList.of(FIRST)), eq("release"), anyList()))
+        when(lookup.lookUpResult(eq(TARGET), eq(ImmutableList.of(FIRST)), eq("release"), anyList()))
                 .thenReturn(new PullRequestLookupResult(ImmutableList.of(association(FIRST, 9)), ImmutableSet.of()));
 
         assertThat(reader.read(workspace, ImmutableList.of(FIRST)).items().getFirst().pullRequestNumber()).contains(9);
 
         verify(enrichment, never()).findEnrichment(eq(101L), any());
-        verify(lookup).lookUpResult(eq(MONITORED), eq(ImmutableList.of(FIRST)), eq("release"), anyList());
+        verify(lookup).lookUpResult(eq(TARGET), eq(ImmutableList.of(FIRST)), eq("release"), anyList());
         verify(git).run(REPOSITORY, Duration.ofSeconds(2), arguments(FIRST));
     }
 
@@ -160,11 +177,11 @@ class TestSelectedCommitPullRequestReader
         when(enrichment.findEnrichment(REPOSITORY_ID, ImmutableList.of(commit, tag))).thenReturn(snapshot());
         when(enrichment.findEnrichment(REPOSITORY_ID, ImmutableList.of(commit)))
                 .thenReturn(snapshot(stored(REPOSITORY_ID, commit, Optional.empty(), Optional.of(NOW))));
-        when(lookup.lookUpResult(eq(MONITORED), eq(ImmutableList.of(commit)), eq("main"), anyList())).thenReturn(negative());
+        when(lookup.lookUpResult(eq(TARGET), eq(ImmutableList.of(commit)), eq("main"), anyList())).thenReturn(negative());
         WorkspaceRepositoryContext workspace = new WorkspaceRepositoryContext("workspace", repository, REPOSITORY_ID, MONITORED,
                 OptionalLong.empty(), MONITORED, "origin", "origin", "main", ImmutableList.of());
 
-        SelectedCommitPullRequestReader.Read read = new SelectedCommitPullRequestReader(enrichment, localGit, lookup, Clock.fixed(NOW, ZoneOffset.UTC))
+        SelectedCommitPullRequestReader.Read read = new SelectedCommitPullRequestReader(enrichment, localGit, lookup, hosting, Clock.fixed(NOW, ZoneOffset.UTC))
                 .read(workspace, ImmutableList.of(commit, tag));
 
         assertThat(read.items().getFirst().checkedAt()).contains(NOW);
@@ -172,7 +189,7 @@ class TestSelectedCommitPullRequestReader
         assertThat(read.items().getLast().lookupAttempted()).isFalse();
         assertThat(read.items().getLast().checkedAt()).isEmpty();
         assertThat(read.gaps()).anySatisfy(gap -> assertThat(gap).contains(tag, "exact, complete local commit"));
-        verify(lookup).lookUpResult(eq(MONITORED), eq(ImmutableList.of(commit)), eq("main"), anyList());
+        verify(lookup).lookUpResult(eq(TARGET), eq(ImmutableList.of(commit)), eq("main"), anyList());
     }
 
     @ParameterizedTest
@@ -245,7 +262,7 @@ class TestSelectedCommitPullRequestReader
         CommitEnrichment previous = stored(REPOSITORY_ID, THIRD, Optional.empty(), Optional.of(previousCheck));
         when(enrichment.findEnrichment(REPOSITORY_ID, selected)).thenReturn(snapshot(previous));
         selected.forEach(sha -> metadata(sha, NOW));
-        when(lookup.lookUpResult(eq(MONITORED), eq(selected), eq("main"), anyList()))
+        when(lookup.lookUpResult(eq(TARGET), eq(selected), eq("main"), anyList()))
                 .thenReturn(new PullRequestLookupResult(ImmutableList.of(association(FIRST, 9)), ImmutableSet.of(THIRD)));
         CommitEnrichment positive = stored(REPOSITORY_ID, FIRST, Optional.of(9), Optional.of(NOW));
         CommitEnrichment negative = stored(REPOSITORY_ID, SECOND, Optional.empty(), Optional.of(NOW));
@@ -287,9 +304,9 @@ class TestSelectedCommitPullRequestReader
             case "exception" -> negative();
             default -> throw new AssertionError(kind);
         };
-        when(lookup.lookUpResult(eq(MONITORED), eq(ImmutableList.of(FIRST)), eq("main"), anyList())).thenReturn(result);
+        when(lookup.lookUpResult(eq(TARGET), eq(ImmutableList.of(FIRST)), eq("main"), anyList())).thenReturn(result);
         if (kind.equals("exception")) {
-            when(lookup.lookUpResult(eq(MONITORED), eq(ImmutableList.of(FIRST)), eq("main"), anyList()))
+            when(lookup.lookUpResult(eq(TARGET), eq(ImmutableList.of(FIRST)), eq("main"), anyList()))
                     .thenThrow(new IllegalStateException("Provider unavailable"));
         }
 
@@ -309,7 +326,7 @@ class TestSelectedCommitPullRequestReader
     {
         when(enrichment.findEnrichment(REPOSITORY_ID, ImmutableList.of(FIRST))).thenReturn(snapshot());
         metadata(FIRST, NOW);
-        when(lookup.lookUpResult(eq(MONITORED), eq(ImmutableList.of(FIRST)), eq("main"), anyList()))
+        when(lookup.lookUpResult(eq(TARGET), eq(ImmutableList.of(FIRST)), eq("main"), anyList()))
                 .thenReturn(new PullRequestLookupResult(ImmutableList.of(association(FIRST, 9)), ImmutableSet.of()));
         if (failure.equals("save")) {
             doThrow(new IllegalStateException("Disk unavailable")).when(enrichment).upsertEnrichment(any());
@@ -338,7 +355,7 @@ class TestSelectedCommitPullRequestReader
         CommitEnrichment concurrent = stored(REPOSITORY_ID, FIRST, Optional.of(27), Optional.of(NOW));
         when(enrichment.findEnrichment(REPOSITORY_ID, ImmutableList.of(FIRST))).thenReturn(snapshot(), snapshot(concurrent));
         metadata(FIRST, NOW);
-        when(lookup.lookUpResult(eq(MONITORED), eq(ImmutableList.of(FIRST)), eq("main"), anyList())).thenReturn(negative());
+        when(lookup.lookUpResult(eq(TARGET), eq(ImmutableList.of(FIRST)), eq("main"), anyList())).thenReturn(negative());
 
         SelectedCommitPullRequestReader.Read read = reader.read(workspace(false), ImmutableList.of(FIRST));
 

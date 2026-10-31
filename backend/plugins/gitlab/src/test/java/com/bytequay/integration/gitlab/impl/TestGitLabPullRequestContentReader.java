@@ -23,6 +23,7 @@ import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingTarget;
+import com.bytequay.core.hosting.PullRequestAssociation;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -726,6 +727,30 @@ class TestGitLabPullRequestContentReader
                 """);
 
         assertThat(reader.recentMergedTitles(target(), "release/1", Instant.EPOCH.plus(Duration.ofDays(1)), 20)).containsExactly("Backport 9: Newer", "Older");
+    }
+
+    @Test
+    void readsTheMergedRequestsIntoThisProjectThatContainACommit()
+    {
+        String path = "/gitlab/api/v4/projects/42/repository/commits/" + HEAD + "/merge_requests?per_page=100&page=1";
+        responses.put(path, """
+                [{"iid":7,"title":"Fix dates","state":"merged","target_project_id":42,"target_branch":"main","merged_at":"2026-09-01T00:00:00Z",
+                  "web_url":"%1$s/-/merge_requests/7"},
+                 {"iid":8,"title":null,"state":"merged","target_project_id":42,"target_branch":"release/1","merged_at":null,"web_url":"%1$s/-/merge_requests/8"},
+                 {"iid":9,"title":"Still open","state":"opened","target_project_id":42,"target_branch":"main","web_url":"%1$s/-/merge_requests/9"},
+                 {"iid":3,"title":"Into another project","state":"merged","target_project_id":43,"target_branch":"main","merged_at":"2026-09-01T00:00:00Z",
+                  "web_url":"%1$s/-/merge_requests/3"}]
+                """.formatted(repository.webUrl()));
+
+        assertThat(reader.mergedWithCommit(target(), HEAD)).containsExactly(
+                new PullRequestAssociation(7, "Fix dates", repository.webUrl() + "/-/merge_requests/7", "main", "2026-09-01T00:00:00Z"),
+                new PullRequestAssociation(8, "", repository.webUrl() + "/-/merge_requests/8", "release/1", ""));
+
+        responses.put(path, """
+                [{"iid":7,"title":"Elsewhere","state":"merged","target_project_id":42,"target_branch":"main","web_url":"https://elsewhere.example.test/x"}]
+                """);
+        assertThatThrownBy(() -> reader.mergedWithCommit(target(), HEAD)).isInstanceOfSatisfying(HostingFailure.class,
+                failure -> assertThat(failure.kind()).isEqualTo(HostingFailure.Kind.INVALID_RESPONSE));
     }
 
     private void merged(String mergeCommit, String squashCommit)

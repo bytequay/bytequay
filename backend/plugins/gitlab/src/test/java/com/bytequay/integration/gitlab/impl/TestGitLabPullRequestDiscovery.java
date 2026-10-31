@@ -117,23 +117,27 @@ class TestGitLabPullRequestDiscovery
     void deliversEachPendingToDoOnceUntilItChanges()
     {
         replies.put("/gitlab/api/v4/todos", """
-                [{"id":1,"action_name":"review_requested","target":{"iid":17},"project":{"path_with_namespace":"group/subgroup/repo"},
+                [{"id":1,"action_name":"review_requested","target_type":"MergeRequest","target":{"iid":17},"project":{"path_with_namespace":"group/subgroup/repo"},
                   "created_at":"2026-10-01T10:00:00Z","updated_at":"2026-10-01T10:00:00Z"},
-                 {"id":2,"action_name":"mentioned","target":{"iid":18},"project":{"path_with_namespace":"group/repo"},
-                  "created_at":"2026-10-01T11:00:00Z"}]
+                 {"id":2,"action_name":"mentioned","target_type":"MergeRequest","target":{"iid":18},"project":{"path_with_namespace":"group/repo"},
+                  "created_at":"2026-10-01T11:00:00Z"},
+                 {"id":3,"action_name":"mentioned","target_type":"Issue","target":{"iid":4},"project":{"path_with_namespace":"group/repo"},
+                  "created_at":"2026-10-01T12:00:00Z"},
+                 {"id":4,"action_name":"mentioned","target_type":"Epic","target":{"iid":2},"created_at":"2026-10-01T13:00:00Z"}]
                 """);
         List<ActivityNotice> notices = new ArrayList<>();
 
         discovery.poll(access, "Me", notices::add);
         discovery.poll(access, "Me", notices::add);
 
-        assertThat(notices).extracting(ActivityNotice::ref, ActivityNotice::reason).containsExactly(
-                tuple(PullRequestRef.of("group/subgroup", "repo", 17), Reason.REVIEW_REQUESTED),
-                tuple(PullRequestRef.of("group", "repo", 18), Reason.MENTIONED));
+        assertThat(notices).extracting(ActivityNotice::ref, ActivityNotice::pullRequest, ActivityNotice::reason).containsExactly(
+                tuple(PullRequestRef.of("group/subgroup", "repo", 17), true, Reason.REVIEW_REQUESTED),
+                tuple(PullRequestRef.of("group", "repo", 18), true, Reason.MENTIONED),
+                tuple(PullRequestRef.of("group", "repo", 4), false, Reason.MENTIONED));
         assertThat(notices.getFirst().latestComment().get()).isEmpty();
         assertThat(discovery.reviewRequests("me")).containsExactly(PullRequestRef.of("group/subgroup", "repo", 17));
         assertThat(discovery.mentions("ME")).containsExactly(PullRequestRef.of("group", "repo", 18));
-        assertThat(requests).allMatch(request -> request.startsWith("/gitlab/api/v4/todos?type=MergeRequest&state=pending&per_page=100&page=1"));
+        assertThat(requests).allMatch(request -> request.startsWith("/gitlab/api/v4/todos?state=pending&per_page=100&page=1"));
     }
 
     @Test

@@ -50,11 +50,14 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.lang.Math.toIntExact;
 
-/** Merge requests across a GitLab account, its to-do list, and each request's details for cards. */
+/** Merge requests across a GitLab account, its to-do list of merge requests and issues, and each request's details for cards. */
 public final class GitLabPullRequestDiscovery
         implements PullRequestDiscovery
 {
     private final GitLabHttpClient http;
+    /** To-dos on other targets, such as Epics, belong to no project and have no notice. */
+    private static final Set<String> NOTICE_TARGETS = ImmutableSet.of("MergeRequest", "Issue");
+
     // Pending to-dos stay listed until done, so each is delivered again only when it changes.
     private final Map<String, Map<Long, Instant>> delivered = new ConcurrentHashMap<>();
     private final Map<String, Set<PullRequestRef>> reviewRequests = new ConcurrentHashMap<>();
@@ -97,7 +100,9 @@ public final class GitLabPullRequestDiscovery
     @Override
     public void poll(HostingAccess access, String login, Consumer<ActivityNotice> notices)
     {
-        List<Todo> todos = http.pages(access, "todos?type=MergeRequest&state=pending", Todo[].class);
+        List<Todo> todos = http.pages(access, "todos?state=pending", Todo[].class).stream()
+                .filter(todo -> NOTICE_TARGETS.contains(todo.targetType()))
+                .collect(toImmutableList());
         String account = access.server().webBaseUrl() + " " + login.toLowerCase(Locale.ROOT);
         Map<Long, Instant> seen = delivered.computeIfAbsent(account, ignored -> new ConcurrentHashMap<>());
         Set<PullRequestRef> requested = new HashSet<>();
@@ -111,14 +116,15 @@ public final class GitLabPullRequestDiscovery
                 case "build_failed" -> Reason.CI;
                 default -> Reason.OTHER;
             };
-            if (reason == Reason.REVIEW_REQUESTED) {
+            boolean mergeRequest = todo.targetType().equals("MergeRequest");
+            if (mergeRequest && reason == Reason.REVIEW_REQUESTED) {
                 requested.add(ref);
             }
-            if (reason == Reason.MENTIONED) {
+            if (mergeRequest && reason == Reason.MENTIONED) {
                 mentioned.add(ref);
             }
             if (!updatedAt.equals(seen.put(todo.id(), updatedAt))) {
-                notices.accept(new ActivityNotice(ref, true, reason, updatedAt, Optional::empty));
+                notices.accept(new ActivityNotice(ref, mergeRequest, reason, updatedAt, Optional::empty));
             }
         }
         seen.keySet().retainAll(todos.stream().map(Todo::id).collect(ImmutableSet.toImmutableSet()));
@@ -181,8 +187,8 @@ public final class GitLabPullRequestDiscovery
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record Todo(long id, @JsonProperty("action_name") String actionName, Target target, Project project, @JsonProperty("updated_at") String updated,
-            @JsonProperty("created_at") String created)
+    record Todo(long id, @JsonProperty("action_name") String actionName, @JsonProperty("target_type") String targetType, Target target, Project project,
+            @JsonProperty("updated_at") String updated, @JsonProperty("created_at") String created)
     {
         PullRequestRef ref()
         {

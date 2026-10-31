@@ -157,8 +157,7 @@ export default function SetupFlow({ initial, connected, revisit = false, onSaved
           <p className="setup-hint">System follows your Mac’s appearance, including automatic changes.</p>
           <FeaturePreview feature="development" />
         </>}
-        {step === 'GITHUB' && (connected ? <div className="setup-connected"><Check size={24} /><h2>Code hosting is connected</h2><p>Your existing account is ready to use.</p></div>
-          : <HostingOnboarding embedded onSaved={onConnected} />)}
+        {step === 'GITHUB' && <HostingOnboarding embedded onSaved={onConnected} />}
         {step === 'AGENT' && <AgentSetup models={models} checking={checking} busy={busy} onBusy={setConnecting} onCheck={() => { void check(); }} onChange={value => {
           modelRequest.current += 1; setChecking(false); receiveModels(value);
         }} onError={report} />}

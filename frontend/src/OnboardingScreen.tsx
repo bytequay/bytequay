@@ -171,7 +171,7 @@ export default function OnboardingScreen({ onSaved, embedded = false }: Props) {
           />
           <p className="onboarding__hint">
             Required scopes (classic PAT): <code>repo</code>, <code>read:user</code>.
-            Stored encrypted in your macOS Keychain.
+            Stored encrypted on this Mac.
           </p>
           {token.trim().startsWith(FINE_GRAINED_PREFIX) && (
             <p className="onboarding__hint onboarding__hint--warn">

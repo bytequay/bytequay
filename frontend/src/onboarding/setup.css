@@ -52,10 +52,6 @@
 .setup-key label { display: grid; gap: 7px; font-size: 12px; }
 .setup-key input { background: var(--bg-input); color: var(--text-1); border: 1px solid var(--border-input); border-radius: 7px; padding: 11px; font-size: 13px; }
 .setup-key .setw-btn { justify-self: start; }
-.setup-connected { text-align: center; padding: 60px 20px; color: var(--text-2); }
-.setup-connected > svg { color: var(--fg-success); }
-.setup-connected h2 { font-size: 20px; color: var(--text-1); }
-.setup-connected p { font-size: 13px; }
 .onboarding--embedded { display: block; min-height: 0; padding: 0; }
 .onboarding--embedded .onboarding__card { width: 100%; max-width: none; padding: 0; box-shadow: none; background: transparent; border: 0; }
 .onboarding--embedded .onboarding__lede { display: none; }

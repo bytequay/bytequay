@@ -27,5 +27,4 @@ public record HostingCapabilities(boolean requestChanges, boolean multiLineComme
         boolean teamActivity)
 {
     public static final HostingCapabilities ALL = new HostingCapabilities(true, true, true, true, true, true);
-    public static final HostingCapabilities NONE = new HostingCapabilities(false, false, false, false, false, false);
 }

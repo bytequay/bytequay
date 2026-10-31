@@ -160,14 +160,12 @@ class TestWorkspaceRelationships
     }
 
     @Test
-    void leavesOutWorkspacesWhoseProviderHasNoForkWorkflows()
+    void offersGitLabWorkspacesForForkWorkflows()
     {
         add("oss", 1);
         add("project", 2, Optional.of(new HostingServer(GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"))));
 
-        assertThat(relationships.backportWorkspaces()).extracting(WorkspaceRelationships.BackportWorkspace::workspaceId).containsExactly("oss");
-        assertThat(relationships.unrelatedWatched("oss")).isEmpty();
-        assertThat(relationships.lineRemotes("project")).isEmpty();
+        assertThat(relationships.backportWorkspaces()).extracting(WorkspaceRelationships.BackportWorkspace::workspaceId).containsExactlyInAnyOrder("oss", "project");
     }
 
     @Test

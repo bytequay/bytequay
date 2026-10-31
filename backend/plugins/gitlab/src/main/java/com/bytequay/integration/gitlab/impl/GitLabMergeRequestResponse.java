@@ -58,6 +58,7 @@ record GitLabMergeRequestResponse(
         @JsonProperty("target_branch") String targetBranch,
         String sha,
         @JsonProperty("merge_commit_sha") String mergeCommitSha,
+        @JsonProperty("squash_commit_sha") String squashCommitSha,
         @JsonProperty("diff_refs") DiffRefs diffRefs,
         @JsonProperty("head_pipeline") Pipeline headPipeline,
         @JsonProperty("changes_count") String changesCount,

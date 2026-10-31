@@ -23,7 +23,8 @@ public enum HostingProvider
     GITHUB(true, HostingCapabilities.ALL, "/issues/", "/pull/", "/commit/", ImmutableList.of(
             ".github/pull_request_template.md", ".github/PULL_REQUEST_TEMPLATE.md", "pull_request_template.md", "PULL_REQUEST_TEMPLATE.md",
             "docs/pull_request_template.md", "docs/PULL_REQUEST_TEMPLATE.md")),
-    GITLAB(false, HostingCapabilities.NONE, "/-/issues/", "/-/merge_requests/", "/-/commit/", ImmutableList.of(".gitlab/merge_request_templates/Default.md"));
+    GITLAB(false, new HostingCapabilities(false, false, true, false, false, false), "/-/issues/", "/-/merge_requests/", "/-/commit/",
+            ImmutableList.of(".gitlab/merge_request_templates/Default.md"));
 
     private final boolean pathsIgnoreCase;
     private final HostingCapabilities capabilities;

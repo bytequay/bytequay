@@ -41,6 +41,7 @@ import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.PullRequestContentReader;
 import com.bytequay.core.hosting.PullRequestWriter;
 import com.bytequay.core.store.WorkspaceStore;
@@ -70,12 +71,14 @@ import static com.bytequay.app.git.GitTestSupport.write;
 import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
 import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.pullRequests;
 import static com.bytequay.core.hosting.HostingProvider.GITHUB;
+import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -280,16 +283,41 @@ class TestBackportDrafts
         verify(pullRequests).recentMergedTitles(renamed.target(), "release", SINCE, 20);
     }
 
+    @Test
+    void linksAndTemplateFollowTheWorkspaceProvider()
+    {
+        HostingServer gitlab = new HostingServer(GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"));
+        doAnswer(call -> Optional.of(workspace(call.getArgument(0), Optional.of(gitlab)))).when(workspaces).findById(anyString());
+        HostingInstance instance = new HostingInstance(1, GITLAB, gitlab.webBaseUrl(), gitlab.apiBaseUrl());
+        HostingRepository target = new HostingRepository(2, 1, "2", "test/p2", URI.create("https://gitlab.example.com/test/p2"),
+                URI.create("https://gitlab.example.com/test/p2.git"), Optional.empty(), Optional.of("main"));
+        when(hosting.captureRead("p2")).thenReturn(new WorkspaceHostingRead(new HostingReadSession(1, "target", new HostingAccess(instance, "target-token")), target, "test"));
+        GitCommandRunner git = mock(GitCommandRunner.class);
+        when(git.runLocalBoundedStdout(any(), any(), anyInt(), any())).thenReturn(new Result(0, TEMPLATE, false));
+
+        var draft = drafts(git).create(chain, 1, repository, preview);
+
+        assertThat(draft.body()).contains(TEMPLATE.strip(), "https://gitlab.example.com/test/p3/-/merge_requests/33", "https://gitlab.example.com/test/p4/-/merge_requests/4");
+        verify(git).runLocalBoundedStdout(any(), any(), anyInt(), eq(ImmutableList.of("show", preview.targetSha() + ":.gitlab/merge_request_templates/Default.md")));
+    }
+
     private BackportDrafts drafts(GitCommandRunner git)
     {
-        return new BackportDrafts(integrations(pullRequests(GITHUB, pullRequests, mock(PullRequestWriter.class))), hosting, workspaces, git, models, helper, skills, CLOCK);
+        var integrations = integrations(pullRequests(GITHUB, pullRequests, mock(PullRequestWriter.class)), pullRequests(GITLAB, pullRequests, mock(PullRequestWriter.class)));
+        return new BackportDrafts(integrations, hosting, workspaces, git, models, helper, skills, CLOCK);
     }
 
     private static Workspace workspace(String id)
     {
+        return workspace(id, Optional.empty());
+    }
+
+    private static Workspace workspace(String id, Optional<HostingServer> server)
+    {
         RepoRef repository = RepoRef.of("test", id);
         return new Workspace(id, id, 1, repository, Optional.empty(), Optional.empty(), 1, repository, Workspace.Topology.DIRECT, "main",
-                "https://github.com/test/" + id + ".git", Optional.empty(), Optional.empty(), "/tmp/" + id, Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH);
+                "https://example.com/test/" + id + ".git", Optional.empty(), Optional.empty(), "/tmp/" + id, Optional.empty(), Optional.empty(), 0, Instant.EPOCH,
+                Instant.EPOCH, server);
     }
 
     private static WorkspaceHostingRead selected(int number, String token, String path)

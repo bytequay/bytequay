@@ -43,12 +43,15 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -72,6 +75,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Throwables.throwIfUnchecked;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.lang.Math.toIntExact;
+import static java.util.Comparator.comparing;
 import static java.util.stream.Collectors.counting;
 import static java.util.stream.Collectors.groupingBy;
 
@@ -146,13 +150,40 @@ public final class GitLabPullRequestContentReader
     @Override
     public MergedPullRequest merged(HostingTarget target, int number)
     {
-        throw new HostingFailure(UNAVAILABLE, "GitLab merge requests cannot be backported yet");
+        String path = mergeRequestPath(target, number);
+        GitLabMergeRequestResponse before = get(target.access(), path, GitLabMergeRequestResponse.class);
+        PullRequestIdentity identity = identity(http, target, number, before);
+        if (identity.state() != PullRequestIdentity.State.MERGED || before.mergedAt() == null) {
+            throw new HostingFailure(REVISION_CONFLICT, "The merge request is not verified merged");
+        }
+        // GitLab lists a merge request's commits newest first.
+        List<String> commits = Lists.reverse(http.pages(target.access(), path + "/commits", Commit[].class).stream().map(Commit::id).collect(toImmutableList()));
+        if (commits.isEmpty() || !commits.getLast().equals(identity.headSha()) || ImmutableSet.copyOf(commits).size() != commits.size()) {
+            throw new HostingFailure(INVALID_RESPONSE, "GitLab returned an incomplete merge request commit list");
+        }
+        GitLabMergeRequestResponse after = get(target.access(), path, GitLabMergeRequestResponse.class);
+        if (!identity(http, target, number, after).equals(identity) || !landed(after).equals(landed(before))) {
+            throw new HostingFailure(REVISION_CONFLICT, "The merge request changed while its merge evidence was being read");
+        }
+        return mapped("merge request", () -> new MergedPullRequest(identity, before.targetProjectId(), instant(before.mergedAt()), landed(before), commits));
+    }
+
+    /** The commit that landed: the merge commit, else the squash commit, else the request's own head when it fast-forwarded. */
+    private static String landed(GitLabMergeRequestResponse request)
+    {
+        return Optional.ofNullable(request.mergeCommitSha()).or(() -> Optional.ofNullable(request.squashCommitSha())).orElse(request.sha());
     }
 
     @Override
     public List<String> recentMergedTitles(HostingTarget target, String baseBranch, Instant since, int limit)
     {
-        throw new HostingFailure(UNAVAILABLE, "GitLab merge requests cannot be backported yet");
+        // Ordering by merge time needs GitLab 17.2; a merge also updates a request, so this orders by update time and keeps those merged since.
+        String path = projectPath(target) + "/merge_requests?state=merged&target_branch=" + encode(baseBranch) + "&updated_after=" + encode(since.toString())
+                + "&order_by=updated_at&sort=desc&per_page=" + limit;
+        GitLabMergeRequestResponse[] requests = get(target.access(), path, GitLabMergeRequestResponse[].class);
+        return mapped("merge request", () -> Arrays.stream(requests).filter(request -> request.mergedAt() != null && !instant(request.mergedAt()).isBefore(since))
+                .sorted(comparing((GitLabMergeRequestResponse request) -> instant(request.mergedAt())).reversed())
+                .map(GitLabMergeRequestResponse::title).limit(limit).collect(toImmutableList()));
     }
 
     private static RepoRef repositoryRef(String path)

@@ -167,6 +167,8 @@ Work items and Tasks as GitHub workspaces. Refresh reads through the selected
 account. Open a request to read its discussion, checks and changes, add comments,
 approve or merge. Work items lists the project's issues and can start a task from
 one. Task publication creates a merge request through the workspace account.
+GitLab workspaces can be linked as forks and carry backports; each backport opens
+its merge request in the destination workspace's own project.
 
 GitLab supports a different set of review operations. Request-changes reviews,
 multi-line review comments, merge trains, GitHub-specific CI automation and

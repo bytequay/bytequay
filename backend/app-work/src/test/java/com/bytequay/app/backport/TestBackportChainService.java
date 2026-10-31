@@ -473,14 +473,14 @@ class TestBackportChainService
     }
 
     @Test
-    void namesADestinationRepositoryAmongWorkspacesWithForkWorkflowsOnly()
+    void namesADestinationRepositoryAmongWorkspacesOfEveryProvider()
     {
         var repo = RepoRef.of("test", "p3");
         workspaceData.put("project", new Workspace("project", "Project", 30, repo, Optional.empty(), Optional.empty(), 30, repo, Workspace.Topology.DIRECT, "main",
                 "https://gitlab.example.com/test/p3.git", Optional.empty(), Optional.empty(), "/tmp/project", Optional.of(NOW), Optional.empty(), 0, NOW, NOW,
                 Optional.of(new HostingServer(GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4")))));
 
-        assertThat(save(service(), "test/p3").hops()).extracting(hop -> hop.route().workspaceId()).containsExactly("p3");
+        assertThatThrownBy(() -> save(service(), "test/p3")).hasMessageContaining("unambiguous owner/repository");
     }
 
     @Test

@@ -15,6 +15,7 @@ package com.bytequay.integration.gitlab.impl;
 
 import com.bytequay.core.domain.PrDiffEtags;
 import com.bytequay.core.domain.PrRawDetail;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.StoredPrDiff;
 import com.bytequay.core.hosting.HostingAccess;
@@ -37,6 +38,8 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -679,5 +682,64 @@ class TestGitLabPullRequestContentReader
         PrRawDetail raw = new PrRawDetail("Title", "https://gitlab.example/group/repo/-/merge_requests/7", "open", "author", null, null, null, null,
                 "Body", ImmutableList.of(), ImmutableMap.of(), ImmutableList.of(), null, false, null, null, 0, 0, 0, 0, ImmutableList.of(), HEAD, "feature", "main", BASE);
         return new StoredPrDetail(raw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), true);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"merge", "squash", "fast-forward"})
+    void readsTheLandedCommitAndTheCommitsOldestFirst(String method)
+    {
+        String first = "c".repeat(40);
+        String landed = method.equals("fast-forward") ? HEAD : "d".repeat(40);
+        merged(method.equals("merge") ? landed : null, method.equals("squash") ? landed : null);
+        responses.put(PREFIX + "/commits?per_page=100&page=1", "[{\"id\":\"%s\"},{\"id\":\"%s\"}]".formatted(HEAD, first));
+
+        var merged = reader.merged(target(), 7);
+
+        assertThat(merged.identity().state()).isEqualTo(PullRequestIdentity.State.MERGED);
+        assertThat(merged.repositoryId()).isEqualTo(42);
+        assertThat(merged.mergedAt()).isEqualTo(Instant.parse("2026-09-01T00:00:00Z"));
+        assertThat(merged.mergeSha()).isEqualTo(landed);
+        assertThat(merged.commits()).containsExactly(first, HEAD);
+    }
+
+    @Test
+    void refusesMergeEvidenceForAnOpenRequestOrAnIncompleteCommitList()
+    {
+        merged("d".repeat(40), null);
+        responses.put(PREFIX + "/commits?per_page=100&page=1", "[{\"id\":\"%s\"}]".formatted("c".repeat(40)));
+
+        assertThatThrownBy(() -> reader.merged(target(), 7)).isInstanceOfSatisfying(HostingFailure.class,
+                failure -> assertThat(failure.kind()).isEqualTo(HostingFailure.Kind.INVALID_RESPONSE));
+
+        responses.put(PREFIX, responses.get(PREFIX).replace("\"state\":\"merged\"", "\"state\":\"opened\""));
+        assertThatThrownBy(() -> reader.merged(target(), 7)).isInstanceOfSatisfying(HostingFailure.class,
+                failure -> assertThat(failure.kind()).isEqualTo(HostingFailure.Kind.REVISION_CONFLICT));
+    }
+
+    @Test
+    void listsTitlesMergedIntoTheBaseBranchSinceTheGivenTime()
+    {
+        responses.put("/gitlab/api/v4/projects/42/merge_requests?state=merged&target_branch=release%2F1&updated_after=1970-01-02T00%3A00%3A00Z"
+                + "&order_by=updated_at&sort=desc&per_page=20", """
+                [{"iid":3,"title":"Older","merged_at":"2026-08-01T00:00:00Z"},{"iid":4,"title":"Backport 9: Newer","merged_at":"2026-09-01T00:00:00Z"},
+                 {"iid":5,"title":"Merged long ago","merged_at":"1970-01-01T00:00:00Z"}]
+                """);
+
+        assertThat(reader.recentMergedTitles(target(), "release/1", Instant.EPOCH.plus(Duration.ofDays(1)), 20)).containsExactly("Backport 9: Newer", "Older");
+    }
+
+    private void merged(String mergeCommit, String squashCommit)
+    {
+        responses.put(PREFIX, """
+                {"iid":7,"sha":"%s","state":"merged","merged_at":"2026-09-01T00:00:00Z","merge_commit_sha":%s,"squash_commit_sha":%s,
+                "draft":false,"author":{"id":3,"username":"author"},"web_url":"%s/-/merge_requests/7","source_project_id":42,"target_project_id":42,
+                "source_branch":"feature","target_branch":"main","diff_refs":{"head_sha":"%s","start_sha":"%s"}}
+                """.formatted(HEAD, json(mergeCommit), json(squashCommit), repository.webUrl(), HEAD, BASE));
+        responses.put("/gitlab/api/v4/projects/42", "{\"id\":42,\"path_with_namespace\":\"group/nested/repo\"}");
+    }
+
+    private static String json(String value)
+    {
+        return value == null ? "null" : "\"" + value + "\"";
     }
 }

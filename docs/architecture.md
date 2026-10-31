@@ -288,9 +288,14 @@ connected account that read them: an account route names that account instead of
 a workspace. A full discovery pass hides the requests an account no longer finds
 or is notified about.
 
-Fork/backport operations and remote epic-child synchronization still have native
-GitHub consumers; GitLab's capabilities hide and refuse them until they have their
-own provider integration. GitLab contributor account profiles are unavailable where the API only
+Backports and cherry-pick delivery read merge evidence, recent merged titles and
+request identities, and open or close requests, through the workspace's hosting
+route; links and description templates come from the provider. GitLab merge
+evidence takes the merge commit, else the squash commit, else the request's head
+for a fast-forward merge. A GitLab merge request opens within one project: GitLab
+workspaces have no fork topology, so two GitLab workspaces related as forks each
+push to their own project. Remote epic-child synchronization still has a native
+GitHub consumer that GitLab's capabilities hide and refuse. GitLab contributor account profiles are unavailable where the API only
 supplies commit author names and emails. GitLab commit history reads the local
 checkout without GitHub avatar or pull-request association enrichment.
 

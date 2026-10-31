@@ -86,6 +86,7 @@ import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.hosting.HostingIntegration;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.rebase.BranchRebase;
 import com.bytequay.core.rebase.BranchRebaseId;
@@ -422,6 +423,13 @@ public class CiAutofixService
     {
         checkArgument(limit > 0 && limit <= 200, "limit must be between 1 and 200");
         return store.listRecent(limit);
+    }
+
+    /** The run's pull request page on its workspace's server. */
+    public String pullRequestUrl(CiAutofixRun run)
+    {
+        HostingServer server = WorkspaceException.requireWorkspace(workspaceStore, run.scope().workspaceId()).server();
+        return server.provider().pullRequestUrl(server.webBaseUrl(), run.scope().pullRequest().repoFullName(), run.scope().pullRequest().number()).toString();
     }
 
     /** Whether the run permits a reply or live steering without renewing authority. */

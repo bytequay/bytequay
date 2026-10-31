@@ -465,7 +465,7 @@ class TestAssistantConversation
         assertThat(assistant.conversation(C1).rows()).isEmpty();
         verify(rows, never()).rows(any());
 
-        AgendaTarget pull = AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1"));
+        AgendaTarget pull = AgendaTarget.pull(1, "owner/repository", 31402, Optional.of("ws1"));
         AssistantRow row = new AssistantRow("pr:owner/repository#31402", AssistantRow.Kind.PULL, "Retry Iceberg commit on conflict", Optional.of("#31402"), Optional.of("open"),
                 Optional.of("failing"), Optional.empty(), Optional.of(0), false, false, false, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.empty(), Optional.empty(), pull);

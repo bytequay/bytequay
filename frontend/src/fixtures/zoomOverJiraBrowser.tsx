@@ -32,7 +32,7 @@ const connection: JiraConnection = {
 };
 const ticket = { ...jiraIssue, body: 'Same failure as https://github.com/owner/repository/issues/25702 after the upgrade.' };
 const issue: RepositoryIssueSnapshotDto['issues'][number] = {
-  id: 925702, number: 25702, title: 'Not an Avro data file', body: `Tracked in ${jiraIssue.url}`, author: 'alice', authorAvatarUrl: '',
+  id: 925702, epicId: 'ISSUE:github.com:925702', number: 25702, title: 'Not an Avro data file', body: `Tracked in ${jiraIssue.url}`, author: 'alice', authorAvatarUrl: '',
   htmlUrl: 'https://github.com/owner/repository/issues/25702', labels: [], assignees: [], commentCount: 0,
   createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z',
 };

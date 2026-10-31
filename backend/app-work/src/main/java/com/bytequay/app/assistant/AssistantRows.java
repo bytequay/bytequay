@@ -230,7 +230,7 @@ class AssistantRows
                 Optional.ofNullable(pr.ciStatus()).filter(ci -> ci != PullRequestDetail.CiStatus.NONE).map(ci -> lower(ci.name())),
                 Optional.ofNullable(pr.reviewDecision()).map(AssistantRows::lower), approvals, pr.mine(viewer), pr.mergeBlocked(), youApproved,
                 detail.map(stored -> stored.raw().headSha()), Optional.empty(), Optional.empty(),
-                Optional.empty(), Optional.empty(), at(pr), latest, AgendaTarget.pull(pr.repo(), pr.number(), workspace(pr)));
+                Optional.empty(), Optional.empty(), at(pr), latest, AgendaTarget.pull(pr.id(), pr.repo(), pr.number(), workspace(pr)));
     }
 
     private static Latest latest(PrActivitySummary activity, Optional<String> viewer)
@@ -402,7 +402,7 @@ class AssistantRows
             boolean exact = number.filter(value -> value == pr.number()).isPresent();
             if (exact || matches(pr.title(), words)) {
                 add(found, new Found(AgendaRefs.pull(pr.repo(), pr.number()), pr.title(), Optional.of(state(pr)), at(pr),
-                        AgendaTarget.pull(pr.repo(), pr.number(), workspace(pr)), exact));
+                        AgendaTarget.pull(pr.id(), pr.repo(), pr.number(), workspace(pr)), exact));
             }
         }
         for (Workspace workspace : watched) {

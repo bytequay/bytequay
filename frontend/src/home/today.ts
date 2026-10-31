@@ -14,7 +14,7 @@
 import { plural } from '@bytequay/ui/displayText';
 import { taskCardState } from '../agents/attention';
 import type { AgendaAction, AgendaCalendarDto, AgendaDto, AgendaItemDto, AgendaLinkDto, AgendaTargetDto } from '../types';
-import { issueAttentionKey, statusPill, type AttentionItem, type Handled } from './attention';
+import { issueAttentionKey, pullRequestAttentionKey, statusPill, type AttentionItem, type Handled } from './attention';
 
 export type TodayScope = 'global' | 'workspace';
 
@@ -122,13 +122,13 @@ export function todayChips(item: AgendaItemDto, fact: AttentionItem | undefined,
 }
 
 /**
- * The Needs attention key of the thing an item opens, so that list can mark what is on Today. A pull request has the
- * repository#number form, which compares in lower case; an issue has its workspace's issue key.
+ * The Needs attention key of the thing an item opens, so that list can mark what is on Today. A pull request has its row's
+ * key; an issue has its workspace's issue key.
  */
 export function attentionKey(target: AgendaTargetDto): string | null {
   switch (target.kind) {
     case 'PULL':
-      return target.repo === null || target.number === null ? null : `${target.repo}#${target.number}`.toLowerCase();
+      return target.id === null ? null : pullRequestAttentionKey({ id: Number(target.id) });
     case 'ISSUE':
       return target.repo === null || target.number === null || target.workspaceId === null ? null : issueAttentionKey(target.repo, target.number, target.workspaceId);
     case 'TASK':

@@ -36,11 +36,6 @@ export function localEpicId(itemId: string): string {
   return `LOCAL:${itemId}`;
 }
 
-/** The identity work items name a GitHub issue Epic by: the canonical one the backend gives it, from its stable issue id. */
-export function issueEpicId(issueId: number | string): string {
-  return `ISSUE:github.com:${issueId}`;
-}
-
 /** The same for a Jira ticket; the cloud id's length keeps a cloud id with colons unambiguous. */
 export function ticketEpicId(ticket: Pick<JiraIssue, 'cloudId' | 'id'>): string {
   return `JIRA:${ticket.cloudId.length}:${ticket.cloudId}:${ticket.id}`;
@@ -48,7 +43,7 @@ export function ticketEpicId(ticket: Pick<JiraIssue, 'cloudId' | 'id'>): string 
 
 export function epicIdentity(item: EpicItem): string {
   if ('acceptanceCriteria' in item) return localEpicId(item.id);
-  return item.jira ? ticketEpicId(item.jira) : issueEpicId(item.sourceKey?.split(':').pop() ?? '');
+  return item.jira ? ticketEpicId(item.jira) : item.epicId ?? '';
 }
 
 /** An Epic's work in the order the user gave it; equal places keep creation order. */

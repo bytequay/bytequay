@@ -33,7 +33,7 @@ final class WorkspaceIssueHttpContract
     static Issue issue(String workspaceId, RepositoryIssue issue, IssueDevelopmentService development)
     {
         IssueDevelopmentService.Metadata metadata = development.metadata(workspaceId, issue.id());
-        return new Issue(issue, metadata.isEpic(), metadata.developmentTask());
+        return new Issue(issue, metadata.epicId(), metadata.isEpic(), metadata.developmentTask());
     }
 
     static Page page(String workspaceId, RepositoryIssuePage page, IssueDevelopmentService development)
@@ -42,7 +42,7 @@ final class WorkspaceIssueHttpContract
                 page.page(), page.pageSize(), page.totalIssues(), page.hasMore(), page.syncedAt());
     }
 
-    record Issue(@JsonUnwrapped RepositoryIssue issue, boolean isEpic, Optional<IssueDevelopmentService.TaskLink> developmentTask) {}
+    record Issue(@JsonUnwrapped RepositoryIssue issue, String epicId, boolean isEpic, Optional<IssueDevelopmentService.TaskLink> developmentTask) {}
 
     record Page(
             long repositoryId,

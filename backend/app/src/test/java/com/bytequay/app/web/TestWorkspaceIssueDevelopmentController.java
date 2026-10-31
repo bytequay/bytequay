@@ -64,11 +64,12 @@ class TestWorkspaceIssueDevelopmentController
                 ImmutableList.of("bug"), ImmutableList.of("alice"), 0, now, now);
         when(issues.find("workspace", 7)).thenReturn(Optional.of(issue));
         when(development.metadata("workspace", 70))
-                .thenReturn(new IssueDevelopmentService.Metadata(false, Optional.of(new IssueDevelopmentService.TaskLink("task-id", "original-workspace"))));
+                .thenReturn(new IssueDevelopmentService.Metadata("ISSUE:github.com:70", false, Optional.of(new IssueDevelopmentService.TaskLink("task-id", "original-workspace"))));
         mvc.perform(get("/api/workspaces/workspace/issues/7"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(70))
                 .andExpect(jsonPath("$.title").value("Fix selection"))
+                .andExpect(jsonPath("$.epicId").value("ISSUE:github.com:70"))
                 .andExpect(jsonPath("$.isEpic").value(false))
                 .andExpect(jsonPath("$.developmentTask.taskId").value("task-id"))
                 .andExpect(jsonPath("$.developmentTask.workspaceId").value("original-workspace"))
@@ -89,7 +90,7 @@ class TestWorkspaceIssueDevelopmentController
     void epicUpdatesUseLocalSourceService()
             throws Exception
     {
-        when(development.setEpic("workspace", 7, true)).thenReturn(new IssueDevelopmentService.Metadata(true, Optional.empty()));
+        when(development.setEpic("workspace", 7, true)).thenReturn(new IssueDevelopmentService.Metadata("ISSUE:github.com:70", true, Optional.empty()));
         mvc.perform(patch("/api/workspaces/workspace/issues/7/epic").contentType(MediaType.APPLICATION_JSON).content("{\"isEpic\":true}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.isEpic").value(true));

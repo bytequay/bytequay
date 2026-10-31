@@ -284,7 +284,7 @@ class TestAssistantContext
     void readsTodaysAgendaWithWhatIsDone()
             throws Exception
     {
-        AgendaTarget pull = AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1"));
+        AgendaTarget pull = AgendaTarget.pull(1, "owner/repository", 31402, Optional.of("ws1"));
         when(agendaService.today(Optional.empty())).thenReturn(new AgendaView(TODAY.toString(), "READY", true, 540, Optional.of(NOW), Optional.of("Opus 5.5"),
                 Optional.of("Unblock the Iceberg retry first."), ImmutableList.of(new AgendaView.Item("pr:owner/repository#31402", "fix", "Fix the retry test",
                         "the retry test", "CI fails on the retry test", Optional.empty(), Optional.of("ws1"), pull, Optional.empty(), "done", false, Optional.of("Merged"),
@@ -313,7 +313,7 @@ class TestAssistantContext
         read(first.tool(), "tasks");
         read(first.tool(), "waiting");
         assertThat(first.served()).containsEntry("task:t1", new ServedRef("tasks", Optional.of(AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", "t1"))))
-                .containsEntry("pr:owner/repository#31402", new ServedRef("tasks", Optional.of(AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1")))))
+                .containsEntry("pr:owner/repository#31402", new ServedRef("tasks", Optional.of(AgendaTarget.pull(1, "owner/repository", 31402, Optional.of("ws1")))))
                 .containsEntry("task:" + TASK.id(), new ServedRef("waiting", Optional.of(AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", TASK.id().toString()))));
         // An approval is answered only from the cards on screen when the message was sent, never from a ref served earlier.
         assertThat(first.served().keySet()).noneMatch(ref -> ref.startsWith("approval:"));
@@ -359,7 +359,7 @@ class TestAssistantContext
         assertThat(result.path("said").path("text").asText()).hasSizeLessThanOrEqualTo(400).endsWith("…");
 
         // Each item the agent named joins the day's refs, so a later message may act on it.
-        assertThat(context.served()).containsEntry("pr:owner/repository#31402", new ServedRef("lookup", Optional.of(AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1")))))
+        assertThat(context.served()).containsEntry("pr:owner/repository#31402", new ServedRef("lookup", Optional.of(AgendaTarget.pull(7, "owner/repository", 31402, Optional.of("ws1")))))
                 .containsEntry("work:w22", new ServedRef("lookup", Optional.of(AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w22"))))
                 .containsEntry("task:" + FINISHED.id(), new ServedRef("result", Optional.of(AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", FINISHED.id().toString()))));
     }
@@ -401,7 +401,7 @@ class TestAssistantContext
         // What a search found joins the day's refs, so a later message may act on it.
         assertThat(context.served()).containsEntry("work:w22", new ServedRef("search", Optional.of(AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w22"))))
                 .containsEntry("epic:LOCAL:w1", new ServedRef("search", Optional.of(AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w1"))))
-                .containsEntry("pr:owner/repository#31402", new ServedRef("search", Optional.of(AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1")))));
+                .containsEntry("pr:owner/repository#31402", new ServedRef("search", Optional.of(AgendaTarget.pull(7, "owner/repository", 31402, Optional.of("ws1")))));
         // Tickets come from Jira's cache; a search never asks Jira.
         verify(jira, times(4)).cachedIssues();
         verifyNoMoreInteractions(jira);

@@ -169,7 +169,7 @@ export async function run(): Promise<boolean> {
     assert(JSON.stringify(markedTickets) === JSON.stringify(['conn|cloud|77']) && JSON.stringify(created[3]) === JSON.stringify({ kind: 'remote', epicId: 'JIRA:5:cloud:77' }),
       `The ticket is marked by its location and opens by its Epic identity: ${JSON.stringify(markedTickets)}`);
     // GitLab uses the shared issue catalog and marking endpoint, while Jira remains independently available.
-    catalog = [remote('ISSUE:https://gitlab.example.com:600', 'GITHUB', 'group/subgroup/repository#21', '#21', 'GitLab request'), CATALOG[3]];
+    catalog = [remote('ISSUE:gitlab.example.com:600', 'GITHUB', 'group/subgroup/repository#21', '#21', 'GitLab request'), CATALOG[3]];
     const server: HostingServerDto = { provider: 'GITLAB', webBaseUrl: 'https://gitlab.example.com', apiBaseUrl: 'https://gitlab.example.com/api/v4' };
     close(); render(true, server); await settle();
     button('Create yourself').click(); await settle();
@@ -183,7 +183,7 @@ export async function run(): Promise<boolean> {
     button('GitLab issue').click(); await settle();
     button('Mark as Epic').click();
     await until(() => created.length === 5, 'Marking a GitLab issue creates the Epic');
-    assert(markedIssues.at(-1) === 21 && JSON.stringify(created[4]) === JSON.stringify({ kind: 'remote', epicId: 'ISSUE:https://gitlab.example.com:600' }),
+    assert(markedIssues.at(-1) === 21 && JSON.stringify(created[4]) === JSON.stringify({ kind: 'remote', epicId: 'ISSUE:gitlab.example.com:600' }),
       'The GitLab issue is marked by its number and opens by its server-scoped Epic identity');
     return true;
   }

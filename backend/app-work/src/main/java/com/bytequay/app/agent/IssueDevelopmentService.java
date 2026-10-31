@@ -94,7 +94,7 @@ public class IssueDevelopmentService
     public Metadata metadata(String workspaceId, long issueId)
     {
         String host = workspace(workspaceId).issueHost();
-        return new Metadata(sources.findEpic(host, issueId).map(IssueEpic::isEpic).orElse(false),
+        return new Metadata(WorkItemLink.issueIdentity(host, issueId), sources.findEpic(host, issueId).map(IssueEpic::isEpic).orElse(false),
                 sources.findTask(host, issueId).map(link -> new TaskLink(link.taskId(), link.workspaceId())));
     }
 
@@ -316,5 +316,6 @@ public class IssueDevelopmentService
 
     public record TaskLink(String taskId, String workspaceId) {}
 
-    public record Metadata(boolean isEpic, Optional<TaskLink> developmentTask) {}
+    /** {@code epicId} is the identity work items name this issue by once it is an Epic. */
+    public record Metadata(String epicId, boolean isEpic, Optional<TaskLink> developmentTask) {}
 }

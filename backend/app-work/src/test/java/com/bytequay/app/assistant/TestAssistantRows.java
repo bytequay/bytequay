@@ -192,7 +192,7 @@ class TestAssistantRows
                 Optional.of("#31402"), Optional.of("open"), Optional.of("failing"), Optional.of("changes_requested"), Optional.of(1), true, false, false, Optional.of(HEAD),
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(NOW.minusSeconds(60)), Optional.of(new Latest(Optional.of("bo-t"),
                         "requested changes: Please split the retry into its own commit", NOW.minusSeconds(300))),
-                        AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1"))));
+                        AgendaTarget.pull(7, "owner/repository", 31402, Optional.of("ws1"))));
         assertThat(read.get("issue:ws1:owner/repository#77")).isEqualTo(new AssistantRow("issue:ws1:owner/repository#77", Kind.ISSUE, "Snapshot ids in $snapshots",
                 Optional.of("#77"), Optional.of("open"), Optional.empty(), Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(NOW.minusSeconds(900)), Optional.empty(), AgendaTarget.issue("owner/repository", 77, "ws1")));

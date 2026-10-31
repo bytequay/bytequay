@@ -80,14 +80,13 @@ public final class CiAutofixHttpModels
                 canMessage);
     }
 
-    public static DevelopmentResponse development(CiAutofixRun run, boolean canMessage)
+    public static DevelopmentResponse development(CiAutofixRun run, String pullRequestUrl, boolean canMessage)
     {
         return new DevelopmentResponse(
                 run.id().toString(), run.agentTaskId(), run.status().name(), activity(run, run.agentTaskId().isPresent()),
                 run.attemptsUsed(), CiAutofixRun.MAX_FIX_ATTEMPTS, run.rerunCounter().used(), run.summary(),
                 run.finishReason().map(Enum::name), run.terminalAt(), run.scope().headRef(), run.expectedRemoteHead(),
-                run.scope().pullRequest().number(), "https://github.com/" + run.scope().pullRequest().repoFullName() + "/pull/" + run.scope().pullRequest().number(),
-                canMessage, run.currentTurnId());
+                run.scope().pullRequest().number(), pullRequestUrl, canMessage, run.currentTurnId());
     }
 
     public record DevelopmentResponse(

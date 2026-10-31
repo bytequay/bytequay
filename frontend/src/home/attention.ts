@@ -63,6 +63,8 @@ export type AttentionItem = {
   canStartDevelopment?: boolean;
   /** Whether this issue or ticket is marked as an Epic. */
   isEpic?: boolean;
+  /** The identity work items name this issue by as an Epic; tickets build theirs from the Jira fields. */
+  epicId?: string;
   /** Issues open inside their workspace. */
   workspaceId: string | null;
   /** A pull request no workspace lists: the connected account it opens through. */
@@ -157,7 +159,7 @@ export function issueAttentionItem(issue: RepositoryIssueSnapshotDto['issues'][n
     repo, number: issue.number, title: issue.title, author: issue.author, authorAvatarUrl: issue.authorAvatarUrl,
     createdAt: issue.createdAt, updatedAt: issue.updatedAt, labels: issue.labels, pr: null,
     body: issue.body, commentCount: issue.commentCount, workspaceId,
-    canStartDevelopment: !issue.isEpic && issue.developmentTask == null, isEpic: issue.isEpic === true,
+    canStartDevelopment: !issue.isEpic && issue.developmentTask == null, isEpic: issue.isEpic === true, epicId: issue.epicId,
   };
 }
 

@@ -24,7 +24,7 @@ import '../../css/base.css';
 
 const NOW = '2026-10-01T08:00:00Z';
 const EPIC_ID = 'ISSUE:github.com:24918';
-const epic = issueAttentionItem({ id: 24918, number: 24918, title: 'Iceberg REST catalog: cache metadata', isEpic: true, developmentTask: null, body: '',
+const epic = issueAttentionItem({ id: 24918, epicId: EPIC_ID, number: 24918, title: 'Iceberg REST catalog: cache metadata', isEpic: true, developmentTask: null, body: '',
   author: 'wren-d', authorAvatarUrl: '', htmlUrl: '', labels: [], assignees: [], commentCount: 0, createdAt: NOW, updatedAt: NOW }, 'owner/repository', 'workspace');
 const link = (kind: GoalItemDto['kind'], key: string, label: string, state: GoalItemDto['state'], status: string): GoalItemDto => ({
   kind, key, label, title: label, state, status, blocked: false, url: null, activity: null, addedAt: NOW });

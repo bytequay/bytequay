@@ -124,9 +124,10 @@ class TestAgendaDone
         AgendaItem start = new AgendaItem("issue:owner/repository#77", AgendaItem.Action.START, "Start “Snapshot ids in $snapshots”", "Snapshot ids", "", Optional.empty(),
                 Optional.of("ws1"), AgendaTarget.issue("owner/repository", 77, "ws1"), Optional.empty());
 
-        when(issueDevelopment.metadata("ws1", 901)).thenReturn(new IssueDevelopmentService.Metadata(false, Optional.empty()));
+        when(issueDevelopment.metadata("ws1", 901)).thenReturn(new IssueDevelopmentService.Metadata("ISSUE:github.com:901", false, Optional.empty()));
         assertThat(status(day(start, ImmutableMap.of()), start).state()).isEqualTo(AgendaDone.Status.State.OPEN);
-        when(issueDevelopment.metadata("ws1", 901)).thenReturn(new IssueDevelopmentService.Metadata(false, Optional.of(new IssueDevelopmentService.TaskLink("t1", "ws1"))));
+        when(issueDevelopment.metadata("ws1", 901))
+                .thenReturn(new IssueDevelopmentService.Metadata("ISSUE:github.com:901", false, Optional.of(new IssueDevelopmentService.TaskLink("t1", "ws1"))));
         assertThat(status(day(start, ImmutableMap.of()), start).text()).contains("Started");
     }
 
@@ -161,7 +162,7 @@ class TestAgendaDone
     private static AgendaItem pull(int number, AgendaItem.Action action)
     {
         return new AgendaItem("pr:owner/repository#" + number, action, "PR " + number, "PR " + number, "", Optional.empty(), Optional.of("ws1"),
-                AgendaTarget.pull("owner/repository", number, Optional.of("ws1")), Optional.empty());
+                AgendaTarget.pull(1, "owner/repository", number, Optional.of("ws1")), Optional.empty());
     }
 
     private static AgendaDay day(AgendaItem item, Map<String, AgendaDay.Mark> marks)

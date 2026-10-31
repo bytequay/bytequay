@@ -31,11 +31,19 @@ class TestAgendaTarget
         assertThatThrownBy(() -> target(PULL, Optional.of("workspace"))).isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Only a pull request outside a workspace names an account");
         assertThatThrownBy(() -> target(ISSUE, Optional.of("workspace"))).isInstanceOf(IllegalArgumentException.class);
-        assertThat(AgendaTarget.pull("group/project", 4, Optional.empty()).accountId()).isEmpty();
+        assertThat(AgendaTarget.pull(1, "group/project", 4, Optional.empty()).accountId()).isEmpty();
+    }
+
+    @Test
+    void namesAPullRequestByItsRow()
+    {
+        assertThat(AgendaTarget.pull(7, "group/project", 4, Optional.of("workspace")).id()).contains("7");
+        assertThatThrownBy(() -> new AgendaTarget(PULL, Optional.empty(), Optional.of("group/project"), Optional.of(4), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty())).isInstanceOf(IllegalArgumentException.class).hasMessage("A pull request target needs its row, repository and number");
     }
 
     private static AgendaTarget target(AgendaTarget.Kind kind, Optional<String> workspaceId)
     {
-        return new AgendaTarget(kind, workspaceId, Optional.of("group/project"), Optional.of(4), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(11L));
+        return new AgendaTarget(kind, workspaceId, Optional.of("group/project"), Optional.of(4), Optional.of("1"), Optional.empty(), Optional.empty(), Optional.of(11L));
     }
 }

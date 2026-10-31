@@ -56,7 +56,7 @@ class TestSqliteAssistantStore
         store.save(AssistantConversation.start(CONVERSATION, "what's waiting on me?", AT));
         AssistantConversation replied = new AssistantConversation(CONVERSATION, "what's waiting on me?", Optional.of("claude"), Optional.of("Sonnet"),
                 Optional.of(new DiscussionSession(1, "session-1")), ImmutableMap.of(
-                        "pr:owner/repository#31402", new ServedRef("mine", Optional.of(AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1")))),
+                        "pr:owner/repository#31402", new ServedRef("mine", Optional.of(AgendaTarget.pull(1, "owner/repository", 31402, Optional.of("ws1")))),
                         "ws:ws1", new ServedRef("start_options", Optional.empty())), AT, AT.plusSeconds(20));
         store.save(replied);
         entities.flush();

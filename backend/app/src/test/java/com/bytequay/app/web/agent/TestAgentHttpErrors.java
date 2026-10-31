@@ -324,6 +324,7 @@ class TestAgentHttpErrors
         when(taskService.getInteractive("workspace-1", task.id())).thenReturn(task);
         when(ciRuns.listByParentTaskId(task.id().toString())).thenReturn(ImmutableList.of(run));
         when(ci.canMessage(run)).thenReturn(false);
+        when(ci.pullRequestUrl(run)).thenReturn("https://git.example.com/bytequay/sample/-/merge_requests/42");
 
         mvc.perform(get("/agent/tasks/{taskId}", task.id()).queryParam("workspaceId", "workspace-1"))
                 .andExpect(status().isOk())
@@ -332,8 +333,9 @@ class TestAgentHttpErrors
                 .andExpect(jsonPath("$.developmentCi.attemptsUsed").value(0))
                 .andExpect(jsonPath("$.developmentCi.maxAttempts").value(3))
                 .andExpect(jsonPath("$.developmentCi.canMessage").value(false))
-                .andExpect(jsonPath("$.developmentCi.pullRequestUrl").value("https://github.com/bytequay/sample/pull/42"));
+                .andExpect(jsonPath("$.developmentCi.pullRequestUrl").value("https://git.example.com/bytequay/sample/-/merge_requests/42"));
         verify(ci).canMessage(run);
+        verify(ci).pullRequestUrl(run);
         verifyNoMoreInteractions(ci);
         verifyNoInteractions(turnService, completionService, git);
     }

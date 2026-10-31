@@ -100,7 +100,7 @@ class TestAssistantShow
         when(workspaces.findById("ws1")).thenReturn(Optional.of(new Workspace("ws1", "Repository", 1, RepoRef.of("owner", "repository"), Optional.empty(), Optional.empty(), 1,
                 RepoRef.of("owner", "repository"), Workspace.Topology.DIRECT, "master", "https://github.com/owner/repository.git", Optional.empty(), Optional.empty(),
                 "/managed/repository", Optional.empty(), Optional.empty(), 0, NOW, NOW)));
-        AgendaTarget pull = AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1"));
+        AgendaTarget pull = AgendaTarget.pull(1, "owner/repository", 31402, Optional.of("ws1"));
         when(rows.rows(ImmutableList.of(PULL))).thenReturn(ImmutableMap.of(PULL, new AssistantRow(PULL, AssistantRow.Kind.PULL, "Retry Iceberg commit on conflict",
                 Optional.of("#31402"), Optional.of("open"), Optional.of("failing"), Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), pull)));
@@ -178,7 +178,7 @@ class TestAssistantShow
         assertThat(receipt.kind()).isEqualTo(AssistantItem.Kind.RECEIPT);
         // Its name and where it opens come from the stores, and the words it acted on go on the receipt.
         assertThat(receipt.text()).isEqualTo("Opened “Retry Iceberg commit on conflict”");
-        assertThat(receipt.receipt()).contains(AssistantReceipt.done(OPEN, Optional.of(AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1")))).withWords("open  IT"));
+        assertThat(receipt.receipt()).contains(AssistantReceipt.done(OPEN, Optional.of(AgendaTarget.pull(1, "owner/repository", 31402, Optional.of("ws1")))).withWords("open  IT"));
     }
 
     @Test

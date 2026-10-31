@@ -32,7 +32,7 @@ declare global {
 }
 
 const issue = (number: number, title: string, isEpic: boolean, updatedAt: string): AttentionItem => ({ ...issueAttentionItem({
-  id: number, number, title, developmentTask: null, body: '', author: 'wren-d', authorAvatarUrl: '', htmlUrl: '', labels: [], assignees: [],
+  id: number, epicId: `ISSUE:github.com:${number}`, number, title, developmentTask: null, body: '', author: 'wren-d', authorAvatarUrl: '', htmlUrl: '', labels: [], assignees: [],
   commentCount: 0, createdAt: updatedAt, updatedAt }, 'owner/repository', 'workspace'), isEpic });
 const ticket = (id: string, title: string, isEpic: boolean, hasChildren = false): AttentionItem => ({ ...jiraAttentionItem({
   ...jiraIssue, id, key: `ENG-${id}`, title, hasChildren, status: { id: 'progress', name: 'In Progress', category: 'indeterminate' } }), isEpic });

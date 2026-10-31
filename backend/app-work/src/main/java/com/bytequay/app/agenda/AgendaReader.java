@@ -210,7 +210,7 @@ public class AgendaReader
         for (PullRequest pr : involved) {
             Optional<String> workspace = pullRequests.findWorkspace(pr.id()).map(Workspace::id);
             refs.putIfAbsent(AgendaRefs.pull(pr.repo(), pr.number()), new RefInfo(Optional.ofNullable(pr.activityAt()).or(() -> Optional.ofNullable(pr.updatedAt())),
-                    workspace, AgendaTarget.pull(pr.repo(), pr.number(), workspace)));
+                    workspace, AgendaTarget.pull(pr.id(), pr.repo(), pr.number(), workspace)));
         }
 
         List<Task> taskEntries = read("tasks", () -> tasks(refs), ImmutableList.of());

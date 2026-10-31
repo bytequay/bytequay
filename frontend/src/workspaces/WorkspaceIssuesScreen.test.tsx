@@ -22,6 +22,7 @@ import { EMPTY_TIMELINE_PAYLOAD as payload } from '../pulls/model';
 
 const issue = {
   id: 7,
+  epicId: 'ISSUE:github.com:7',
   number: 7,
   title: 'Example issue',
   body: '### Description\n\nIssue details.',

@@ -64,7 +64,7 @@ import { useResizablePane } from '../useResizablePane';
 import { workItemRoute } from '../workitems/contracts';
 import { EpicTabs, workProgress } from './EpicTabs';
 import { EpicWork } from './EpicView';
-import { epicIdentity, issueEpicId, useWorkItems } from './epics';
+import { epicIdentity, useWorkItems } from './epics';
 import { issueDevelopmentAction, notifyIssueDevelopmentChanged } from './issueDevelopment';
 import { useUnmarkEpic } from './useUnmarkEpic';
 
@@ -148,7 +148,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     if (preview.pullRequest) throw new Error('This reference is a pull request, not an issue.');
     const commentCount = loadHandled()[issueAttentionKey(repository, number, workspaceId)]?.snoozedItem?.commentCount ?? 0;
     // The read-only preview has no cache-row identity; its negative key stays in this component.
-    return { ...preview, id: -number, number,
+    return { ...preview, id: -number, number, epicId: '',
       assignees: [], commentCount, createdAt: '' };
   }, [repository, workspaceId]);
 
@@ -267,7 +267,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   const unmarkEpic = useUnmarkEpic();
   // Unmarking also removes the Epic's view, so an Epic with work asks first.
   const requestEpic = (issue: Issue): void => {
-    if (issue.isEpic) unmarkEpic.request(workspaceId, issueEpicId(issue.id), () => { void toggleEpic(issue); });
+    if (issue.isEpic) unmarkEpic.request(workspaceId, issue.epicId, () => { void toggleEpic(issue); });
     else void toggleEpic(issue);
   };
 

@@ -330,7 +330,7 @@ class AssistantReader
                     AssistantRows.state(pr), Optional.ofNullable(pr.ciStatus()).map(AssistantReader::lower),
                     Optional.ofNullable(pr.reviewDecision()).map(decision -> decision.toLowerCase(Locale.ROOT)), pr.mergeBlocked(), pr.requestedReviewers(),
                     Optional.ofNullable(pr.activityAt()).or(() -> Optional.ofNullable(pr.updatedAt())));
-            return new Page(new Entries(kind, ImmutableList.of(facts)), ImmutableMap.of(canonical, Optional.of(AgendaTarget.pull(pr.repo(), pr.number(), workspace))));
+            return new Page(new Entries(kind, ImmutableList.of(facts)), ImmutableMap.of(canonical, Optional.of(AgendaTarget.pull(pr.id(), pr.repo(), pr.number(), workspace))));
         });
     }
 

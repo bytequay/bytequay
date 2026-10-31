@@ -752,7 +752,7 @@ class TestAssistantActions
     {
         String taskRef = "task:" + task.id();
         Map<String, ServedRef> served = ImmutableMap.of("pr:owner/repository#31402", SERVED, taskRef, SERVED);
-        AgendaTarget pull = AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1"));
+        AgendaTarget pull = AgendaTarget.pull(1, "owner/repository", 31402, Optional.of("ws1"));
         named("pr:owner/repository#31402", "Add Iceberg metadata cache", pull);
         when(rows.attentionKey("pr:owner/repository#31402")).thenReturn(Optional.of("pr:7"));
         act(message("clear the metadata cache PR", ImmutableList.of()), served,

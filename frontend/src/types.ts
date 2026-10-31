@@ -444,7 +444,7 @@ export type RepositoryMetadataDto = {
 };
 
 export type IssueDevelopmentTaskDto = { taskId: string; workspaceId: string };
-export type IssueDevelopmentDto = { isEpic: boolean; developmentTask: IssueDevelopmentTaskDto | null };
+export type IssueDevelopmentDto = { epicId: string; isEpic: boolean; developmentTask: IssueDevelopmentTaskDto | null };
 export type IssueTaskSourceRequest = {
   issueId: number;
   number: number;
@@ -482,6 +482,8 @@ export type RepositoryIssueSnapshotDto = {
   repositoryId: number;
   repository: { owner: string; repo: string };
   issues: Array<{
+    /** The identity work items name this issue by once it is an Epic. */
+    epicId: string;
     isEpic?: boolean;
     developmentTask?: IssueDevelopmentTaskDto | null;
     id: number;
@@ -1466,7 +1468,7 @@ export type AgendaTargetDto = {
   workspaceId: string | null;
   repo: string | null;
   number: number | null;
-  /** The task, review or work item id, or the Jira ticket's issue id. */
+  /** The pull request row, task, review or work item id, or the Jira ticket's issue id. */
   id: string | null;
   connectionId: string | null;
   cloudId: string | null;

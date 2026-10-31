@@ -60,6 +60,14 @@ class TestHostingIdentity
                 .isEqualTo(URI.create("https://git.example.com/gitlab/group/subgroup/project/-/issues/7"));
     }
 
+    @Test
+    void buildsEachProvidersPullRequestPage()
+    {
+        assertThat(HostingProvider.GITHUB.pullRequestUrl(URI.create("https://github.com"), "owner/repo", 7)).isEqualTo(URI.create("https://github.com/owner/repo/pull/7"));
+        assertThat(HostingProvider.GITLAB.pullRequestUrl(URI.create("https://git.example.com/gitlab"), "group/subgroup/project", 7))
+                .isEqualTo(URI.create("https://git.example.com/gitlab/group/subgroup/project/-/merge_requests/7"));
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"http://localhost:8080/gitlab", "http://127.0.0.1:8080", "http://127.1.2.3:8080", "http://[::1]:8080/gitlab"})
     void permitsExplicitLoopbackTestInstances(String value)

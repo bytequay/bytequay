@@ -109,7 +109,7 @@ describe('My work', () => {
     const items = myWorkItems({ candidates: [ticket, mine(7), pullRequestItem(pr({ repo: 'owner/repository', number: 8, author: 'ana' }))],
       tasks: [{ task, workspace }], activity: {}, work: [], viewerLogin: 'me' });
     expect(items.map(item => [item.source, item.label, item.prs.map(each => each.number)])).toEqual([['jira', jiraIssue.key, [7]]]);
-    expect(items[0].keys).toEqual([ticket.key.toLowerCase(), 'owner/repository#7', 'task:task-1']);
+    expect(items[0].keys).toEqual([ticket.key.toLowerCase(), 'pr:1', 'task:task-1']);
     expect(isOwnWork(ticket, 'me')).toBe(true);
     expect(isOwnWork(mine(7), 'me')).toBe(true);
     expect(isOwnWork(pullRequestItem(pr({ number: 8, author: 'ana' })), 'me')).toBe(false);
@@ -142,7 +142,7 @@ function feedback(event = 'commented', actor: string | null = 'ana'): NonNullabl
 }
 
 function issue(number: number) {
-  return { id: number, number, title: `Issue ${number}`, body: '', author: 'ana', authorAvatarUrl: '', htmlUrl: '', labels: [], assignees: ['me'],
+  return { id: number, epicId: `ISSUE:github.com:${number}`, number, title: `Issue ${number}`, body: '', author: 'ana', authorAvatarUrl: '', htmlUrl: '', labels: [], assignees: ['me'],
     commentCount: 0, createdAt: '2026-08-15T00:00:00Z', updatedAt: '2026-08-15T00:02:00Z' };
 }
 

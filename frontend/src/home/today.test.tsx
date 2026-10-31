@@ -23,7 +23,7 @@ import { pr } from '../pulls/fixtures/pullRequest';
 import type { TodayAgenda } from './useTodayAgenda';
 
 const pull = (repo: string, number: number): AgendaTargetDto =>
-  ({ kind: 'PULL', workspaceId: 'ws1', repo, number, id: null, connectionId: null, cloudId: null });
+  ({ kind: 'PULL', workspaceId: 'ws1', repo, number, id: String(number + 900_000), connectionId: null, cloudId: null });
 
 function item(ref: string, status: AgendaItemDto['status'], extra: Partial<AgendaItemDto> = {}): AgendaItemDto {
   return {
@@ -66,20 +66,20 @@ describe('the Today model', () => {
   });
 
   it('matches today items to Needs attention rows by their keys', () => {
-    expect(attentionKey(pull('Owner/Repository', 7))).toBe('owner/repository#7');
+    expect(attentionKey(pull('Owner/Repository', 7))).toBe('pr:900007');
     expect(attentionKey({ ...pull('Owner/Repository', 7), kind: 'ISSUE', workspaceId: 'ws' })).toBe('issue:ws:owner/repository#7');
     expect(attentionKey({ ...pull('x/y', 1), kind: 'TASK', id: 't1' })).toBe('task:t1');
     expect(attentionKey({ ...pull('x/y', 1), kind: 'JIRA', id: '10042', cloudId: 'cloud' })).toBe('jira:cloud:10042');
     expect(attentionKey({ ...pull('x/y', 1), kind: 'WORK', id: 'w1' })).toBeNull();
-    expect([...todayKeys(agenda({ items }))]).toEqual(['owner/repository#31377']);
+    expect([...todayKeys(agenda({ items }))]).toEqual(['pr:931377']);
   });
 
   it('leaves a snoozed item off Today until its snooze ends', () => {
     const value = agenda({ items: [item('a', 'open'), item('b', 'open', { target: pull('owner/repository', 31402) })] });
-    const snoozed: Handled = { 'Owner/repository#31402': { kind: 'snooze', until: 2_000, seenUpdatedAt: '', label: '1 hour' } };
+    const snoozed: Handled = { 'pr:931402': { kind: 'snooze', until: 2_000, seenUpdatedAt: '', label: '1 hour' } };
     expect(withoutSnoozed(value, snoozed, 1_000).items.map(row => row.ref)).toEqual(['a']);
     expect(withoutSnoozed(value, snoozed, 2_000).items.map(row => row.ref)).toEqual(['a', 'b']);
-    const acknowledged: Handled = { 'owner/repository#31402': { kind: 'ack', until: null, seenUpdatedAt: '', label: 'acknowledged' } };
+    const acknowledged: Handled = { 'pr:931402': { kind: 'ack', until: null, seenUpdatedAt: '', label: 'acknowledged' } };
     expect(withoutSnoozed(value, acknowledged, 1_000)).toBe(value);
   });
 

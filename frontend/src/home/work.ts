@@ -18,7 +18,7 @@ import { pullRequestIsMine } from '../pulls/model';
 import { laneLabel } from '../settings/model';
 import type { AgendaTargetDto, AgentTaskActivityDto, AgentTaskDto, AuthoredIssueDto, PullRequestDto } from '../types';
 import type { WorkItemDto } from '../workitems/contracts';
-import type { AttentionItem, AttentionTone } from './attention';
+import { pullRequestAttentionKey, type AttentionItem, type AttentionTone } from './attention';
 import { attentionKey } from './today';
 
 /** Where a piece of work comes from; it picks the card's glyph and filter tab. */
@@ -192,7 +192,7 @@ function workItem(
     prs: list,
     lane,
     next: nextAction(lane, list, waiting),
-    keys: [attentionKey(base.target), ...list.map(pr => prKey(pr.repo, pr.number)), ...tasks.map(({ task: linked }) => `task:${linked.id}`)]
+    keys: [attentionKey(base.target), ...list.flatMap(pr => pr.row === null ? [] : [pullRequestAttentionKey(pr.row)]), ...tasks.map(({ task: linked }) => `task:${linked.id}`)]
       .filter((key): key is string => key !== null).map(key => key.toLowerCase()),
     repos: [...new Set([base.target.repo, ...list.map(pr => pr.repo), ...tasks.map(({ workspace }) => workspace.repository)]
       .filter((repo): repo is string => repo !== null))],
@@ -307,7 +307,7 @@ export function myWorkItems({ candidates, tasks, activity, work, viewerLogin, au
     items.push(workItem({
       key: item.key, source: 'pr', label: `${repoName(item.repo)}#${item.number}`, title: item.title, updatedAt: item.updatedAt,
       ended: prState(pr) === 'merged' ? 'Merged' : prState(pr) === 'closed' ? 'Closed' : null,
-      target: target('PULL', { repo: item.repo, number: item.number, workspaceId: item.workspaceId, accountId: item.accountId ?? null }),
+      target: target('PULL', { repo: item.repo, number: item.number, id: String(pr.id), workspaceId: item.workspaceId, accountId: item.accountId ?? null }),
     }, claim(linked), [{ repo: item.repo, number: item.number, title: item.title, state: prState(pr), row: pr }], rows, activity));
   }
 

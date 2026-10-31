@@ -54,7 +54,7 @@ function choose(select: HTMLSelectElement, value: string): void {
 }
 function fixture() {
   let issue: DevelopmentIssue = {
-    id: 7001, number: 7, title: 'Fix upload timeout', body: 'Preserve the existing upload API.', author: 'alice', authorAvatarUrl: '',
+    id: 7001, epicId: 'ISSUE:github.com:7001', number: 7, title: 'Fix upload timeout', body: 'Preserve the existing upload API.', author: 'alice', authorAvatarUrl: '',
     htmlUrl: 'https://github.com/upstream/app/issues/7', labels: [], assignees: ['me'], commentCount: 0,
     createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z', isEpic: false, developmentTask: null,
   };
@@ -91,7 +91,7 @@ function fixture() {
       assert(workspace === workspaceId && number === 7, 'Epic marker targets selected issue');
       epicWrites++;
       issue = { ...issue, isEpic };
-      return { isEpic, developmentTask: issue.developmentTask ?? null };
+      return { epicId: issue.epicId, isEpic, developmentTask: issue.developmentTask ?? null };
     },
     openInAppBrowser: async (url: string) => { opened.push(url); },
     recordRecentTouch: async () => {},

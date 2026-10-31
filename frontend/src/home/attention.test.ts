@@ -479,6 +479,7 @@ function snapshot(): RepositoryIssueSnapshotDto {
     repository: { owner: 'bytequay', repo: 'app' },
     issues: [{
       id: 9,
+      epicId: 'ISSUE:github.com:9',
       number: 7,
       title: 'Kudu connector fails to start',
       body: 'Full stack trace in the first comment.',

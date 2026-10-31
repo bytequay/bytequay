@@ -17,18 +17,20 @@ import java.net.URI;
 
 public enum HostingProvider
 {
-    GITHUB(true, HostingCapabilities.ALL, "/issues/"),
-    GITLAB(false, HostingCapabilities.NONE, "/-/issues/");
+    GITHUB(true, HostingCapabilities.ALL, "/issues/", "/pull/"),
+    GITLAB(false, HostingCapabilities.NONE, "/-/issues/", "/-/merge_requests/");
 
     private final boolean pathsIgnoreCase;
     private final HostingCapabilities capabilities;
     private final String issuesPath;
+    private final String pullRequestsPath;
 
-    HostingProvider(boolean pathsIgnoreCase, HostingCapabilities capabilities, String issuesPath)
+    HostingProvider(boolean pathsIgnoreCase, HostingCapabilities capabilities, String issuesPath, String pullRequestsPath)
     {
         this.pathsIgnoreCase = pathsIgnoreCase;
         this.capabilities = capabilities;
         this.issuesPath = issuesPath;
+        this.pullRequestsPath = pullRequestsPath;
     }
 
     public HostingCapabilities capabilities()
@@ -46,5 +48,11 @@ public enum HostingProvider
     public URI issueUrl(URI webBaseUrl, String path, int number)
     {
         return URI.create(webBaseUrl + "/" + path + issuesPath + number);
+    }
+
+    /** The web page of pull request {@code number} in the repository at {@code path} on a server of this provider. */
+    public URI pullRequestUrl(URI webBaseUrl, String path, int number)
+    {
+        return URI.create(webBaseUrl + "/" + path + pullRequestsPath + number);
     }
 }

@@ -70,6 +70,21 @@ export function AccountPullRequestScope({ accountId, children }: { accountId?: n
   );
 }
 
+/** Text from a workspace shown outside its screens, such as a Home row, presented with that workspace's server. */
+export function WorkspacePullRequestScope({ workspaceId, children }: { workspaceId?: string; children: ReactNode }) {
+  const [server, setServer] = useState<HostingServerDto | undefined>();
+  useEffect(() => {
+    if (workspaceId === undefined) return;
+    let current = true;
+    void globalThis.window?.bridge.getWorkspace(workspaceId)
+      .then(workspace => { if (current) setServer(workspace.hostingServer ?? undefined); })
+      .catch(() => { /* Text still renders; only its links wait for the server. */ });
+    return () => { current = false; };
+  }, [workspaceId]);
+  if (workspaceId === undefined) return children;
+  return <PullRequestWorkspaceProvider workspaceId={workspaceId} server={server}>{children}</PullRequestWorkspaceProvider>;
+}
+
 export async function readPullRequestViewer(
   bridge: Pick<Bridge, 'getUserProfile' | 'getWorkspaceHostingViewer' | 'fetchRepoUsers'> & Partial<Pick<Bridge, 'listHostingAccounts'>>,
   { workspaceId, accountId, repository }: HostingWorkspace): Promise<PullRequestViewer | null> {

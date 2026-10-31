@@ -17,7 +17,7 @@ import type { ExecutionStart, ExecutionOutput, ExecutionResult } from './executi
 import type { LocalRunDto, CodeHostRef } from '../pulls/code-tests/contracts';
 import type { TerminalBridge } from '../pulls/code-tests/TerminalView';
 import type { CodeCommentsOptions } from '../pulls/code-tests/useCodeComments';
-import type { AgentTaskDto, PullRequestDetailDto } from '../types';
+import type { AgentTaskDto, HostingServerDto, PullRequestDetailDto } from '../types';
 
 export type IdeConnection = {
   taskId: string;
@@ -43,6 +43,8 @@ export type IdeContext = {
   task: AgentTaskDto | null;
   detail: PullRequestDetailDto | null;
   comments?: IdeComments;
+  /** The hosting server of the screen that opened the IDE, so posted comments link to it. */
+  server?: HostingServerDto;
   findingBusy?: boolean;
   findingError?: string | null;
 };

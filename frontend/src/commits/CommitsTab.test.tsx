@@ -75,6 +75,16 @@ describe('workspace commits tab', () => {
     expect(typedPullRequestNumber('https://github.com/Upstream/OSS/pull/7/files', 'upstream/oss')).toBe(7);
     expect(typedPullRequestNumber('https://github.com/other/repo/pull/7', 'upstream/oss')).toBeNull();
     expect(typedPullRequestNumber('fix #12', 'upstream/oss')).toBeNull();
+    expect(typedPullRequestNumber('!12', 'upstream/oss')).toBeNull();
+  });
+
+  it('reads GitLab merge request numbers and links on the workspace server', () => {
+    const server = { provider: 'GITLAB' as const, webBaseUrl: 'https://gitlab.example.test/team', apiBaseUrl: 'https://gitlab.example.test/team/api/v4' };
+    expect(typedPullRequestNumber('!12', 'group/project', server)).toBe(12);
+    expect(typedPullRequestNumber('#12', 'group/project', server)).toBe(12);
+    expect(typedPullRequestNumber('https://gitlab.example.test/team/Group/Project/-/merge_requests/12/diffs', 'group/project', server)).toBe(12);
+    expect(typedPullRequestNumber('https://gitlab.example.test/team/group/project/-/merge_requests/12x', 'group/project', server)).toBeNull();
+    expect(typedPullRequestNumber('https://github.com/group/project/pull/12', 'group/project', server)).toBeNull();
   });
 
   it('opens the repository just upstream when asked to pick commits', () => {

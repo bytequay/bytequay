@@ -18,6 +18,7 @@ import Avatar from '../Avatar';
 import { CardActions, CardAge, IconButton, ItemRow, LinkKey, Pill, SourceIcon } from '../cards/Card';
 import { jiraIssueLocation } from '../jira/contracts';
 import MarkdownBody from '../pulls/MarkdownBody';
+import { AccountPullRequestScope, WorkspacePullRequestScope } from '../pulls/PullRequestWorkspace';
 import ReferenceCard, { previewMarkdown, toneChip, useHoverCard, type HoverCard, type ReferenceCardItem } from '../ReferenceCard';
 import { ago, relativeTime } from '@bytequay/ui/relativeTime';
 import { firstWords } from '../teams/activity';
@@ -388,7 +389,10 @@ function previewBody(item: AttentionItem, description: string | null | undefined
   const text = item.task !== undefined ? item.task.activity?.lastMessage?.text : item.jira !== undefined ? item.jira.body : item.pr !== null ? description : item.body;
   const markdown = previewMarkdown(text);
   if (markdown === '') return <span className="ref-card__muted">{item.task === undefined ? 'No description.' : 'No messages yet.'}</span>;
-  return <MarkdownBody body={markdown} repository={item.jira === undefined && item.task === undefined ? item.repo : undefined} />;
+  const body = <MarkdownBody body={markdown} repository={item.jira === undefined && item.task === undefined ? item.repo : undefined} />;
+  return item.workspaceId !== null
+    ? <WorkspacePullRequestScope workspaceId={item.workspaceId}>{body}</WorkspacePullRequestScope>
+    : <AccountPullRequestScope accountId={item.accountId ?? undefined}>{body}</AccountPullRequestScope>;
 }
 
 function Preview({ item, summary, hover, onOpen, onAcknowledge, onSnooze, onStart }: {

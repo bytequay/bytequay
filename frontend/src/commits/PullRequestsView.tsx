@@ -14,15 +14,22 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { ExternalLink, GitMerge } from 'lucide-react';
 import { relativeTime } from '@bytequay/ui/relativeTime';
-import type { PullRequestDto } from '../types';
-import { useProviderName } from '../pulls/PullRequestWorkspace';
+import type { HostingServerDto, PullRequestDto } from '../types';
+import { useHostingPresentation, useProviderName } from '../pulls/PullRequestWorkspace';
 
-/** `#123`, `123`, or a link to a pull request of `slug`; anything else is ordinary search text. */
-export function typedPullRequestNumber(query: string, slug: string | null): number | null {
+/**
+ * `#123`, GitLab's `!123`, `123`, or a link to a request of `slug` on the workspace's server; anything else is ordinary search text. A
+ * workspace without a server is on github.com.
+ */
+export function typedPullRequestNumber(query: string, slug: string | null, server?: HostingServerDto): number | null {
   const value = query.trim();
-  const link = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/i.exec(value);
-  if (link) return slug !== null && link[1].toLowerCase() === slug.toLowerCase() ? Number(link[2]) : null;
-  const number = /^#?(\d+)$/.exec(value);
+  const gitLab = server?.provider === 'GITLAB';
+  if (/^https?:\/\//i.test(value)) {
+    const prefix = `${(server?.webBaseUrl ?? 'https://github.com').replace(/\/+$/, '')}/${slug}${gitLab ? '/-/merge_requests/' : '/pull/'}`.toLowerCase();
+    const link = slug === null || !value.toLowerCase().startsWith(prefix) ? null : /^(\d+)(?:[/?#]|$)/.exec(value.slice(prefix.length));
+    return link ? Number(link[1]) : null;
+  }
+  const number = (gitLab ? /^[#!]?(\d+)$/ : /^#?(\d+)$/).exec(value);
   return number ? Number(number[1]) : null;
 }
 
@@ -42,9 +49,10 @@ export default function PullRequestsView({ workspaceId, slug, query, selected, l
   onOpenPullRequest: (number: number) => void;
 }) {
   const provider = useProviderName();
+  const { server } = useHostingPresentation();
   const [rows, setRows] = useState<PullRequestDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const typed = typedPullRequestNumber(query, slug);
+  const typed = typedPullRequestNumber(query, slug, server);
   const search = typed !== null ? String(typed) : query.trim();
 
   useEffect(() => {

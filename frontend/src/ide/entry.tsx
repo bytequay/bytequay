@@ -31,6 +31,7 @@ import { useResizablePane } from '../useResizablePane';
 import { PanelLeft, ArrowLeft, ArrowRight, ChevronDown, ChevronUp, MessageSquare, Play, Bug, TerminalSquare, GitCommitHorizontal } from 'lucide-react';
 import ReviewZones from './ReviewZones';
 import ReviewComments from './ReviewComments';
+import { PullRequestWorkspaceProvider } from '../pulls/PullRequestWorkspace';
 import { openReviewComment, reviewCommentCards } from './reviewCommentModel';
 import LineChanges from './LineChanges';
 import EditorNavigation from './EditorNavigation';
@@ -386,7 +387,7 @@ function App() {
     <span aria-hidden="true"><LogoLoading size={56} /></span>
     <span>Loading code tools…</span>
   </div>;
-  return <DraftWorkbench {...ready} context={context} />;
+  return <PullRequestWorkspaceProvider server={context.server}><DraftWorkbench {...ready} context={context} /></PullRequestWorkspaceProvider>;
 }
 
 const root = document.getElementById('root');

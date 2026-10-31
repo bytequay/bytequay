@@ -301,6 +301,25 @@ class TestSqliteWorkspaceStore
     }
 
     @Test
+    void deletingAGitLabWorkspaceDropsItsCommitRowsUnlessAnotherWorkspaceUsesTheNumber()
+    {
+        HostingServer server = new HostingServer(HostingProvider.GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"));
+        Workspace removed = store.createOrGet(onServer(workspace("removed", 500, RepoRef.of("group", "removed"), Optional.empty(), Optional.empty(), 500,
+                RepoRef.of("group", "removed"), Topology.DIRECT, Optional.empty(), 0), server));
+        Workspace shared = store.createOrGet(onServer(workspace("shared", 600, RepoRef.of("group", "shared"), Optional.empty(), Optional.empty(), 600,
+                RepoRef.of("group", "shared"), Topology.DIRECT, Optional.empty(), 1), server));
+        store.createOrGet(direct("github", 600, 2));
+        for (long repositoryId : ImmutableList.of(500L, 600L)) {
+            jdbc.update("INSERT INTO commit_enrichment (repository_id, sha, last_seen_at) VALUES (?, 'sha', ?)", repositoryId, NOW.toString());
+        }
+
+        store.delete(removed.id());
+        store.delete(shared.id());
+
+        assertThat(jdbc.queryForList("SELECT repository_id FROM commit_enrichment", Long.class)).containsExactly(600L);
+    }
+
+    @Test
     void extraRemoteProtectsRepositoryCacheWithoutResolvedProviderIdentity()
     {
         Workspace removed = store.createOrGet(fork("removed", 200, 300, 0));
@@ -498,6 +517,14 @@ class TestSqliteWorkspaceStore
         return workspace(
                 id, selectedId, selected, Optional.of(upstreamId), Optional.of(upstream), upstreamId,
                 upstream, Topology.FORK, Optional.of("https://github.com/upstream/project.git"), displayOrder);
+    }
+
+    private static Workspace onServer(Workspace workspace, HostingServer server)
+    {
+        return new Workspace(workspace.id(), workspace.name(), workspace.selectedRepositoryId(), workspace.selectedRepository(), workspace.upstreamRepositoryId(),
+                workspace.upstreamRepository(), workspace.monitoredRepositoryId(), workspace.monitoredRepository(), workspace.topology(), workspace.defaultBranch(),
+                workspace.originCloneUrl(), workspace.upstreamDefaultBranch(), workspace.upstreamCloneUrl(), workspace.localRepositoryPath(), workspace.lastCodeSyncAt(),
+                workspace.lastMetadataSyncAt(), workspace.displayOrder(), workspace.createdAt(), workspace.updatedAt(), Optional.of(server));
     }
 
     private static Workspace workspace(

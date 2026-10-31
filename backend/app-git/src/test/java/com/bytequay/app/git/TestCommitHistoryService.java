@@ -49,8 +49,6 @@ import java.util.OptionalLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -207,23 +205,27 @@ class TestCommitHistoryService
     }
 
     @Test
-    void gitLabHistoryDoesNotReadGitHubEnrichmentWithTheSameRemoteRepositoryId()
+    void gitLabHistoryShowsItsSavedMergeRequestLinks()
     {
         WorkspaceSummary summary = unlinkedSummary();
         ready(new WorkspaceSummary(summary.id(), summary.name(), summary.selectedRepositoryId(), summary.selectedOwner(), summary.selectedRepo(), null, null, null,
                 summary.monitoredRepositoryId(), summary.monitoredOwner(), summary.monitoredRepo(), summary.topology(), summary.defaultBranch(), null,
                 summary.localRepositoryPath(), summary.lastCodeSyncAt(), summary.lastMetadataSyncAt(), summary.displayOrder(),
                 new HostingServer(HostingProvider.GITLAB, URI.create("https://gitlab.example.test/team"), URI.create("https://gitlab.example.test/team/api/v4"))));
-        Commit commit = commit("same-sha", Optional.empty());
+        Commit commit = commit("abc123", Optional.empty());
         when(git.log(REPOSITORY, "origin/main", 50)).thenReturn(ImmutableList.of(commit));
+        Instant checkedAt = Instant.parse("2026-08-22T02:00:00Z");
+        when(store.findEnrichment(101, ImmutableList.of("abc123"))).thenReturn(new CommitEnrichmentSnapshot(ImmutableList.of(new CommitEnrichment(101, "abc123",
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(7), Optional.of("Fix dates"),
+                Optional.of("https://gitlab.example.test/team/owner/project/-/merge_requests/7"), Optional.empty(), Optional.empty(), Optional.of(checkedAt), checkedAt))));
 
         CommitHistorySnapshot snapshot = service.listHistory(WORKSPACE_ID, new CommitHistoryRef(Source.WORKSPACE, "main"), 50);
 
         assertThat(snapshot.commits()).singleElement().satisfies(item -> {
             assertThat(item.author()).isEqualTo("Example Author");
-            assertThat(item.pullRequestNumber()).isEmpty();
+            assertThat(item.pullRequestNumber()).contains(7);
+            assertThat(item.pullRequestTitle()).contains("Fix dates");
         });
-        verify(store, never()).findEnrichment(anyLong(), any());
     }
 
     private void ready(WorkspaceSummary summary, RemoteSource... extraRemotes)

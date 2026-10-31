@@ -123,7 +123,7 @@ public class CommitHistoryService
         // first guarantees a concurrent completion causes one later reload.
         CommitRefreshStatus refresh = status(workspaceId);
         List<Commit> commits = git.log(context.repository(), resolved.gitRef(), Math.min(limit, MAX_COMMITS));
-        Map<String, CommitEnrichment> enrichmentBySha = resolved.repositoryId().isEmpty() || !hasCommitAvatars(workspaceId)
+        Map<String, CommitEnrichment> enrichmentBySha = resolved.repositoryId().isEmpty()
                 ? ImmutableMap.of()
                 : store.findEnrichment(resolved.repositoryId().orElseThrow(), commits.stream().map(Commit::sha).toList())
                 .commits().stream()
@@ -261,12 +261,8 @@ public class CommitHistoryService
 
     private Collection<CommitEnrichment> enrichRefs(WorkspaceRepositoryContext context, Collection<ResolvedCommitHistoryRef> refs)
     {
-        if (!hasCommitAvatars(context.workspaceId())) {
-            // History without provider enrichment comes from the checkout alone.
-            refs.forEach(ref -> git.log(context.repository(), ref.gitRef(), MAX_COMMITS));
-            return ImmutableList.of();
-        }
-        String token = credentials.resolveGitHubToken(context.workspaceId());
+        // Every provider supplies pull-request links; avatars come only from a provider that has them.
+        Optional<String> avatarToken = hasCommitAvatars(context.workspaceId()) ? Optional.of(credentials.resolveGitHubToken(context.workspaceId())) : Optional.empty();
         Instant now = clock.instant();
         Map<EnrichmentKey, CommitEnrichment> updates = new LinkedHashMap<>();
         for (ResolvedCommitHistoryRef ref : refs) {
@@ -276,7 +272,7 @@ public class CommitHistoryService
                 git.log(context.repository(), ref.gitRef(), MAX_COMMITS);
                 continue;
             }
-            enrich(context, ref, token, now).forEach(value -> updates.merge(new EnrichmentKey(value.repositoryId(), value.sha()), value, CommitHistoryService::merge));
+            enrich(context, ref, avatarToken, now).forEach(value -> updates.merge(new EnrichmentKey(value.repositoryId(), value.sha()), value, CommitHistoryService::merge));
         }
         return updates.values();
     }
@@ -286,7 +282,7 @@ public class CommitHistoryService
         return workspaces.getWorkspace(workspaceId).capabilities().commitAvatars();
     }
 
-    private List<CommitEnrichment> enrich(WorkspaceRepositoryContext context, ResolvedCommitHistoryRef ref, String token, Instant now)
+    private List<CommitEnrichment> enrich(WorkspaceRepositoryContext context, ResolvedCommitHistoryRef ref, Optional<String> avatarToken, Instant now)
     {
         long repositoryId = ref.repositoryId().orElseThrow();
         RepoRef repository = ref.repository().orElseThrow();
@@ -294,10 +290,10 @@ public class CommitHistoryService
         Map<String, CommitEnrichment> existing = store.findEnrichment(repositoryId, commits.stream().map(Commit::sha).toList())
                 .commits().stream()
                 .collect(toImmutableMap(CommitEnrichment::sha, Function.identity()));
-        int avatarLimit = avatarScanLimit(commits, existing, now);
+        int avatarLimit = avatarToken.isPresent() ? avatarScanLimit(commits, existing, now) : 0;
         Map<String, CommitAvatar> identities;
         if (avatarLimit > 0) {
-            CommitAvatarSnapshot avatarSnapshot = gitHub.fetchCommitAvatarSnapshot(token, repository, commits.getFirst().sha(), avatarLimit);
+            CommitAvatarSnapshot avatarSnapshot = gitHub.fetchCommitAvatarSnapshot(avatarToken.orElseThrow(), repository, commits.getFirst().sha(), avatarLimit);
             checkState(avatarSnapshot.succeeded(), "commit avatar synchronization failed");
             identities = avatarSnapshot.avatars().stream()
                     .collect(toImmutableMap(CommitAvatar::sha, Function.identity()));

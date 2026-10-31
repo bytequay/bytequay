@@ -20,7 +20,7 @@ package com.bytequay.core.hosting;
  * @param multiLineComments a review comment can cover several lines
  * @param forkWorkflows workspaces can be related as upstreams, forks and backport targets
  * @param issueChildren an issue's child issues can be read
- * @param commitAvatars commit history shows account avatars and pull request links
+ * @param commitAvatars commit history shows account avatars
  * @param teamActivity circles follow their members' activity in the provider's watched repositories
  */
 public record HostingCapabilities(boolean requestChanges, boolean multiLineComments, boolean forkWorkflows, boolean issueChildren, boolean commitAvatars,

@@ -418,21 +418,32 @@ class TestCommitHistoryRefresh
     }
 
     @Test
-    void gitLabRefreshReadsLocalCommitsWithoutGitHubCredentialsOrEnrichment()
+    void gitLabRefreshSavesMergeRequestLinksWithoutAvatarsOrAGitHubToken()
     {
-        when(workspaces.getWorkspace(WORKSPACE_ID)).thenReturn(summary(
-                new HostingServer(HostingProvider.GITLAB, URI.create("https://gitlab.example.test/team"), URI.create("https://gitlab.example.test/team/api/v4"))));
+        HostingInstance instance = new HostingInstance(2, HostingProvider.GITLAB, URI.create("https://gitlab.example.test/team"), URI.create("https://gitlab.example.test/team/api/v4"));
+        when(workspaces.getWorkspace(WORKSPACE_ID)).thenReturn(summary(new HostingServer(HostingProvider.GITLAB, instance.webBaseUrl(), instance.apiBaseUrl())));
+        HostingTarget project = new HostingTarget(new HostingAccess(instance, "gitlab-token"), new HostingRepository(6, 2, "101", SELECTED.fullName(),
+                URI.create("https://gitlab.example.test/team/" + SELECTED.fullName()), URI.create("https://gitlab.example.test/team/" + SELECTED.fullName() + ".git"),
+                Optional.empty(), Optional.of("main")));
+        when(hosting.repositoryTarget(WORKSPACE_ID, SELECTED.fullName())).thenReturn(project);
         Commit commit = commit("gitlab-commit", NOW.minusSeconds(60));
         when(git.log(REPOSITORY, "origin/main", 300)).thenReturn(ImmutableList.of(commit));
-        CommitEnrichment github = positive(101, commit.sha());
-        store.upsertEnrichment(ImmutableList.of(github));
+        PullRequestAssociation request = new PullRequestAssociation(7, "Fix dates", "https://gitlab.example.test/team/example-owner/example-repository/-/merge_requests/7",
+                "main", "2026-08-22T00:00:00Z");
+        when(pullRequests.lookUpResult(eq(project), eq(ImmutableList.of(commit.sha())), eq("main"), anyList()))
+                .thenReturn(new PullRequestLookupResult(ImmutableList.of(new Association(commit.sha(), request)), ImmutableSet.of()));
 
         CommitRefreshStatus refreshed = service.refresh(WORKSPACE_ID, ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
 
         assertThat(refreshed.state()).isEqualTo(IDLE);
-        verify(git).log(REPOSITORY, "origin/main", 300);
-        verifyNoInteractions(credentials, gitHub, pullRequests, avatars);
-        assertThat(store.values()).containsExactly(github);
+        assertThat(store.values()).singleElement().satisfies(value -> {
+            assertThat(value.pullRequestNumber()).contains(7);
+            assertThat(value.pullRequestUrl()).contains(request.url());
+            assertThat(value.authorLogin()).isEmpty();
+            assertThat(value.avatarCheckedAt()).isEmpty();
+            assertThat(value.associationCheckedAt()).contains(NOW);
+        });
+        verifyNoInteractions(credentials, gitHub, avatars);
     }
 
     private static HostingTarget target(String remoteId)

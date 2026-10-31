@@ -86,17 +86,16 @@ final class SqliteWorkspacePurge
         checkState(!exists("SELECT EXISTS (SELECT 1 FROM agent_task WHERE id IN (" + workspaceTaskIds() + "))", parameters), "Workspace still has agent tasks: %s", id);
 
         List<Workspace> others = entities.createQuery("FROM WorkspaceEntity WHERE id <> :id", WorkspaceEntity.class)
-                .setParameter("id", id).getResultList().stream().map(WorkspaceEntity::toDomain).filter(Workspace::isGitHub).collect(toImmutableList());
+                .setParameter("id", id).getResultList().stream().map(WorkspaceEntity::toDomain).collect(toImmutableList());
         List<RemoteSource> remotes = entities.createQuery("FROM RemoteSourceEntity", RemoteSourceEntity.class)
                 .getResultList().stream().map(RemoteSourceEntity::toDomain).collect(toImmutableList());
+        // Commit rows are keyed by the provider's repository number alone, so any workspace using that number keeps them.
         Map<Long, RepoRef> repositories = new LinkedHashMap<>();
-        if (workspace.isGitHub()) {
-            repositories.put(workspace.selectedRepositoryId(), workspace.selectedRepository());
-            repositories.put(workspace.monitoredRepositoryId(), workspace.monitoredRepository());
-            workspace.upstreamRepositoryId().ifPresent(repositoryId -> repositories.put(repositoryId, workspace.upstreamRepository().orElseThrow()));
-            remotes.stream().filter(remote -> remote.workspaceId().equals(id)).forEach(remote -> remote.repositoryId()
-                    .ifPresent(repositoryId -> repositories.put(repositoryId, remote.repository().orElseThrow())));
-        }
+        repositories.put(workspace.selectedRepositoryId(), workspace.selectedRepository());
+        repositories.put(workspace.monitoredRepositoryId(), workspace.monitoredRepository());
+        workspace.upstreamRepositoryId().ifPresent(repositoryId -> repositories.put(repositoryId, workspace.upstreamRepository().orElseThrow()));
+        remotes.stream().filter(remote -> remote.workspaceId().equals(id)).forEach(remote -> remote.repositoryId()
+                .ifPresent(repositoryId -> repositories.put(repositoryId, remote.repository().orElseThrow())));
 
         update("DELETE FROM branch_rebase WHERE agent_task_id IN (" + workspaceTaskIds() + ")", parameters);
         update("DELETE FROM ci_autofix_attempt WHERE run_id IN (SELECT id FROM ci_autofix_run WHERE workspace_id = :workspaceId)", parameters);

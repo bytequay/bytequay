@@ -68,7 +68,7 @@ import com.bytequay.core.hosting.HostingIntegration;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.RepositoryVisibility;
-import com.bytequay.core.store.CredentialStore;
+import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.HostingIdentityStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.WorkspaceCredentialStore;
@@ -1000,14 +1000,14 @@ class TestCiAutofixEndToEnd
         @Bean
         @Primary
         CredentialService e2eCredentialService(
-                CredentialStore store,
+                AppSettingsStore settings,
                 WorkspaceCredentialStore workspaceCredentials,
                 GhCliService ghCli,
                 GitHubAccountClient gitHubAccount,
                 HostingConnectionService hosting,
                 WorkspaceStore workspaces)
         {
-            return new CredentialService(store, workspaceCredentials, ghCli, gitHubAccount, hosting, workspaces)
+            return new CredentialService(settings, workspaceCredentials, ghCli, gitHubAccount, hosting, workspaces)
             {
                 @Override
                 public String resolveGitHubToken()

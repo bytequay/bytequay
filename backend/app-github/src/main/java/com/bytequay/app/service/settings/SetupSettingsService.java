@@ -17,8 +17,8 @@ import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.agent.runtime.WorkflowAgentTasks;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.store.AppSettingsStore;
-import com.bytequay.core.store.CredentialStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
@@ -34,17 +34,15 @@ public class SetupSettingsService
     private static final String KEY = "app.setup";
 
     private final AppSettingsStore store;
-    private final CredentialStore credentials;
     private final AppSettingsService appSettings;
     private final ModelSettingsService models;
     private final AgentDriverRegistry drivers;
     private final ObjectMapper mapper;
 
-    public SetupSettingsService(AppSettingsStore store, CredentialStore credentials, AppSettingsService appSettings,
+    public SetupSettingsService(AppSettingsStore store, AppSettingsService appSettings,
             ModelSettingsService models, AgentDriverRegistry drivers, ObjectMapper mapper)
     {
         this.store = requireNonNull(store, "store is null");
-        this.credentials = requireNonNull(credentials, "credentials is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
         this.models = requireNonNull(models, "models is null");
         this.drivers = requireNonNull(drivers, "drivers is null");
@@ -56,7 +54,7 @@ public class SetupSettingsService
     public synchronized void initialize()
     {
         if (store.get(KEY).isEmpty()) {
-            boolean existingInstall = credentials.exists();
+            boolean existingInstall = store.get(CredentialService.GITHUB_ACCOUNT_SETTING).isPresent();
             appSettings.initializeAutomation(existingInstall);
             write(new SetupPreferences(existingInstall ? SetupPreferences.Step.COMPLETE : SetupPreferences.Step.APPEARANCE, existingInstall));
         }

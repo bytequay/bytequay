@@ -46,9 +46,6 @@ class TestSqliteWorkspaceCredentialStores
     private SqliteModelApiKeyStore apiKeys;
 
     @Autowired
-    private SqliteCredentialStore credentials;
-
-    @Autowired
     private SqliteJiraConnectionStore jiraConnections;
 
     @Autowired
@@ -142,17 +139,5 @@ class TestSqliteWorkspaceCredentialStores
         assertThat(replacement.id()).isNotEqualTo(key.id());
         assertThat(apiKeys.findSecretById(key.id())).isEmpty();
         assertThat(apiKeys.findSecretById(replacement.id())).contains("sk-other");
-    }
-
-    @Test
-    void accountTokenDeleteClearsTheStoredCredential()
-    {
-        credentials.save("ghp_token", null);
-        assertThat(credentials.exists()).isTrue();
-
-        credentials.delete();
-
-        assertThat(credentials.exists()).isFalse();
-        assertThat(credentials.getSecret()).isEmpty();
     }
 }

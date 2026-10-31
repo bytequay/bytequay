@@ -64,6 +64,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -254,6 +255,23 @@ class TestHostingConnectionService
         assertThat(service.readSession(20).access().token()).isEqualTo("current-token");
         assertThat(service.readSession(20).access().token()).isEqualTo("refreshed-token");
         verify(credentials, never()).save(anyLong(), anyString(), any());
+    }
+
+    @Test
+    void cliAccountsVerifyTheirTokenOnceUntilItChanges()
+    {
+        HostingServer server = new HostingServer(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl());
+        when(credentials.find(20)).thenReturn(Optional.of(new HostingCredential(20, "old-token", Source.CLI)));
+        when(cli.readToken(server)).thenReturn("current-token", "current-token", "refreshed-token");
+        when(accounts.verify(any())).thenReturn(new RemoteHostingAccount("42", "alice"));
+
+        service.readSession(20);
+        service.readSession(20);
+        service.readSession(20);
+        service.disconnect(20);
+        service.readSession(20);
+
+        verify(accounts, times(3)).verify(any());
     }
 
     @Test

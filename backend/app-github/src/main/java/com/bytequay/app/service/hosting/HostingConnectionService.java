@@ -32,12 +32,14 @@ import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.bytequay.core.hosting.RepositoryVisibility;
 import com.bytequay.core.store.HostingCredentialStore;
 import com.bytequay.core.store.HostingIdentityStore;
+import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static com.bytequay.core.domain.Checks.checkOptionalText;
 import static com.bytequay.core.domain.Checks.checkText;
@@ -50,7 +52,6 @@ import static com.bytequay.core.hosting.HostingPermissions.Status.MISSING;
 import static com.bytequay.core.hosting.HostingPullRequestSnapshot.CONNECTED_ACCOUNT;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 
 /** Owns connection selection and retained identity; remote adapters never select stored credentials. */
@@ -60,14 +61,16 @@ public class HostingConnectionService
     private final HostingIdentityStore identities;
     private final HostingCredentialStore credentials;
     private final HostingIntegrations integrations;
-    private final Map<HostingProvider, HostingCli> clis;
+    private final List<HostingCli> clis;
+    /** The CLI token each account last proved is its own, so a CLI-backed account verifies again only after its token changes. */
+    private final Map<Long, String> verifiedCliTokens = new ConcurrentHashMap<>();
 
     public HostingConnectionService(HostingIdentityStore identities, HostingCredentialStore credentials, HostingIntegrations integrations, List<HostingCli> clis)
     {
         this.identities = requireNonNull(identities, "identities is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.integrations = requireNonNull(integrations, "integrations is null");
-        this.clis = clis.stream().collect(toImmutableMap(HostingCli::provider, cli -> cli));
+        this.clis = ImmutableList.copyOf(clis);
     }
 
     public HostingConnection connect(HostingProvider provider, URI webBaseUrl, URI apiBaseUrl, String token)
@@ -124,6 +127,13 @@ public class HostingConnectionService
     public void disconnect(long accountId)
     {
         credentials.delete(accountId);
+        verifiedCliTokens.remove(accountId);
+    }
+
+    /** How the account's credential was saved, or empty when the account is not connected. */
+    public Optional<Source> credentialSource(long accountId)
+    {
+        return credentials.find(accountId).map(HostingCredential::source);
     }
 
     public RepositoryVisibility visibility(HostingReadSession session, String fullPath)
@@ -242,10 +252,14 @@ public class HostingConnectionService
             return new HostingAccess(instance, credential.secret());
         }
         HostingServer server = new HostingServer(instance.provider(), instance.webBaseUrl(), instance.apiBaseUrl());
-        HostingAccess access = new HostingAccess(instance, cli(instance.provider()).readToken(server));
-        RemoteHostingAccount remote = integration(instance.provider()).accounts().verify(access);
-        if (!remote.remoteId().equals(account.remoteUserId())) {
-            throw new HostingFailure(AUTHENTICATION_REQUIRED, "The CLI is signed in to a different account. Reconnect this hosting account to continue");
+        String token = cli(instance.provider()).readToken(server);
+        HostingAccess access = new HostingAccess(instance, token);
+        if (!token.equals(verifiedCliTokens.get(accountId))) {
+            RemoteHostingAccount remote = integration(instance.provider()).accounts().verify(access);
+            if (!remote.remoteId().equals(account.remoteUserId())) {
+                throw new HostingFailure(AUTHENTICATION_REQUIRED, "The CLI is signed in to a different account. Reconnect this hosting account to continue");
+            }
+            verifiedCliTokens.put(accountId, token);
         }
         return access;
     }
@@ -263,7 +277,7 @@ public class HostingConnectionService
 
     private HostingCli cli(HostingProvider provider)
     {
-        return Optional.ofNullable(clis.get(provider))
+        return clis.stream().filter(cli -> cli.provider() == provider).findFirst()
                 .orElseThrow(() -> new HostingFailure(AUTHENTICATION_REQUIRED, "Browser sign-in is unavailable for this hosting provider. Connect with a token instead"));
     }
 

@@ -18,7 +18,6 @@ import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.service.settings.SetupSettingsService;
-import com.bytequay.core.store.CredentialStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -37,7 +36,7 @@ class TestSetupController
     void setupResumesItsSavedStepAndRejectsInvalidPages()
             throws Exception
     {
-        SetupSettingsService settings = new SetupSettingsService(new InMemoryAppSettingsStore(), mock(CredentialStore.class), mock(AppSettingsService.class),
+        SetupSettingsService settings = new SetupSettingsService(new InMemoryAppSettingsStore(), mock(AppSettingsService.class),
                 mock(ModelSettingsService.class), mock(AgentDriverRegistry.class), new ObjectMapper());
         MockMvc http = standaloneSetup(new SetupController(settings)).setControllerAdvice(new GlobalExceptionHandler()).build();
 

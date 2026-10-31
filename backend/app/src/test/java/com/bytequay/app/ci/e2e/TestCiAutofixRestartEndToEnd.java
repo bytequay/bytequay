@@ -46,7 +46,7 @@ import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.hosting.HostingIntegration;
-import com.bytequay.core.store.CredentialStore;
+import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.HostingIdentityStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.WorkspaceCredentialStore;
@@ -339,7 +339,7 @@ class TestCiAutofixRestartEndToEnd
                     "restartCredentialService",
                     CredentialService.class,
                     () -> new CredentialService(
-                            context.getBean(CredentialStore.class),
+                            context.getBean(AppSettingsStore.class),
                             context.getBean(WorkspaceCredentialStore.class),
                             context.getBean(GhCliService.class),
                             context.getBean(GitHubAccountClient.class),

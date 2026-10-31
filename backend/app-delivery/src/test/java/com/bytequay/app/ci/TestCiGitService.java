@@ -22,7 +22,7 @@ import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.core.ci.CiAutofixAttempt.GitResult;
 import com.bytequay.core.ci.CiAutofixAttemptId;
 import com.bytequay.core.ci.CiAutofixRun.PushJournal;
-import com.bytequay.core.store.CredentialStore;
+import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.WorkspaceCredentialStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -86,7 +86,7 @@ class TestCiGitService
         String nextBase = advanceRemoteBase(fixture);
         WorkspaceCredentialStore overrides = mock(WorkspaceCredentialStore.class);
         when(overrides.getSecret(WORKSPACE_ID)).thenReturn(Optional.of("workspace-token"));
-        CredentialService credentials = new CredentialService(mock(CredentialStore.class), overrides, mock(GhCliService.class),
+        CredentialService credentials = new CredentialService(mock(AppSettingsStore.class), overrides, mock(GhCliService.class),
                 mock(GitHubAccountClient.class), mock(HostingConnectionService.class), mock(WorkspaceStore.class));
         String authorization = "Authorization: Basic " + Base64.getEncoder().encodeToString("x-access-token:workspace-token".getBytes(StandardCharsets.UTF_8));
         List<String> transports = new ArrayList<>();

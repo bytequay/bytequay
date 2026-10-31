@@ -30,7 +30,7 @@ import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
-import com.bytequay.core.store.CredentialStore;
+import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.WorkspaceCredentialStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -397,7 +397,7 @@ class TestWorkspaceProvisioningService
         when(hosting.readSession(7)).thenReturn(session);
         when(hosting.resolveRepositoryById(session, "100")).thenReturn(original, renamed);
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
-        CredentialStore global = mock(CredentialStore.class);
+        AppSettingsStore global = mock(AppSettingsStore.class);
         CredentialService credentials = new CredentialService(global, mock(WorkspaceCredentialStore.class), mock(GhCliService.class), gitHub, hosting, store);
         WorkspacePaths paths = new WorkspacePaths(temporary.resolve("workspaces").toString());
         InMemoryRemoteSourceStore remoteSources = new InMemoryRemoteSourceStore();

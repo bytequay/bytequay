@@ -450,7 +450,7 @@ class TestWorkspaceRepositoryService
         Workspace watched = watch(service, 100);
 
         assertThat(observed).hasValue(Optional.empty());
-        verify(pullRequestRefresh).refreshWorkspace(watched.id());
+        verify(pullRequestRefresh).refreshWatchedWorkspace(watched.id());
     }
 
     @Test
@@ -460,6 +460,8 @@ class TestWorkspaceRepositoryService
         when(credentials.resolveGitHubCredential()).thenReturn(credential("owner"));
         PullRequestRefreshService pullRequestRefresh = mock(PullRequestRefreshService.class);
         List<Boolean> held = new ArrayList<>();
+        doAnswer(invocation -> held.add(((ReentrantLock) WorkspaceOperationLocks.get(invocation.getArgument(0))).isHeldByCurrentThread()))
+                .when(pullRequestRefresh).refreshWatchedWorkspace(anyString());
         doAnswer(invocation -> held.add(((ReentrantLock) WorkspaceOperationLocks.get(invocation.getArgument(0))).isHeldByCurrentThread()))
                 .when(pullRequestRefresh).refreshWorkspace(anyString());
         WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remoteSources(), gitHub, credentials, connections,

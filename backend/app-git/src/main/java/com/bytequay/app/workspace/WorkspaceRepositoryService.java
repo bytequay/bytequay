@@ -185,7 +185,7 @@ public class WorkspaceRepositoryService
         Optional<Workspace> existing = routing.pushRepository().flatMap(value -> store.findBySelectedRepository(GITHUB_COM, value.id()));
         if (existing.filter(value -> store.isWatched(value.id()) && matchesWatch(value, routing)).isPresent()) {
             Workspace workspace = existing.orElseThrow();
-            scheduleIncompleteWork(workspace);
+            scheduleIncompleteWork(workspace, false);
             return workspace;
         }
         if (!sameFingerprint(toPreview(routing).fingerprint(), command.previewFingerprint())) {
@@ -207,7 +207,9 @@ public class WorkspaceRepositoryService
             return WorkspaceOperationLocks.withLock(workspace.id(), () -> {
                 routeUpstream(workspace.id(), routing.upstream());
                 store.setWatched(workspace.id(), true);
-                return requestSyncAfterConfigurationChange(workspace.id());
+                Workspace watched = requireWorkspace(store, workspace.id());
+                scheduleIncompleteWork(watched, true);
+                return watched;
             });
         }
         return createWorkspace(pushRepository, routing.upstream(), command.name());
@@ -474,7 +476,7 @@ public class WorkspaceRepositoryService
         HostingRepository selectedRepository = connections.resolveRepositoryById(session, Long.toString(selected.id()));
         Optional<Long> upstreamRepository = upstream.map(value -> connections.resolveRepositoryById(session, Long.toString(value.id())).id());
         Workspace saved = store.createHosted(proposed, session.accountId(), selectedRepository.id(), upstreamRepository);
-        scheduleIncompleteWork(saved);
+        scheduleIncompleteWork(saved, false);
         return saved;
     }
 
@@ -673,10 +675,10 @@ public class WorkspaceRepositoryService
         return value == null || value.isBlank();
     }
 
-    private void scheduleIncompleteWork(Workspace workspace)
+    private void scheduleIncompleteWork(Workspace workspace, boolean forceCode)
     {
-        scheduleRefreshes(workspace, false);
-        submit(() -> pullRequestRefresh.refreshWorkspace(workspace.id()), workspace.id());
+        scheduleRefreshes(workspace, forceCode);
+        submit(() -> pullRequestRefresh.refreshWatchedWorkspace(workspace.id()), workspace.id());
     }
 
     private void scheduleRefreshes(Workspace workspace, boolean forceCode)

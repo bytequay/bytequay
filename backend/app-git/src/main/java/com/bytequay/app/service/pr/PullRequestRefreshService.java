@@ -214,10 +214,25 @@ public class PullRequestRefreshService
     /** Captures current routing locally; repository-scoped cache refreshes do not own workspace files or lifecycle. */
     public void refreshWorkspace(String workspaceId)
     {
-        boolean watched = WorkspaceOperationLocks.withLock(workspaceId, () -> workspaces.isWatched(workspaceId) && workspaces.findById(workspaceId).isPresent());
-        if (watched) {
+        if (watched(workspaceId)) {
             refresh(() -> pullRequests.syncWorkspace(workspaceId));
         }
+    }
+
+    /**
+     * A just-watched workspace shows no pull requests until its first discovery, which must not queue behind a scheduled dashboard
+     * scan that takes minutes on a fresh database. The summary lock still paces its GraphQL; at worst it repeats a scheduled pass.
+     */
+    public void refreshWatchedWorkspace(String workspaceId)
+    {
+        if (watched(workspaceId)) {
+            pullRequests.syncWorkspace(workspaceId);
+        }
+    }
+
+    private boolean watched(String workspaceId)
+    {
+        return WorkspaceOperationLocks.withLock(workspaceId, () -> workspaces.isWatched(workspaceId) && workspaces.findById(workspaceId).isPresent());
     }
 
     private void refresh(Runnable action)

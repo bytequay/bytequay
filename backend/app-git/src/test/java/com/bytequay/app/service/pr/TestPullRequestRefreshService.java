@@ -482,6 +482,37 @@ class TestPullRequestRefreshService
         verify(pullRequests).syncRepository(repository);
     }
 
+    @Test
+    void justWatchedWorkspaceDoesNotWaitBehindTheScheduledDashboard()
+            throws Exception
+    {
+        Workspace workspace = workspace("workspace", 1, RepoRef.of("owner", "repo"), 0);
+        when(workspaces.isWatched(workspace.id())).thenReturn(true);
+        when(workspaces.findById(workspace.id())).thenReturn(Optional.of(workspace));
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            entered.countDown();
+            assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
+            return null;
+        }).when(pullRequests).discoverAccountPullRequests();
+
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            PullRequestRefreshService service = service(pullRequests, workspaces);
+            var dashboard = executor.submit(service::refreshScheduledDashboard);
+            try {
+                assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+                executor.submit(() -> service.refreshWatchedWorkspace(workspace.id())).get(1, TimeUnit.SECONDS);
+            }
+            finally {
+                release.countDown();
+            }
+            dashboard.get(5, TimeUnit.SECONDS);
+        }
+
+        verify(pullRequests).syncWorkspace(workspace.id());
+    }
+
     private static PullRequestDetail detail()
     {
         return new PullRequestDetail(

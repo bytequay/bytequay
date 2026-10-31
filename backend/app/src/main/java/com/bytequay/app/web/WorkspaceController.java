@@ -254,10 +254,10 @@ public class WorkspaceController
         return WorkspaceSummary.of(workspaces.requestSync(workspaceId));
     }
 
-    @PutMapping("/{workspaceId}/upstream")
-    public WorkspaceSummary setUpstream(@PathVariable String workspaceId, @RequestBody UpstreamRequest request)
+    @DeleteMapping("/{workspaceId}/upstream")
+    public WorkspaceSummary unlinkUpstream(@PathVariable String workspaceId)
     {
-        return WorkspaceSummary.of(workspaces.setUpstream(workspaceId, Optional.ofNullable(request.upstreamRepositoryId())));
+        return WorkspaceSummary.of(workspaces.unlinkUpstream(workspaceId));
     }
 
     @DeleteMapping("/{workspaceId}")
@@ -399,8 +399,6 @@ public class WorkspaceController
     public record IssueEpicRequest(boolean isEpic) {}
 
     public record IssueMetadataRequest(List<String> assignees, List<String> labels) {}
-
-    public record UpstreamRequest(Long upstreamRepositoryId) {}
 
     public record RenameRequest(String name) {}
 

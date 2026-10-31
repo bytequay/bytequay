@@ -450,7 +450,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
               settings={wsSettings}
               error={error}
               onUnlinkUpstream={() => {
-                window.bridge.setWorkspaceUpstream(workspace.id, null).then(refreshWorkspaceSettings).catch(report);
+                window.bridge.unlinkWorkspaceUpstream(workspace.id).then(refreshWorkspaceSettings).catch(report);
               }}
               onSaveTarget={branch => {
                 window.bridge.setWorkspaceCommitsTarget(workspace.id, branch).then(refreshWorkspaceSettings).catch(report);

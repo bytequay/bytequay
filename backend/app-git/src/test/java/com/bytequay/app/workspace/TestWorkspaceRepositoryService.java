@@ -28,6 +28,7 @@ import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import com.bytequay.core.store.RemoteSourceStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -516,6 +517,7 @@ class TestWorkspaceRepositoryService
     private static HostingConnectionService connections()
     {
         HostingConnectionService connections = mock(HostingConnectionService.class);
+        when(connections.readSession(7)).thenReturn(SIGN_IN);
         when(connections.resolveRepositoryById(eq(SIGN_IN), anyString())).thenAnswer(call -> {
             String remoteId = call.getArgument(1);
             return new HostingRepository(1000 + Long.parseLong(remoteId), 1, remoteId, "owner/repository-" + remoteId, URI.create("https://github.com/owner/repository"),
@@ -580,47 +582,22 @@ class TestWorkspaceRepositoryService
     }
 
     @Test
-    void linksAndUnlinksAnyReadableRepository()
+    void unlinkingTheUpstreamKeepsTheWorkspaceBoundToItsAccount()
     {
-        when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
+        when(gitHub.fetchRepository("token", 200L)).thenReturn(Optional.of(fork(200, 300)));
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(direct(300, "upstream")));
         WorkspaceRepositoryService service = service(store, gitHub);
-        Workspace selected = store.save(watch(service, 100)
+        Workspace fork = store.save(watch(service, 200, Optional.of(Topology.FORK))
                 .withCodeSyncAt(Optional.of(NOW), NOW)
                 .withMetadataSyncAt(Optional.of(NOW), NOW));
+        assertThat(store.findHostingBinding(fork.id())).contains(new WorkspaceHostingBinding(fork.id(), 7, 1200, Optional.of(1300L)));
 
-        Workspace linked = service.setUpstream(selected.id(), Optional.of(300L));
-
-        assertThat(store.findAll()).hasSize(1);
-        assertThat(linked.upstreamRepositoryId()).contains(300L);
-        assertThat(linked.upstreamRepository()).contains(RepoRef.of("upstream", "project"));
-        assertThat(linked.monitoredRepository()).isEqualTo(RepoRef.of("upstream", "project"));
-        assertThat(linked.upstreamDefaultBranch()).contains("main");
-
-        store.save(linked.withCodeSyncAt(Optional.of(NOW), NOW)
-                .withMetadataSyncAt(Optional.of(NOW), NOW));
-        Workspace unlinked = service.setUpstream(selected.id(), Optional.empty());
+        Workspace unlinked = service.unlinkUpstream(fork.id());
 
         assertThat(unlinked.upstreamRepository()).isEmpty();
-        assertThat(unlinked.monitoredRepository()).isEqualTo(selected.selectedRepository());
-    }
-
-    @Test
-    void rejectsSelectedAndUnreadableUpstreamRepositories()
-    {
-        when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
-        when(gitHub.fetchRepository("token", 999L)).thenReturn(Optional.empty());
-        WorkspaceRepositoryService service = service(store, gitHub);
-        Workspace selected = store.save(watch(service, 100)
-                .withCodeSyncAt(Optional.of(NOW), NOW)
-                .withMetadataSyncAt(Optional.of(NOW), NOW));
-
-        assertThatThrownBy(() -> service.setUpstream(selected.id(), Optional.of(100L)))
-                .isInstanceOfSatisfying(WorkspaceException.class,
-                        failure -> assertThat(failure.code()).isEqualTo("WORKSPACE_UPSTREAM_INVALID"));
-        assertThatThrownBy(() -> service.setUpstream(selected.id(), Optional.of(999L)))
-                .isInstanceOfSatisfying(WorkspaceException.class,
-                        failure -> assertThat(failure.code()).isEqualTo("WORKSPACE_UPSTREAM_INVALID"));
+        assertThat(unlinked.monitoredRepository()).isEqualTo(fork.selectedRepository());
+        assertThat(store.findHostingBinding(fork.id())).contains(new WorkspaceHostingBinding(fork.id(), 7, 1200, Optional.empty()));
+        assertThat(service.unlinkUpstream(fork.id())).isEqualTo(unlinked);
     }
 
     @Test
@@ -761,7 +738,7 @@ class TestWorkspaceRepositoryService
         when(gitHub.findOwnedFork("token", upstream, "owner")).thenReturn(Optional.of(fork(200, 300)));
         WorkspaceRepositoryService service = service(store, gitHub);
         Workspace workspace = watch(service, 200, Optional.of(Topology.FORK));
-        service.setUpstream(workspace.id(), Optional.empty());
+        service.unlinkUpstream(workspace.id());
 
         assertThat(service.previewWatch(300, Optional.empty()).existingWorkspaceId()).isEmpty();
         Workspace relinked = watch(service, 300);
@@ -770,6 +747,7 @@ class TestWorkspaceRepositoryService
         assertThat(relinked.selectedRepositoryId()).isEqualTo(workspace.selectedRepositoryId());
         assertThat(relinked.localRepositoryPath()).isEqualTo(workspace.localRepositoryPath());
         assertThat(relinked.upstreamRepositoryId()).contains(300L);
+        assertThat(store.findHostingBinding(workspace.id())).contains(new WorkspaceHostingBinding(workspace.id(), 7, 1200, Optional.of(1300L)));
         assertThat(store.findAll()).hasSize(1);
     }
 

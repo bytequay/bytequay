@@ -2037,14 +2037,10 @@ function registerIpc(): void {
     backendJson(workspaceUrl(workspaceId, `/sync`), {
       method: 'POST',
     }));
-  ipcMain.handle('workspaces:upstream', (
-    _event,
-    workspaceId: string,
-    upstreamRepositoryId: number | null,
-  ) => backendJson(
-    workspaceUrl(workspaceId, `/upstream`),
-    jsonInit('PUT', { upstreamRepositoryId }),
-  ));
+  ipcMain.handle('workspaces:unlink-upstream', (_event, workspaceId: string) =>
+    backendJson(workspaceUrl(workspaceId, `/upstream`), {
+      method: 'DELETE',
+    }));
   ipcMain.handle('workspaces:remove', (_event, workspaceId: string) =>
     backendJson(workspaceUrl(workspaceId), {
       method: 'DELETE',

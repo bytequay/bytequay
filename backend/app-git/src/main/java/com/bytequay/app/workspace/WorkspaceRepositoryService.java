@@ -26,6 +26,7 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.hosting.HostingCapabilities;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import com.bytequay.core.store.RemoteSourceStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -200,7 +201,7 @@ public class WorkspaceRepositoryService
         if (existing.isPresent()) {
             Workspace workspace = existing.orElseThrow();
             return WorkspaceOperationLocks.withLock(workspace.id(), () -> {
-                setUpstream(workspace.id(), routing.upstream().map(UserRepo::id));
+                routeUpstream(workspace.id(), routing.upstream());
                 store.setWatched(workspace.id(), true);
                 return requestSyncAfterConfigurationChange(workspace.id());
             });
@@ -338,23 +339,33 @@ public class WorkspaceRepositoryService
     }
 
     /**
-     * Selects a GitHub-readable repository as upstream, or unlinks it when empty.
+     * Unlinks the workspace's upstream; the workspace stays bound to its account.
      *
-     * @param workspaceId workspace whose upstream changes
-     * @param upstreamRepositoryId stable GitHub repository ID, or empty to unlink
+     * @param workspaceId workspace whose upstream is unlinked
      * @return the updated workspace after synchronization is accepted
      */
-    public Workspace setUpstream(String workspaceId, Optional<Long> upstreamRepositoryId)
+    public Workspace unlinkUpstream(String workspaceId)
     {
-        requireNonNull(upstreamRepositoryId, "upstreamRepositoryId is null");
+        return routeUpstream(workspaceId, Optional.empty());
+    }
+
+    /** Monitors {@code upstream}, or the selected repository when empty, and binds the workspace again to the repositories it now reads. */
+    private Workspace routeUpstream(String workspaceId, Optional<UserRepo> upstream)
+    {
         Workspace workspace = requireFeature(store, workspaceId, HostingCapabilities::forkWorkflows);
-        if (workspace.upstreamRepositoryId().equals(upstreamRepositoryId)) {
+        if (workspace.upstreamRepositoryId().equals(upstream.map(UserRepo::id))) {
             return workspace;
         }
         if (codeRefreshes.contains(workspace.id()) || store.hasActiveWorkflows(workspace.id())) {
             throw WorkspaceException.busy();
         }
-        Optional<UserRepo> upstream = upstreamRepositoryId.map(id -> requireUpstream(workspace, id));
+        upstream.ifPresent(value -> {
+            if (value.id() == workspace.selectedRepositoryId()) {
+                throw WorkspaceException.invalidUpstream("A workspace cannot use its selected repository as upstream.");
+            }
+            validate(value);
+        });
+        Optional<WorkspaceHostingBinding> binding = store.findHostingBinding(workspace.id());
         Instant now = clock.instant();
         Optional<RepoRef> upstreamRef = upstream.map(value -> RepoRef.of(value.owner(), value.name()));
         Workspace linked = workspace.withRepositoryRouting(
@@ -369,6 +380,12 @@ public class WorkspaceRepositoryService
                 upstream.map(UserRepo::cloneUrl),
                 now);
         Workspace saved = store.save(linked.withMetadataSyncAt(Optional.empty(), now));
+        // Saving new routing drops the binding; the account and selected repository stay, and the upstream follows the routing.
+        binding.ifPresent(value -> {
+            HostingReadSession session = connections.readSession(value.accountId());
+            store.bindHosting(saved.id(), value.accountId(), value.selectedRepositoryId(),
+                    upstream.map(repository -> connections.resolveRepositoryById(session, Long.toString(repository.id())).id()));
+        });
         return requestSyncAfterConfigurationChange(saved.id());
     }
 
@@ -449,24 +466,6 @@ public class WorkspaceRepositoryService
         Workspace saved = store.createHosted(proposed, session.accountId(), selectedRepository.id(), upstreamRepository);
         scheduleIncompleteWork(saved);
         return saved;
-    }
-
-    private UserRepo requireUpstream(Workspace workspace, long upstreamRepositoryId)
-    {
-        if (upstreamRepositoryId <= 0) {
-            throw WorkspaceException.invalidUpstream("Choose a GitHub repository to link.");
-        }
-        if (workspace.selectedRepositoryId() == upstreamRepositoryId) {
-            throw WorkspaceException.invalidUpstream("A workspace cannot use its selected repository as upstream.");
-        }
-        UserRepo upstream = gitHub.fetchRepository(credentials.resolveGitHubToken(), upstreamRepositoryId)
-                .orElseThrow(() -> WorkspaceException.invalidUpstream(
-                        "The upstream repository is not readable by the connected GitHub account."));
-        if (upstream.id() != upstreamRepositoryId) {
-            throw WorkspaceException.invalidUpstream("The upstream repository identity changed. Search again.");
-        }
-        validate(upstream);
-        return upstream;
     }
 
     private RepositorySearchResult toSearchResult(UserRepo repository)

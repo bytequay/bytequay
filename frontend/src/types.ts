@@ -1863,10 +1863,7 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
     labels: string[],
   ) => Promise<WorkspaceIssueMetadataDto>;
   syncWorkspace: (workspaceId: string) => Promise<WorkspaceDto>;
-  setWorkspaceUpstream: (
-    workspaceId: string,
-    upstreamRepositoryId: number | null,
-  ) => Promise<WorkspaceDto>;
+  unlinkWorkspaceUpstream: (workspaceId: string) => Promise<WorkspaceDto>;
   removeWorkspace: (workspaceId: string) => Promise<void>;
   deleteWorkspace: (workspaceId: string, confirmed: boolean, repositoryName: string) => Promise<void>;
   getRepositoryAvatar: (owner: string, refresh?: boolean) => Promise<string | null>;

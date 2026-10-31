@@ -206,7 +206,7 @@ const bridge: Bridge = {
   updateWorkspaceIssueType: invoke('workspaces:issues:type:update'),
   updateWorkspaceIssueMetadata: invoke('workspaces:issues:metadata:update'),
   syncWorkspace: invoke('workspaces:sync'),
-  setWorkspaceUpstream: invoke('workspaces:upstream'),
+  unlinkWorkspaceUpstream: invoke('workspaces:unlink-upstream'),
   removeWorkspace: invoke('workspaces:remove'),
   deleteWorkspace: invoke('workspaces:delete'),
   getRepositoryAvatar: invoke('repos:avatar'),

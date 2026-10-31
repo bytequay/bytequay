@@ -169,7 +169,7 @@ public class MemoryHarvestService
                 ? harvest.pulls().stream().map(pull -> new Cursor(pull.number(), pull.closedAt())).max(Cursor.ORDER).filter(newest -> state.cursor()
                         .map(current -> Cursor.ORDER.compare(newest, current) > 0).orElse(true)).or(state::cursor)
                 : state.cursor();
-        List<String> seen = completed ? remember(state.seen(), harvest.threads().stream().map(HarvestThread::githubId).collect(toImmutableList())) : state.seen();
+        List<String> seen = completed ? remember(state.seen(), harvest.threads().stream().map(HarvestThread::remoteId).collect(toImmutableList())) : state.seen();
         save(build.workspaceId(), new HarvestState(cursor, seen, Optional.of(new LastRun(harvest.harvestId(), harvest.label(), build.requestedAt(),
                 Optional.of(clock.instant()), harvest.pulls().size(), harvest.threads().size(), saved, seenAgain, replaced,
                 completed ? LastRun.Outcome.DONE : LastRun.Outcome.FAILED))));
@@ -289,7 +289,7 @@ public class MemoryHarvestService
      * What a workspace's harvests have read so far.
      *
      * @param cursor the newest pull request Learn from my PRs has read past
-     * @param seen GitHub's ids of the threads and notes harvests have read, newest last
+     * @param seen the provider's ids of the threads and notes harvests have read, newest last
      */
     public record HarvestState(Optional<Cursor> cursor, List<String> seen, Optional<LastRun> last)
     {

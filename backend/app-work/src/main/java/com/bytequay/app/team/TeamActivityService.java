@@ -261,7 +261,7 @@ public class TeamActivityService
                 .ifPresent(detail -> {
                     for (PrReviewState review : detail.reviews()) {
                         Long actorId = verified.get(review.login().toLowerCase(Locale.ROOT));
-                        if (actorId == null || review.githubId() == null || review.submittedAt() == null || review.state().equalsIgnoreCase("pending")) {
+                        if (actorId == null || review.remoteId() == null || review.submittedAt() == null || review.state().equalsIgnoreCase("pending")) {
                             continue;
                         }
                         List<Long> direct = new ArrayList<>();
@@ -273,7 +273,7 @@ public class TeamActivityService
                                 direct.add(memberId);
                             }
                         });
-                        cached.add(new TeamActivityEvent("review:" + review.githubId(), "PR_REVIEWED", actorId, review.login(), subject.repository(), subject.number(),
+                        cached.add(new TeamActivityEvent("review:" + review.remoteId(), "PR_REVIEWED", actorId, review.login(), subject.repository(), subject.number(),
                                 subject.title(), subject.url(), review.submittedAt(), subject.subjectAuthorId(), subject.subjectAuthorLogin(), "CACHED_DETAIL", direct));
                     }
                 }));

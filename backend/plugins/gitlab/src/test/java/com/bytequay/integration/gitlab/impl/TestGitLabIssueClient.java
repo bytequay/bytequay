@@ -136,7 +136,7 @@ class TestGitLabIssueClient
 
         var result = client.comment(target(), 7, "/close");
 
-        assertThat(result.githubId()).isNull();
+        assertThat(result.remoteId()).isNull();
         assertThat(result.timestamp()).isNull();
         assertThat(result.event()).isEqualTo("system");
         assertThat(result.body()).isEqualTo("Closed this issue.");

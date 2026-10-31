@@ -97,7 +97,7 @@ class TestGitHubPullRequestWriteClient
 
         assertThat(client.submitReviewWithReplies("pat", PullRequestRef.of("owner", "repo", 7), "REQUEST_CHANGES", "Please fix", ImmutableList.of(
                 new InlineReviewComment("A.java", "New comment", 3, "RIGHT", null, null, "head", OptionalLong.empty()),
-                new InlineReviewComment("A.java", "Reply", 1, "RIGHT", null, null, null, OptionalLong.of(61))), ImmutableMap.of(61L, "PRRT_61"), "head").githubId()).isEqualTo(77);
+                new InlineReviewComment("A.java", "Reply", 1, "RIGHT", null, null, null, OptionalLong.of(61))), ImmutableMap.of(61L, "PRRT_61"), "head").remoteId()).isEqualTo(77);
     }
 
     @Test
@@ -353,7 +353,7 @@ class TestGitHubPullRequestWriteClient
                 PullRequestRef.of("upstream", "project", 12),
                 new InlineReviewComment("src/Main.java", "Please simplify this", 18, "RIGHT", 16, "RIGHT", "head-sha", OptionalLong.empty()));
 
-        assertThat(posted.githubId()).isEqualTo(91);
+        assertThat(posted.remoteId()).isEqualTo(91);
         assertThat(posted.event()).isEqualTo("review_thread");
         assertThat(posted.actor()).isEqualTo("me");
         assertThat(posted.timestamp()).isEqualTo(java.time.Instant.parse("2026-08-25T05:00:00Z"));
@@ -368,7 +368,7 @@ class TestGitHubPullRequestWriteClient
         assertThat(posted.payload().resolved()).isFalse();
         assertThat(posted.payload().outdated()).isFalse();
         assertThat(posted.payload().comments()).singleElement().satisfies(comment -> {
-            assertThat(comment.githubId()).isEqualTo(91);
+            assertThat(comment.remoteId()).isEqualTo(91);
             assertThat(comment.actor()).isEqualTo("me");
             assertThat(comment.body()).isEqualTo("Please simplify this");
             assertThat(comment.reviewId()).isEqualTo(77);

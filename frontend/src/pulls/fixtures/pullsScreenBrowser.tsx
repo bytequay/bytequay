@@ -188,7 +188,7 @@ export async function runMainScreen(keepMounted = false, explore = false, missin
     button('WorkBench').click(); await settle();
     button('Changes').click(); await settle();
 
-    detail = { ...detail, updatedAt: '2026-01-02T00:00:00Z', labels: [{ name: 'reviewed-label', color: 'aabbcc' }], recentActivity: [timelineActivity({ actor: 'alice', eventType: 'commented', timestamp: '2026-01-02T00:00:00Z', body: 'New timeline discussion', githubId: 99 }, { ...payload, reactions: [{ content: '+1', count: 1, viewerHasReacted: false }] })] };
+    detail = { ...detail, updatedAt: '2026-01-02T00:00:00Z', labels: [{ name: 'reviewed-label', color: 'aabbcc' }], recentActivity: [timelineActivity({ actor: 'alice', eventType: 'commented', timestamp: '2026-01-02T00:00:00Z', body: 'New timeline discussion', remoteId: 99 }, { ...payload, reactions: [{ content: '+1', count: 1, viewerHasReacted: false }] })] };
     await tick();
     assert(host.querySelector<HTMLInputElement>('[aria-label="Deselect one: one"]')?.checked === true && defaultReads === 1,
       'Discussion and reactions must not reset the selected commit or reload all changes');
@@ -553,7 +553,7 @@ export async function runOverlayChangesStream(): Promise<string> {
 export async function runMergeWhenReady(): Promise<string> {
   const detail = prDetail({
     headSha: 'displayed-head', ciStatus: 'PENDING', mergeableState: 'blocked',
-    checkRuns: [{ githubId: 1, name: 'PR tests', status: 'in_progress', conclusion: null,
+    checkRuns: [{ remoteId: 1, name: 'PR tests', status: 'in_progress', conclusion: null,
       detailsUrl: null, source: 'check_run', startedAt: null, completedAt: null, category: 'pending' }],
   });
   const pr = remotePullRequest(detail, 'bob');
@@ -618,14 +618,14 @@ export async function runMergeWhenReady(): Promise<string> {
 
 export async function runMergeQueueRemoval(keepMounted = false): Promise<string> {
   const detail: PullRequestDetailDto = { ...reviewDetail(reviewFixture()), draft: false, viewerCanWrite: true,
-    recentActivity: [timelineActivity({ actor: 'github-merge-queue', eventType: 'removed_from_merge_queue', timestamp: '2026-10-17T07:39:43Z', githubId: 71 }, { ...payload, mergeQueueRemoval: {
+    recentActivity: [timelineActivity({ actor: 'github-merge-queue', eventType: 'removed_from_merge_queue', timestamp: '2026-10-17T07:39:43Z', remoteId: 71 }, { ...payload, mergeQueueRemoval: {
         reason: 'failed_checks', commitUrl: 'https://github.com/owner/repo/commit/queue-sha',
         failedChecks: [
           { name: 'core-ci / run-ci-tests (integration-6, standard)', url: 'https://github.com/owner/repo/actions/runs/1/job/2' },
           { name: 'run-e2e-test / e2e-tests', url: 'https://github.com/owner/repo/actions/runs/3/job/4' },
         ],
       } })],
-    checkRuns: [{ githubId: 1, name: 'PR tests', status: 'completed', conclusion: 'success',
+    checkRuns: [{ remoteId: 1, name: 'PR tests', status: 'completed', conclusion: 'success',
       detailsUrl: null, source: 'check_run', startedAt: null, completedAt: null, category: 'successful' }],
   };
   const { host, root, dispose } = createFixtureRoot();
@@ -1240,7 +1240,7 @@ export async function runSelectionStability(): Promise<string> {
 export async function runCheckLogs(): Promise<string> {
   const detail = reviewDetail(reviewFixture());
   detail.ciStatus = 'FAILING';
-  detail.checkRuns = [{ githubId: 301, name: 'Unit tests', status: 'completed', conclusion: 'failure',
+  detail.checkRuns = [{ remoteId: 301, name: 'Unit tests', status: 'completed', conclusion: 'failure',
     detailsUrl: 'https://github.com/owner/repo/actions/runs/101/job/301', source: 'job',
     startedAt: null, completedAt: null, category: 'failing' }];
   type CheckLog = Awaited<ReturnType<Bridge['getPrCheckLog']>>;
@@ -1335,7 +1335,7 @@ export async function runCheckLogs(): Promise<string> {
     render();
     assert(host.querySelector('.pr-check__log') === null, 'Switching PR must clear annotations and download errors');
     click('Show log');
-    detail.checkRuns = [{ ...detail.checkRuns[0], githubId: 302, detailsUrl: 'https://github.com/owner/repo/actions/runs/101/job/302' }];
+    detail.checkRuns = [{ ...detail.checkRuns[0], remoteId: 302, detailsUrl: 'https://github.com/owner/repo/actions/runs/101/job/302' }];
     render();
     requests[7].resolve({ text: annotation, unavailableReason: 'Late response for the previous attempt' });
     await settle();
@@ -1665,8 +1665,8 @@ export async function runPrivateThreads(answeredBy: 'task' | 'review' | 'history
     body: 'Resolves owners.',
     deletions: 1,
     recentActivity: [
-      timelineActivity({ actor: 'carol', eventType: 'commented', timestamp: at, body: 'Should this cache be keyed by id?', githubId: 81 }, payload),
-      timelineActivity({ actor: 'alice', eventType: 'commented', timestamp: at, body: 'Good point, checking.', githubId: 82 }, payload),
+      timelineActivity({ actor: 'carol', eventType: 'commented', timestamp: at, body: 'Should this cache be keyed by id?', remoteId: 81 }, payload),
+      timelineActivity({ actor: 'alice', eventType: 'commented', timestamp: at, body: 'Good point, checking.', remoteId: 82 }, payload),
     ],
   });
   const task: AgentTaskDto = { ...previewTask('workspace-1', 'development-task'), checkoutRemovedAt: null };
@@ -1800,10 +1800,10 @@ export async function runPreparePrivateThreads(mode: 'ready' | 'failure' | 'mode
   setCached(`private-thread-drafts:${localId}`, undefined);
   const review = reviewFixture({ repo, number, workspaceId: 'workspace-1', runs: [], findings: [] });
   const detail: PullRequestDetailDto = { ...reviewDetail(review), id: localId, recentActivity: [
-    timelineActivity({ actor: 'carol', eventType: 'commented', timestamp: null, body: 'The caller already handles this exception.', githubId: 8101 }, payload),
+    timelineActivity({ actor: 'carol', eventType: 'commented', timestamp: null, body: 'The caller already handles this exception.', remoteId: 8101 }, payload),
   ] };
   const nextDetail: PullRequestDetailDto = { ...detail, id: localId + 1, number: number + 1, title: 'Another pull request', recentActivity: [
-    timelineActivity({ actor: 'dave', eventType: 'commented', timestamp: null, body: 'Please check the next PR.', githubId: 8102 }, payload),
+    timelineActivity({ actor: 'dave', eventType: 'commented', timestamp: null, body: 'Please check the next PR.', remoteId: 8102 }, payload),
   ] };
   const repository = { owner: 'comment-tests', repo: mode };
   const workspace = workspaceFixture({

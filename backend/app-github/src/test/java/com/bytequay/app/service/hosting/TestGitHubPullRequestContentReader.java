@@ -302,8 +302,8 @@ class TestGitHubPullRequestContentReader
                 headSha, "feature", null);
     }
 
-    private static PrTimelineEvent comment(Long githubId, String actor, Instant timestamp, String body)
+    private static PrTimelineEvent comment(Long remoteId, String actor, Instant timestamp, String body)
     {
-        return new PrTimelineEvent(githubId, "commented", actor, timestamp, body, Optional.empty());
+        return new PrTimelineEvent(remoteId, "commented", actor, timestamp, body, Optional.empty());
     }
 }

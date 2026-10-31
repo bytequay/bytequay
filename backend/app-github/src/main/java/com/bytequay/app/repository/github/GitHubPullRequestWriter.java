@@ -173,9 +173,9 @@ public class GitHubPullRequestWriter
         PrReviewState created = replies.isEmpty() ? writes.submitReview(token, ref, event, body, comments, commitId)
                 : writes.submitReviewWithReplies(token, ref, event, body, comments, replies, commitId);
         List<PrTimelineEvent> threads = ImmutableList.of();
-        if (!comments.isEmpty() && created.githubId() != null) {
+        if (!comments.isEmpty() && created.remoteId() != null) {
             try {
-                threads = replies.isEmpty() ? reads.fetchReviewComments(token, ref, created.githubId()) : reads.fetchPrReviewThreads(token, ref);
+                threads = replies.isEmpty() ? reads.fetchReviewComments(token, ref, created.remoteId()) : reads.fetchPrReviewThreads(token, ref);
             }
             catch (RuntimeException failure) {
                 log.warn("Review was posted but its threads could not be read: {}", failure.toString());

@@ -1056,7 +1056,7 @@ function DiffFileCard({
           </td></tr>
         ))}
         {reviewThreads && rowThreads.map(activity => (
-          <tr className={`is-review-thread is-${displayRow.kind}`} key={`thread:${activity.githubId}`}><td colSpan={3}>
+          <tr className={`is-review-thread is-${displayRow.kind}`} key={`thread:${activity.remoteId}`}><td colSpan={3}>
             <ReviewThread {...reviewThreads} activity={activity} viewerLogin={viewer?.login} showCode={false} />
           </td></tr>
         ))}
@@ -1283,7 +1283,7 @@ function UnplacedReviewThreads({ reviewThreads, viewerLogin, activities, label }
   if (activities.length === 0) return null;
   return <section className="pull-diff-threads" aria-label={label}>
     <p>{label}</p>
-    {activities.map(activity => <ReviewThread {...reviewThreads} activity={activity} viewerLogin={viewerLogin} key={activity.githubId} />)}
+    {activities.map(activity => <ReviewThread {...reviewThreads} activity={activity} viewerLogin={viewerLogin} key={activity.remoteId} />)}
   </section>;
 }
 

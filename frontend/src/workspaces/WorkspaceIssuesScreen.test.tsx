@@ -37,16 +37,16 @@ const issue = {
 };
 
 const timeline: WorkspaceIssueTimelineEventDto[] = [
-  { githubId: 1, event: 'assigned', actor: 'alice', timestamp: '2026-08-20T11:00:00Z', body: null, payload: { ...payload, assignee: 'bob' } },
+  { remoteId: 1, event: 'assigned', actor: 'alice', timestamp: '2026-08-20T11:00:00Z', body: null, payload: { ...payload, assignee: 'bob' } },
   {
-    githubId: 2,
+    remoteId: 2,
     event: 'commented',
     actor: 'carol',
     timestamp: '2026-08-21T10:00:00Z',
     body: 'I can reproduce this.',
     payload: { ...payload, actorAvatarUrl: 'https://avatars.example/carol', reactions: [{ content: '+1', count: 2 }] },
   },
-  { githubId: 4, event: 'unassigned', actor: 'alice', timestamp: '2026-08-21T11:00:00Z', body: null, payload: { ...payload, assignee: 'bob' } },
+  { remoteId: 4, event: 'unassigned', actor: 'alice', timestamp: '2026-08-21T11:00:00Z', body: null, payload: { ...payload, assignee: 'bob' } },
 ];
 
 const metadata: RepositoryMetadataDto = {
@@ -136,7 +136,7 @@ describe('WorkspaceIssuesScreen', () => {
   it('deduplicates participants and keeps the best avatar', () => {
     const participants = issueParticipants(issue, [
       ...timeline,
-      { githubId: 3, event: 'assigned', actor: 'BOB', timestamp: null, body: null, payload: { ...payload, actorAvatarUrl: 'https://avatars.example/bob' } },
+      { remoteId: 3, event: 'assigned', actor: 'BOB', timestamp: null, body: null, payload: { ...payload, actorAvatarUrl: 'https://avatars.example/bob' } },
     ]);
 
     expect(participants).toEqual([
@@ -163,7 +163,7 @@ describe('WorkspaceIssuesScreen', () => {
 
   it('links cross-referenced timeline events to the source preview', () => {
     const crossReference: WorkspaceIssueTimelineEventDto = {
-      githubId: 3,
+      remoteId: 3,
       event: 'cross-referenced',
       actor: 'bob',
       timestamp: '2026-08-21T11:00:00Z',

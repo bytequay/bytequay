@@ -199,7 +199,7 @@ public class WorkspacePullRequestService
                 if (execution.delivery().isEmpty()) {
                     execution = executions.save(execution.recordPush("origin", execution.workspace().workBranch(), execution.currentTargetSha(), clock.instant()));
                 }
-                execution = executions.save(execution.recordPullRequest(row.githubId(), row.number(), row.htmlUrl(), clock.instant()));
+                execution = executions.save(execution.recordPullRequest(row.remoteId(), row.number(), row.htmlUrl(), clock.instant()));
                 if (pr.state() == PullRequestIdentity.State.OPEN) {
                     requireChain(chainId, index);
                     activatePullRequest(workspace, execution, execution.delivery().orElseThrow());
@@ -263,7 +263,7 @@ public class WorkspacePullRequestService
                     checkState(identity.state() == PullRequestIdentity.State.OPEN && identity.headSha().equals(execution.currentTargetSha())
                                     && identity.pullRequest().number() == row.number() && identity.url().equals(row.htmlUrl()),
                             "The existing pull request does not match the published cherry-pick head");
-                    execution = executions.save(execution.recordPullRequest(row.githubId(), row.number(), row.htmlUrl(), clock.instant()));
+                    execution = executions.save(execution.recordPullRequest(row.remoteId(), row.number(), row.htmlUrl(), clock.instant()));
                 }
                 else {
                     PullRequestDraft draft = execution.pullRequestDraft().orElseThrow();

@@ -162,7 +162,7 @@ public class GitHubPullRequestContentReader
     {
         PullRequestRef ref = ref(target, number);
         List<PrCheckRunState> cached = existing.stream()
-                .map(check -> "job".equals(check.source()) ? withSource(check, check.githubId(), "check_run") : check).collect(toImmutableList());
+                .map(check -> "job".equals(check.source()) ? withSource(check, check.remoteId(), "check_run") : check).collect(toImmutableList());
         var result = actions.refreshPrCheckRuns(target.access().token(), ref.owner(), ref.repo(), headSha, cached, checksEtag, statusesEtag);
         return new Checks(result.checkRuns().stream().map(GitHubPullRequestContentReader::normalizeJob).collect(toImmutableList()),
                 result.checkRunsEtag(), result.commitStatusesEtag(), true);

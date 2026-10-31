@@ -311,7 +311,7 @@ public class PullRequestCiBridgeResolverImpl
         ArrayNode checks = cached.putArray("checks");
         for (PrCheckRunState check : detail.checkRuns().stream()
                 .sorted(Comparator.comparing((PrCheckRunState value) -> "success".equals(value.conclusion()))).toList()) {
-            ObjectNode value = objectMapper.createObjectNode().put("id", check.githubId());
+            ObjectNode value = objectMapper.createObjectNode().put("id", check.remoteId());
             text(value, "name", check.name(), 500);
             text(value, "status", check.status(), 100);
             text(value, "conclusion", check.conclusion(), 100);

@@ -211,7 +211,7 @@ class TestReviewCommentReader
 
     private static PrTimelineEvent thread(PrTimelinePayload.Builder payload, PrTimelineComment... comments)
     {
-        return new PrTimelineEvent(comments[0].githubId(), "review_thread", comments[0].actor(), comments[0].timestamp(), null,
+        return new PrTimelineEvent(comments[0].remoteId(), "review_thread", comments[0].actor(), comments[0].timestamp(), null,
                 payload.comments(ImmutableList.copyOf(comments)).build(), Optional.empty());
     }
 

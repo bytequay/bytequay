@@ -920,7 +920,7 @@ class TestGitHubActionsClient
         List<PrCheckRunState> checks = fixture.client.refreshPrCheckRuns("pat", "owner", "repo", "head", ImmutableList.of(), Optional.empty(), Optional.empty()).checkRuns();
         PrCheckRunState check = checks.getFirst();
 
-        assertThat(check.githubId()).isEqualTo(99L);
+        assertThat(check.remoteId()).isEqualTo(99L);
         assertThat(check.name()).isEqualTo("build");
         assertThat(check.conclusion()).isEqualTo("failure");
         assertThat(check.startedAt()).isEqualTo(Instant.parse("2026-08-25T12:30:00Z"));

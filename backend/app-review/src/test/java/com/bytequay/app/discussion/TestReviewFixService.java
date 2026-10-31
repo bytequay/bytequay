@@ -321,7 +321,7 @@ class TestReviewFixService
         List<PrTimelineComment> withRoot = ImmutableList.<PrTimelineComment>builder()
                 .add(new PrTimelineComment(id, "reviewer", null, false, CREATED.plusSeconds(1), "Thread opened.", URL + "#r" + id, null, null, ImmutableList.of()))
                 .addAll(ImmutableList.copyOf(comments).stream()
-                        .map(comment -> new PrTimelineComment(comment.githubId(), comment.actor(), null, comment.actorBot(), comment.timestamp(), comment.body(),
+                        .map(comment -> new PrTimelineComment(comment.remoteId(), comment.actor(), null, comment.actorBot(), comment.timestamp(), comment.body(),
                                 comment.htmlUrl(), null, id, ImmutableList.of()))
                         .collect(toImmutableList()))
                 .build();

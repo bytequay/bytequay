@@ -35,7 +35,7 @@ afterEach(() => { vi.unstubAllGlobals(); });
 
 describe('PullOverview', () => {
   it('shows queue-removal reasons with collapsed failed checks in the timeline and merge dialog', () => {
-    const removal: PullRequestDetailDto['recentActivity'][number] = timelineActivity({ actor: 'github-merge-queue', eventType: 'removed_from_merge_queue', timestamp: '2026-08-20T09:10:00Z', githubId: 71 }, { mergeQueueRemoval: { reason: 'failed_checks', commitUrl: 'https://github.com/owner/repo/commit/queue-sha',
+    const removal: PullRequestDetailDto['recentActivity'][number] = timelineActivity({ actor: 'github-merge-queue', eventType: 'removed_from_merge_queue', timestamp: '2026-08-20T09:10:00Z', remoteId: 71 }, { mergeQueueRemoval: { reason: 'failed_checks', commitUrl: 'https://github.com/owner/repo/commit/queue-sha',
         failedChecks: [{ name: 'integration', url: 'https://github.com/owner/repo/actions/runs/1/job/2' }] } });
     const value = { ...detail(), recentActivity: [removal] };
     for (const element of [
@@ -51,13 +51,13 @@ describe('PullOverview', () => {
       expect(html).toContain('href="https://github.com/owner/repo/commit/queue-sha/checks"');
       expect(html).toContain('#event-71');
     }
-    const queued = { ...value, recentActivity: [removal, { ...removal, githubId: 72, eventType: 'added_to_merge_queue' }] };
+    const queued = { ...value, recentActivity: [removal, { ...removal, remoteId: 72, eventType: 'added_to_merge_queue' }] };
     expect(renderToStaticMarkup(<MergeDialog pr={pullRequest()} detail={queued} mergeQueue onClose={() => {}} onRefresh={async () => {}} />))
       .not.toContain('Last removed from the merge queue');
   });
 
   it.each([null, 'merge_conflict', 'new_reason'])('keeps queue-removal details useful without failed check links (%s)', reason => {
-    const value: PullRequestDetailDto = { ...detail(), recentActivity: [timelineActivity({ actor: 'github-merge-queue', eventType: 'removed_from_merge_queue', timestamp: null, githubId: 71 }, { mergeQueueRemoval: reason ? { reason, commitUrl: null, failedChecks: [] } : null })] };
+    const value: PullRequestDetailDto = { ...detail(), recentActivity: [timelineActivity({ actor: 'github-merge-queue', eventType: 'removed_from_merge_queue', timestamp: null, remoteId: 71 }, { mergeQueueRemoval: reason ? { reason, commitUrl: null, failedChecks: [] } : null })] };
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
     expect(html).toContain(reason === null ? 'Removal reason unavailable.' : reason === 'merge_conflict'
       ? 'conflicted with the target branch or another queued change' : 'GitHub reason: new reason');
@@ -77,8 +77,8 @@ describe('PullOverview', () => {
         createdAt: '2026-08-20T09:15:00Z', turnId: null, queuedInputId: null, messageEventId: null, deliveryState: 'UNSENT', deliveryError: null }],
     };
     const value = { ...detail(), recentActivity: [
-      timelineActivity({ eventType: 'commented', timestamp: '2026-08-20T09:10:00Z', body: 'Earlier public discussion', githubId: 71 }),
-      timelineActivity({ eventType: 'commented', timestamp: '2026-08-20T09:20:00Z', body: 'Later public discussion', githubId: 72 }),
+      timelineActivity({ eventType: 'commented', timestamp: '2026-08-20T09:10:00Z', body: 'Earlier public discussion', remoteId: 71 }),
+      timelineActivity({ eventType: 'commented', timestamp: '2026-08-20T09:20:00Z', body: 'Later public discussion', remoteId: 72 }),
     ] };
     const html = renderToStaticMarkup(<PullOverview pr={pr} detail={value} onRefresh={async () => {}}
       localReview={{ threads: [local], onReply: async () => {}, onResolve: async () => {}, onRetry: async () => {} }} />);
@@ -183,7 +183,7 @@ describe('PullOverview', () => {
   it('keeps unresolved reviews blocked while queue checks run', () => {
     const value: PullRequestDetailDto = { ...detail(), viewerCanWrite: true, ciStatus: 'PENDING',
       checkRuns: [{ ...detail().checkRuns[0], status: 'in_progress', conclusion: null, category: 'pending' }],
-      recentActivity: [timelineActivity({ timestamp: null, githubId: 20 })],
+      recentActivity: [timelineActivity({ timestamp: null, remoteId: 20 })],
     };
     const props = { pr: pullRequest(), detail: value, mergeQueue: true, onClose: () => {}, onRefresh: async () => {} };
     const popup = renderToStaticMarkup(<MergeDialog {...props} />);
@@ -434,17 +434,17 @@ describe('PullOverview', () => {
     const reactions = [{ content: 'eyes' as const, count: 1, viewerHasReacted: true }];
     const optimistic = updatePullReactionDetail(current, 'pull_request', null, reactions);
     const response = detail();
-    response.recentActivity.push(timelineActivity({ actor: 'alice', eventType: 'commented', timestamp: '2026-08-20T10:10:00Z', body: 'New', githubId: 80 }));
+    response.recentActivity.push(timelineActivity({ actor: 'alice', eventType: 'commented', timestamp: '2026-08-20T10:10:00Z', body: 'New', remoteId: 80 }));
 
     const merged = mergePullRequestWriteDetail(optimistic, response);
 
     expect(merged.title).toBe('Edited title');
     expect(merged.body).toBe('Optimistic description');
     expect(merged.labels).toEqual([{ name: 'optimistic', color: 'abcdef' }]);
-    expect(merged.recentActivity.find(activity => activity.githubId === 3)?.payload.resolved).toBe(false);
+    expect(merged.recentActivity.find(activity => activity.remoteId === 3)?.payload.resolved).toBe(false);
     expect(merged.recentActivity.find(activity => activity.eventType === 'description_reactions')
       ?.payload.reactions).toBe(reactions);
-    expect(merged.recentActivity.some(activity => activity.githubId === 80)).toBe(true);
+    expect(merged.recentActivity.some(activity => activity.remoteId === 80)).toBe(true);
   });
 
   it('applies the successful comment response without requesting a full refresh', async () => {
@@ -460,11 +460,11 @@ describe('PullOverview', () => {
   });
 
   describe('private threads', () => {
-    const comment = (githubId: number | null, body: string, inReplyToId: number | null = null): PullTimelineCommentDto => (timelineComment({ githubId, actor: 'dave', timestamp: '2026-08-20T09:30:00Z', body, reviewId: 72, inReplyToId }));
+    const comment = (remoteId: number | null, body: string, inReplyToId: number | null = null): PullTimelineCommentDto => (timelineComment({ remoteId, actor: 'dave', timestamp: '2026-08-20T09:30:00Z', body, reviewId: 72, inReplyToId }));
     const value = (): PullRequestDetailDto => ({ ...detail(), recentActivity: [
-      timelineActivity({ eventType: 'commented', timestamp: '2026-08-20T09:10:00Z', body: 'Issue comment', githubId: 71 }),
-      timelineActivity({ actor: 'carol', eventType: 'reviewed', timestamp: '2026-08-20T09:20:00Z', body: 'Review body', githubId: 72 }),
-      timelineActivity({ actor: 'dave', timestamp: '2026-08-20T09:30:00Z', githubId: 74 }, { comments: [comment(73, 'Root comment'), comment(75, 'Reply in the middle', 73), comment(null, 'Unkeyed reply', 73)] }),
+      timelineActivity({ eventType: 'commented', timestamp: '2026-08-20T09:10:00Z', body: 'Issue comment', remoteId: 71 }),
+      timelineActivity({ actor: 'carol', eventType: 'reviewed', timestamp: '2026-08-20T09:20:00Z', body: 'Review body', remoteId: 72 }),
+      timelineActivity({ actor: 'dave', timestamp: '2026-08-20T09:30:00Z', remoteId: 74 }, { comments: [comment(73, 'Root comment'), comment(75, 'Reply in the middle', 73), comment(null, 'Unkeyed reply', 73)] }),
     ] });
     const threads = (forward: string | null = null): PrivateThreads => ({
       threads: new Map(), busy: false, busyReason: 'Answering elsewhere', disabledReason: null, forward, show: true,
@@ -502,11 +502,11 @@ describe('PullOverview', () => {
   it('wires reactions only to supported pull request targets', () => {
     const value = detail();
     value.recentActivity = [
-      timelineActivity({ eventType: 'commented', timestamp: '2026-08-20T09:10:00Z', body: 'Issue comment', githubId: 71 }, { reactions: [{ content: '+1', count: 1, viewerHasReacted: true }] }),
-      timelineActivity({ actor: 'carol', eventType: 'reviewed', timestamp: '2026-08-20T09:20:00Z', body: 'Review body', githubId: 72 }, { reactions: [{ content: 'heart', count: 1 }] }),
-      timelineActivity({ actor: 'dave', timestamp: '2026-08-20T09:30:00Z', githubId: 74 }, {
+      timelineActivity({ eventType: 'commented', timestamp: '2026-08-20T09:10:00Z', body: 'Issue comment', remoteId: 71 }, { reactions: [{ content: '+1', count: 1, viewerHasReacted: true }] }),
+      timelineActivity({ actor: 'carol', eventType: 'reviewed', timestamp: '2026-08-20T09:20:00Z', body: 'Review body', remoteId: 72 }, { reactions: [{ content: 'heart', count: 1 }] }),
+      timelineActivity({ actor: 'dave', timestamp: '2026-08-20T09:30:00Z', remoteId: 74 }, {
           comments: [timelineComment({
-            githubId: 73,
+            remoteId: 73,
             actor: 'dave',
             timestamp: '2026-08-20T09:30:00Z',
             body: 'Inline review comment',
@@ -858,9 +858,9 @@ describe('PullOverview', () => {
   it('shows commits and force pushes in the timeline', () => {
     const value = detail();
     value.recentActivity = [
-      timelineActivity({ actor: 'Yuri Ebbing', eventType: 'committed', timestamp: '2026-08-20T10:00:00Z', githubId: null }, { commitSha: '4f81d3193402', commitMessage: 'Retry BigQuery Storage Write API' }),
-      timelineActivity({ actor: 'ezra-b', eventType: 'head_ref_force_pushed', timestamp: '2026-08-20T10:02:00Z', githubId: 21 }),
-      timelineActivity({ actor: 'ezra-b', eventType: 'head_ref_force_pushed', timestamp: '2026-08-20T10:03:00Z', githubId: 22 }),
+      timelineActivity({ actor: 'Yuri Ebbing', eventType: 'committed', timestamp: '2026-08-20T10:00:00Z', remoteId: null }, { commitSha: '4f81d3193402', commitMessage: 'Retry BigQuery Storage Write API' }),
+      timelineActivity({ actor: 'ezra-b', eventType: 'head_ref_force_pushed', timestamp: '2026-08-20T10:02:00Z', remoteId: 21 }),
+      timelineActivity({ actor: 'ezra-b', eventType: 'head_ref_force_pushed', timestamp: '2026-08-20T10:03:00Z', remoteId: 22 }),
     ];
 
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
@@ -882,7 +882,7 @@ describe('PullOverview', () => {
   ])('names the deleted head branch from detail %s and summary %s', (headRef, summaryHeadRef, expected) => {
     const value = detail();
     value.headRef = headRef;
-    value.recentActivity = [timelineActivity({ actor: 'contributor', eventType: 'head_ref_deleted', timestamp: '2026-08-20T10:00:00Z', githubId: 23 })];
+    value.recentActivity = [timelineActivity({ actor: 'contributor', eventType: 'head_ref_deleted', timestamp: '2026-08-20T10:00:00Z', remoteId: 23 })];
 
     const html = renderToStaticMarkup(<PullOverview pr={{ ...pullRequest(), headRef: summaryHeadRef }} detail={value} onRefresh={async () => {}} />);
 
@@ -894,9 +894,9 @@ describe('PullOverview', () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-03T03:03:15Z'));
     const value = detail();
     value.recentActivity = [
-      timelineActivity({ actor: 'ravi-moreau', eventType: 'review_requested', timestamp: '2026-09-02T12:03:15Z', githubId: 1 }, { requestedReviewer: 'wren-d' }),
-      timelineActivity({ actor: 'ravi-moreau', eventType: 'review_requested', timestamp: '2026-09-02T12:03:18Z', githubId: 2 }, { requestedReviewer: 'dale' }),
-      timelineActivity({ actor: 'ravi-moreau', eventType: 'review_requested', timestamp: '2026-09-02T12:03:31Z', githubId: 3 }, { requestedReviewer: 'ezra-b' }),
+      timelineActivity({ actor: 'ravi-moreau', eventType: 'review_requested', timestamp: '2026-09-02T12:03:15Z', remoteId: 1 }, { requestedReviewer: 'wren-d' }),
+      timelineActivity({ actor: 'ravi-moreau', eventType: 'review_requested', timestamp: '2026-09-02T12:03:18Z', remoteId: 2 }, { requestedReviewer: 'dale' }),
+      timelineActivity({ actor: 'ravi-moreau', eventType: 'review_requested', timestamp: '2026-09-02T12:03:31Z', remoteId: 3 }, { requestedReviewer: 'ezra-b' }),
       timelineActivity({ actor: 'ravi-moreau', eventType: 'review_requested', timestamp: '2026-09-02T12:05:09Z' }, { requestedReviewer: 'mwade77' }),
     ];
 
@@ -915,7 +915,7 @@ describe('PullOverview', () => {
 
     expect(groupTimelineActivities([...value.recentActivity, {
       ...value.recentActivity[3],
-      githubId: 5,
+      remoteId: 5,
       timestamp: '2026-09-02T13:16:10Z',
       payload: { ...emptyPayload, requestedReviewer: 'Prentice2112' },
     }])).toHaveLength(2);
@@ -927,7 +927,7 @@ describe('PullOverview', () => {
     [null, null],
   ])('shows the requested reviewer %s with its GitHub link', (requestedReviewer, href) => {
     const value = detail();
-    value.recentActivity = [timelineActivity({ actor: 'fion-path', eventType: 'review_requested', timestamp: '2026-09-02T12:03:15Z', githubId: 1 }, { requestedReviewer })];
+    value.recentActivity = [timelineActivity({ actor: 'fion-path', eventType: 'review_requested', timestamp: '2026-09-02T12:03:15Z', remoteId: 1 }, { requestedReviewer })];
 
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
 
@@ -938,7 +938,7 @@ describe('PullOverview', () => {
 
   it('groups people and teams together without repeating a requested reviewer', () => {
     const value = detail();
-    value.recentActivity = ['example/connectors', 'wren-d', 'example/connectors'].map<PullRequestDetailDto['recentActivity'][number]>((requestedReviewer, index) => (timelineActivity({ actor: 'fion-path', eventType: 'review_requested', timestamp: '2026-09-02T12:03:15Z', githubId: index + 1 }, { requestedReviewer })));
+    value.recentActivity = ['example/connectors', 'wren-d', 'example/connectors'].map<PullRequestDetailDto['recentActivity'][number]>((requestedReviewer, index) => (timelineActivity({ actor: 'fion-path', eventType: 'review_requested', timestamp: '2026-09-02T12:03:15Z', remoteId: index + 1 }, { requestedReviewer })));
 
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
 
@@ -952,8 +952,8 @@ describe('PullOverview', () => {
     value.ciStatus = 'PENDING';
     value.checkRuns = [
       { ...value.checkRuns[0], status: 'in_progress', conclusion: null, startedAt: '2026-08-20T09:55:00Z', completedAt: null, category: 'pending' },
-      { ...value.checkRuns[0], githubId: 12, name: 'queued', status: 'queued', conclusion: null, startedAt: '2026-08-20T09:57:00Z', completedAt: null, category: 'pending' },
-      { ...value.checkRuns[0], githubId: 13, name: 'pending', status: null, conclusion: null, completedAt: null, category: 'pending' },
+      { ...value.checkRuns[0], remoteId: 12, name: 'queued', status: 'queued', conclusion: null, startedAt: '2026-08-20T09:57:00Z', completedAt: null, category: 'pending' },
+      { ...value.checkRuns[0], remoteId: 13, name: 'pending', status: null, conclusion: null, completedAt: null, category: 'pending' },
       { ...value.checkRuns[1], startedAt: '2026-08-20T09:50:00Z', completedAt: '2026-08-20T09:58:00Z' },
     ];
 
@@ -976,11 +976,11 @@ describe('PullOverview', () => {
     const value = detail();
     const check = value.checkRuns[0];
     value.checkRuns = [
-      { ...check, githubId: 20, name: 'success', conclusion: 'success', category: 'successful' },
-      { ...check, githubId: 21, name: 'failure', conclusion: 'failure', category: 'failing' },
-      { ...check, githubId: 22, name: 'neutral', conclusion: 'neutral', category: 'neutral' },
-      { ...check, githubId: 23, name: 'skipped', conclusion: 'skipped', category: 'skipped' },
-      { ...check, githubId: 24, name: 'cancelled', conclusion: 'cancelled', category: 'cancelled' },
+      { ...check, remoteId: 20, name: 'success', conclusion: 'success', category: 'successful' },
+      { ...check, remoteId: 21, name: 'failure', conclusion: 'failure', category: 'failing' },
+      { ...check, remoteId: 22, name: 'neutral', conclusion: 'neutral', category: 'neutral' },
+      { ...check, remoteId: 23, name: 'skipped', conclusion: 'skipped', category: 'skipped' },
+      { ...check, remoteId: 24, name: 'cancelled', conclusion: 'cancelled', category: 'cancelled' },
     ];
 
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
@@ -999,16 +999,16 @@ describe('PullOverview', () => {
 
   it('offers browser and inline log actions only on failed checks, using the normalized job ID', () => {
     const value = detail();
-    const check = { ...value.checkRuns[0], githubId: 301, source: 'job', detailsUrl: 'https://git.example/group/repo/-/jobs/301' };
-    value.checkRuns = [check, { ...check, githubId: 2, category: 'successful' }, { ...check, githubId: 3, source: 'status', detailsUrl: 'https://ci.example/job/3' }];
+    const check = { ...value.checkRuns[0], remoteId: 301, source: 'job', detailsUrl: 'https://git.example/group/repo/-/jobs/301' };
+    value.checkRuns = [check, { ...check, remoteId: 2, category: 'successful' }, { ...check, remoteId: 3, source: 'status', detailsUrl: 'https://ci.example/job/3' }];
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
     expect(html.match(/aria-label="Open in browser"/g)).toHaveLength(3);
     expect(html.match(/aria-label="Show log"/g)).toHaveLength(2);
     expect(html).toContain('Inline logs are available for jobs');
     expect(html).not.toContain('pr-check__log');
     expect(checkJobId(check)).toBe(301);
-    for (const githubId of [null, 0, -1, Number.NaN, Number.MAX_SAFE_INTEGER + 1]) {
-      expect(checkJobId({ ...check, githubId })).toBeNull();
+    for (const remoteId of [null, 0, -1, Number.NaN, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(checkJobId({ ...check, remoteId })).toBeNull();
     }
     expect(checkJobId({ ...check, source: 'status' })).toBeNull();
   });
@@ -1017,7 +1017,7 @@ describe('PullOverview', () => {
     const value = detail();
     value.viewerCanWrite = true;
     value.checkRuns[0].source = 'job';
-    value.checkRuns[0].githubId = 301;
+    value.checkRuns[0].remoteId = 301;
 
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
 
@@ -1027,9 +1027,9 @@ describe('PullOverview', () => {
   it('groups adjacent label events from the same actor into one GitHub timeline row', () => {
     const value = detail();
     value.recentActivity = [
-      timelineActivity({ actor: 'github-actions[bot]', eventType: 'labeled', timestamp: '2026-08-20T09:10:00Z', githubId: 1 }, { actorBot: true, label: 'snowflake', labelColor: 'd4c5f9' }),
-      timelineActivity({ actor: 'github-actions[bot]', eventType: 'labeled', timestamp: '2026-08-20T09:11:00Z', githubId: 2 }, { actorBot: true, label: 'clickhouse', labelColor: 'd4c5f9' }),
-      timelineActivity({ actor: 'alice', eventType: 'renamed', timestamp: '2026-08-20T09:12:00Z', githubId: 3 }, { renameFrom: 'Old title', renameTo: 'Example pull request' }),
+      timelineActivity({ actor: 'github-actions[bot]', eventType: 'labeled', timestamp: '2026-08-20T09:10:00Z', remoteId: 1 }, { actorBot: true, label: 'snowflake', labelColor: 'd4c5f9' }),
+      timelineActivity({ actor: 'github-actions[bot]', eventType: 'labeled', timestamp: '2026-08-20T09:11:00Z', remoteId: 2 }, { actorBot: true, label: 'clickhouse', labelColor: 'd4c5f9' }),
+      timelineActivity({ actor: 'alice', eventType: 'renamed', timestamp: '2026-08-20T09:12:00Z', remoteId: 3 }, { renameFrom: 'Old title', renameTo: 'Example pull request' }),
     ];
 
     const groups = groupTimelineActivities(value.recentActivity);
@@ -1047,8 +1047,8 @@ describe('PullOverview', () => {
   it('names the assignee in assignment events', () => {
     const value = detail();
     value.recentActivity = [
-      timelineActivity({ actor: 'ezra-b', eventType: 'assigned', timestamp: '2026-08-20T09:10:00Z', githubId: 1 }, { assignee: 'alice' }),
-      timelineActivity({ actor: 'ezra-b', eventType: 'unassigned', timestamp: '2026-08-20T09:11:00Z', githubId: 2 }, { assignee: 'bob' }),
+      timelineActivity({ actor: 'ezra-b', eventType: 'assigned', timestamp: '2026-08-20T09:10:00Z', remoteId: 1 }, { assignee: 'alice' }),
+      timelineActivity({ actor: 'ezra-b', eventType: 'unassigned', timestamp: '2026-08-20T09:11:00Z', remoteId: 2 }, { assignee: 'bob' }),
     ];
 
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
@@ -1083,9 +1083,9 @@ describe('PullOverview', () => {
     const externallyChanged = updateReviewThreadResolution(optimistic, 3, 99, true);
     const skippedRollback = updateReviewThreadResolution(externallyChanged, 3, 99, true, false);
 
-    expect(optimistic.recentActivity.find(activity => activity.githubId === 3)?.payload.resolved).toBe(false);
-    expect(rolledBack.recentActivity.find(activity => activity.githubId === 3)?.payload.resolved).toBe(true);
-    expect(skippedRollback.recentActivity.find(activity => activity.githubId === 3)?.payload.resolved).toBe(true);
+    expect(optimistic.recentActivity.find(activity => activity.remoteId === 3)?.payload.resolved).toBe(false);
+    expect(rolledBack.recentActivity.find(activity => activity.remoteId === 3)?.payload.resolved).toBe(true);
+    expect(skippedRollback.recentActivity.find(activity => activity.remoteId === 3)?.payload.resolved).toBe(true);
   });
 
   it('shows the commented diff lines with their numbers and state', () => {
@@ -1194,7 +1194,7 @@ describe('PullOverview', () => {
   });
 
   it('offers Edit only on the viewer\'s own review comments', () => {
-    const comment = (githubId: number, actor: string): PullTimelinePayloadDto['comments'][number] => (timelineComment({ githubId, actor, body: `Comment by ${actor}`, inReplyToId: githubId === 99 ? null : 99 }));
+    const comment = (remoteId: number, actor: string): PullTimelinePayloadDto['comments'][number] => (timelineComment({ remoteId, actor, body: `Comment by ${actor}`, inReplyToId: remoteId === 99 ? null : 99 }));
     const html = renderToStaticMarkup(<ReviewThread pr={pullRequest()} showCode={false} viewerLogin="Bob"
       onRefresh={async () => {}} onDetailUpdate={() => {}} activity={timelineActivity({}, { path: 'src/Example.java', side: 'RIGHT', line: 12, comments: [comment(99, 'bob'), comment(100, 'carol')] })} />);
     const [own, other] = html.split('class="lrc-message pr-thread-comment"').slice(1);
@@ -1206,7 +1206,7 @@ describe('PullOverview', () => {
 
   it('keeps the description edit label and offers no comment edit before the viewer is known', () => {
     const value = detail();
-    value.recentActivity = [timelineActivity({ actor: 'alice', eventType: 'commented', timestamp: '2026-08-20T09:40:00Z', body: 'Looks good', githubId: 71 })];
+    value.recentActivity = [timelineActivity({ actor: 'alice', eventType: 'commented', timestamp: '2026-08-20T09:40:00Z', body: 'Looks good', remoteId: 71 })];
 
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
 
@@ -1300,8 +1300,8 @@ describe('PullOverview', () => {
   it('suppresses empty comment-review wrappers and keeps verdict-only reviews compact', () => {
     const value = detail();
     value.recentActivity = [
-      timelineActivity({ actor: 'fion-path', eventType: 'reviewed', timestamp: '2026-08-20T09:10:00Z', body: '', githubId: 10 }, { state: 'commented' }),
-      timelineActivity({ actor: 'ezra-b', eventType: 'reviewed', timestamp: '2026-08-20T09:20:00Z', body: '', githubId: 11 }, { state: 'approved' }),
+      timelineActivity({ actor: 'fion-path', eventType: 'reviewed', timestamp: '2026-08-20T09:10:00Z', body: '', remoteId: 10 }, { state: 'commented' }),
+      timelineActivity({ actor: 'ezra-b', eventType: 'reviewed', timestamp: '2026-08-20T09:20:00Z', body: '', remoteId: 11 }, { state: 'approved' }),
     ];
 
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
@@ -1322,7 +1322,7 @@ describe('PullOverview', () => {
   ])('keeps a $state review body and its inline threads together ($body)', ({ state, body }) => {
     const value = detail();
     value.recentActivity = [
-      timelineActivity({ actor: 'contributor', timestamp: '2026-08-13T08:36:16Z', githubId: 3773729721 }, {
+      timelineActivity({ actor: 'contributor', timestamp: '2026-08-13T08:36:16Z', remoteId: 3773729721 }, {
           path: 'plugin/oracle/src/main/java/com/example/oracle/RewriteCast.java',
           line: 67,
           side: 'RIGHT',
@@ -1330,7 +1330,7 @@ describe('PullOverview', () => {
           outdated: true,
           comments: [
             timelineComment({
-              githubId: 3773729721,
+              remoteId: 3773729721,
               actor: 'contributor',
               actorAvatarUrl: 'https://example.com/contributor.png',
               timestamp: '2026-08-13T08:36:16Z',
@@ -1338,7 +1338,7 @@ describe('PullOverview', () => {
               reviewId: 4925022844,
             }),
             timelineComment({
-              githubId: 3773740000,
+              remoteId: 3773740000,
               actor: 'finn-ep',
               actorAvatarUrl: 'https://example.com/finn-ep.png',
               timestamp: '2026-08-13T09:00:00Z',
@@ -1348,7 +1348,7 @@ describe('PullOverview', () => {
             }),
           ],
         }),
-      timelineActivity({ actor: 'contributor', eventType: 'reviewed', timestamp: '2026-08-13T08:49:10Z', body, githubId: 4925022844 }, { actorAvatarUrl: 'https://example.com/contributor.png', state }),
+      timelineActivity({ actor: 'contributor', eventType: 'reviewed', timestamp: '2026-08-13T08:49:10Z', body, remoteId: 4925022844 }, { actorAvatarUrl: 'https://example.com/contributor.png', state }),
     ];
 
     const groups = groupTimelineActivities(value.recentActivity);
@@ -1386,7 +1386,7 @@ describe('PullOverview', () => {
     value.body = '- [Linked issue #7](https://github.com/owner/repo/issues/7)\n- [Linked pull #8](https://github.com/owner/repo/pull/8)';
     value.recentActivity = [
       timelineActivity({ actor: 'alice', eventType: 'added_to_merge_queue', timestamp: '2026-08-20T09:00:00Z' }),
-      timelineActivity({ actor: '', eventType: 'description_reactions', timestamp: null, githubId: null }, { reactions: [{ content: '+1', count: 2 }, { content: 'eyes', count: 1 }] }),
+      timelineActivity({ actor: '', eventType: 'description_reactions', timestamp: null, remoteId: null }, { reactions: [{ content: '+1', count: 2 }, { content: 'eyes', count: 1 }] }),
     ];
 
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
@@ -1413,7 +1413,7 @@ describe('PullOverview', () => {
 
   it('links cross-referenced timeline events to the source preview', () => {
     const value = detail();
-    value.recentActivity = [timelineActivity({ eventType: 'cross-referenced', timestamp: '2026-08-20T09:10:00Z', githubId: 21 }, { sourceTitle: 'Related issue', sourceUrl: 'https://github.com/owner/repo/issues/7', sourceNumber: 7 })];
+    value.recentActivity = [timelineActivity({ eventType: 'cross-referenced', timestamp: '2026-08-20T09:10:00Z', remoteId: 21 }, { sourceTitle: 'Related issue', sourceUrl: 'https://github.com/owner/repo/issues/7', sourceNumber: 7 })];
 
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
 
@@ -1509,9 +1509,9 @@ describe('PullOverview', () => {
 
   it('suggests unique pull-request participants and replaces the active mention', () => {
     const value = detail();
-    value.recentActivity.push(timelineActivity({ actor: 'carol', eventType: 'commented', timestamp: null, body: 'hello', githubId: 12 }, { actorAvatarUrl: 'https://example.com/carol.png' }));
-    value.recentActivity.push(timelineActivity({ actor: 'alice', eventType: 'commented', timestamp: null, body: 'again', githubId: 13 }));
-    value.recentActivity.push(timelineActivity({ actor: 'Pia Fenwick', eventType: 'commented', timestamp: null, body: 'display name', githubId: 14 }));
+    value.recentActivity.push(timelineActivity({ actor: 'carol', eventType: 'commented', timestamp: null, body: 'hello', remoteId: 12 }, { actorAvatarUrl: 'https://example.com/carol.png' }));
+    value.recentActivity.push(timelineActivity({ actor: 'alice', eventType: 'commented', timestamp: null, body: 'again', remoteId: 13 }));
+    value.recentActivity.push(timelineActivity({ actor: 'Pia Fenwick', eventType: 'commented', timestamp: null, body: 'display name', remoteId: 14 }));
 
     expect(mentionCandidates(value).map(candidate => candidate.login)).toEqual(['alice', 'bob', 'github-actions', 'carol']);
     const mention = activeMention('Thanks @ca', 10);
@@ -1538,8 +1538,8 @@ describe('PullOverview', () => {
   it('selects the merge action and counts unresolved review threads', () => {
     const value = detail();
     value.recentActivity.push(
-      timelineActivity({ timestamp: null, githubId: 20 }),
-      timelineActivity({ actor: 'carol', timestamp: null, githubId: 21 }, { resolved: true }),
+      timelineActivity({ timestamp: null, remoteId: 20 }),
+      timelineActivity({ actor: 'carol', timestamp: null, remoteId: 21 }, { resolved: true }),
     );
 
     expect(mergeActionLabel(true)).toBe('Merge when ready');
@@ -1735,14 +1735,14 @@ function detail(): PullRequestDetailDto {
     changedFiles: 2,
     ciStatus: 'FAILING',
     recentActivity: [
-      timelineActivity({ actor: 'github-actions[bot]', eventType: 'labeled', timestamp: '2026-08-20T09:10:00Z', githubId: 1 }, { actorBot: true, label: 'docs', labelColor: 'd4c5f9' }),
-      timelineActivity({ actor: 'alice', eventType: 'renamed', timestamp: '2026-08-20T09:20:00Z', githubId: 2 }, { renameFrom: 'Old title', renameTo: 'Example pull request' }),
-      timelineActivity({ actor: 'alice', eventType: 'committed', timestamp: '2026-08-20T09:25:00Z', githubId: 20 }, { commitSha: 'cd75ed1', commitMessage: 'Update pull request overview' }),
-      timelineActivity({ timestamp: '2026-08-20T09:30:00Z', githubId: 3 }, { resolved: true, path: 'src/Example.java', line: 12 }),
+      timelineActivity({ actor: 'github-actions[bot]', eventType: 'labeled', timestamp: '2026-08-20T09:10:00Z', remoteId: 1 }, { actorBot: true, label: 'docs', labelColor: 'd4c5f9' }),
+      timelineActivity({ actor: 'alice', eventType: 'renamed', timestamp: '2026-08-20T09:20:00Z', remoteId: 2 }, { renameFrom: 'Old title', renameTo: 'Example pull request' }),
+      timelineActivity({ actor: 'alice', eventType: 'committed', timestamp: '2026-08-20T09:25:00Z', remoteId: 20 }, { commitSha: 'cd75ed1', commitMessage: 'Update pull request overview' }),
+      timelineActivity({ timestamp: '2026-08-20T09:30:00Z', remoteId: 3 }, { resolved: true, path: 'src/Example.java', line: 12 }),
     ],
     checkRuns: [
-      { githubId: 10, name: 'build', status: 'completed', conclusion: 'failure', detailsUrl: null, source: 'check_run', startedAt: null, completedAt: null, category: 'failing' },
-      { githubId: 11, name: 'license', status: 'completed', conclusion: 'success', detailsUrl: null, source: 'status', startedAt: null, completedAt: null, category: 'successful' },
+      { remoteId: 10, name: 'build', status: 'completed', conclusion: 'failure', detailsUrl: null, source: 'check_run', startedAt: null, completedAt: null, category: 'failing' },
+      { remoteId: 11, name: 'license', status: 'completed', conclusion: 'success', detailsUrl: null, source: 'status', startedAt: null, completedAt: null, category: 'successful' },
     ],
     viewerCanWrite: false,
   });

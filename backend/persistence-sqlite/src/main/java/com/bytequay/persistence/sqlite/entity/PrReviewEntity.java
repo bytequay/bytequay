@@ -33,7 +33,7 @@ import java.time.Instant;
         name = "pr_reviews",
         indexes = @Index(
                 name = "idx_pr_reviews_pr_github",
-                columnList = "pr_id, github_id"))
+                columnList = "pr_id, remote_id"))
 @Getter
 @Setter
 public class PrReviewEntity
@@ -46,8 +46,8 @@ public class PrReviewEntity
     @Column(nullable = false)
     private Long prId;
 
-    @Column(name = "github_id")
-    private Long githubId;
+    @Column(name = "remote_id")
+    private Long remoteId;
 
     @Column(nullable = false)
     private String login;
@@ -79,13 +79,13 @@ public class PrReviewEntity
 
     public PrReviewState toDomain()
     {
-        return new PrReviewState(getGithubId(), getLogin(), getAvatarUrl(), isBot(), getState(), getSubmittedAt(), getBody(), getHtmlUrl(), getCommitId());
+        return new PrReviewState(getRemoteId(), getLogin(), getAvatarUrl(), isBot(), getState(), getSubmittedAt(), getBody(), getHtmlUrl(), getCommitId());
     }
 
     public PrReviewEntity updateFrom(long prId, PrReviewState review)
     {
         setPrId(prId);
-        setGithubId(review.githubId());
+        setRemoteId(review.remoteId());
         setLogin(review.login());
         setAvatarUrl(review.avatarUrl());
         setBot(review.bot());

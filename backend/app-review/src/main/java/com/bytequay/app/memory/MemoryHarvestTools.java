@@ -186,7 +186,7 @@ public class MemoryHarvestTools
         HarvestThread thread = harvest.thread(note);
         HarvestPull pull = harvest.pull(thread.pull());
         return MemorySource.pullRequest(note.url().startsWith("https://") ? note.url() : pull.url(), ContextText.excerpt(note.body(), MemorySource.MAX_QUOTE_BYTES),
-                note.at(), new MemorySource.PullRequestPart(pull.number(), thread.part(), note.githubId(), note.author(), note.maintainer(), pull.merged(),
+                note.at(), new MemorySource.PullRequestPart(pull.number(), thread.part(), note.remoteId(), note.author(), note.maintainer(), pull.merged(),
                 thread.resolved(), thread.outdated()));
     }
 

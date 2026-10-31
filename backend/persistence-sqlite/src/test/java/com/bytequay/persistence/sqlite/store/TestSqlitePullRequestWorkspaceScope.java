@@ -266,10 +266,10 @@ class TestSqlitePullRequestWorkspaceScope
         assertThat(store.findMergedRepositoryPullRequests("owner/project", "", 1)).extracting(PullRequest::number).containsExactly(12);
     }
 
-    private static FetchedPullRequest merged(long githubId, int number, String title, Instant mergedAt)
+    private static FetchedPullRequest merged(long remoteId, int number, String title, Instant mergedAt)
     {
         return new FetchedPullRequest(
-                githubId, "owner/project", number, title, "alice", "https://github.com/owner/project/pull/" + number, mergedAt, mergedAt, PullRequest.Origin.OTHER,
+                remoteId, "owner/project", number, title, "alice", "https://github.com/owner/project/pull/" + number, mergedAt, mergedAt, PullRequest.Origin.OTHER,
                 ImmutableList.of(), ImmutableMap.of(), false, "closed", mergedAt, mergedAt, ImmutableList.of(), null, null, "feature-" + number);
     }
 
@@ -397,7 +397,7 @@ class TestSqlitePullRequestWorkspaceScope
                 ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.of("APPROVED"), ImmutableMap.of("summary", "unknown"));
         assertThat(store.findById(row.id()).orElseThrow()).extracting(PullRequest::mergeable, PullRequest::mergeableState).containsExactly(true, "clean");
 
-        saveObserved(new FetchedPullRequest(fetched.githubId(), fetched.repo(), fetched.number(), fetched.title(), fetched.author(), fetched.htmlUrl(),
+        saveObserved(new FetchedPullRequest(fetched.remoteId(), fetched.repo(), fetched.number(), fetched.title(), fetched.author(), fetched.htmlUrl(),
                 fetched.createdAt(), fetched.updatedAt(), fetched.origin(), fetched.labels(), fetched.labelColors(), false, "open", null, null,
                 ImmutableList.of(), null, "unknown", "feature"));
         assertThat(store.findById(row.id()).orElseThrow()).extracting(PullRequest::mergeable, PullRequest::mergeableState).containsExactly(true, "clean");
@@ -612,25 +612,25 @@ class TestSqlitePullRequestWorkspaceScope
         return store.findByHostingRepository(repository.id(), pullRequest.number()).orElseThrow();
     }
 
-    private static FetchedPullRequest pullRequest(long githubId, String repository, int number)
+    private static FetchedPullRequest pullRequest(long remoteId, String repository, int number)
     {
-        return pullRequest(githubId, repository, number, "feature");
+        return pullRequest(remoteId, repository, number, "feature");
     }
 
-    private static FetchedPullRequest pullRequest(long githubId, String repository, int number, String headRef)
+    private static FetchedPullRequest pullRequest(long remoteId, String repository, int number, String headRef)
     {
-        return pullRequest(githubId, repository, number, "open", null, Instant.parse("2026-08-21T00:00:00Z"), headRef);
+        return pullRequest(remoteId, repository, number, "open", null, Instant.parse("2026-08-21T00:00:00Z"), headRef);
     }
 
-    private static FetchedPullRequest pullRequest(long githubId, String repository, int number, String state, Instant closedAt, Instant updatedAt)
+    private static FetchedPullRequest pullRequest(long remoteId, String repository, int number, String state, Instant closedAt, Instant updatedAt)
     {
-        return pullRequest(githubId, repository, number, state, closedAt, updatedAt, "feature");
+        return pullRequest(remoteId, repository, number, state, closedAt, updatedAt, "feature");
     }
 
-    private static FetchedPullRequest pullRequest(long githubId, String repository, int number, String state, Instant closedAt, Instant updatedAt, String headRef)
+    private static FetchedPullRequest pullRequest(long remoteId, String repository, int number, String state, Instant closedAt, Instant updatedAt, String headRef)
     {
         return new FetchedPullRequest(
-                githubId,
+                remoteId,
                 repository,
                 number,
                 "PR " + number,

@@ -212,7 +212,7 @@ class TestGitLabPullRequestReader
         assertThat(requestToken.get()).isEqualTo("Bearer secret-token");
         assertThat(result.etag()).contains("\"fresh\"");
         assertThat(result.pullRequest()).hasValueSatisfying(summary -> {
-            assertThat(summary.githubId()).isEqualTo(9001L);
+            assertThat(summary.remoteId()).isEqualTo(9001L);
             assertThat(summary.number()).isEqualTo(17);
             assertThat(summary.repo()).isEqualTo("group/subgroup/repo");
             assertThat(summary.state()).isEqualTo("open");

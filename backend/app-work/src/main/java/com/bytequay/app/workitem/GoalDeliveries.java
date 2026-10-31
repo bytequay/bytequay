@@ -158,10 +158,10 @@ public class GoalDeliveries
                     Optional<StoredPrDetail> detail = stored(link.key());
                     for (PrReviewState review : verdicts(detail, "CHANGES_REQUESTED")) {
                         String said = review.body() == null || review.body().isBlank() ? "" : ": " + ContextText.excerpt(review.body(), MAX_REVIEW);
-                        recordOnce(item, "changes:" + review.githubId(), "@" + review.login() + " requested changes on " + link.label() + said);
+                        recordOnce(item, "changes:" + review.remoteId(), "@" + review.login() + " requested changes on " + link.label() + said);
                     }
                     for (PrReviewState review : verdicts(detail, "APPROVED")) {
-                        recordOnce(item, "approved:" + review.githubId(), "@" + review.login() + " approved " + link.label());
+                        recordOnce(item, "approved:" + review.remoteId(), "@" + review.login() + " approved " + link.label());
                     }
                     detail.filter(StoredPrDetail::checkRunsComplete).ifPresent(found -> {
                         List<String> failed = found.checkRuns().stream()
@@ -216,7 +216,7 @@ public class GoalDeliveries
     {
         return detail.filter(StoredPrDetail::reviewsComplete)
                 .map(found -> PrReviewState.latestVerdicts(found.reviews()).stream()
-                        .filter(review -> verdict.equals(review.state()) && review.githubId() != null)
+                        .filter(review -> verdict.equals(review.state()) && review.remoteId() != null)
                         .collect(toImmutableList()))
                 .orElse(ImmutableList.of());
     }

@@ -70,8 +70,8 @@ export type PrivateThreads = PrivateThreadSource & {
   setDraft: (key: string, draft: string, ifUnchanged?: string) => void;
 };
 
-export function privateThreadKey(kind: PullCommentTarget, githubId: number): string {
-  return `${kind}:${githubId}`;
+export function privateThreadKey(kind: PullCommentTarget, remoteId: number): string {
+  return `${kind}:${remoteId}`;
 }
 
 export function hiddenThreadCount(threads: PrivateThreads): number {

@@ -1386,13 +1386,13 @@ class TestReviewPublicationService
 
     private static PrTimelineEvent thread(String path, PrTimelineComment comment)
     {
-        return new PrTimelineEvent(comment.githubId(), "review_thread", "me", NOW, null, PrTimelinePayload.builder().path(path).comments(ImmutableList.of(comment)).build(),
+        return new PrTimelineEvent(comment.remoteId(), "review_thread", "me", NOW, null, PrTimelinePayload.builder().path(path).comments(ImmutableList.of(comment)).build(),
                 Optional.empty());
     }
 
-    private static PrTimelineComment comment(long githubId, long reviewId, String body, Long inReplyToId)
+    private static PrTimelineComment comment(long remoteId, long reviewId, String body, Long inReplyToId)
     {
-        return new PrTimelineComment(githubId, "me", null, false, NOW, body, "https://github.com/octo/widgets/pull/7#discussion_r" + githubId, reviewId, inReplyToId,
+        return new PrTimelineComment(remoteId, "me", null, false, NOW, body, "https://github.com/octo/widgets/pull/7#discussion_r" + remoteId, reviewId, inReplyToId,
                 ImmutableList.of());
     }
 

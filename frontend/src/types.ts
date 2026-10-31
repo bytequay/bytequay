@@ -233,11 +233,11 @@ export type PullRequestDetailDto = {
     eventType: string;
     timestamp: string | null;
     body: string | null;
-    githubId: number | null;
+    remoteId: number | null;
     payload: PullTimelinePayloadDto;
   }>;
   checkRuns: Array<{
-    githubId: number | null;
+    remoteId: number | null;
     name: string | null;
     status: string | null;
     conclusion: string | null;
@@ -272,7 +272,7 @@ export type PullReactionDto = {
 };
 
 export type PullTimelineCommentDto = {
-  githubId: number | null;
+  remoteId: number | null;
   actor: string | null;
   actorAvatarUrl: string | null;
   actorBot: boolean;
@@ -507,7 +507,7 @@ export type RepositoryIssueSnapshotDto = {
 };
 
 export type WorkspaceIssueTimelineEventDto = {
-  githubId: number | null;
+  remoteId: number | null;
   event: string;
   actor: string | null;
   timestamp: string | null;

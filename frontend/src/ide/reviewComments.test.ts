@@ -24,9 +24,9 @@ const comments: NonNullable<IdeContext['comments']> = {
   repo: review.repo, number: review.number ?? 1, canReview: true, viewer: null, askAgent: false, openFinding: false,
   pending: [{ path: 'A.java', side: 'RIGHT', line: 12, startLine: 10, startSide: 'RIGHT', body: 'Pending root', commitId: 'head' },
     { path: 'A.java', side: 'RIGHT', line: 12, startLine: null, startSide: null, body: 'Pending reply', commitId: 'head', replyToCommentId: 20 }],
-  threads: { pr: { repo: review.repo, number: 1 }, unavailable: false, activities: [{ githubId: 20, eventType: 'review_thread',
+  threads: { pr: { repo: review.repo, number: 1 }, unavailable: false, activities: [{ remoteId: 20, eventType: 'review_thread',
     payload: { path: 'A.java', line: 12, startLine: 10, side: 'RIGHT', outdated: false, resolved: true,
-      comments: [{ githubId: 20, actor: 'alice', body: 'GitHub feedback', timestamp: null, inReplyToId: null }] } }] } as NonNullable<IdeContext['comments']>['threads'],
+      comments: [{ remoteId: 20, actor: 'alice', body: 'GitHub feedback', timestamp: null, inReplyToId: null }] } }] } as NonNullable<IdeContext['comments']>['threads'],
   localReview: { threads: [{ id: 'private', path: 'B.java', side: 'RIGHT', line: 5, startLine: null, headSha: 'old-head', baseSha: 'base', resolved: false,
     messages: [{ author: 'USER', body: 'Private discussion', createdAt: '' }] }] } as NonNullable<IdeContext['comments']>['localReview'],
 };

@@ -286,7 +286,7 @@ class TestGitHubIntegration
         assertThat(request.get().authorization()).isEqualTo("Bearer private-token");
         assertThat(fetched.etag()).contains("\"v2\"");
         assertThat(fetched.pullRequest()).hasValueSatisfying(value -> {
-            assertThat(value.githubId()).isEqualTo(1007);
+            assertThat(value.remoteId()).isEqualTo(1007);
             assertThat(value.number()).isEqualTo(7);
             assertThat(value.repo()).isEqualTo("bytequay/bytequay");
             assertThat(value.author()).isEqualTo("alice");
@@ -327,7 +327,7 @@ class TestGitHubIntegration
         assertThat(first.hasNext()).isTrue();
         assertThat(first.items()).singleElement().satisfies(item -> {
             assertThat(item.number()).isEqualTo(7);
-            assertThat(item.githubId()).isEqualTo(1007);
+            assertThat(item.remoteId()).isEqualTo(1007);
             assertThat(item.repo()).isEqualTo("bytequay/bytequay");
             assertThat(item.title()).isEqualTo("Preserve request context");
             assertThat(item.author()).isEqualTo("alice");

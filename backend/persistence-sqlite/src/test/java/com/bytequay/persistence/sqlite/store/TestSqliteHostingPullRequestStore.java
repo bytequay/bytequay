@@ -533,7 +533,7 @@ class TestSqliteHostingPullRequestStore
         assertThat(projected.viewedAt()).isNotNull();
         assertThat(projected.activityAt()).isEqualTo(NOW.plusSeconds(10));
 
-        FetchedPullRequest merged = new FetchedPullRequest(updated.githubId(), updated.repo(), updated.number(), updated.title(), updated.author(), updated.htmlUrl(),
+        FetchedPullRequest merged = new FetchedPullRequest(updated.remoteId(), updated.repo(), updated.number(), updated.title(), updated.author(), updated.htmlUrl(),
                 updated.createdAt(), NOW.plusSeconds(20), updated.origin(), updated.labels(), updated.labelColors(), false, "merged", NOW.plusSeconds(20), NOW.plusSeconds(20),
                 updated.requestedReviewers(), updated.mergeable(), updated.mergeableState(), updated.headRef());
         store.savePage(scope.account().id(), scope.repository().id(), CONNECTED_ACCOUNT, ImmutableList.of(merged));

@@ -2538,7 +2538,7 @@ class TestPullRequestService
         verify(detailStore).saveCached(eq(12L), saved.capture());
         assertThat(saved.getValue().timeline()).contains(posted);
         assertThat(detail.recentActivity())
-                .extracting(PullRequestDetail.ActivityItem::githubId)
+                .extracting(PullRequestDetail.ActivityItem::remoteId)
                 .containsExactly(99L);
         verify(detailStore, never()).deleteByPrIds(any());
         verifyNoInteractions(diffStore, gitHub);
@@ -2653,7 +2653,7 @@ class TestPullRequestService
         verify(detailStore).saveCached(eq(12L), saved.capture());
         assertThat(saved.getValue().timeline()).containsExactly(posted);
         assertThat(detail.recentActivity())
-                .extracting(PullRequestDetail.ActivityItem::githubId)
+                .extracting(PullRequestDetail.ActivityItem::remoteId)
                 .containsExactly(99L);
         verify(viewStateStore).markReviewed(eq(12L), eq(HandledAction.COMMENTED), eq("head"), any(Instant.class));
         verify(detailStore, never()).deleteByPrIds(any());
@@ -3039,16 +3039,16 @@ class TestPullRequestService
         verify(gitHub, never()).fetchReviewComments(anyString(), any(), anyLong());
         ArgumentCaptor<StoredPrDetail> saved = ArgumentCaptor.forClass(StoredPrDetail.class);
         verify(detailStore).saveCached(eq(12L), saved.capture());
-        assertThat(saved.getValue().reviews()).extracting(PrReviewState::githubId).contains(501L);
+        assertThat(saved.getValue().reviews()).extracting(PrReviewState::remoteId).contains(501L);
         assertThat(saved.getValue().timeline()).singleElement().satisfies(review -> {
-            assertThat(review.githubId()).isEqualTo(501L);
+            assertThat(review.remoteId()).isEqualTo(501L);
             assertThat(review.event()).isEqualTo("reviewed");
             assertThat(review.actor()).isEqualTo("me");
             assertThat(review.body()).isEqualTo("Please fix this");
             assertThat(review.payload().state()).isEqualTo("REQUEST_CHANGES");
         });
         assertThat(detail.recentActivity()).singleElement().satisfies(review -> {
-            assertThat(review.githubId()).isEqualTo(501L);
+            assertThat(review.remoteId()).isEqualTo(501L);
             assertThat(review.eventType()).isEqualTo("reviewed");
             assertThat(review.body()).isEqualTo("Please fix this");
             assertThat(review.payload().state()).isEqualTo("REQUEST_CHANGES");
@@ -3123,8 +3123,8 @@ class TestPullRequestService
 
         ArgumentCaptor<StoredPrDetail> saved = ArgumentCaptor.forClass(StoredPrDetail.class);
         verify(detailStore).saveCached(eq(12L), saved.capture());
-        assertThat(saved.getValue().timeline()).extracting(PrTimelineEvent::githubId).contains(901L);
-        assertThat(saved.getValue().reviews()).extracting(PrReviewState::githubId).contains(502L);
+        assertThat(saved.getValue().timeline()).extracting(PrTimelineEvent::remoteId).contains(901L);
+        assertThat(saved.getValue().reviews()).extracting(PrReviewState::remoteId).contains(502L);
     }
 
     @Test
@@ -3146,7 +3146,7 @@ class TestPullRequestService
         verify(writes, never()).replyToReviewComment(anyString(), any(), anyLong(), anyString());
         ArgumentCaptor<StoredPrDetail> saved = ArgumentCaptor.forClass(StoredPrDetail.class);
         verify(detailStore).saveCached(eq(12L), saved.capture());
-        assertThat(saved.getValue().timeline()).extracting(PrTimelineEvent::githubId).contains(61L);
+        assertThat(saved.getValue().timeline()).extracting(PrTimelineEvent::remoteId).contains(61L);
     }
 
     @Test
@@ -3178,7 +3178,7 @@ class TestPullRequestService
         assertThat(posted.threads()).isEmpty();
         ArgumentCaptor<StoredPrDetail> saved = ArgumentCaptor.forClass(StoredPrDetail.class);
         verify(detailStore).saveCached(eq(12L), saved.capture());
-        assertThat(saved.getValue().reviews()).extracting(PrReviewState::githubId).contains(502L);
+        assertThat(saved.getValue().reviews()).extracting(PrReviewState::remoteId).contains(502L);
         verify(viewStateStore).markReviewed(eq(12L), eq(HandledAction.COMMENTED), eq("head"), any(Instant.class));
     }
 
@@ -3227,9 +3227,9 @@ class TestPullRequestService
         verifyNoInteractions(writes);
     }
 
-    private static PrReviewState review(long githubId, String state, String body)
+    private static PrReviewState review(long remoteId, String state, String body)
     {
-        return new PrReviewState(githubId, "me", null, false, state, REVIEWED_AT, body, null, "head");
+        return new PrReviewState(remoteId, "me", null, false, state, REVIEWED_AT, body, null, "head");
     }
 
     @Test
@@ -3534,7 +3534,7 @@ class TestPullRequestService
         service = spy(service);
         List<PullRequest> rows = IntStream.rangeClosed(1, 70).mapToObj(number -> {
             FetchedPullRequest row = pullRequestNumber(number);
-            return storedPullRequest(new FetchedPullRequest(row.githubId(), number <= 35 ? "owner/repo" : "owner/second", row.number(), row.title(), row.author(), row.htmlUrl(),
+            return storedPullRequest(new FetchedPullRequest(row.remoteId(), number <= 35 ? "owner/repo" : "owner/second", row.number(), row.title(), row.author(), row.htmlUrl(),
                     row.createdAt(), row.updatedAt(), row.origin(), row.labels(), row.labelColors(), row.draft(), row.state(), row.closedAt(), row.mergedAt(),
                     row.requestedReviewers(), row.mergeable(), row.mergeableState(), row.headRef()));
         }).toList();
@@ -4038,9 +4038,9 @@ class TestPullRequestService
         return pullRequest(12, state, updatedAt, closedAt);
     }
 
-    private static FetchedPullRequest pullRequest(long githubId, String state, Instant updatedAt, Instant closedAt)
+    private static FetchedPullRequest pullRequest(long remoteId, String state, Instant updatedAt, Instant closedAt)
     {
-        return pullRequest(githubId, state, updatedAt, closedAt, null, null);
+        return pullRequest(remoteId, state, updatedAt, closedAt, null, null);
     }
 
     private static FetchedPullRequest pullRequest(String state, Instant updatedAt, Instant closedAt, Boolean mergeable, String mergeableState)
@@ -4048,10 +4048,10 @@ class TestPullRequestService
         return pullRequest(12, state, updatedAt, closedAt, mergeable, mergeableState);
     }
 
-    private static FetchedPullRequest pullRequest(long githubId, String state, Instant updatedAt, Instant closedAt, Boolean mergeable, String mergeableState)
+    private static FetchedPullRequest pullRequest(long remoteId, String state, Instant updatedAt, Instant closedAt, Boolean mergeable, String mergeableState)
     {
         return new FetchedPullRequest(
-                githubId,
+                remoteId,
                 "owner/repo",
                 7,
                 "Title",

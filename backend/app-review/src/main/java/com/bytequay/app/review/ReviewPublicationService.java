@@ -589,10 +589,10 @@ public class ReviewPublicationService
         List<Remote> matches = posted.threads().stream()
                 .filter(thread -> item.replyToCommentId().isPresent() || item.path().equals(thread.payload().path()))
                 .flatMap(thread -> thread.payload().comments().stream())
-                .filter(comment -> comment.githubId() != null && item.body().equals(comment.body()))
+                .filter(comment -> comment.remoteId() != null && item.body().equals(comment.body()))
                 .filter(comment -> posted.reviewId().isEmpty() || Objects.equals(comment.reviewId(), posted.reviewId().getAsLong()))
                 .filter(comment -> item.replyToCommentId().isEmpty() || Objects.equals(comment.inReplyToId(), item.replyToCommentId().getAsLong()))
-                .map(comment -> new Remote(comment.githubId(), comment.reviewId() == null ? OptionalLong.empty() : OptionalLong.of(comment.reviewId()),
+                .map(comment -> new Remote(comment.remoteId(), comment.reviewId() == null ? OptionalLong.empty() : OptionalLong.of(comment.reviewId()),
                         Optional.ofNullable(comment.htmlUrl())))
                 .collect(toImmutableList());
         return matches.size() == 1 ? Optional.of(matches.getFirst()) : Optional.empty();

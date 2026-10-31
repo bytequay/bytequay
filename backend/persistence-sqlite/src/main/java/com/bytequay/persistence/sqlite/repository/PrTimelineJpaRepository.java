@@ -116,7 +116,7 @@ public interface PrTimelineJpaRepository
     @Modifying
     @Query(value = """
             INSERT OR IGNORE INTO pr_timeline
-                (pr_id, event, actor, timestamp, body, github_id, local_event_key)
+                (pr_id, event, actor, timestamp, body, remote_id, local_event_key)
             VALUES
                 (:prId, :event, :actor, :timestamp, :body, NULL, :localEventKey)
             """, nativeQuery = true)

@@ -69,9 +69,9 @@ final class ReviewOwnThreads
     static List<Thread> of(PullRequestDetail detail, String login)
     {
         return detail.recentActivity().stream()
-                .filter(item -> "review_thread".equals(item.eventType()) && item.githubId() != null && item.payload() != null && !item.payload().comments().isEmpty())
+                .filter(item -> "review_thread".equals(item.eventType()) && item.remoteId() != null && item.payload() != null && !item.payload().comments().isEmpty())
                 .filter(item -> login.equalsIgnoreCase(item.payload().comments().getFirst().actor()))
-                .map(item -> thread(item.githubId().toString(), item.payload(), login))
+                .map(item -> thread(item.remoteId().toString(), item.payload(), login))
                 .sorted(Comparator.comparing(Thread::resolved).thenComparing(thread -> thread.lastAt().orElse(Instant.EPOCH), Comparator.reverseOrder()))
                 .collect(toImmutableList());
     }

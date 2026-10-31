@@ -449,7 +449,7 @@ function reviewedDetail(): PullRequestDetailDto {
       eventType: 'review_thread',
       timestamp: '2026-08-20T10:30:00Z',
       body: null,
-      githubId: 9,
+      remoteId: 9,
       payload: { ...EMPTY_TIMELINE_PAYLOAD, path: 'src/Example.java', line: 2, side: 'RIGHT' },
     }],
   });

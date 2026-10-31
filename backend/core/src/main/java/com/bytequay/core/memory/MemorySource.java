@@ -110,7 +110,7 @@ public record MemorySource(
     /**
      * One comment, review or close on a pull request.
      *
-     * @param commentId GitHub's id of the comment or review, unique within the repository
+     * @param commentId the provider's id of the comment or review, unique within the repository
      * @param maintainer whether GitHub reported the author as an owner, member or collaborator
      * @param resolved whether the review thread was resolved
      * @param outdated whether the code under the review thread changed afterwards

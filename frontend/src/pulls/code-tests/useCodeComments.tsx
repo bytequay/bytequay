@@ -194,7 +194,7 @@ export function useCodeComments(options: CodeCommentsOptions | undefined, contex
 
   const cards: LineCard[] = [
     ...placedFindings.map(finding => ({ key: `finding:${finding.id}`, line: finding.endLine })),
-    ...placedThreads.map(activity => ({ key: `thread:${activity.githubId}`, line: activity.payload.line ?? 0 })),
+    ...placedThreads.map(activity => ({ key: `thread:${activity.remoteId}`, line: activity.payload.line ?? 0 })),
     ...placedLocal.map(thread => ({ key: `local:${thread.id}`, line: thread.line })),
     ...placedPending.map((item, index) => ({ key: `pending:${index}`, line: item.line })),
     ...(active === null || selecting ? [] : [{ key: `composer:${active.start}-${active.end}`, line: active.end }]),
@@ -206,7 +206,7 @@ export function useCodeComments(options: CodeCommentsOptions | undefined, contex
       return finding === undefined ? null : findingCard(finding);
     }
     if (key.startsWith('thread:')) {
-      const activity = placedThreads.find(item => `thread:${item.githubId}` === key);
+      const activity = placedThreads.find(item => `thread:${item.remoteId}` === key);
       return activity === undefined ? null : <ReviewThread pendingReview={{ comments: options.pending, onChange: options.onPendingChange }} {...options.threads} activity={activity} viewerLogin={options.viewer?.login} showCode={false} />;
     }
     if (key.startsWith('local:')) {
@@ -306,7 +306,7 @@ export function useCodeComments(options: CodeCommentsOptions | undefined, contex
         </div>
       ))}
       {unplacedThreads.map(activity => (
-        <div key={activity.githubId} className="ct-unplaced__card">
+        <div key={activity.remoteId} className="ct-unplaced__card">
           <ReviewThread pendingReview={{ comments: options.pending, onChange: options.onPendingChange }} {...options.threads} activity={activity} viewerLogin={options.viewer?.login} />
         </div>
       ))}

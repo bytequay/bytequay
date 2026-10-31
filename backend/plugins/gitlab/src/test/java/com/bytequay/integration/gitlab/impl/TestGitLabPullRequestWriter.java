@@ -213,7 +213,7 @@ class TestGitLabPullRequestWriter
 
         assertThat(result.review()).isEmpty();
         assertThat(result.events()).singleElement().satisfies(event -> {
-            assertThat(event.githubId()).isEqualTo(10L);
+            assertThat(event.remoteId()).isEqualTo(10L);
             assertThat(event.event()).isEqualTo("commented");
             assertThat(event.timestamp()).isEqualTo(Instant.parse("2026-01-01T00:00:00Z"));
             assertThat(event.payload().htmlUrl()).isEqualTo(base + "/group/nested/repo/-/merge_requests/7#note_10");
@@ -251,7 +251,7 @@ class TestGitLabPullRequestWriter
         var result = writer.submitReview(target(), 7, ReviewVerdict.APPROVE, "", ImmutableList.of(), HEAD);
 
         assertThat(result.review()).get().satisfies(review -> {
-            assertThat(review.githubId()).isNull();
+            assertThat(review.remoteId()).isNull();
             assertThat(review.submittedAt()).isNull();
             assertThat(review.state()).isEqualTo("APPROVED");
             assertThat(review.login()).isEqualTo("reviewer");
@@ -271,7 +271,7 @@ class TestGitLabPullRequestWriter
 
         assertThat(result.event()).isEqualTo("review_thread");
         assertThat(result.payload().comments()).hasSize(2);
-        assertThat(result.payload().comments().getLast().githubId()).isEqualTo(11L);
+        assertThat(result.payload().comments().getLast().remoteId()).isEqualTo(11L);
         assertThat(result.payload().comments().getLast().body()).isEqualTo("Reply");
         assertThat(received).extracting(Request::key).containsExactly(
                 "GET " + PREFIX, "GET " + PREFIX + "/discussions?per_page=100&page=1", "POST " + PREFIX + "/discussions/thread/notes");
@@ -295,7 +295,7 @@ class TestGitLabPullRequestWriter
         var result = writer.submitReview(target(), 7, ReviewVerdict.COMMENT, "", ImmutableList.of(reply), HEAD);
 
         assertThat(result.events()).singleElement().satisfies(thread -> {
-            assertThat(thread.githubId()).isEqualTo(10L);
+            assertThat(thread.remoteId()).isEqualTo(10L);
             assertThat(thread.payload().outdated()).isEqualTo(!"current".equals(revision));
             assertThat(thread.payload().line()).isEqualTo("current".equals(revision) ? 3 : null);
             assertThat(thread.payload().originalLine()).isEqualTo(3);
@@ -303,7 +303,7 @@ class TestGitLabPullRequestWriter
             assertThat(thread.payload().path()).isEqualTo("LEFT".equals(side) ? "old.txt" : "new.txt");
             assertThat(thread.payload().side()).isEqualTo(side);
             assertThat(thread.payload().resolved()).isTrue();
-            assertThat(thread.payload().comments()).extracting(comment -> comment.githubId()).containsExactly(10L, 11L);
+            assertThat(thread.payload().comments()).extracting(comment -> comment.remoteId()).containsExactly(10L, 11L);
         });
     }
 
@@ -366,7 +366,7 @@ class TestGitLabPullRequestWriter
 
         var result = writer.comment(target(), 7, "/close");
 
-        assertThat(result.githubId()).isNull();
+        assertThat(result.remoteId()).isNull();
         assertThat(result.timestamp()).isNull();
         assertThat(result.event()).isEqualTo("system_note");
         assertThat(result.body()).isEqualTo("Closed this merge request.");
@@ -387,7 +387,7 @@ class TestGitLabPullRequestWriter
         var result = batch ? writer.submitReview(target(), 7, ReviewVerdict.COMMENT, "", ImmutableList.of(comment), HEAD).events().getFirst()
                 : writer.createReviewComment(target(), 7, comment);
 
-        assertThat(result.githubId()).isNull();
+        assertThat(result.remoteId()).isNull();
         assertThat(result.timestamp()).isNull();
         assertThat(result.event()).isEqualTo("system_note");
         assertThat(result.body()).isEqualTo("Closed this merge request.");

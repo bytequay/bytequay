@@ -314,7 +314,7 @@ class TestGitHubPullRequestOverviewClient
 
         List<PrTimelineEvent> timeline = client.fetchPrTimeline("pat", PULL_REQUEST);
 
-        assertThat(timeline).extracting(PrTimelineEvent::githubId).containsExactly(1L, 2L, 3L);
+        assertThat(timeline).extracting(PrTimelineEvent::remoteId).containsExactly(1L, 2L, 3L);
         var failed = timeline.getFirst().payload().mergeQueueRemoval();
         assertThat(failed.reason()).contains("failed_checks");
         assertThat(failed.commitUrl()).contains("https://github.com/owner/repo/commit/queue-sha");
@@ -338,7 +338,7 @@ class TestGitHubPullRequestOverviewClient
         graphServer.expect(requestTo("https://api.github.test/graphql")).andRespond(withStatus(HttpStatus.FORBIDDEN));
 
         assertThat(client.fetchPrTimeline("pat", PULL_REQUEST)).singleElement().satisfies(event -> {
-            assertThat(event.githubId()).isEqualTo(1L);
+            assertThat(event.remoteId()).isEqualTo(1L);
             assertThat(event.actor()).isEqualTo("github-merge-queue");
             assertThat(event.payload().mergeQueueRemoval()).isNull();
         });
@@ -412,7 +412,7 @@ class TestGitHubPullRequestOverviewClient
         List<PrTimelineEvent> timeline = client.fetchPrTimeline("pat", PULL_REQUEST);
 
         assertThat(timeline)
-                .extracting(event -> event.githubId() + ":" + event.actor() + ":" + event.payload().requestedReviewer())
+                .extracting(event -> event.remoteId() + ":" + event.actor() + ":" + event.payload().requestedReviewer())
                 .containsExactly("1:alice:bob", "2:alice:carol", "3:alice:owner/connectors", "4:alice:null", "5:alice:null");
     }
 
@@ -663,7 +663,7 @@ class TestGitHubPullRequestOverviewClient
         List<PrTimelineEvent> threads = client.fetchReviewComments("pat", PULL_REQUEST, 5);
 
         assertThat(threads).singleElement().satisfies(thread -> {
-            assertThat(thread.githubId()).isEqualTo(11);
+            assertThat(thread.remoteId()).isEqualTo(11);
             assertThat(thread.event()).isEqualTo("review_thread");
             assertThat(thread.payload().outdated()).isEqualTo(outdated);
             assertThat(thread.payload().resolved()).isFalse();

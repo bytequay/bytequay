@@ -166,13 +166,13 @@ public record ContextBuild(
     /**
      * A review thread, or a review body or comment standing alone.
      *
-     * @param githubId GitHub's id of the thread or note, remembered once the harvest finishes so a later harvest skips it
+     * @param remoteId the provider's id of the thread or note, remembered once the harvest finishes so a later harvest skips it
      */
-    public record HarvestThread(String githubId, int pull, MemorySource.Part part, Optional<String> path, boolean resolved, boolean outdated, List<HarvestNote> notes)
+    public record HarvestThread(String remoteId, int pull, MemorySource.Part part, Optional<String> path, boolean resolved, boolean outdated, List<HarvestNote> notes)
     {
         public HarvestThread
         {
-            requireNonNull(githubId, "githubId is null");
+            requireNonNull(remoteId, "remoteId is null");
             requireNonNull(part, "part is null");
             requireNonNull(path, "path is null");
             notes = ImmutableList.copyOf(notes);
@@ -180,12 +180,12 @@ public record ContextBuild(
         }
     }
 
-    public record HarvestNote(String key, String githubId, String author, boolean maintainer, String body, String url, Instant at)
+    public record HarvestNote(String key, String remoteId, String author, boolean maintainer, String body, String url, Instant at)
     {
         public HarvestNote
         {
             ContextLimits.text(key, "note key", 20);
-            requireNonNull(githubId, "githubId is null");
+            requireNonNull(remoteId, "remoteId is null");
             requireNonNull(author, "author is null");
             requireNonNull(body, "body is null");
             requireNonNull(url, "url is null");

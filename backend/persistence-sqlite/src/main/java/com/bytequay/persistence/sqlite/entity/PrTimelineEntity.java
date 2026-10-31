@@ -54,8 +54,8 @@ public class PrTimelineEntity
     @Column(columnDefinition = "TEXT")
     private String body;
 
-    @Column(name = "github_id")
-    private Long githubId;
+    @Column(name = "remote_id")
+    private Long remoteId;
 
     @Column(name = "local_event_key", unique = true)
     private String localEventKey;
@@ -69,14 +69,14 @@ public class PrTimelineEntity
     public PrTimelineEvent toDomain()
     {
         return new PrTimelineEvent(
-                getGithubId(), getEvent(), getActor(), getTimestamp(), getBody(), getPayload() == null ? com.bytequay.core.domain.PrTimelinePayload.empty() : getPayload(),
+                getRemoteId(), getEvent(), getActor(), getTimestamp(), getBody(), getPayload() == null ? com.bytequay.core.domain.PrTimelinePayload.empty() : getPayload(),
                 Optional.ofNullable(getLocalEventKey()));
     }
 
     public PrTimelineEntity updateFrom(long prId, PrTimelineEvent event)
     {
         setPrId(prId);
-        setGithubId(event.githubId());
+        setRemoteId(event.remoteId());
         setEvent(event.event());
         setActor(event.actor());
         setTimestamp(event.timestamp());

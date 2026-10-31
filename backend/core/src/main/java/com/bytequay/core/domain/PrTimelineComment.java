@@ -22,7 +22,7 @@ import static java.util.Objects.requireNonNull;
 
 /** One root or reply comment in an inline pull-request review thread. */
 public record PrTimelineComment(
-        Long githubId,
+        Long remoteId,
         String actor,
         String actorAvatarUrl,
         boolean actorBot,

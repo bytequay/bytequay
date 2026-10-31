@@ -33,7 +33,7 @@ import java.time.Instant;
         name = "pr_check_runs",
         indexes = @Index(
                 name = "idx_pr_check_runs_pr_github",
-                columnList = "pr_id, github_id"))
+                columnList = "pr_id, remote_id"))
 @Getter
 @Setter
 public class PrCheckRunEntity
@@ -46,8 +46,8 @@ public class PrCheckRunEntity
     @Column(nullable = false)
     private Long prId;
 
-    @Column(name = "github_id")
-    private Long githubId;
+    @Column(name = "remote_id")
+    private Long remoteId;
 
     private String name;
 
@@ -71,13 +71,13 @@ public class PrCheckRunEntity
 
     public PrCheckRunState toDomain()
     {
-        return new PrCheckRunState(getGithubId(), getName(), getStatus(), getConclusion(), getDetailsUrl(), getSource(), getStartedAt(), getCompletedAt());
+        return new PrCheckRunState(getRemoteId(), getName(), getStatus(), getConclusion(), getDetailsUrl(), getSource(), getStartedAt(), getCompletedAt());
     }
 
     public PrCheckRunEntity updateFrom(long prId, PrCheckRunState check)
     {
         setPrId(prId);
-        setGithubId(check.githubId());
+        setRemoteId(check.remoteId());
         setName(check.name());
         setStatus(check.status());
         setConclusion(check.conclusion());

@@ -153,7 +153,7 @@ public class WorkspaceIssueService
             long repositoryId = route.repository().id();
             Optional<RepositoryIssue> previous = issues.find(repositoryId, issueNumber);
             PrTimelineEvent created = client(route).comment(route.target(), issueNumber, body.trim());
-            if (created.githubId() == null) {
+            if (created.remoteId() == null) {
                 // Command-only writes have no note to append; refresh the state they changed.
                 try {
                     Optional<RepositoryIssue> issue = client(route).find(route.target(), issueNumber);
@@ -182,7 +182,7 @@ public class WorkspaceIssueService
                     workspaceId,
                     issueNumber,
                     RecentTextKind.COMMENT,
-                    "comment:" + (created.githubId() == null ? created.timestamp() : created.githubId()),
+                    "comment:" + (created.remoteId() == null ? created.timestamp() : created.remoteId()),
                     body.trim());
             return created;
         });

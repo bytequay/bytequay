@@ -42,7 +42,7 @@ public interface WorkspaceStore
     /** Finds a workspace by its ByteQuay-owned identifier. */
     Optional<Workspace> findById(String workspaceId);
 
-    /** Finds a workspace by the selected repository's stable GitHub identifier. */
+    /** Finds a workspace by the selected repository's stable remote identifier. */
     Optional<Workspace> findBySelectedRepositoryId(long selectedRepositoryId);
 
     Optional<Workspace> findBySelectedHostingRepositoryId(long repositoryId);

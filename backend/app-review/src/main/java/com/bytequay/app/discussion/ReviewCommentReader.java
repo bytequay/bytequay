@@ -112,14 +112,14 @@ public final class ReviewCommentReader
             List<PrTimelineComment> thread = payload.comments();
             PrTimelineComment root = thread.stream().filter(comment -> comment.inReplyToId() == null).findFirst().orElse(thread.getFirst());
             PrTimelineComment latest = thread.getLast();
-            if (root.githubId() == null || latest.githubId() == null) {
+            if (root.remoteId() == null || latest.remoteId() == null) {
                 continue;
             }
             int index = thread.size() - 1;
             String snapshot = reviewComment(payload, thread.subList(Math.max(0, index - THREAD_CONTEXT), index), latest, commits);
             if (snapshot.length() <= MAX_SNAPSHOT_CHARACTERS) {
-                threads.add(new ReviewThreadItem(root.githubId(), new ReviewCommentItem(
-                        new ReviewCommentAnchor(repo, number, "review_comment:" + latest.githubId(), snapshot),
+                threads.add(new ReviewThreadItem(root.remoteId(), new ReviewCommentItem(
+                        new ReviewCommentAnchor(repo, number, "review_comment:" + latest.remoteId(), snapshot),
                         requireNonNullElse(latest.actor(), ""), latest.actorBot(), Optional.ofNullable(latest.timestamp()))));
             }
         }
@@ -137,22 +137,22 @@ public final class ReviewCommentReader
         for (PrTimelineEvent event : detail.get().timeline()) {
             PrTimelinePayload payload = event.payload();
             String kind = requireNonNullElse(event.event(), "");
-            if (kind.equals("reviewed") && event.githubId() != null && event.body() != null && !event.body().isBlank()) {
+            if (kind.equals("reviewed") && event.remoteId() != null && event.body() != null && !event.body().isBlank()) {
                 ObjectNode snapshot = snapshot("review", event.actor());
                 put(snapshot, "state", payload.state());
-                put(snapshot, "commit", commits.get(event.githubId()));
-                comments.add(comment("review:" + event.githubId(), event.actor(), payload.actorBot(), event.timestamp(), withBody(snapshot, payload.htmlUrl(), event.body())));
+                put(snapshot, "commit", commits.get(event.remoteId()));
+                comments.add(comment("review:" + event.remoteId(), event.actor(), payload.actorBot(), event.timestamp(), withBody(snapshot, payload.htmlUrl(), event.body())));
             }
-            else if (kind.equals("commented") && event.githubId() != null) {
-                comments.add(comment("issue_comment:" + event.githubId(), event.actor(), payload.actorBot(), event.timestamp(),
+            else if (kind.equals("commented") && event.remoteId() != null) {
+                comments.add(comment("issue_comment:" + event.remoteId(), event.actor(), payload.actorBot(), event.timestamp(),
                         withBody(snapshot("issue_comment", event.actor()), payload.htmlUrl(), event.body())));
             }
             else if (kind.equals("review_thread")) {
                 List<PrTimelineComment> thread = payload.comments();
                 for (int index = 0; index < thread.size(); index++) {
                     PrTimelineComment comment = thread.get(index);
-                    if (comment.githubId() != null) {
-                        comments.add(comment("review_comment:" + comment.githubId(), comment.actor(), comment.actorBot(), comment.timestamp(),
+                    if (comment.remoteId() != null) {
+                        comments.add(comment("review_comment:" + comment.remoteId(), comment.actor(), comment.actorBot(), comment.timestamp(),
                                 reviewComment(payload, thread.subList(Math.max(0, index - THREAD_CONTEXT), index), comment, commits)));
                     }
                 }
@@ -165,8 +165,8 @@ public final class ReviewCommentReader
     private static Map<Long, String> commits(StoredPrDetail detail)
     {
         return detail.reviews().stream()
-                .filter(review -> review.githubId() != null && review.commitId() != null)
-                .collect(toImmutableMap(PrReviewState::githubId, PrReviewState::commitId, (first, second) -> first));
+                .filter(review -> review.remoteId() != null && review.commitId() != null)
+                .collect(toImmutableMap(PrReviewState::remoteId, PrReviewState::commitId, (first, second) -> first));
     }
 
     private static String reviewComment(PrTimelinePayload payload, List<PrTimelineComment> earlier, PrTimelineComment comment, Map<Long, String> commits)

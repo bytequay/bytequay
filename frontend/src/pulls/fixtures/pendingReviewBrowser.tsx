@@ -29,8 +29,8 @@ const stored = prDetail({
   mergeable: null, mergeableState: null, author: 'alice', updatedAt: '2026-01-01T00:00:00Z',
   baseRef: 'master', body: 'Implementation',
   reviewers: [{ login: 'bob', avatarUrl: null, state: 'PENDING' }], deletions: 1,
-  recentActivity: [timelineActivity({ githubId: 61, actor: 'alice', timestamp: null, body: 'Existing discussion' }, { path: 'src/Example.java', line: 1, originalLine: 1, side: 'RIGHT',
-      comments: [timelineComment({ githubId: 61, actor: 'alice', timestamp: null, body: 'Existing discussion', reviewId: 50 })] })],
+  recentActivity: [timelineActivity({ remoteId: 61, actor: 'alice', timestamp: null, body: 'Existing discussion' }, { path: 'src/Example.java', line: 1, originalLine: 1, side: 'RIGHT',
+      comments: [timelineComment({ remoteId: 61, actor: 'alice', timestamp: null, body: 'Existing discussion', reviewId: 50 })] })],
 });
 const files: DiffFileDto[] = [{ filename: 'src/Example.java', status: 'modified', additions: 1, deletions: 1, patch: '@@ -1 +1 @@\n-old\n+new' }];
 const commits: DiffCommitDto[] = [

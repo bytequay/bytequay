@@ -820,7 +820,7 @@ public class GitHubPullRequestReadClient
                     if (!"removed_from_merge_queue".equals(event.event())) {
                         return mapped;
                     }
-                    return new PrTimelineEvent(mapped.githubId(), mapped.event(), mapped.actor(), mapped.timestamp(), mapped.body(),
+                    return new PrTimelineEvent(mapped.remoteId(), mapped.event(), mapped.actor(), mapped.timestamp(), mapped.body(),
                             PrTimelinePayload.builder(mapped.payload()).mergeQueueRemoval(removals.get(event.nodeId())).build(), mapped.localEventKey());
                 })
                 .collect(toImmutableList());
@@ -830,9 +830,9 @@ public class GitHubPullRequestReadClient
         try {
             Map<Long, List<PrReaction>> reactions = fetchReviewReactions(pat, pr);
             return timeline.stream()
-                    .map(event -> event.githubId() == null
+                    .map(event -> event.remoteId() == null
                             ? event
-                            : withReviewReactions(event, reactions.get(event.githubId())))
+                            : withReviewReactions(event, reactions.get(event.remoteId())))
                     .collect(toImmutableList());
         }
         catch (RestClientResponseException ignored) {
@@ -966,7 +966,7 @@ public class GitHubPullRequestReadClient
             return event;
         }
         return new PrTimelineEvent(
-                event.githubId(),
+                event.remoteId(),
                 event.event(),
                 event.actor(),
                 event.timestamp(),

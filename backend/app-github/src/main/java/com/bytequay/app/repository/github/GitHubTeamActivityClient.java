@@ -146,11 +146,11 @@ public class GitHubTeamActivityClient
     private static boolean cachedReviews(Collector collector, String repository, int number, JsonNode subject, StoredPrDetail cached, Identity identity)
     {
         List<PrReviewState> reviews = cached.reviews().stream().filter(review -> !review.state().equalsIgnoreCase("pending")).collect(toImmutableList());
-        if (reviews.stream().anyMatch(review -> review.githubId() == null || review.submittedAt() == null || cachedActor(identity, subject, review.login()).isMissingNode())) {
+        if (reviews.stream().anyMatch(review -> review.remoteId() == null || review.submittedAt() == null || cachedActor(identity, subject, review.login()).isMissingNode())) {
             return false;
         }
         for (PrReviewState review : reviews) {
-            ObjectNode value = JsonNodeFactory.instance.objectNode().put("id", review.githubId()).put("state", review.state())
+            ObjectNode value = JsonNodeFactory.instance.objectNode().put("id", review.remoteId()).put("state", review.state())
                     .put("submitted_at", review.submittedAt().toString()).put("body", review.body());
             value.set("user", cachedActor(identity, subject, review.login()));
             collector.review(repository, number, value, subject, "CACHED_DETAIL");

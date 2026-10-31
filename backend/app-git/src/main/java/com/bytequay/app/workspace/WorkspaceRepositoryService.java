@@ -716,7 +716,7 @@ public class WorkspaceRepositoryService
     }
 
     /**
-     * Attaches stable GitHub identities to custom remotes when the same repository is already watched.
+     * Attaches stable remote identities to custom remotes when the same repository is already watched.
      * This lookup is local-only; an unknown remote never causes a provider request while History loads.
      */
     private List<RemoteSource> enrichRemoteSources(String workspaceId)

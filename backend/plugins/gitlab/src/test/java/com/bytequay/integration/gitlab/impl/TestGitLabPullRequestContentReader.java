@@ -142,11 +142,11 @@ class TestGitLabPullRequestContentReader
             assertThat(review.state()).isEqualTo("APPROVED");
         });
         assertThat(detail.timeline()).extracting(event -> event.event()).containsExactly("review_thread", "commented", "system_note", "description_reactions");
-        assertThat(detail.timeline().get(2).githubId()).isEqualTo(12L);
+        assertThat(detail.timeline().get(2).remoteId()).isEqualTo(12L);
         assertThat(detail.timeline().get(2).body()).isEqualTo("changed title");
         assertThat(detail.timeline().getFirst().payload().resolved()).isTrue();
         assertThat(detail.timeline().getFirst().payload().line()).isEqualTo(3);
-        assertThat(detail.timeline().getFirst().payload().comments()).singleElement().satisfies(comment -> assertThat(comment.githubId()).isEqualTo(10));
+        assertThat(detail.timeline().getFirst().payload().comments()).singleElement().satisfies(comment -> assertThat(comment.remoteId()).isEqualTo(10));
         assertThat(detail.timeline().getLast().payload().reactions()).singleElement().satisfies(reaction -> {
             assertThat(reaction.content()).isEqualTo("+1");
             assertThat(reaction.count()).isEqualTo(2);
@@ -199,7 +199,7 @@ class TestGitLabPullRequestContentReader
 
         assertThat(result.complete()).isTrue();
         assertThat(result.checkRuns()).singleElement().satisfies(check -> {
-            assertThat(check.githubId()).isEqualTo(12);
+            assertThat(check.remoteId()).isEqualTo(12);
             assertThat(check.status()).isEqualTo("completed");
             assertThat(check.conclusion()).isEqualTo("failure");
             assertThat(check.source()).isEqualTo("job");
@@ -247,7 +247,7 @@ class TestGitLabPullRequestContentReader
 
         assertThat(result.complete()).isFalse();
         assertThat(result.checkRuns()).singleElement().satisfies(check -> {
-            assertThat(check.githubId()).isNull();
+            assertThat(check.remoteId()).isNull();
             assertThat(check.name()).isEqualTo("Pipeline #9");
             assertThat(check.conclusion()).isEqualTo("failure");
         });
@@ -265,7 +265,7 @@ class TestGitLabPullRequestContentReader
 
         assertThat(result.complete()).isFalse();
         assertThat(result.checkRuns()).extracting(check -> check.name()).containsExactly("test", "Pipeline #9");
-        assertThat(result.checkRuns().getLast().githubId()).isNull();
+        assertThat(result.checkRuns().getLast().remoteId()).isNull();
         assertThat(result.checkRuns().getLast().conclusion()).isEqualTo("failure");
     }
 

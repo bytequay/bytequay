@@ -922,8 +922,8 @@ export function IssueOverview({
           {visibleTimeline.map((event, index) => event.event === 'commented'
             ? <IssueComment event={event} fallbackUrl={issue.htmlUrl} repository={repository}
               onQuote={body => setQuotedReply(current => ({ id: (current?.id ?? 0) + 1, body }))}
-              key={event.githubId ?? `comment-${index}`} />
-            : <IssueEvent event={event} colors={colors} key={event.githubId ?? `${event.event}-${index}`} />)}
+              key={event.remoteId ?? `comment-${index}`} />
+            : <IssueEvent event={event} colors={colors} key={event.remoteId ?? `${event.event}-${index}`} />)}
           {timelineLoading && (timeline.length === 0
             // A first read has no activity to append to, so the pane shows the shape it is about to fill.
             ? <SkeletonTimeline label="Loading activity…" />

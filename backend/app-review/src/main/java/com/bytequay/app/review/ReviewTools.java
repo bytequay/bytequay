@@ -1675,14 +1675,14 @@ public class ReviewTools
             String body = Optional.ofNullable(item.body()).orElse("");
             if (item.payload() != null && !item.payload().comments().isEmpty()) {
                 body = Optional.ofNullable(item.payload().comments().getFirst().body()).orElse("");
-                entry.put("threadId", item.githubId() == null ? null : item.githubId().toString());
+                entry.put("threadId", item.remoteId() == null ? null : item.remoteId().toString());
                 entry.put("commentCount", item.payload().comments().size());
                 entry.put("note", "Use kind thread with threadId to read every comment and reply.");
             }
             entry.put("body", bounded(body, 2000));
             entry.put("bodyTruncated", body.length() > 2000);
-            if (item.githubId() != null) {
-                entry.put("id", item.githubId());
+            if (item.remoteId() != null) {
+                entry.put("id", item.remoteId());
             }
             if (item.payload() != null && item.payload().path() != null) {
                 entry.put("path", bounded(item.payload().path(), 1000));
@@ -1706,12 +1706,12 @@ public class ReviewTools
         }
         SelectedPullRequestReader.Read read = selectedPullRequest(call, number, SelectedPullRequestReader.Section.TIMELINE);
         PullRequestDetail.ActivityItem thread = read.detail().recentActivity().stream()
-                .filter(item -> item.githubId() != null && item.githubId().toString().equals(id)
+                .filter(item -> item.remoteId() != null && item.remoteId().toString().equals(id)
                         && item.payload() != null && !item.payload().comments().isEmpty())
                 .findFirst().orElseThrow(() -> new ReviewInvalidRequestException(
                         "threadId: thread is not available in this PR's captured timeline; read timeline and its freshness gaps"));
         StringBuilder text = new StringBuilder();
-        thread.payload().comments().forEach(comment -> text.append("Comment ").append(comment.githubId())
+        thread.payload().comments().forEach(comment -> text.append("Comment ").append(comment.remoteId())
                 .append(" by ").append(Optional.ofNullable(comment.actor()).orElse("unknown"))
                 .append(" at ").append(comment.timestamp()).append("; replyTo=").append(comment.inReplyToId())
                 .append("\n").append(Optional.ofNullable(comment.body()).orElse("")).append("\n\n"));
@@ -1755,7 +1755,7 @@ public class ReviewTools
                 bounded(Optional.ofNullable(check.name()).orElse(""), 200), bounded(Optional.ofNullable(check.status()).orElse(""), 100),
                 bounded(Optional.ofNullable(check.conclusion()).orElse(""), 100), bounded(Optional.ofNullable(check.category()).orElse(""), 100),
                 bounded(Optional.ofNullable(check.detailsUrl()).orElse(""), 1000), Optional.ofNullable(check.startedAt()).map(Instant::toString).orElse(""),
-                Optional.ofNullable(check.completedAt()).map(Instant::toString).orElse(""), Optional.ofNullable(check.githubId())))
+                Optional.ofNullable(check.completedAt()).map(Instant::toString).orElse(""), Optional.ofNullable(check.remoteId())))
                 .collect(toImmutableList());
         node.putPOJO("checks", retainPageEvidence(call, call.review().repo() + "#" + number + " check", ignored -> provenance, entries));
         return node;
@@ -1943,8 +1943,8 @@ public class ReviewTools
                 .put("at", item.timestamp() == null ? "" : item.timestamp().toString())
                 .put("body", excerpt)
                 .put("bodyTruncated", body.length() > 2000);
-        if (item.githubId() != null) {
-            node.put("id", item.githubId());
+        if (item.remoteId() != null) {
+            node.put("id", item.remoteId());
         }
         node.put("evidenceRef", registerEvidence(call, call.review().repo() + "#" + number + " activity",
                 provenance, item.actor() + " " + item.event() + " at " + node.path("at").asText() + "\n" + excerpt));

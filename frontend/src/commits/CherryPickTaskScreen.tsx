@@ -423,7 +423,7 @@ function CiTab({ rounds, pull, published }: { rounds: CiAutofixRunDto[]; pull: P
           {checks.map((check, index) => {
             const state = CHECK_STATE[check.category];
             return (
-              <div key={check.githubId ?? `${check.name}-${index}`} className="cpt-row">
+              <div key={check.remoteId ?? `${check.name}-${index}`} className="cpt-row">
                 <span className={`cpt-row__icon ${state.tone}`} aria-hidden="true">
                   {check.category === 'successful' ? <Check size={12} /> : check.category === 'failing' ? <X size={12} /> : <span className="cpt-ring" />}
                 </span>

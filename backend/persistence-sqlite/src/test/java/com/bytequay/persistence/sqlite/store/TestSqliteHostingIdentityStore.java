@@ -100,6 +100,21 @@ class TestSqliteHostingIdentityStore
     }
 
     @Test
+    void remoteIdLookupFindsTheRepositoryOnlyOnItsOwnServer()
+    {
+        HostingRepository first = repository(gitlab("https://git.example.com"), "99", "group/project");
+        HostingRepository second = repository(gitlab("https://gitlab.com"), "99", "group/project");
+
+        assertThat(store.findRepository(new HostingServer(HostingProvider.GITLAB, URI.create("https://git.example.com"), URI.create("https://git.example.com/api/v4")), "99"))
+                .contains(first);
+        assertThat(store.findRepository(new HostingServer(HostingProvider.GITLAB, URI.create("https://gitlab.com"), URI.create("https://gitlab.com/api/v4")), "99"))
+                .contains(second);
+        assertThat(store.findRepository(HostingServer.GITHUB_COM, "99")).isEmpty();
+        assertThat(store.findRepository(new HostingServer(HostingProvider.GITLAB, URI.create("https://gitlab.com"), URI.create("https://gitlab.com/api/v4")), "100"))
+                .isEmpty();
+    }
+
+    @Test
     void emptyRepositoryHasNoInventedDefaultBranch()
     {
         HostingInstance instance = gitlab("https://git.example.com/gitlab");

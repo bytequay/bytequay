@@ -80,6 +80,7 @@ class TestSelectedCommitPullRequestReader
             new HostingRepository(3, 1, "42", MONITORED.fullName(), URI.create("https://github.com/owner/project"), URI.create("https://github.com/owner/project.git"),
                     Optional.empty(), Optional.of("main")), "viewer");
     private static final HostingTarget TARGET = READ.target();
+    private static final long HOSTED = READ.repository().id();
 
     private CommitHistoryStore enrichment;
     private GitCommandRunner git;
@@ -95,14 +96,15 @@ class TestSelectedCommitPullRequestReader
         lookup = mock(CherryPickPullRequestLookup.class);
         hosting = mock(WorkspaceHostingService.class);
         when(hosting.captureRead("workspace")).thenReturn(READ);
+        when(hosting.storedRepository("workspace", REPOSITORY_ID)).thenReturn(Optional.of(READ.repository()));
         reader = new SelectedCommitPullRequestReader(enrichment, git, lookup, hosting, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
     void reusesPositiveAssociationsWithoutGitOrProviderEvenWhenLegacyCheckTimeIsAbsent()
     {
-        CommitEnrichment cached = stored(REPOSITORY_ID, FIRST, Optional.of(12), Optional.empty());
-        when(enrichment.findEnrichment(REPOSITORY_ID, ImmutableList.of(FIRST))).thenReturn(snapshot(cached));
+        CommitEnrichment cached = stored(HOSTED, FIRST, Optional.of(12), Optional.empty());
+        when(enrichment.findEnrichment(HOSTED, ImmutableList.of(FIRST))).thenReturn(snapshot(cached));
 
         SelectedCommitPullRequestReader.Read read = reader.read(workspace(false), ImmutableList.of(FIRST.toUpperCase()));
 
@@ -118,18 +120,18 @@ class TestSelectedCommitPullRequestReader
     {
         String fourth = "d".repeat(64);
         List<String> selected = ImmutableList.of(FIRST, SECOND, THIRD, fourth);
-        CommitEnrichment fresh = stored(REPOSITORY_ID, FIRST, Optional.empty(), Optional.of(NOW.minusSeconds(60)));
-        CommitEnrichment old = stored(REPOSITORY_ID, SECOND, Optional.empty(), Optional.of(NOW.minus(Duration.ofDays(2))));
-        CommitEnrichment due = stored(REPOSITORY_ID, THIRD, Optional.empty(), Optional.of(NOW.minus(Duration.ofDays(1))));
-        when(enrichment.findEnrichment(REPOSITORY_ID, selected)).thenReturn(snapshot(fresh, old, due));
+        CommitEnrichment fresh = stored(HOSTED, FIRST, Optional.empty(), Optional.of(NOW.minusSeconds(60)));
+        CommitEnrichment old = stored(HOSTED, SECOND, Optional.empty(), Optional.of(NOW.minus(Duration.ofDays(2))));
+        CommitEnrichment due = stored(HOSTED, THIRD, Optional.empty(), Optional.of(NOW.minus(Duration.ofDays(1))));
+        when(enrichment.findEnrichment(HOSTED, selected)).thenReturn(snapshot(fresh, old, due));
         metadata(FIRST, NOW.minus(Duration.ofDays(1)));
         metadata(SECOND, NOW.minus(Duration.ofDays(8)));
         metadata(THIRD, NOW.minus(Duration.ofDays(7)));
         metadata(fourth, NOW.minus(Duration.ofDays(100)));
         when(lookup.lookUpResult(eq(TARGET), eq(ImmutableList.of(THIRD, fourth)), eq("main"), anyList())).thenReturn(negative());
-        CommitEnrichment checkedThird = stored(REPOSITORY_ID, THIRD, Optional.empty(), Optional.of(NOW));
-        CommitEnrichment checkedFourth = stored(REPOSITORY_ID, fourth, Optional.empty(), Optional.of(NOW));
-        when(enrichment.findEnrichment(REPOSITORY_ID, ImmutableList.of(THIRD, fourth))).thenReturn(snapshot(checkedThird, checkedFourth));
+        CommitEnrichment checkedThird = stored(HOSTED, THIRD, Optional.empty(), Optional.of(NOW));
+        CommitEnrichment checkedFourth = stored(HOSTED, fourth, Optional.empty(), Optional.of(NOW));
+        when(enrichment.findEnrichment(HOSTED, ImmutableList.of(THIRD, fourth))).thenReturn(snapshot(checkedThird, checkedFourth));
 
         SelectedCommitPullRequestReader.Read read = reader.read(workspace(false), selected);
 
@@ -148,8 +150,8 @@ class TestSelectedCommitPullRequestReader
     void routesForkAssociationsByStableUpstreamIdentityAndBoundDefaultBranch()
     {
         WorkspaceRepositoryContext workspace = workspace(true);
-        when(enrichment.findEnrichment(REPOSITORY_ID, ImmutableList.of(FIRST)))
-                .thenReturn(snapshot(), snapshot(stored(REPOSITORY_ID, FIRST, Optional.of(9), Optional.of(NOW))));
+        when(enrichment.findEnrichment(HOSTED, ImmutableList.of(FIRST)))
+                .thenReturn(snapshot(), snapshot(stored(HOSTED, FIRST, Optional.of(9), Optional.of(NOW))));
         metadata(FIRST, NOW);
         when(lookup.lookUpResult(eq(TARGET), eq(ImmutableList.of(FIRST)), eq("release"), anyList()))
                 .thenReturn(new PullRequestLookupResult(ImmutableList.of(association(FIRST, 9)), ImmutableSet.of()));
@@ -174,9 +176,9 @@ class TestSelectedCommitPullRequestReader
         command(localGit, repository, "-c", "user.name=Test", "-c", "user.email=test@example.com", "tag", "-a", "v1", "-m", "Annotated tag");
         String tag = command(localGit, repository, "rev-parse", "refs/tags/v1").strip();
         assertThat(tag).isNotEqualTo(commit);
-        when(enrichment.findEnrichment(REPOSITORY_ID, ImmutableList.of(commit, tag))).thenReturn(snapshot());
-        when(enrichment.findEnrichment(REPOSITORY_ID, ImmutableList.of(commit)))
-                .thenReturn(snapshot(stored(REPOSITORY_ID, commit, Optional.empty(), Optional.of(NOW))));
+        when(enrichment.findEnrichment(HOSTED, ImmutableList.of(commit, tag))).thenReturn(snapshot());
+        when(enrichment.findEnrichment(HOSTED, ImmutableList.of(commit)))
+                .thenReturn(snapshot(stored(HOSTED, commit, Optional.empty(), Optional.of(NOW))));
         when(lookup.lookUpResult(eq(TARGET), eq(ImmutableList.of(commit)), eq("main"), anyList())).thenReturn(negative());
         WorkspaceRepositoryContext workspace = new WorkspaceRepositoryContext("workspace", repository, REPOSITORY_ID, MONITORED,
                 OptionalLong.empty(), MONITORED, "origin", "origin", "main", ImmutableList.of());
@@ -213,8 +215,8 @@ class TestSelectedCommitPullRequestReader
     void incompleteLocalMetadataPreservesPriorCheckWithoutCallingProvider(String kind)
     {
         Instant priorCheck = NOW.minus(Duration.ofDays(2));
-        when(enrichment.findEnrichment(REPOSITORY_ID, ImmutableList.of(FIRST)))
-                .thenReturn(snapshot(stored(REPOSITORY_ID, FIRST, Optional.empty(), Optional.of(priorCheck))));
+        when(enrichment.findEnrichment(HOSTED, ImmutableList.of(FIRST)))
+                .thenReturn(snapshot(stored(HOSTED, FIRST, Optional.empty(), Optional.of(priorCheck))));
         GitCommandRunner.Result result = switch (kind) {
             case "missing", "exception" -> GitCommandRunner.Result.failed("Missing local object");
             case "truncated" -> new GitCommandRunner.Result(0, FIRST + "\n" + NOW + "\n", true);
@@ -242,7 +244,7 @@ class TestSelectedCommitPullRequestReader
     @Test
     void missingLocalCommitWithoutCachedObservationRemainsUnchecked()
     {
-        when(enrichment.findEnrichment(REPOSITORY_ID, ImmutableList.of(FIRST))).thenReturn(snapshot());
+        when(enrichment.findEnrichment(HOSTED, ImmutableList.of(FIRST))).thenReturn(snapshot());
         when(git.run(REPOSITORY, Duration.ofSeconds(2), arguments(FIRST))).thenReturn(GitCommandRunner.Result.failed("Missing"));
 
         SelectedCommitPullRequestReader.Item item = reader.read(workspace(false), ImmutableList.of(FIRST)).items().getFirst();
@@ -259,14 +261,14 @@ class TestSelectedCommitPullRequestReader
     {
         Instant previousCheck = NOW.minus(Duration.ofDays(2));
         List<String> selected = ImmutableList.of(FIRST, SECOND, THIRD);
-        CommitEnrichment previous = stored(REPOSITORY_ID, THIRD, Optional.empty(), Optional.of(previousCheck));
-        when(enrichment.findEnrichment(REPOSITORY_ID, selected)).thenReturn(snapshot(previous));
+        CommitEnrichment previous = stored(HOSTED, THIRD, Optional.empty(), Optional.of(previousCheck));
+        when(enrichment.findEnrichment(HOSTED, selected)).thenReturn(snapshot(previous));
         selected.forEach(sha -> metadata(sha, NOW));
         when(lookup.lookUpResult(eq(TARGET), eq(selected), eq("main"), anyList()))
                 .thenReturn(new PullRequestLookupResult(ImmutableList.of(association(FIRST, 9)), ImmutableSet.of(THIRD)));
-        CommitEnrichment positive = stored(REPOSITORY_ID, FIRST, Optional.of(9), Optional.of(NOW));
-        CommitEnrichment negative = stored(REPOSITORY_ID, SECOND, Optional.empty(), Optional.of(NOW));
-        when(enrichment.findEnrichment(REPOSITORY_ID, ImmutableList.of(FIRST, SECOND))).thenReturn(snapshot(positive, negative));
+        CommitEnrichment positive = stored(HOSTED, FIRST, Optional.of(9), Optional.of(NOW));
+        CommitEnrichment negative = stored(HOSTED, SECOND, Optional.empty(), Optional.of(NOW));
+        when(enrichment.findEnrichment(HOSTED, ImmutableList.of(FIRST, SECOND))).thenReturn(snapshot(positive, negative));
 
         SelectedCommitPullRequestReader.Read read = reader.read(workspace(false), selected);
 
@@ -293,8 +295,8 @@ class TestSelectedCommitPullRequestReader
     void inconsistentProviderResultsNeverBecomeSavedNegatives(String kind)
     {
         Instant priorCheck = NOW.minus(Duration.ofDays(2));
-        when(enrichment.findEnrichment(REPOSITORY_ID, ImmutableList.of(FIRST)))
-                .thenReturn(snapshot(stored(REPOSITORY_ID, FIRST, Optional.empty(), Optional.of(priorCheck))));
+        when(enrichment.findEnrichment(HOSTED, ImmutableList.of(FIRST)))
+                .thenReturn(snapshot(stored(HOSTED, FIRST, Optional.empty(), Optional.of(priorCheck))));
         metadata(FIRST, NOW);
         PullRequestLookupResult result = switch (kind) {
             case "foreign-association" -> new PullRequestLookupResult(ImmutableList.of(association(SECOND, 9)), ImmutableSet.of());
@@ -324,7 +326,7 @@ class TestSelectedCommitPullRequestReader
     @ValueSource(strings = {"save", "reread", "missing-row", "old-row"})
     void unconfirmedPersistenceRetainsObservedResultWithExplicitUnpersistedFlag(String failure)
     {
-        when(enrichment.findEnrichment(REPOSITORY_ID, ImmutableList.of(FIRST))).thenReturn(snapshot());
+        when(enrichment.findEnrichment(HOSTED, ImmutableList.of(FIRST))).thenReturn(snapshot());
         metadata(FIRST, NOW);
         when(lookup.lookUpResult(eq(TARGET), eq(ImmutableList.of(FIRST)), eq("main"), anyList()))
                 .thenReturn(new PullRequestLookupResult(ImmutableList.of(association(FIRST, 9)), ImmutableSet.of()));
@@ -332,11 +334,11 @@ class TestSelectedCommitPullRequestReader
             doThrow(new IllegalStateException("Disk unavailable")).when(enrichment).upsertEnrichment(any());
         }
         else if (failure.equals("reread")) {
-            when(enrichment.findEnrichment(REPOSITORY_ID, ImmutableList.of(FIRST))).thenReturn(snapshot()).thenThrow(new IllegalStateException("Cannot confirm"));
+            when(enrichment.findEnrichment(HOSTED, ImmutableList.of(FIRST))).thenReturn(snapshot()).thenThrow(new IllegalStateException("Cannot confirm"));
         }
         else if (failure.equals("old-row")) {
-            when(enrichment.findEnrichment(REPOSITORY_ID, ImmutableList.of(FIRST)))
-                    .thenReturn(snapshot(), snapshot(stored(REPOSITORY_ID, FIRST, Optional.empty(), Optional.of(NOW.minusSeconds(1)))));
+            when(enrichment.findEnrichment(HOSTED, ImmutableList.of(FIRST)))
+                    .thenReturn(snapshot(), snapshot(stored(HOSTED, FIRST, Optional.empty(), Optional.of(NOW.minusSeconds(1)))));
         }
 
         SelectedCommitPullRequestReader.Read read = reader.read(workspace(false), ImmutableList.of(FIRST));
@@ -352,8 +354,8 @@ class TestSelectedCommitPullRequestReader
     @Test
     void rereadsConcurrentPositiveRetainedByStorageMergeInsteadOfReturningObservedNegative()
     {
-        CommitEnrichment concurrent = stored(REPOSITORY_ID, FIRST, Optional.of(27), Optional.of(NOW));
-        when(enrichment.findEnrichment(REPOSITORY_ID, ImmutableList.of(FIRST))).thenReturn(snapshot(), snapshot(concurrent));
+        CommitEnrichment concurrent = stored(HOSTED, FIRST, Optional.of(27), Optional.of(NOW));
+        when(enrichment.findEnrichment(HOSTED, ImmutableList.of(FIRST))).thenReturn(snapshot(), snapshot(concurrent));
         metadata(FIRST, NOW);
         when(lookup.lookUpResult(eq(TARGET), eq(ImmutableList.of(FIRST)), eq("main"), anyList())).thenReturn(negative());
 
@@ -362,15 +364,15 @@ class TestSelectedCommitPullRequestReader
         assertThat(read.items().getFirst().pullRequestNumber()).contains(27);
         assertThat(read.items().getFirst().persisted()).isTrue();
         assertThat(read.gaps()).isEmpty();
-        verify(enrichment).upsertEnrichment(ImmutableList.of(stored(REPOSITORY_ID, FIRST, Optional.empty(), Optional.of(NOW))));
+        verify(enrichment).upsertEnrichment(ImmutableList.of(stored(HOSTED, FIRST, Optional.empty(), Optional.of(NOW))));
     }
 
     @Test
     void avatarOnlyRowDoesNotClaimAPersistedAssociationAfterLocalReadFailure()
     {
-        CommitEnrichment avatars = new CommitEnrichment(REPOSITORY_ID, FIRST, Optional.of("author"), Optional.of("a".repeat(64)),
+        CommitEnrichment avatars = new CommitEnrichment(HOSTED, FIRST, Optional.of("author"), Optional.of("a".repeat(64)),
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(NOW), Optional.empty(), NOW);
-        when(enrichment.findEnrichment(REPOSITORY_ID, ImmutableList.of(FIRST))).thenReturn(snapshot(avatars));
+        when(enrichment.findEnrichment(HOSTED, ImmutableList.of(FIRST))).thenReturn(snapshot(avatars));
         when(git.run(REPOSITORY, Duration.ofSeconds(2), arguments(FIRST))).thenReturn(GitCommandRunner.Result.failed("Missing"));
 
         SelectedCommitPullRequestReader.Item item = reader.read(workspace(false), ImmutableList.of(FIRST)).items().getFirst();
@@ -384,8 +386,8 @@ class TestSelectedCommitPullRequestReader
     @ValueSource(strings = {"repository", "commit", "duplicate"})
     void rejectsMisboundStoredAssociationsBeforeGitOrProviderRead(String mismatch)
     {
-        CommitEnrichment value = stored(mismatch.equals("repository") ? 99 : REPOSITORY_ID, mismatch.equals("commit") ? SECOND : FIRST, Optional.of(9), Optional.of(NOW));
-        when(enrichment.findEnrichment(REPOSITORY_ID, ImmutableList.of(FIRST)))
+        CommitEnrichment value = stored(mismatch.equals("repository") ? 99 : HOSTED, mismatch.equals("commit") ? SECOND : FIRST, Optional.of(9), Optional.of(NOW));
+        when(enrichment.findEnrichment(HOSTED, ImmutableList.of(FIRST)))
                 .thenReturn(mismatch.equals("duplicate") ? snapshot(value, value) : snapshot(value));
 
         assertThatThrownBy(() -> reader.read(workspace(false), ImmutableList.of(FIRST))).isInstanceOf(IllegalStateException.class);
@@ -423,9 +425,9 @@ class TestSelectedCommitPullRequestReader
                 new PullRequestAssociation(number, "Pull request " + number, "https://github.com/owner/project/pull/" + number, "main", NOW.toString()));
     }
 
-    private static CommitEnrichment stored(long repositoryId, String sha, Optional<Integer> number, Optional<Instant> checkedAt)
+    private static CommitEnrichment stored(long hostingRepositoryId, String sha, Optional<Integer> number, Optional<Instant> checkedAt)
     {
-        return new CommitEnrichment(repositoryId, sha, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), number,
+        return new CommitEnrichment(hostingRepositoryId, sha, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), number,
                 number.map(value -> "Pull request " + value), number.map(value -> "https://github.com/owner/project/pull/" + value), number.map(value -> NOW),
                 Optional.empty(), checkedAt, NOW);
     }

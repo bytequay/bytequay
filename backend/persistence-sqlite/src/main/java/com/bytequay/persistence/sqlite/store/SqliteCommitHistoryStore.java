@@ -49,11 +49,11 @@ public class SqliteCommitHistoryStore
     }
 
     @Override
-    public CommitEnrichmentSnapshot findEnrichment(long repositoryId, Collection<String> shas)
+    public CommitEnrichmentSnapshot findEnrichment(long hostingRepositoryId, Collection<String> shas)
     {
         requireNonNull(shas, "shas is null");
         List<CommitEnrichmentEntity.Key> keys = shas.stream()
-                .map(sha -> new CommitEnrichmentEntity.Key(repositoryId, sha))
+                .map(sha -> new CommitEnrichmentEntity.Key(hostingRepositoryId, sha))
                 .collect(toImmutableList());
         return new CommitEnrichmentSnapshot(enrichment.findAllById(keys).stream()
                 .map(CommitEnrichmentEntity::toDomain)
@@ -66,12 +66,12 @@ public class SqliteCommitHistoryStore
     {
         requireNonNull(values, "enrichment is null");
         List<CommitEnrichmentEntity.Key> keys = values.stream()
-                .map(value -> new CommitEnrichmentEntity.Key(value.repositoryId(), value.sha()))
+                .map(value -> new CommitEnrichmentEntity.Key(value.hostingRepositoryId(), value.sha()))
                 .collect(toImmutableList());
         Map<CommitEnrichmentEntity.Key, CommitEnrichmentEntity> existing = enrichment.findAllById(keys).stream()
                 .collect(toImmutableMap(CommitEnrichmentEntity::getId, entity -> entity));
         List<CommitEnrichmentEntity> updated = values.stream()
-                .map(value -> merge(existing.get(new CommitEnrichmentEntity.Key(value.repositoryId(), value.sha())), value))
+                .map(value -> merge(existing.get(new CommitEnrichmentEntity.Key(value.hostingRepositoryId(), value.sha())), value))
                 .collect(toImmutableList());
         enrichment.saveAll(updated);
     }
@@ -103,7 +103,7 @@ public class SqliteCommitHistoryStore
     {
         if (entity == null) {
             entity = new CommitEnrichmentEntity();
-            entity.setId(new CommitEnrichmentEntity.Key(value.repositoryId(), value.sha()));
+            entity.setId(new CommitEnrichmentEntity.Key(value.hostingRepositoryId(), value.sha()));
         }
         entity.setAuthorLogin(value.authorLogin().orElse(entity.getAuthorLogin()));
         entity.setAvatarKey(value.avatarKey().orElse(entity.getAvatarKey()));

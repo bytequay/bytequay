@@ -89,7 +89,8 @@ class TestCommitHistoryRefresh
     private static final Instant NOW = Instant.parse("2026-08-23T00:00:00Z");
     private static final String AVATAR_KEY = "a".repeat(64);
     private static final String COMMITTER_AVATAR_KEY = "b".repeat(64);
-    private static final HostingTarget TARGET = target("101");
+    private static final long HOSTED = 7;
+    private static final HostingTarget TARGET = target(HOSTED, "101", SELECTED);
 
     private WorkspaceRepositoryService workspaces;
     private WorkspaceHostingService hosting;
@@ -183,13 +184,13 @@ class TestCommitHistoryRefresh
     {
         Instant checkedAt = NOW.minusSeconds(300);
         Commit commit = commit("cached", NOW.minusSeconds(600));
-        store.upsertEnrichment(ImmutableList.of(positive(101, commit.sha(), checkedAt)));
+        store.upsertEnrichment(ImmutableList.of(positive(HOSTED, commit.sha(), checkedAt)));
         when(git.log(REPOSITORY, "origin/main", 300)).thenReturn(ImmutableList.of(commit));
         CommitRefreshStatus status = service.refresh(WORKSPACE_ID, ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
 
         assertThat(status.state()).isEqualTo(IDLE);
         verify(provisioning).synchronizeCode(WORKSPACE_ID);
-        verifyNoInteractions(gitHub, avatars, hosting, pullRequests);
+        verifyNoInteractions(gitHub, avatars, pullRequests);
         assertThat(store.values()).singleElement().satisfies(value -> {
             assertThat(value.avatarCheckedAt()).contains(checkedAt);
             assertThat(value.pullRequestNumber()).contains(42);
@@ -205,9 +206,9 @@ class TestCommitHistoryRefresh
         Commit oldCommit = commit("old", NOW.minusSeconds(7_200));
         Instant freshCheckedAt = NOW.minusSeconds(300);
         store.upsertEnrichment(ImmutableList.of(
-                positive(101, freshCommit.sha(), freshCheckedAt),
-                positive(101, staleCommit.sha(), NOW.minusSeconds(86_400)),
-                positive(101, oldCommit.sha(), freshCheckedAt)));
+                positive(HOSTED, freshCommit.sha(), freshCheckedAt),
+                positive(HOSTED, staleCommit.sha(), NOW.minusSeconds(86_400)),
+                positive(HOSTED, oldCommit.sha(), freshCheckedAt)));
         when(git.log(REPOSITORY, "origin/main", 300)).thenReturn(ImmutableList.of(newCommit, freshCommit, staleCommit, oldCommit));
         when(gitHub.fetchCommitAvatarSnapshot("test-token", SELECTED, newCommit.sha(), 3))
                 .thenReturn(new CommitAvatarSnapshot(ImmutableList.of(), true));
@@ -218,9 +219,9 @@ class TestCommitHistoryRefresh
 
         assertThat(status.state()).isEqualTo(IDLE);
         verify(gitHub).fetchCommitAvatarSnapshot("test-token", SELECTED, newCommit.sha(), 3);
-        assertThat(store.findEnrichment(101, ImmutableList.of(newCommit.sha(), freshCommit.sha(), staleCommit.sha())).commits())
+        assertThat(store.findEnrichment(HOSTED, ImmutableList.of(newCommit.sha(), freshCommit.sha(), staleCommit.sha())).commits())
                 .allSatisfy(value -> assertThat(value.avatarCheckedAt()).contains(NOW));
-        assertThat(store.findEnrichment(101, ImmutableList.of(oldCommit.sha())).commits())
+        assertThat(store.findEnrichment(HOSTED, ImmutableList.of(oldCommit.sha())).commits())
                 .singleElement().satisfies(value -> assertThat(value.avatarCheckedAt()).contains(freshCheckedAt));
     }
 
@@ -344,7 +345,8 @@ class TestCommitHistoryRefresh
         readyWorkspace(new RemoteSource(WORKSPACE_ID, "oss", "https://github.com/owner/repository.git", Optional.of(202L), Optional.of(repository)));
         Commit commit = commit("remote123", NOW.minusSeconds(60));
         Instant previousCheck = NOW.minusSeconds(86_400);
-        store.upsertEnrichment(ImmutableList.of(new CommitEnrichment(202, commit.sha(), Optional.of("old-author"), Optional.of(AVATAR_KEY),
+        when(hosting.repositoryTarget(WORKSPACE_ID, repository.fullName())).thenReturn(target(9, "202", repository));
+        store.upsertEnrichment(ImmutableList.of(new CommitEnrichment(9, commit.sha(), Optional.of("old-author"), Optional.of(AVATAR_KEY),
                 Optional.of("old-committer"), Optional.of(COMMITTER_AVATAR_KEY), Optional.of(42), Optional.of("Retained title"), Optional.of("https://example.invalid/pull/42"),
                 Optional.of(previousCheck), Optional.of(previousCheck), Optional.of(previousCheck), previousCheck)));
         when(git.log(REPOSITORY, "oss/main", 300)).thenReturn(ImmutableList.of(commit));
@@ -362,7 +364,7 @@ class TestCommitHistoryRefresh
 
         assertThat(status.state()).isEqualTo(IDLE);
         assertThat(store.values()).singleElement().satisfies(value -> {
-            assertThat(value.repositoryId()).isEqualTo(202);
+            assertThat(value.hostingRepositoryId()).isEqualTo(9);
             assertThat(value.authorLogin()).contains("percy-r");
             assertThat(value.avatarKey()).contains(AVATAR_KEY);
             assertThat(value.committerLogin()).contains("old-committer");
@@ -375,7 +377,7 @@ class TestCommitHistoryRefresh
             assertThat(value.lastSeenAt()).isEqualTo(NOW);
         });
         verify(gitHub).fetchCommitAvatarSnapshot("test-token", repository, commit.sha(), 1);
-        verifyNoInteractions(hosting, pullRequests);
+        verifyNoInteractions(pullRequests);
     }
 
     @Test
@@ -384,7 +386,7 @@ class TestCommitHistoryRefresh
         Commit commit = commit("abc123", NOW.minusSeconds(60));
         when(git.log(REPOSITORY, "origin/main", 300)).thenReturn(ImmutableList.of(commit));
         when(gitHub.fetchCommitAvatarSnapshot("test-token", SELECTED, commit.sha(), 1)).thenReturn(new CommitAvatarSnapshot(ImmutableList.of(), true));
-        when(hosting.repositoryTarget(WORKSPACE_ID, SELECTED.fullName())).thenReturn(target("999"));
+        when(hosting.repositoryTarget(WORKSPACE_ID, SELECTED.fullName())).thenReturn(target(HOSTED, "999", SELECTED));
 
         CommitRefreshStatus status = service.refresh(WORKSPACE_ID, ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
 
@@ -446,11 +448,11 @@ class TestCommitHistoryRefresh
         verifyNoInteractions(credentials, gitHub, avatars);
     }
 
-    private static HostingTarget target(String remoteId)
+    private static HostingTarget target(long hostingRepositoryId, String remoteId, RepoRef repository)
     {
         HostingInstance instance = new HostingInstance(1, HostingProvider.GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
-        return new HostingTarget(new HostingAccess(instance, "test-token"), new HostingRepository(5, 1, remoteId, SELECTED.fullName(),
-                URI.create("https://github.com/" + SELECTED.fullName()), URI.create("https://github.com/" + SELECTED.fullName() + ".git"), Optional.empty(), Optional.of("main")));
+        return new HostingTarget(new HostingAccess(instance, "test-token"), new HostingRepository(hostingRepositoryId, 1, remoteId, repository.fullName(),
+                URI.create("https://github.com/" + repository.fullName()), URI.create("https://github.com/" + repository.fullName() + ".git"), Optional.empty(), Optional.of("main")));
     }
 
     private static WorkspaceSummary summary(HostingServer server)
@@ -491,18 +493,18 @@ class TestCommitHistoryRefresh
 
     private static CommitEnrichment positive(String sha)
     {
-        return positive(101, sha);
+        return positive(HOSTED, sha);
     }
 
-    private static CommitEnrichment positive(long repositoryId, String sha)
+    private static CommitEnrichment positive(long hostingRepositoryId, String sha)
     {
-        return positive(repositoryId, sha, NOW);
+        return positive(hostingRepositoryId, sha, NOW);
     }
 
-    private static CommitEnrichment positive(long repositoryId, String sha, Instant avatarCheckedAt)
+    private static CommitEnrichment positive(long hostingRepositoryId, String sha, Instant avatarCheckedAt)
     {
         return new CommitEnrichment(
-                repositoryId,
+                hostingRepositoryId,
                 sha,
                 Optional.empty(),
                 Optional.empty(),
@@ -520,7 +522,7 @@ class TestCommitHistoryRefresh
     private static CommitEnrichment negative(String sha, Instant checkedAt, Instant lastSeenAt)
     {
         return new CommitEnrichment(
-                101,
+                HOSTED,
                 sha,
                 Optional.empty(),
                 Optional.empty(),
@@ -543,10 +545,10 @@ class TestCommitHistoryRefresh
         private boolean failUpsert;
 
         @Override
-        public CommitEnrichmentSnapshot findEnrichment(long repositoryId, Collection<String> shas)
+        public CommitEnrichmentSnapshot findEnrichment(long hostingRepositoryId, Collection<String> shas)
         {
             return new CommitEnrichmentSnapshot(enrichment.values().stream()
-                    .filter(value -> value.repositoryId() == repositoryId && shas.contains(value.sha()))
+                    .filter(value -> value.hostingRepositoryId() == hostingRepositoryId && shas.contains(value.sha()))
                     .toList());
         }
 
@@ -556,7 +558,7 @@ class TestCommitHistoryRefresh
             if (failUpsert) {
                 throw new IllegalStateException("persistence unavailable");
             }
-            values.forEach(value -> enrichment.put(value.repositoryId() + ":" + value.sha(), value));
+            values.forEach(value -> enrichment.put(value.hostingRepositoryId() + ":" + value.sha(), value));
         }
 
         @Override

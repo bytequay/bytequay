@@ -17,6 +17,7 @@ import com.bytequay.app.cherrypick.CherryPickCommitPreview.TargetMatch;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.git.command.GitCommandRunner.Result;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote;
@@ -25,6 +26,7 @@ import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.MergedPullRequestRange;
 import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.PullRequestAssociation;
 import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.base.Ascii;
@@ -82,6 +84,7 @@ public class CherryPickPreviewService
     private final CommitHistoryStore enrichment;
     private final CredentialService credentials;
     private final WorkspaceRemoteSourceService remoteSources;
+    private final WorkspaceHostingService hosting;
     private final Clock clock;
     private final WorkspaceRelationships relationships;
     private final Cache<String, CherryPickPreview> cache;
@@ -92,6 +95,7 @@ public class CherryPickPreviewService
             CommitHistoryStore enrichment,
             CredentialService credentials,
             WorkspaceRemoteSourceService remoteSources,
+            WorkspaceHostingService hosting,
             Clock clock,
             WorkspaceRelationships relationships)
     {
@@ -100,6 +104,7 @@ public class CherryPickPreviewService
         this.enrichment = requireNonNull(enrichment, "enrichment is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.remoteSources = requireNonNull(remoteSources, "remoteSources is null");
+        this.hosting = requireNonNull(hosting, "hosting is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.relationships = requireNonNull(relationships, "relationships is null");
         // One time source drives both the stored expiry and the cache's own, so
@@ -219,13 +224,14 @@ public class CherryPickPreviewService
 
     private Map<String, PullRequestAssociation> persistedAssociations(PreviewCherryPickRangeCommand command, List<RangeCommit> range, List<String> warnings)
     {
-        OptionalLong repositoryId = command.sourceRepositoryId();
-        if (repositoryId.isEmpty()) {
+        OptionalLong remoteId = command.sourceRepositoryId();
+        Optional<HostingRepository> repository = remoteId.isEmpty() ? Optional.empty() : hosting.storedRepository(command.workspaceId(), remoteId.getAsLong());
+        if (repository.isEmpty()) {
             warnings.add("Pull-request grouping is unavailable until commit history has been synchronized. " + "Every commit is listed individually and stays selectable.");
             return ImmutableMap.of();
         }
         Map<String, PullRequestAssociation> associations = new LinkedHashMap<>();
-        enrichment.findEnrichment(repositoryId.orElseThrow(), range.stream().map(RangeCommit::sha).collect(toImmutableList()))
+        enrichment.findEnrichment(repository.orElseThrow().id(), range.stream().map(RangeCommit::sha).collect(toImmutableList()))
                 .commits().stream()
                 .filter(value -> value.pullRequestNumber().isPresent())
                 .forEach(value -> associations.put(value.sha(), association(value)));

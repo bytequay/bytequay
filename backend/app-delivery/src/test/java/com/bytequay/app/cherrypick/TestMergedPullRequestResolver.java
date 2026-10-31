@@ -604,7 +604,7 @@ class TestMergedPullRequestResolver
     private CherryPickPreviewService previews()
     {
         return new CherryPickPreviewService(GIT, new CherryPickConflictScout(GIT), mock(CommitHistoryStore.class),
-                credentials, remotes, Clock.systemUTC(), mock(WorkspaceRelationships.class));
+                credentials, remotes, hosting, Clock.systemUTC(), mock(WorkspaceRelationships.class));
     }
 
     private PreviewCherryPickRangeCommand command(String base, String tip)

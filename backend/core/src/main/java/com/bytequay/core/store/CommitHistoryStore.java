@@ -21,7 +21,7 @@ import java.util.Collection;
 
 public interface CommitHistoryStore
 {
-    CommitEnrichmentSnapshot findEnrichment(long repositoryId, Collection<String> shas);
+    CommitEnrichmentSnapshot findEnrichment(long hostingRepositoryId, Collection<String> shas);
 
     void upsertEnrichment(Collection<CommitEnrichment> enrichment);
 

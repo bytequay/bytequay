@@ -134,6 +134,17 @@ public class SqliteHostingIdentityStore
     }
 
     @Override
+    public Optional<HostingRepository> findRepository(HostingServer server, String remoteId)
+    {
+        requireNonNull(server, "server is null");
+        requireNonNull(remoteId, "remoteId is null");
+        return instances.findByProviderAndWebBaseUrl(server.provider(), server.webBaseUrl().toASCIIString())
+                .filter(instance -> instance.toDomain().apiBaseUrl().equals(server.apiBaseUrl()))
+                .flatMap(instance -> repositories.findByInstanceIdAndRemoteId(instance.getId(), remoteId))
+                .map(HostingRepositoryEntity::toDomain);
+    }
+
+    @Override
     public List<HostingRepository> findRepositories(HostingServer server, String fullPath)
     {
         requireNonNull(server, "server is null");

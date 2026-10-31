@@ -281,8 +281,12 @@ class TestSqliteWorkspaceStore
         store.saveHostingCacheTarget(removed.id(), new HostingCacheTarget(1, 300, "connected-account"));
         store.saveHostingCacheTarget(retained.id(), new HostingCacheTarget(1, 300, "connected-account"));
         issueCache.completeSync(300, ImmutableSet.of(), NOW);
-        for (long repositoryId : ImmutableList.of(200L, 201L, 300L)) {
-            jdbc.update("INSERT INTO commit_enrichment (repository_id, sha, last_seen_at) VALUES (?, 'sha', ?)", repositoryId, NOW.toString());
+        HostingInstance gitHub = identities.upsertInstance(HostingServer.GITHUB_COM);
+        HostingRepository fork = repository(gitHub, "200", "contributor/project");
+        HostingRepository other = repository(gitHub, "201", "other/project");
+        HostingRepository upstream = repository(gitHub, "300", "upstream/project");
+        for (HostingRepository repository : ImmutableList.of(fork, other, upstream)) {
+            insertCommitRow(repository.id());
         }
 
         store.delete(removed.id());
@@ -297,26 +301,30 @@ class TestSqliteWorkspaceStore
         assertThat(jdbc.queryForList("SELECT setting_key FROM app_settings", String.class))
                 .containsExactlyInAnyOrder("workspace.agentModel." + retained.id(), "workspace.commitsTargetBranch." + retained.id());
         assertThat(issueCache.findPage(300, RepoRef.of("upstream", "project"), 0, 50).syncedAt()).contains(NOW);
-        assertThat(jdbc.queryForList("SELECT repository_id FROM commit_enrichment ORDER BY repository_id", Long.class)).containsExactly(201L, 300L);
+        assertThat(jdbc.queryForList("SELECT hosting_repository_id FROM commit_enrichment", Long.class)).containsExactlyInAnyOrder(other.id(), upstream.id());
     }
 
     @Test
-    void deletingAGitLabWorkspaceDropsItsCommitRowsUnlessAnotherWorkspaceUsesTheNumber()
+    void deletingAGitLabWorkspaceDropsItsCommitRowsButNotAGitHubRepositoryWithTheSameNumber()
     {
         HostingServer server = new HostingServer(HostingProvider.GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"));
-        Workspace removed = store.createOrGet(onServer(workspace("removed", 500, RepoRef.of("group", "removed"), Optional.empty(), Optional.empty(), 500,
-                RepoRef.of("group", "removed"), Topology.DIRECT, Optional.empty(), 0), server));
-        Workspace shared = store.createOrGet(onServer(workspace("shared", 600, RepoRef.of("group", "shared"), Optional.empty(), Optional.empty(), 600,
-                RepoRef.of("group", "shared"), Topology.DIRECT, Optional.empty(), 1), server));
-        store.createOrGet(direct("github", 600, 2));
-        for (long repositoryId : ImmutableList.of(500L, 600L)) {
-            jdbc.update("INSERT INTO commit_enrichment (repository_id, sha, last_seen_at) VALUES (?, 'sha', ?)", repositoryId, NOW.toString());
-        }
+        HostingInstance gitLab = identities.upsertInstance(server);
+        Workspace removed = store.createOrGet(onServer(workspace("removed", 600, RepoRef.of("group", "project"), Optional.empty(), Optional.empty(), 600,
+                RepoRef.of("group", "project"), Topology.DIRECT, Optional.empty(), 0), server));
+        store.createOrGet(direct("github", 600, 1));
+        HostingRepository project = repository(gitLab, "600", "group/project");
+        HostingRepository gitHubRepository = repository(identities.upsertInstance(HostingServer.GITHUB_COM), "600", "owner/project");
+        insertCommitRow(project.id());
+        insertCommitRow(gitHubRepository.id());
 
         store.delete(removed.id());
-        store.delete(shared.id());
 
-        assertThat(jdbc.queryForList("SELECT repository_id FROM commit_enrichment", Long.class)).containsExactly(600L);
+        assertThat(jdbc.queryForList("SELECT hosting_repository_id FROM commit_enrichment", Long.class)).containsExactly(gitHubRepository.id());
+    }
+
+    private void insertCommitRow(long hostingRepositoryId)
+    {
+        jdbc.update("INSERT INTO commit_enrichment (hosting_repository_id, sha, last_seen_at) VALUES (?, 'sha', ?)", hostingRepositoryId, NOW.toString());
     }
 
     @Test

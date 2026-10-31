@@ -15,23 +15,23 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.backport.BackportChain;
 import com.bytequay.core.domain.RemoteSource;
-import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.persistence.sqlite.entity.BackportChainEntity;
 import com.bytequay.persistence.sqlite.entity.RemoteSourceEntity;
 import com.bytequay.persistence.sqlite.entity.WorkspaceEntity;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import org.springframework.stereotype.Component;
 
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -89,13 +89,9 @@ final class SqliteWorkspacePurge
                 .setParameter("id", id).getResultList().stream().map(WorkspaceEntity::toDomain).collect(toImmutableList());
         List<RemoteSource> remotes = entities.createQuery("FROM RemoteSourceEntity", RemoteSourceEntity.class)
                 .getResultList().stream().map(RemoteSourceEntity::toDomain).collect(toImmutableList());
-        // Commit rows are keyed by the provider's repository number alone, so any workspace using that number keeps them.
-        Map<Long, RepoRef> repositories = new LinkedHashMap<>();
-        repositories.put(workspace.selectedRepositoryId(), workspace.selectedRepository());
-        repositories.put(workspace.monitoredRepositoryId(), workspace.monitoredRepository());
-        workspace.upstreamRepositoryId().ifPresent(repositoryId -> repositories.put(repositoryId, workspace.upstreamRepository().orElseThrow()));
-        remotes.stream().filter(remote -> remote.workspaceId().equals(id)).forEach(remote -> remote.repositoryId()
-                .ifPresent(repositoryId -> repositories.put(repositoryId, remote.repository().orElseThrow())));
+        // Commit rows belong to the hosting repositories a workspace reads commits from; one another workspace still reads keeps them.
+        Set<Long> commitRepositories = commitRepositories(workspace, remotes);
+        Set<Long> retainedCommitRepositories = others.stream().flatMap(other -> commitRepositories(other, remotes).stream()).collect(toImmutableSet());
 
         update("DELETE FROM branch_rebase WHERE agent_task_id IN (" + workspaceTaskIds() + ")", parameters);
         update("DELETE FROM ci_autofix_attempt WHERE run_id IN (SELECT id FROM ci_autofix_run WHERE workspace_id = :workspaceId)", parameters);
@@ -127,11 +123,8 @@ final class SqliteWorkspacePurge
             update("DELETE FROM app_settings WHERE setting_key = :key OR setting_key LIKE :pattern", ImmutableMap.of("key", prefix, "pattern", prefix + ".%"));
         }
         update("DELETE FROM app_settings WHERE setting_key LIKE 'linked-work.source.%' AND setting_value = :workspaceId", parameters);
-        for (Map.Entry<Long, RepoRef> repository : repositories.entrySet()) {
-            if (!referencedElsewhere(id, repository.getKey(), repository.getValue(), others, remotes)) {
-                deleteRepositoryData(repository.getKey());
-            }
-        }
+        commitRepositories.stream().filter(repositoryId -> !retainedCommitRepositories.contains(repositoryId))
+                .forEach(repositoryId -> update("DELETE FROM commit_enrichment WHERE hosting_repository_id = :repositoryId", ImmutableMap.of("repositoryId", repositoryId)));
         deleteHostedRepositoryData(id);
         update("DELETE FROM watched_repo_workspaces WHERE id = :workspaceId", parameters);
         entities.clear();
@@ -167,27 +160,22 @@ final class SqliteWorkspacePurge
                 """;
     }
 
-    private static boolean referencedElsewhere(String workspaceId, long repositoryId, RepoRef repository, List<Workspace> others, List<RemoteSource> remotes)
+    /** The hosting repositories on the workspace's server it reads commits from: its own, its upstream and its linked remotes. */
+    private Set<Long> commitRepositories(Workspace workspace, List<RemoteSource> remotes)
     {
-        return others.stream().anyMatch(workspace -> workspace.selectedRepositoryId() == repositoryId
-                        || workspace.monitoredRepositoryId() == repositoryId
-                        || workspace.upstreamRepositoryId().filter(id -> id == repositoryId).isPresent()
-                        || workspace.selectedRepository().equals(repository)
-                        || workspace.monitoredRepository().equals(repository)
-                        || workspace.upstreamRepository().filter(repository::equals).isPresent())
-                || remotes.stream().filter(remote -> !remote.workspaceId().equals(workspaceId))
-                        .anyMatch(remote -> remote.repositoryId().filter(id -> id == repositoryId).isPresent()
-                                || remote.repository().filter(repository::equals).isPresent()
-                                || referencesGitHubRepository(remote.url(), repository));
-    }
-
-    private static boolean referencesGitHubRepository(String url, RepoRef repository)
-    {
-        String normalized = url.toLowerCase(Locale.ROOT).replaceFirst("(?:\\.git)?/?$", "");
-        String fullName = repository.fullName().toLowerCase(Locale.ROOT);
-        return normalized.equals("https://github.com/" + fullName)
-                || normalized.equals("ssh://git@github.com/" + fullName)
-                || normalized.equals("git@github.com:" + fullName);
+        Set<String> remoteIds = Stream.concat(Stream.of(workspace.selectedRepositoryId(), workspace.monitoredRepositoryId()),
+                        remotes.stream().filter(remote -> remote.workspaceId().equals(workspace.id())).flatMap(remote -> remote.repositoryId().stream()))
+                .map(String::valueOf)
+                .collect(toImmutableSet());
+        HostingServer server = workspace.server();
+        return ImmutableSet.copyOf(entities.createQuery("""
+                        SELECT r.id FROM HostingRepositoryEntity r
+                        WHERE r.instance.provider = :provider AND r.instance.webBaseUrl = :webBaseUrl AND r.remoteId IN :remoteIds
+                        """, Long.class)
+                .setParameter("provider", server.provider())
+                .setParameter("webBaseUrl", server.webBaseUrl().toASCIIString())
+                .setParameter("remoteIds", remoteIds)
+                .getResultList());
     }
 
     private void deleteHostedRepositoryData(String workspaceId)
@@ -223,11 +211,6 @@ final class SqliteWorkspacePurge
     private static Optional<Long> hostingRepositoryId(WorkspaceEntity workspace)
     {
         return workspace.hostingBinding().map(binding -> binding.monitoredRepositoryId()).or(() -> workspace.hostingCacheTarget().map(target -> target.repositoryId()));
-    }
-
-    private void deleteRepositoryData(long repositoryId)
-    {
-        update("DELETE FROM commit_enrichment WHERE repository_id = :repositoryId", ImmutableMap.of("repositoryId", repositoryId));
     }
 
     private boolean exists(String statement, Map<String, Object> parameters)

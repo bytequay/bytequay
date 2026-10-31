@@ -159,6 +159,12 @@ public class WorkspaceHostingService
         return new HostingTarget(session.access(), connections.resolveRepository(session, fullPath));
     }
 
+    /** A repository on the workspace's server as last read from its provider, found without contacting it. */
+    public Optional<HostingRepository> storedRepository(String workspaceId, long remoteId)
+    {
+        return identities.findRepository(requireWorkspace(workspaces, workspaceId).server(), Long.toString(remoteId));
+    }
+
     /**
      * The verified repository a workspace pushes its branches to: the read's own repository, or the fork the workspace selected. Both must
      * still have the workspace's coordinates, so a renamed or moved repository waits for a sync.

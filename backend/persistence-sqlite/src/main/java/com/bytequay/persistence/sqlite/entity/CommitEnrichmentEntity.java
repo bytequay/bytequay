@@ -75,17 +75,17 @@ public class CommitEnrichmentEntity
     public static class Key
             implements Serializable
     {
-        @Column(name = "repository_id", nullable = false)
-        private Long repositoryId;
+        @Column(name = "hosting_repository_id", nullable = false)
+        private Long hostingRepositoryId;
 
         @Column(nullable = false, length = 64)
         private String sha;
 
         public Key() {}
 
-        public Key(long repositoryId, String sha)
+        public Key(long hostingRepositoryId, String sha)
         {
-            this.repositoryId = repositoryId;
+            this.hostingRepositoryId = hostingRepositoryId;
             this.sha = sha;
         }
 
@@ -93,23 +93,23 @@ public class CommitEnrichmentEntity
         public boolean equals(Object object)
         {
             return object instanceof Key other
-                    && Objects.equals(repositoryId, other.repositoryId)
+                    && Objects.equals(hostingRepositoryId, other.hostingRepositoryId)
                     && Objects.equals(sha, other.sha);
         }
 
         @Override
         public int hashCode()
         {
-            return Objects.hash(repositoryId, sha);
+            return Objects.hash(hostingRepositoryId, sha);
         }
     }
 
     public CommitEnrichment toDomain()
     {
         return new CommitEnrichment(
-                getId().getRepositoryId(), getId().getSha(), Optional.ofNullable(getAuthorLogin()), Optional.ofNullable(getAvatarKey()), Optional.ofNullable(getCommitterLogin()),
-                Optional.ofNullable(getCommitterAvatarKey()), Optional.ofNullable(getPullRequestNumber()), Optional.ofNullable(getPullRequestTitle()),
-                Optional.ofNullable(getPullRequestUrl()), Optional.ofNullable(getPullRequestMergedAt()), Optional.ofNullable(getAvatarCheckedAt()),
-                Optional.ofNullable(getAssociationCheckedAt()), getLastSeenAt());
+                getId().getHostingRepositoryId(), getId().getSha(), Optional.ofNullable(getAuthorLogin()), Optional.ofNullable(getAvatarKey()),
+                Optional.ofNullable(getCommitterLogin()), Optional.ofNullable(getCommitterAvatarKey()), Optional.ofNullable(getPullRequestNumber()),
+                Optional.ofNullable(getPullRequestTitle()), Optional.ofNullable(getPullRequestUrl()), Optional.ofNullable(getPullRequestMergedAt()),
+                Optional.ofNullable(getAvatarCheckedAt()), Optional.ofNullable(getAssociationCheckedAt()), getLastSeenAt());
     }
 }

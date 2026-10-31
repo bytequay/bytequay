@@ -16,6 +16,7 @@ package com.bytequay.app.cherrypick;
 import com.bytequay.app.cherrypick.CherryPickCommitPreview.TargetMatch;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote;
@@ -23,6 +24,7 @@ import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote.R
 import com.bytequay.core.cherrypick.CherryPickConflictException;
 import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.CommitEnrichmentSnapshot;
+import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -33,6 +35,7 @@ import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -68,6 +71,7 @@ class TestCherryPickPreviewService
     private static final Instant NOW = Instant.parse("2026-08-20T00:00:00Z");
 
     private final WorkspaceRelationships relationships = mock(WorkspaceRelationships.class);
+    private final WorkspaceHostingService hosting = mock(WorkspaceHostingService.class);
 
     @TempDir
     private Path temporaryDirectory;
@@ -101,7 +105,7 @@ class TestCherryPickPreviewService
         when(remoteSources.list("workspace-id")).thenReturn(ImmutableList.of(
                 new WorkspaceRemote("origin", upstream.toString(), Role.ORIGIN),
                 new WorkspaceRemote("fork", fork.toString(), Role.CUSTOM)));
-        service = new CherryPickPreviewService(GIT, new CherryPickConflictScout(GIT), enrichment, credentials, remoteSources, clock, relationships);
+        service = new CherryPickPreviewService(GIT, new CherryPickConflictScout(GIT), enrichment, credentials, remoteSources, hosting, clock, relationships);
     }
 
     @Test
@@ -119,9 +123,11 @@ class TestCherryPickPreviewService
     {
         String base = head(upstream);
         String sha = commitFile(upstream, "associated.txt", "associated\n", "Associated change");
-        when(enrichment.findEnrichment(202, ImmutableList.of(sha))).thenReturn(new CommitEnrichmentSnapshot(ImmutableList.of(
+        when(hosting.storedRepository("workspace-id", 202)).thenReturn(Optional.of(new HostingRepository(12, 1, "202", "owner/project",
+                URI.create("https://example.test/owner/project"), URI.create("https://example.test/owner/project.git"), Optional.empty(), Optional.of("main"))));
+        when(enrichment.findEnrichment(12, ImmutableList.of(sha))).thenReturn(new CommitEnrichmentSnapshot(ImmutableList.of(
                 new CommitEnrichment(
-                        202,
+                        12,
                         sha,
                         Optional.empty(),
                         Optional.empty(),
@@ -144,6 +150,19 @@ class TestCherryPickPreviewService
             assertThat(value.pullRequest().orElseThrow().mergedAt()).isEqualTo(NOW.minusSeconds(60).toString());
         });
         verify(credentials).gitAuthenticationEnvironment("workspace-id", ImmutableList.of(upstream.toString(), fork.toString()));
+    }
+
+    @Test
+    void sourceRepositoryNeverReadFromItsProviderListsCommitsUngrouped()
+    {
+        String base = head(upstream);
+        commitFile(upstream, "unread.txt", "unread\n", "Unread change");
+
+        CherryPickPreview preview = service.preview(new PreviewCherryPickRangeCommand(clone, "workspace-id", OptionalLong.of(202), "origin", base, "origin/main", "fork", "main"));
+
+        assertThat(preview.commits()).singleElement().satisfies(value -> assertThat(value.pullRequest()).isEmpty());
+        assertThat(preview.warnings()).anyMatch(warning -> warning.contains("unavailable until commit history has been synchronized"));
+        verifyNoInteractions(enrichment);
     }
 
     @Test
@@ -254,7 +273,7 @@ class TestCherryPickPreviewService
         when(remoteSources.list("workspace-id")).thenReturn(ImmutableList.of(
                 new WorkspaceRemote("origin", upstream.toString(), Role.ORIGIN),
                 new WorkspaceRemote("fork", target.toString(), Role.CUSTOM)));
-        service = new CherryPickPreviewService(boundedGit, new CherryPickConflictScout(boundedGit), enrichment, credentials, remoteSources, clock, relationships);
+        service = new CherryPickPreviewService(boundedGit, new CherryPickConflictScout(boundedGit), enrichment, credentials, remoteSources, hosting, clock, relationships);
 
         CherryPickPreview preview = service.preview(command(base, "main"));
 

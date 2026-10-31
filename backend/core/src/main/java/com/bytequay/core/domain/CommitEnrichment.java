@@ -23,9 +23,9 @@ import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** Durable facts that Git does not contain for one repository commit. */
+/** Durable facts that Git does not contain for one commit of a hosting repository, keyed by that repository's local id. */
 public record CommitEnrichment(
-        long repositoryId,
+        long hostingRepositoryId,
         String sha,
         Optional<String> authorLogin,
         Optional<String> avatarKey,
@@ -44,7 +44,7 @@ public record CommitEnrichment(
 
     public CommitEnrichment
     {
-        checkArgument(repositoryId > 0, "repositoryId must be positive");
+        checkArgument(hostingRepositoryId > 0, "hostingRepositoryId must be positive");
         checkText(sha, "sha");
         requireNonNull(pullRequestNumber, "pullRequestNumber is null");
         requireNonNull(pullRequestMergedAt, "pullRequestMergedAt is null");

@@ -40,6 +40,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -136,6 +137,18 @@ final class GitLabHttpClient
     {
         return request(access, "POST", path, Optional.empty(), Optional.of(body), responseType);
     }
+
+    /** Posts a GraphQL query to the server's GraphQL endpoint, which sits beside the REST API's {@code /v4}. */
+    <T> Response<T> graphql(HostingAccess access, String query, Map<String, Object> variables, Class<T> responseType)
+    {
+        requireNonNull(access, "access is null");
+        String api = access.server().apiBaseUrl().toString();
+        checkArgument(api.endsWith("/v4"), "The GitLab API address must end with /v4");
+        URI endpoint = URI.create(api.substring(0, api.length() - "/v4".length()) + "/graphql");
+        return request(access, "POST", endpoint, "GraphQL query", "graphql", Optional.empty(), Optional.of(new GraphQlRequest(query, variables)), responseType);
+    }
+
+    private record GraphQlRequest(String query, Map<String, Object> variables) {}
 
     <T> Response<T> put(HostingAccess access, String path, Object body, Class<T> responseType)
     {

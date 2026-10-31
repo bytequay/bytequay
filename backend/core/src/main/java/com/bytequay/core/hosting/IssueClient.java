@@ -48,4 +48,7 @@ public interface IssueClient
     IssueMetadata updateMetadata(HostingTarget target, int number, List<String> assignees, List<String> labels);
 
     IssueActivity activity(HostingTarget target, int number);
+
+    /** The issues the provider lists as children of issue {@code number}. */
+    ChildIssues children(HostingTarget target, int number);
 }

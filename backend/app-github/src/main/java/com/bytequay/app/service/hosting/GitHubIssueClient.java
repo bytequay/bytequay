@@ -25,6 +25,7 @@ import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryLabel;
+import com.bytequay.core.hosting.ChildIssues;
 import com.bytequay.core.hosting.HostingRepositoryUser;
 import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.IssueActivity;
@@ -174,6 +175,13 @@ public final class GitHubIssueClient
     {
         var value = reads.fetchIssueActivity(target.access().token(), repository(target), number);
         return new IssueActivity(value.commentCount(), value.updatedAt());
+    }
+
+    /** GitHub's sub-issues, every page of them. */
+    @Override
+    public ChildIssues children(HostingTarget target, int number)
+    {
+        return new ChildIssues(reads.fetchSubIssues(target.access().token(), repository(target), number), false);
     }
 
     private static PullRequestRef issue(HostingTarget target, int number)

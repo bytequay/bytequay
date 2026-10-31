@@ -23,7 +23,9 @@ import { openGoalItem, startTicket } from '../workitems/open';
 import { Candidate, useCandidates } from '../workitems/Candidate';
 import { GOAL_SOURCES, goalRef, isOpen, itemNeedsYou, progressWidths, refKey, summarize, waitingOn } from '../workitems/model';
 import MarkdownBody from '../pulls/MarkdownBody';
+import { useHostingPresentation } from '../pulls/PullRequestWorkspace';
 import type { AttentionTone } from '../home/attention';
+import type { HostingServerDto } from '../types';
 import { EpicGlyph } from './EpicDrawer';
 import { assignWorkItemEpic, epicIdentity, epicWork, joinEpic, orderEpic, removeFromEpic, startEpicWork, useEpicGoals, useEpicLend, useEpicRecord, type EpicItem } from './epics';
 import { notifyIssueDevelopmentChanged } from './issueDevelopment';
@@ -34,7 +36,6 @@ type Decision = Omit<WorkItemDecision, 'operationId' | 'expectedRevision'>;
 /** The Epic's child a row's work came from, as the source last reported it, or one the source no longer reports. */
 type Upstream = { child: EpicChildDto; former: boolean };
 
-const UPSTREAM: Record<EpicChildDto['kind'], string> = { ISSUE: 'GitHub', JIRA: 'Jira' };
 const STATE_WORDS: Record<WorkItemDto['state'], string> = { PLANNED: 'Planned', WORKING: 'Working', DONE: 'Done', DROPPED: 'Dropped' };
 type Shown = 'ALL' | Exclude<WorkItemDto['state'], 'DROPPED'>;
 const SHOWN: Shown[] = ['ALL', 'PLANNED', 'WORKING', 'DONE'];
@@ -54,6 +55,11 @@ function upstreamOf(item: WorkItemDto, record: EpicRecordDto | null): Upstream |
   if (child !== undefined) return { child, former: false };
   const former = record.former.find(matches);
   return former === undefined ? null : { child: former, former: true };
+}
+
+/** Where a child comes from: Jira, or the workspace's own hosting provider, which a workspace without a server has as GitHub. */
+function upstreamName(kind: EpicChildDto['kind'], server: HostingServerDto | undefined): string {
+  return kind === 'JIRA' ? 'Jira' : server?.provider === 'GITLAB' ? 'GitLab' : 'GitHub';
 }
 
 /**
@@ -469,6 +475,7 @@ function WorkRow({ item, items, upstream, needsYou, workspaceId, busy, onRun, fi
   onDrop: () => void;
   onRemove: () => void;
 }): React.JSX.Element {
+  const { server } = useHostingPresentation();
   const detail = workDetail(item, items, needsYou);
   const source = sourceOfWork(item);
   const mates = items.filter((other) => other.id !== item.id && other.state !== 'DROPPED' && !item.blockedBy.includes(other.id));
@@ -476,7 +483,7 @@ function WorkRow({ item, items, upstream, needsYou, workspaceId, busy, onRun, fi
   // An attempt that has not ended is the work's task; another starts only once it ends.
   const task = item.links.filter((link) => link.kind === 'TASK').at(-1);
   const current = task !== undefined && task.state !== 'ENDED' ? task : null;
-  const side = upstream === null ? undefined : upstream.former ? 'no longer a child' : `${UPSTREAM[upstream.child.kind]}: ${upstream.child.status}`;
+  const side = upstream === null ? undefined : upstream.former ? 'no longer a child' : `${upstreamName(upstream.child.kind, server)}: ${upstream.child.status}`;
   // Closing upstream never makes work Done on its own; it offers the same one-click Accept a merged PR does.
   const closed = upstream !== null && !upstream.former && upstream.child.closed && isOpen(item) && detail?.accept !== true ? upstream.child : null;
   const words = [STATE_WORDS[item.state], detail?.text, side].filter((part) => part !== undefined).join(' · ');

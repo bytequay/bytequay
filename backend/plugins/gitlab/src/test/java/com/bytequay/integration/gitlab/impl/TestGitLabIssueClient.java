@@ -13,6 +13,7 @@
  */
 package com.bytequay.integration.gitlab.impl;
 
+import com.bytequay.core.hosting.ChildIssue;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
@@ -260,6 +261,38 @@ class TestGitLabIssueClient
     {
         replies.put("GET /gitlab/api/v4/projects/42/issues?scope=all&state=opened&order_by=updated_at&sort=asc&per_page=100&page=1", new Reply(403, "{}", false));
         assertThatThrownBy(() -> client.list(target(), Optional.empty(), 1)).isInstanceOf(HostingFailure.class);
+    }
+
+    @Test
+    void readsChildItemsFromOtherProjectsAndSaysWhenGitLabHasMore()
+            throws IOException
+    {
+        replies.put("POST /gitlab/api/graphql", new Reply(200, """
+                {"data":{"namespace":{"workItem":{"widgets":[{"type":"DESCRIPTION"},{"type":"HIERARCHY","children":{
+                 "nodes":[{"id":"gid://gitlab/WorkItem/81","iid":"8","title":"Parse","state":"OPEN","webUrl":"%s/group/subgroup/repo/-/work_items/8",
+                           "namespace":{"fullPath":"group/subgroup/repo"}},
+                          {"id":"gid://gitlab/WorkItem/82","iid":"3","title":"Docs","state":"CLOSED","webUrl":null,"namespace":{"fullPath":"group/docs"}}],
+                 "pageInfo":{"hasNextPage":true}}}]}}}}
+                """.formatted(base), false));
+
+        var children = client.children(target(), 7);
+
+        assertThat(children.children()).containsExactly(
+                new ChildIssue(81, 8, "Parse", false, Optional.of(base + "/group/subgroup/repo/-/work_items/8"), "group/subgroup/repo"),
+                new ChildIssue(82, 3, "Docs", true, Optional.empty(), "group/docs"));
+        assertThat(children.truncated()).isTrue();
+        assertThat(token.get()).isEqualTo("Bearer selected-token");
+        assertThat(MAPPER.readTree(body.get()).get("variables")).isEqualTo(MAPPER.readTree("{\"path\":\"group/subgroup/repo\",\"iid\":\"7\"}"));
+    }
+
+    @Test
+    void failsChildItemsWhenGitLabReportsAnErrorOrHasNoSuchIssue()
+    {
+        replies.put("POST /gitlab/api/graphql", new Reply(200, "{\"data\":null,\"errors\":[{\"message\":\"Field 'namespace' doesn't exist\"}]}", false));
+        assertThatThrownBy(() -> client.children(target(), 7)).isInstanceOf(HostingFailure.class).hasMessageContaining("Field 'namespace' doesn't exist");
+
+        replies.put("POST /gitlab/api/graphql", new Reply(200, "{\"data\":{\"namespace\":{\"workItem\":null}}}", false));
+        assertThatThrownBy(() -> client.children(target(), 7)).isInstanceOf(HostingFailure.class).hasMessageContaining("no issue #7");
     }
 
     private String issue(String state)

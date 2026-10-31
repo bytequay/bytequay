@@ -21,6 +21,8 @@ import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryLabel;
+import com.bytequay.core.hosting.ChildIssue;
+import com.bytequay.core.hosting.ChildIssues;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingRepositoryUser;
 import com.bytequay.core.hosting.HostingTarget;
@@ -49,6 +51,8 @@ import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
+import static com.bytequay.core.hosting.HostingFailure.Kind.MISSING_OR_INACCESSIBLE;
+import static com.bytequay.core.hosting.HostingFailure.Kind.UNAVAILABLE;
 import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.encode;
 import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.issuePath;
 import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.mapped;
@@ -61,6 +65,23 @@ import static java.util.Objects.requireNonNull;
 public final class GitLabIssueClient
         implements IssueClient, RepositoryMetadataReader
 {
+    private static final String CHILDREN = """
+            query($path: ID!, $iid: String!) {
+              namespace(fullPath: $path) {
+                workItem(iid: $iid) {
+                  widgets {
+                    ... on WorkItemWidgetHierarchy {
+                      children(first: 100) {
+                        nodes { id iid title state webUrl namespace { fullPath } }
+                        pageInfo { hasNextPage }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            """;
+
     private final GitLabHttpClient http;
 
     public GitLabIssueClient(HttpClient http, ObjectMapper mapper)
@@ -315,4 +336,55 @@ public final class GitLabIssueClient
                     payload.toBuilder().actorAvatarUrl(user.avatarUrl()).build(), Optional.of("gitlab:" + kind + ":" + id));
         }
     }
+
+    /** The children GitLab's work-item hierarchy lists for the issue, such as its tasks; the namespace lookup needs GitLab 17.x. */
+    @Override
+    public ChildIssues children(HostingTarget target, int number)
+    {
+        checkArgument(number > 0, "number must be positive");
+        Children response = http.graphql(target.access(), CHILDREN, ImmutableMap.of("path", target.repository().fullPath(), "iid", Integer.toString(number)),
+                Children.class).body().orElseThrow();
+        if (response.errors() != null && !response.errors().isEmpty()) {
+            throw new HostingFailure(UNAVAILABLE, "GitLab could not list the issue's child items: " + response.errors().getFirst().message());
+        }
+        WorkItem item = Optional.ofNullable(response.data()).map(Children.Data::namespace).map(Children.Namespace::workItem)
+                .orElseThrow(() -> new HostingFailure(MISSING_OR_INACCESSIBLE, "GitLab has no issue #" + number + " here"));
+        Optional<Hierarchy> hierarchy = Optional.ofNullable(item.widgets()).orElse(ImmutableList.of()).stream()
+                .map(Widget::children).filter(children -> children != null).findFirst();
+        return mapped("child item", () -> new ChildIssues(hierarchy.map(Hierarchy::nodes).orElse(ImmutableList.of()).stream()
+                .map(child -> new ChildIssue(Long.parseLong(child.id().substring(child.id().lastIndexOf('/') + 1)), Integer.parseInt(child.iid()), child.title(),
+                        "CLOSED".equals(child.state()), Optional.ofNullable(child.webUrl()), child.namespace().fullPath()))
+                .collect(toImmutableList()), hierarchy.map(Hierarchy::pageInfo).map(PageInfo::hasNextPage).orElse(false)));
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record Children(Data data, List<GraphQlError> errors)
+    {
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        private record Data(Namespace namespace) {}
+
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        private record Namespace(WorkItem workItem) {}
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record GraphQlError(String message) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record WorkItem(List<Widget> widgets) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record Widget(Hierarchy children) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record Hierarchy(List<Child> nodes, PageInfo pageInfo) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record PageInfo(boolean hasNextPage) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record Child(String id, String iid, String title, String state, String webUrl, ChildNamespace namespace) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record ChildNamespace(String fullPath) {}
 }

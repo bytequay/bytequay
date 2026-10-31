@@ -18,12 +18,12 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.jira.JiraService;
-import com.bytequay.app.repository.github.GitHubRepoClient;
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.epic.EpicBreakdowns;
 import com.bytequay.app.service.epic.EpicService;
 import com.bytequay.app.service.epic.EpicSources;
 import com.bytequay.app.service.epic.InMemoryEpicStore;
+import com.bytequay.app.service.hosting.HostingIntegrations;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.core.domain.Epic;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
@@ -555,7 +555,7 @@ class TestWorkItemService
         ObjectProvider<JiraService> jira = mock(ObjectProvider.class);
         EpicSources sources = new EpicSources(markers, workspaces, jira, store, epicRecords);
         WorkItemService localWork = new WorkItemService(store, workspaces, references, sources, epicRecords, tasks, transactions, Clock.fixed(NOW, ZoneOffset.UTC));
-        EpicService localEpics = new EpicService(epicRecords, sources, localWork, markers, mock(GitHubRepoClient.class), mock(CredentialService.class), jira,
+        EpicService localEpics = new EpicService(epicRecords, sources, localWork, markers, mock(WorkspaceHostingService.class), mock(HostingIntegrations.class), jira,
                 transactions, mock(RepositoryIssueStore.class), workspaces, mock(EpicBreakdowns.class), Clock.fixed(NOW, ZoneOffset.UTC));
         WorkItemView parent = localWork.create("workspace", UUID.randomUUID().toString(), "Hive field names", WorkItem.Kind.DEVELOP,
                 "Support slash characters across connectors", WorkItem.CompletionRule.MERGED_DELIVERY);

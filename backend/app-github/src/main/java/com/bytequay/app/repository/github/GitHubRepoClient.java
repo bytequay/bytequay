@@ -21,6 +21,7 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryLabel;
+import com.bytequay.core.hosting.ChildIssue;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
@@ -164,14 +165,14 @@ public class GitHubRepoClient
     }
 
     /** The sub-issues GitHub lists under an issue, open and closed; they may live in other repositories. */
-    public List<SubIssue> fetchSubIssues(String pat, RepoRef repo, int issueNumber)
+    public List<ChildIssue> fetchSubIssues(String pat, RepoRef repo, int issueNumber)
     {
         checkArgument(issueNumber > 0, "issueNumber must be positive");
         return paginator.paginate(pat, "/repos/{owner}/{repo}/issues/{number}/sub_issues", new ParameterizedTypeReference<List<SubIssueResponse>>() {},
                         repo.owner(), repo.repo(), issueNumber).stream()
                 .filter(value -> value.id() > 0 && value.number() > 0 && value.title() != null)
-                .map(value -> new SubIssue(value.id(), value.number(), value.title(), "closed".equals(value.state()), Optional.ofNullable(value.htmlUrl()),
-                        repository(value.repositoryUrl()).orElse(repo)))
+                .map(value -> new ChildIssue(value.id(), value.number(), value.title(), "closed".equals(value.state()), Optional.ofNullable(value.htmlUrl()),
+                        repository(value.repositoryUrl()).orElse(repo).fullName()))
                 .collect(toImmutableList());
     }
 
@@ -433,17 +434,6 @@ public class GitHubRepoClient
             checkArgument(stargazersCount >= 0, "stargazersCount is negative");
             topics = ImmutableList.copyOf(requireNonNull(topics, "topics is null"));
             languages = ImmutableMap.copyOf(requireNonNull(languages, "languages is null"));
-        }
-    }
-
-    /** A sub-issue by its stable id, number and repository. */
-    public record SubIssue(long id, int number, String title, boolean closed, Optional<String> url, RepoRef repository)
-    {
-        public SubIssue
-        {
-            requireNonNull(title, "title is null");
-            requireNonNull(url, "url is null");
-            requireNonNull(repository, "repository is null");
         }
     }
 

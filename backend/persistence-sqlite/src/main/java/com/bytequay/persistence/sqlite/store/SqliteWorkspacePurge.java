@@ -112,7 +112,7 @@ final class SqliteWorkspacePurge
         reassignPullRequestTouches(id);
         update("DELETE FROM work_item_identity WHERE work_item_id IN (SELECT id FROM work_item WHERE workspace_id = :workspaceId)", parameters);
         for (String table : ImmutableList.of(
-                "workspace_remote_sources", "workspace_credentials", "commit_refresh_metadata", "epic", "work_item",
+                "workspace_remote_sources", "commit_refresh_metadata", "epic", "work_item",
                 "repository_memory")) {
             update("DELETE FROM " + table + " WHERE workspace_id = :workspaceId", parameters);
         }

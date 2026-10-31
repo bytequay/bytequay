@@ -19,7 +19,6 @@ import com.bytequay.app.git.GitBrowseService.Commit;
 import com.bytequay.app.repository.github.CommitAvatarSnapshot;
 import com.bytequay.app.repository.github.CommitAvatarSnapshot.CommitAvatar;
 import com.bytequay.app.repository.github.GitHubRepoClient;
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
@@ -77,7 +76,6 @@ public class CommitHistoryService
     private final WorkspaceProvisioningService provisioning;
     private final GitBrowseService git;
     private final CommitHistoryStore store;
-    private final CredentialService credentials;
     private final GitHubRepoClient gitHub;
     private final CherryPickPullRequestLookup pullRequests;
     private final AvatarCache avatars;
@@ -90,7 +88,6 @@ public class CommitHistoryService
             WorkspaceProvisioningService provisioning,
             GitBrowseService git,
             CommitHistoryStore store,
-            CredentialService credentials,
             GitHubRepoClient gitHub,
             CherryPickPullRequestLookup pullRequests,
             AvatarCache avatars,
@@ -102,7 +99,6 @@ public class CommitHistoryService
         this.provisioning = requireNonNull(provisioning, "provisioning is null");
         this.git = requireNonNull(git, "git is null");
         this.store = requireNonNull(store, "store is null");
-        this.credentials = requireNonNull(credentials, "credentials is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.avatars = requireNonNull(avatars, "avatars is null");
@@ -264,7 +260,7 @@ public class CommitHistoryService
     private Collection<CommitEnrichment> enrichRefs(WorkspaceRepositoryContext context, Collection<ResolvedCommitHistoryRef> refs)
     {
         // Every provider supplies pull-request links; avatars come only from a provider that has them.
-        Optional<String> avatarToken = hasCommitAvatars(context.workspaceId()) ? Optional.of(credentials.resolveGitHubToken(context.workspaceId())) : Optional.empty();
+        boolean avatars = hasCommitAvatars(context.workspaceId());
         Instant now = clock.instant();
         Map<EnrichmentKey, CommitEnrichment> updates = new LinkedHashMap<>();
         for (ResolvedCommitHistoryRef ref : refs) {
@@ -274,7 +270,7 @@ public class CommitHistoryService
                 git.log(context.repository(), ref.gitRef(), MAX_COMMITS);
                 continue;
             }
-            enrich(context, ref, avatarToken, now).forEach(value -> updates.merge(new EnrichmentKey(value.hostingRepositoryId(), value.sha()), value, CommitHistoryService::merge));
+            enrich(context, ref, avatars, now).forEach(value -> updates.merge(new EnrichmentKey(value.hostingRepositoryId(), value.sha()), value, CommitHistoryService::merge));
         }
         return updates.values();
     }
@@ -284,7 +280,7 @@ public class CommitHistoryService
         return workspaces.getWorkspace(workspaceId).capabilities().commitAvatars();
     }
 
-    private List<CommitEnrichment> enrich(WorkspaceRepositoryContext context, ResolvedCommitHistoryRef ref, Optional<String> avatarToken, Instant now)
+    private List<CommitEnrichment> enrich(WorkspaceRepositoryContext context, ResolvedCommitHistoryRef ref, boolean avatars, Instant now)
     {
         RepoRef repository = ref.repository().orElseThrow();
         List<Commit> commits = git.log(context.repository(), ref.gitRef(), MAX_COMMITS);
@@ -293,10 +289,10 @@ public class CommitHistoryService
         Map<String, CommitEnrichment> existing = store.findEnrichment(hostingRepositoryId, commits.stream().map(Commit::sha).toList())
                 .commits().stream()
                 .collect(toImmutableMap(CommitEnrichment::sha, Function.identity()));
-        int avatarLimit = avatarToken.isPresent() ? avatarScanLimit(commits, existing, now) : 0;
+        int avatarLimit = avatars ? avatarScanLimit(commits, existing, now) : 0;
         Map<String, CommitAvatar> identities;
         if (avatarLimit > 0) {
-            CommitAvatarSnapshot avatarSnapshot = gitHub.fetchCommitAvatarSnapshot(avatarToken.orElseThrow(), repository, commits.getFirst().sha(), avatarLimit);
+            CommitAvatarSnapshot avatarSnapshot = gitHub.fetchCommitAvatarSnapshot(target.access().token(), repository, commits.getFirst().sha(), avatarLimit);
             checkState(avatarSnapshot.succeeded(), "commit avatar synchronization failed");
             identities = avatarSnapshot.avatars().stream()
                     .collect(toImmutableMap(CommitAvatar::sha, Function.identity()));

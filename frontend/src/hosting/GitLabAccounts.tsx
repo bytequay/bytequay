@@ -13,6 +13,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import ErrorDetails from '../ErrorDetails';
+import { providerName } from '../pulls/PullRequestWorkspace';
 import { remoteErrorMessage } from '../remoteError';
 import type { GitLabCliStatusDto, HostingConnectionDto, HostingPermissionsDto, HostingServerDto } from '../types';
 import '../css/settings-window.css';
@@ -99,6 +100,28 @@ export function GitLabConnectionForm({ server, onConnecting, onConnected }: {
   </form>;
 }
 
+/** GitHub accounts connect with a token on the workspace's server; the app's main sign-in stays in Integrations → GitHub. */
+function GitHubConnectionForm({ server, onConnected }: { server: HostingServerDto; onConnected: (account: HostingConnectionDto) => void }) {
+  const [token, setToken] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return <form className="hosting-form" onSubmit={event => {
+    event.preventDefault();
+    setBusy(true); setError(null);
+    const { provider, webBaseUrl, apiBaseUrl } = server;
+    window.bridge.connectHostingAccount({ provider, webBaseUrl, apiBaseUrl, token: token.trim() })
+      .then(account => { setToken(''); onConnected(account); })
+      .catch(failure => setError(remoteErrorMessage(failure)))
+      .finally(() => setBusy(false));
+  }}>
+    <label>GitHub personal access token<input aria-label="GitHub personal access token" type="password" required value={token} disabled={busy}
+      autoComplete="off" spellCheck={false} onChange={event => setToken(event.target.value)} /></label>
+    <p>The token is stored encrypted on this Mac.</p>
+    {error !== null && <ErrorDetails message={error} className="setw-error" />}
+    <button type="submit" className="setw-btn" disabled={busy || token.trim() === ''}>{busy ? 'Connecting…' : 'Connect GitHub'}</button>
+  </form>;
+}
+
 export function GitLabPermissions({ permissions }: { permissions: HostingPermissionsDto | null }) {
   if (permissions === null) return <p>Permissions have not been checked.</p>;
   const label = { VERIFIED: 'Permissions verified', MISSING: 'Missing permissions', UNAVAILABLE: 'Permissions unavailable' }[permissions.status];
@@ -126,6 +149,9 @@ export default function GitLabAccounts({ selected, server, onSelect, autoSelectF
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Without a server this is GitLab onboarding, which picks the server in its form.
+  const provider = server?.provider ?? 'GITLAB';
+  const name = providerName({ provider });
   useEffect(() => {
     let active = true;
     void window.bridge.listHostingAccounts().then(rows => { if (active) setAccounts(rows); })
@@ -135,11 +161,11 @@ export default function GitLabAccounts({ selected, server, onSelect, autoSelectF
   }, []);
   useEffect(() => {
     if (!autoSelectFirst || selected !== undefined) return;
-    const first = accounts.find(account => account.connected && account.instance.provider === 'GITLAB' && (server === undefined
+    const first = accounts.find(account => account.connected && account.instance.provider === provider && (server === undefined
       || account.instance.webBaseUrl === server.webBaseUrl && account.instance.apiBaseUrl === server.apiBaseUrl));
     if (first) void Promise.resolve(onSelect(first)).catch(failure => setError(remoteErrorMessage(failure)));
-  }, [accounts, autoSelectFirst, selected, server, onSelect]);
-  const choices = accounts.filter(account => account.instance.provider === 'GITLAB' && (server === undefined
+  }, [accounts, autoSelectFirst, selected, server, provider, onSelect]);
+  const choices = accounts.filter(account => account.instance.provider === provider && (server === undefined
     || account.instance.webBaseUrl === server.webBaseUrl && account.instance.apiBaseUrl === server.apiBaseUrl));
   const permissions = choices.find(account => account.account.id === selected)?.permissions ?? null;
   const choose = async (account: HostingConnectionDto) => {
@@ -148,9 +174,12 @@ export default function GitLabAccounts({ selected, server, onSelect, autoSelectF
     catch (failure) { setError(remoteErrorMessage(failure)); }
     finally { setBusy(false); }
   };
+  const connected = (account: HostingConnectionDto) => {
+    setAccounts(rows => [...rows.filter(row => row.account.id !== account.account.id), account]); setAdding(false); void choose(account);
+  };
   return <div className="hosting-accounts">
-    {loading ? <p role="status">Loading GitLab accounts…</p> : <>
-      {choices.length > 0 && <label>GitLab account<select aria-label="GitLab account" value={selected ?? ''} disabled={busy || disabled}
+    {loading ? <p role="status">Loading {name} accounts…</p> : <>
+      {choices.length > 0 && <label>{name} account<select aria-label={`${name} account`} value={selected ?? ''} disabled={busy || disabled}
         onChange={event => { const account = choices.find(row => row.account.id === Number(event.target.value)); if (account) void choose(account); }}>
         <option value="" disabled>Choose an account</option>
         {choices.map(account => <option key={account.account.id} value={account.account.id} disabled={!account.connected}>
@@ -158,9 +187,9 @@ export default function GitLabAccounts({ selected, server, onSelect, autoSelectF
         </option>)}
       </select></label>}
       {permissions !== null && <GitLabPermissions permissions={permissions} />}
-      {(adding || choices.length === 0) ? <GitLabConnectionForm server={server} onConnecting={target => setAccounts(rows => clearGitLabPermissions(rows, target))} onConnected={account => {
-        setAccounts(rows => [...rows.filter(row => row.account.id !== account.account.id), account]); setAdding(false); void choose(account);
-      }} /> : <button type="button" className="setw-link" disabled={disabled} onClick={() => setAdding(true)}>Add or reconnect a GitLab account</button>}
+      {(adding || choices.length === 0) ? provider === 'GITHUB' && server !== undefined ? <GitHubConnectionForm server={server} onConnected={connected} />
+        : <GitLabConnectionForm server={server} onConnecting={target => setAccounts(rows => clearGitLabPermissions(rows, target))} onConnected={connected} />
+        : <button type="button" className="setw-link" disabled={disabled} onClick={() => setAdding(true)}>Add or reconnect a {name} account</button>}
     </>}
     {error !== null && <ErrorDetails message={error} className="setw-error" />}
   </div>;

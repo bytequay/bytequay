@@ -209,16 +209,16 @@ repository ID and request number. Issue caches and repository metadata use local
 hosting repository IDs, so equal project numbers on separate servers cannot collide.
 
 Workspace repository numbers are scoped by the configured server. A GitLab
-workspace retains that server and its selected hosting account/repository binding;
-GitHub workspaces keep their existing routing. Setup resolves the chosen project
+workspace retains that server and its selected hosting account/repository binding,
+whatever its provider. Setup resolves the chosen project
 through its account before saving a direct-clone workspace. Selecting another
 account re-verifies the same project on the same server. GitLab-only sign-in can
 reach workspace setup without a GitHub credential.
 
 ### Routing and refresh
 
-Workspace reads use their explicit hosting binding when present, otherwise the
-workspace token override, then the global GitHub credential. A read session holds
+Every workspace reads, and authenticates Git, through the account its hosting
+binding names; a workspace without one asks for an account. A read session holds
 the selected account, credential source and access details. It is a passive value;
 it does not lock reads or reject results if selection changes during a request.
 Desktop entry points use the same session and shared metadata cache, without a

@@ -16,7 +16,6 @@ package com.bytequay.app.git;
 import com.bytequay.app.git.CommitHistoryRef.Source;
 import com.bytequay.app.git.GitBrowseService.Commit;
 import com.bytequay.app.repository.github.GitHubRepoClient;
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
@@ -82,7 +81,7 @@ class TestCommitHistoryService
         git = mock(GitBrowseService.class);
         store = mock(CommitHistoryStore.class);
         WebServerApplicationContext applicationContext = mock(WebServerApplicationContext.class);
-        service = new CommitHistoryService(workspaces, hosting, mock(WorkspaceProvisioningService.class), git, store, mock(CredentialService.class),
+        service = new CommitHistoryService(workspaces, hosting, mock(WorkspaceProvisioningService.class), git, store,
                 mock(GitHubRepoClient.class), mock(CherryPickPullRequestLookup.class), mock(AvatarCache.class), Clock.systemUTC(), applicationContext);
         WebServer server = mock(WebServer.class);
         when(applicationContext.getWebServer()).thenReturn(server);

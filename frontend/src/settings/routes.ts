@@ -29,7 +29,7 @@ export type SettingsSection =
   | 'lab'
   | 'ws-repository'
   | 'ws-agents'
-  | 'ws-token'
+  | 'ws-account'
   | 'ws-advanced';
 
 export type SettingsGroup = 'Personal' | 'Agents' | 'Integrations' | 'Workspace';
@@ -100,7 +100,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
     slug: 'agents',
     rows: ['Development', 'Review', 'Providers'],
   },
-  { section: 'ws-token', group: 'Workspace', label: 'Token', slug: 'token', rows: ['GitHub token', 'GitLab account'] },
+  { section: 'ws-account', group: 'Workspace', label: 'Account', slug: 'account', rows: ['GitHub account', 'GitLab account'] },
   {
     section: 'ws-advanced',
     group: 'Workspace',

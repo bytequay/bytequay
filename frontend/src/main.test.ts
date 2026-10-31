@@ -243,14 +243,14 @@ it('forwards PR opening freshness separately from periodic and checks-only refre
     expect.objectContaining({ method: 'POST' }));
 });
 
-it.each(['pat:copy', 'workspaces:token:copy'])('reports %s only after the asynchronous clipboard write succeeds', async channel => {
+it('reports pat:copy only after the asynchronous clipboard write succeeds', async () => {
   await startMain();
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ value: 'test-token' }))));
   desktop.clipboardWriteText.mockResolvedValue(undefined);
-  await expect(desktop.handlers.get(channel)?.({}, 'workspace')).resolves.toBe(true);
+  await expect(desktop.handlers.get('pat:copy')?.({})).resolves.toBe(true);
   expect(desktop.clipboardWriteText).toHaveBeenCalledWith('test-token');
   desktop.clipboardWriteText.mockRejectedValue(new Error('Clipboard unavailable'));
-  await expect(desktop.handlers.get(channel)?.({}, 'workspace')).rejects.toThrow('Clipboard unavailable');
+  await expect(desktop.handlers.get('pat:copy')?.({})).rejects.toThrow('Clipboard unavailable');
 });
 
 it.each([

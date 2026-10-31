@@ -52,11 +52,9 @@ function stubBridge(reads: string[]) {
       return {
         commitsTarget: { remote: 'upstream', branch: id === 'ws-1' ? 'master' : 'main', overridden: false },
         agents: [],
-        githubToken: null,
       };
     },
     setWorkspaceCommitsTarget: async (workspaceId: string, value: string) => { writes.push({ workspaceId, value }); },
-    saveWorkspaceGitHubToken: async (workspaceId: string, value: string) => { writes.push({ workspaceId, value }); },
     controlWindow: async (): Promise<void> => undefined,
   };
   Object.defineProperty(window, 'bridge', { value: bridge, configurable: true });
@@ -68,7 +66,7 @@ function stubBridge(reads: string[]) {
  * SettingsWindow alone would no longer exercise the picker — settings shares the
  * app sidebar instead of carrying one of its own.
  */
-function Harness({ exits, section }: { exits: () => void; section: 'ws-repository' | 'ws-token' }) {
+function Harness({ exits }: { exits: () => void }) {
   const [workspaceId, setWorkspaceId] = useState('ws-1');
   const picked = (WORKSPACES.find(candidate => candidate.id === workspaceId) ?? WORKSPACES[0]) as WorkspaceDto;
   return (
@@ -86,7 +84,7 @@ function Harness({ exits, section }: { exits: () => void; section: 'ws-repositor
         workspaceTab="home"
         onWorkspaceTab={() => {}}
         settings={{
-          section,
+          section: 'ws-repository',
           workspaces: WORKSPACES as WorkspaceDto[],
           workspaceId: picked.id,
           onSection: () => {},
@@ -95,20 +93,20 @@ function Harness({ exits, section }: { exits: () => void; section: 'ws-repositor
         }}
       />
       <main className="app-content">
-        <SettingsWindow section={section} workspace={picked} onWorkspacesChanged={() => {}} />
+        <SettingsWindow section="ws-repository" workspace={picked} onWorkspacesChanged={() => {}} />
       </main>
     </>
   );
 }
 
-function fixture(reads: string[], onExit: () => void = () => {}, section: 'ws-repository' | 'ws-token' = 'ws-repository') {
+function fixture(reads: string[], onExit: () => void = () => {}) {
   const writes = stubBridge(reads);
   const host = document.createElement('div');
   host.className = 'app-shell';
   host.style.cssText = 'display:flex;height:600px;width:1200px;overflow:hidden';
   document.body.append(host);
   const root = createRoot(host);
-  flushSync(() => root.render(<Harness exits={onExit} section={section} />));
+  flushSync(() => root.render(<Harness exits={onExit} />));
 
   return {
     host,
@@ -154,10 +152,9 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   const check = async (
     name: string,
     test: (view: ReturnType<typeof fixture>, reads: string[]) => Promise<void>,
-    section: 'ws-repository' | 'ws-token' = 'ws-repository',
   ) => {
     const reads: string[] = [];
-    const view = fixture(reads, undefined, section);
+    const view = fixture(reads);
     try {
       await settle();
       await settle();
@@ -204,22 +201,6 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     await view.click('Save');
     assert(JSON.stringify(view.writes) === JSON.stringify([{ workspaceId: 'ws-2', value: 'release-for-second' }]), 'Only the new workspace draft may be saved');
   });
-
-  await check('switching workspace clears an unfinished token', async view => {
-    await view.click('Use a workspace token…');
-    await view.type('Workspace GitHub token', 'fake-first-workspace-token');
-    await view.click('Workspace being edited');
-    await view.pick('owner/charts');
-    await settle();
-
-    assert(view.host.querySelector('[aria-label="Workspace GitHub token"]') === null, 'The previous workspace token editor must close');
-    await view.click('Use a workspace token…');
-    assert(view.host.querySelector<HTMLInputElement>('[aria-label="Workspace GitHub token"]')?.value === '', 'The new workspace token draft must be empty');
-    assert(view.writes.length === 0, 'Switching workspaces must not save credentials');
-    await view.type('Workspace GitHub token', 'fake-second-workspace-token');
-    await view.click('Save');
-    assert(JSON.stringify(view.writes) === JSON.stringify([{ workspaceId: 'ws-2', value: 'fake-second-workspace-token' }]), 'Only the newly entered token may reach the selected workspace');
-  }, 'ws-token');
 
   await check('the workspace menu is not clipped by the sidebar it opens in', async view => {
     await view.click('Workspace being edited');

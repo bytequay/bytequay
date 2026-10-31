@@ -1199,11 +1199,6 @@ export type AgentModelSettingDto = {
   effort?: string | null;
 };
 
-type WorkspaceTokenDto = {
-  maskedToken: string;
-  login: string;
-};
-
 export type WorkspaceCommitsTargetDto = {
   remote: 'origin' | 'upstream';
   branch: string;
@@ -1265,7 +1260,6 @@ export type WorkspaceRelationshipsDto = {
 export type WorkspaceSettingsDto = {
   commitsTarget: WorkspaceCommitsTargetDto;
   agents: AgentModelSettingDto[];
-  githubToken?: WorkspaceTokenDto | null;
 };
 
 export type ModelOptionDto = {
@@ -2058,9 +2052,6 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
     effort: string | null,
   ) => Promise<AgentModelSettingDto>;
   clearWorkspaceAgentModel: (workspaceId: string, type: AgentModelType) => Promise<AgentModelSettingDto>;
-  saveWorkspaceGitHubToken: (workspaceId: string, value: string) => Promise<{ login: string }>;
-  deleteWorkspaceGitHubToken: (workspaceId: string) => Promise<void>;
-  copyWorkspaceGitHubToken: (workspaceId: string) => Promise<boolean>;
 
   fetchRecent: (query: RecentFilterQuery) => Promise<RecentDayPageDto>;
   searchRecent: (query: string, limit?: number) => Promise<RecentRowDto[]>;

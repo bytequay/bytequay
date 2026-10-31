@@ -355,9 +355,6 @@ const bridge: Bridge = {
   renameWorkspace: invoke('workspaces:rename'),
   setWorkspaceAgentModel: invoke('workspaces:agent-model:set'),
   clearWorkspaceAgentModel: invoke('workspaces:agent-model:clear'),
-  saveWorkspaceGitHubToken: invoke('workspaces:token:save'),
-  deleteWorkspaceGitHubToken: invoke('workspaces:token:delete'),
-  copyWorkspaceGitHubToken: invoke('workspaces:token:copy'),
 
   fetchRecent: invoke('recent:list'),
   searchRecent: (query, limit = 10) => ipcRenderer.invoke('recent:search', query, limit),

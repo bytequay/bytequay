@@ -42,7 +42,7 @@ testBrowserScenarios([
   },
   {
     name: 'keeps workspace settings loaded when the picker is used in Chromium',
-    expected: 8, timeout: 30_000,
+    expected: 7, timeout: 30_000,
     fixture: {
       prefix: 'bytequay-workspace-picker-',
       entry: 'src/settings/fixtures/workspacePickerBrowser.tsx',

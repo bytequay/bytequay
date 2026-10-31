@@ -64,7 +64,7 @@ const SETTINGS_ICONS: Record<SettingsSection, ReactNode> = {
   github: <CircleUser size={16} strokeWidth={1.7} aria-hidden="true" />,
   'ws-repository': <Tags size={16} strokeWidth={1.7} aria-hidden="true" />,
   'ws-agents': <Bot size={16} strokeWidth={1.7} aria-hidden="true" />,
-  'ws-token': <KeyRound size={16} strokeWidth={1.7} aria-hidden="true" />,
+  'ws-account': <KeyRound size={16} strokeWidth={1.7} aria-hidden="true" />,
   'ws-advanced': <TriangleAlert size={16} strokeWidth={1.7} aria-hidden="true" />,
 };
 
@@ -315,7 +315,7 @@ export default function AppSidebar({
                 )}
                 {entries.map(entry => row({
                   key: entry.section,
-                  label: entry.section === 'ws-token' && picked?.hostingServer.provider === 'GITLAB' ? 'Account' : entry.label,
+                  label: entry.label,
                   icon: SETTINGS_ICONS[entry.section],
                   active: entry.section === settings.section,
                   onClick: () => settings.onSection(entry.section),

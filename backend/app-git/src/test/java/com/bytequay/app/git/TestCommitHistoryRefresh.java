@@ -19,7 +19,6 @@ import com.bytequay.app.git.PullRequestLookupResult.Association;
 import com.bytequay.app.repository.github.CommitAvatarSnapshot;
 import com.bytequay.app.repository.github.CommitAvatarSnapshot.CommitAvatar;
 import com.bytequay.app.repository.github.GitHubRepoClient;
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.app.workspace.WorkspaceHostingService;
@@ -97,7 +96,6 @@ class TestCommitHistoryRefresh
     private WorkspaceProvisioningService provisioning;
     private GitBrowseService git;
     private RecordingStore store;
-    private CredentialService credentials;
     private GitHubRepoClient gitHub;
     private CherryPickPullRequestLookup pullRequests;
     private AvatarCache avatars;
@@ -112,18 +110,16 @@ class TestCommitHistoryRefresh
         provisioning = mock(WorkspaceProvisioningService.class);
         git = mock(GitBrowseService.class);
         store = new RecordingStore();
-        credentials = mock(CredentialService.class);
         gitHub = mock(GitHubRepoClient.class);
         pullRequests = mock(CherryPickPullRequestLookup.class);
         avatars = mock(AvatarCache.class);
         clock = Clock.fixed(NOW, ZoneOffset.UTC);
-        service = new CommitHistoryService(workspaces, hosting, provisioning, git, store, credentials, gitHub, pullRequests, avatars, clock, mock(ApplicationContext.class));
+        service = new CommitHistoryService(workspaces, hosting, provisioning, git, store, gitHub, pullRequests, avatars, clock, mock(ApplicationContext.class));
 
         readyWorkspace();
         when(workspaces.getWorkspace(WORKSPACE_ID)).thenReturn(summary(HostingServer.GITHUB_COM));
         when(provisioning.synchronizeCode(WORKSPACE_ID))
                 .thenReturn(new WorkspaceCodeSyncResult(WORKSPACE_ID, true, Optional.of(NOW), ImmutableSet.of()));
-        when(credentials.resolveGitHubToken(WORKSPACE_ID)).thenReturn("test-token");
         when(hosting.repositoryTarget(WORKSPACE_ID, SELECTED.fullName())).thenReturn(TARGET);
     }
 
@@ -445,7 +441,7 @@ class TestCommitHistoryRefresh
             assertThat(value.avatarCheckedAt()).isEmpty();
             assertThat(value.associationCheckedAt()).contains(NOW);
         });
-        verifyNoInteractions(credentials, gitHub, avatars);
+        verifyNoInteractions(gitHub, avatars);
     }
 
     private static HostingTarget target(long hostingRepositoryId, String remoteId, RepoRef repository)

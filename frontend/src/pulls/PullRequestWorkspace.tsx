@@ -28,7 +28,7 @@ export function PullRequestWorkspaceProvider({ workspaceId, accountId, server, c
 }
 
 /** The provider's name for people; a screen with no server reads through the GitHub sign-in. */
-export function providerName(server: HostingServerDto | undefined): string {
+export function providerName(server: Pick<HostingServerDto, 'provider'> | undefined): string {
   return server?.provider === 'GITLAB' ? 'GitLab' : 'GitHub';
 }
 

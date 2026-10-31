@@ -15,7 +15,6 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.config.WriteVersion;
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.AgentModelSetting;
@@ -55,7 +54,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.WebRequest;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Files;
 import java.util.List;
@@ -77,7 +75,6 @@ public class WorkspaceController
     private final WorkspaceMetadataService metadata;
     private final WorkspaceIssueService issues;
     private final ModelSettingsService models;
-    private final CredentialService credentials;
     private final WorkspaceCommitsSettingsService commitsSettings;
     private final IssueDevelopmentService issueDevelopment;
     private final WorkspaceRelationships relationships;
@@ -91,7 +88,6 @@ public class WorkspaceController
             WorkspaceMetadataService metadata,
             WorkspaceIssueService issues,
             ModelSettingsService models,
-            CredentialService credentials,
             WorkspaceCommitsSettingsService commitsSettings,
             IssueDevelopmentService issueDevelopment,
             WorkspaceRelationships relationships,
@@ -104,7 +100,6 @@ public class WorkspaceController
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.issues = requireNonNull(issues, "issues is null");
         this.models = requireNonNull(models, "models is null");
-        this.credentials = requireNonNull(credentials, "credentials is null");
         this.commitsSettings = requireNonNull(commitsSettings, "commitsSettings is null");
         this.issueDevelopment = requireNonNull(issueDevelopment, "issueDevelopment is null");
         this.relationships = requireNonNull(relationships, "relationships is null");
@@ -286,7 +281,6 @@ public class WorkspaceController
                 Stream.of(AgentModelType.values())
                         .map(type -> models.agentModel(type, Optional.of(workspaceId)))
                         .collect(toImmutableList()),
-                credentials.workspaceGitHubToken(workspaceId).orElse(null),
                 commitsSettings.get(workspaceId));
     }
 
@@ -365,27 +359,6 @@ public class WorkspaceController
         return models.clearWorkspaceOverride(workspaceId, type);
     }
 
-    @PutMapping("/{workspaceId}/github-token")
-    public Map<String, String> saveGitHubToken(@PathVariable String workspaceId, @RequestBody TokenRequest request)
-    {
-        workspaces.getWorkspace(workspaceId);
-        return ImmutableMap.of("login", credentials.saveWorkspaceGitHubToken(workspaceId, request.value()));
-    }
-
-    @DeleteMapping("/{workspaceId}/github-token")
-    public void deleteGitHubToken(@PathVariable String workspaceId)
-    {
-        credentials.deleteWorkspaceGitHubToken(workspaceId);
-    }
-
-    /** Full workspace token for main-process clipboard copy; the renderer never displays it. */
-    @GetMapping("/{workspaceId}/github-token/value")
-    public Map<String, String> gitHubTokenValue(@PathVariable String workspaceId)
-    {
-        return ImmutableMap.of("value", credentials.workspaceGitHubTokenValue(workspaceId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "No workspace token is stored.")));
-    }
-
     public record DeleteWorkspaceRequest(boolean confirmed, String repositoryName) {}
 
     public record WatchRequest(long selectedRepositoryId, Topology topology, String previewFingerprint, String name, boolean allowForkCreation) {}
@@ -406,10 +379,7 @@ public class WorkspaceController
 
     public record CommitsTargetRequest(String branch) {}
 
-    public record TokenRequest(String value) {}
-
     public record WorkspaceSettingsResponse(
             List<AgentModelSetting> agents,
-            CredentialService.WorkspaceToken githubToken,
             WorkspaceCommitsTarget commitsTarget) {}
 }

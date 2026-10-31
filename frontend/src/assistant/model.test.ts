@@ -170,7 +170,7 @@ describe('opens', () => {
     expect(pageRoute('settings/workflow')).toBe('#/settings/agents/workflow');
     expect(pageRoute('pulls')).toBe('#/pulls');
     expect(pageRoute('settings')).toBe('#/settings');
-    expect(pageRoute('settings/ws-token')).toBeNull();
+    expect(pageRoute('settings/ws-account')).toBeNull();
     expect(pageRoute('terminal')).toBeNull();
     expect(pageRoute('workspaces/ws1')).toBe(workspaceRoute('ws1'));
     expect(pageRoute('workspaces/ws1/tasks')).toBe(workspaceRoute('ws1', 'tasks'));

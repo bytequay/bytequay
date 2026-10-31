@@ -19,11 +19,14 @@ import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
+import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.core.ci.CiAutofixAttempt.GitResult;
 import com.bytequay.core.ci.CiAutofixAttemptId;
 import com.bytequay.core.ci.CiAutofixRun.PushJournal;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import com.bytequay.core.store.AppSettingsStore;
-import com.bytequay.core.store.WorkspaceCredentialStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -79,15 +82,16 @@ class TestCiGitService
     Path temporaryDirectory;
 
     @Test
-    void authenticatesFetchPushAndReconciliationWithTheWorkspaceToken()
+    void authenticatesFetchPushAndReconciliationWithTheBoundAccountToken()
             throws IOException
     {
         Repository fixture = repository("authenticated-transport");
         String nextBase = advanceRemoteBase(fixture);
-        WorkspaceCredentialStore overrides = mock(WorkspaceCredentialStore.class);
-        when(overrides.getSecret(WORKSPACE_ID)).thenReturn(Optional.of("workspace-token"));
-        CredentialService credentials = new CredentialService(mock(AppSettingsStore.class), overrides, mock(GhCliService.class),
-                mock(GitHubAccountClient.class), mock(HostingConnectionService.class), mock(WorkspaceStore.class));
+        WorkspaceStore workspaces = mock(WorkspaceStore.class);
+        when(workspaces.findHostingBinding(WORKSPACE_ID)).thenReturn(Optional.of(new WorkspaceHostingBinding(WORKSPACE_ID, 7, 9, Optional.empty())));
+        HostingConnectionService hosting = mock(HostingConnectionService.class);
+        when(hosting.readSession(7)).thenReturn(new HostingReadSession(7, "hosting-account", new HostingAccess(HostingServer.GITHUB_COM, "workspace-token")));
+        CredentialService credentials = new CredentialService(mock(AppSettingsStore.class), mock(GhCliService.class), mock(GitHubAccountClient.class), hosting, workspaces);
         String authorization = "Authorization: Basic " + Base64.getEncoder().encodeToString("x-access-token:workspace-token".getBytes(StandardCharsets.UTF_8));
         List<String> transports = new ArrayList<>();
         GitCommandRunner routed = new RoutedGitCommandRunner();
@@ -98,9 +102,11 @@ class TestCiGitService
             {
                 if (ImmutableList.of("fetch", "ls-remote", "push").contains(arguments.getFirst())) {
                     assertThat(environment).containsExactlyInAnyOrderEntriesOf(ImmutableMap.of(
-                            "GIT_CONFIG_COUNT", "1",
+                            "GIT_CONFIG_COUNT", "2",
                             "GIT_CONFIG_KEY_0", "http.https://github.com/.extraHeader",
-                            "GIT_CONFIG_VALUE_0", authorization));
+                            "GIT_CONFIG_VALUE_0", authorization,
+                            "GIT_CONFIG_KEY_1", "http.followRedirects",
+                            "GIT_CONFIG_VALUE_1", "false"));
                     transports.add(arguments.getFirst());
                 }
                 return routed.run(worktree, timeout, environment, arguments);

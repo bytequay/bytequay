@@ -50,7 +50,6 @@ import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.HostingCredentialStore;
 import com.bytequay.core.store.HostingIdentityStore;
 import com.bytequay.core.store.PrDetailStore;
-import com.bytequay.core.store.WorkspaceCredentialStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.bytequay.persistence.sqlite.repository.HostingRepositoryJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
@@ -342,7 +341,6 @@ class TestCiAutofixRestartEndToEnd
                     CredentialService.class,
                     () -> new CredentialService(
                             context.getBean(AppSettingsStore.class),
-                            context.getBean(WorkspaceCredentialStore.class),
                             context.getBean(GhCliService.class),
                             context.getBean(GitHubAccountClient.class),
                             context.getBean(HostingConnectionService.class),

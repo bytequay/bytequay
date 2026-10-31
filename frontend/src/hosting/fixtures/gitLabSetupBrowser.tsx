@@ -538,12 +538,42 @@ export async function run() {
       };
       window.bridge = bridge as Bridge;
       try {
-        flushSync(() => view.root.render(<SettingsWindow section="ws-token" workspace={WORKSPACE} onWorkspacesChanged={() => {}} />));
+        flushSync(() => view.root.render(<SettingsWindow section="ws-account" workspace={WORKSPACE} onWorkspacesChanged={() => {}} />));
         await until(() => view.host.querySelector('[aria-label="GitLab account"]') !== null, 'Account picker did not load');
         const picker = element<HTMLSelectElement>('[aria-label="GitLab account"]', view.host);
         assert(picker.value === '1' && picker.options.length === 3, 'Binding or same-server filter is incorrect');
         select(view.host, 2); await until(() => picker.value === '2', 'New binding was not displayed');
         assert(writes.length === 1 && writes[0] === 2, 'Account change must update the workspace binding');
+      } finally { view.dispose(); }
+    }],
+    ['GitHub workspace settings offer github.com accounts and bind a token-connected one', async () => {
+      const view = createFixtureRoot();
+      const github: HostingServerDto = { provider: 'GITHUB', webBaseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' };
+      const workspace = workspaceFixture({ hostingServer: github });
+      const writes: number[] = [];
+      const tokens: string[] = [];
+      let accountId = 4;
+      const binding = () => ({ workspaceId: workspace.id, accountId, selectedRepositoryId: 8, upstreamRepositoryId: null });
+      const bridge: Partial<Bridge> = {
+        getAppVersion: async () => ({ version: '1.0.0' }), getAppPreferences: async () => preferences,
+        getWorkspaceSettings: async () => { throw new Error('No repository settings needed by this account picker'); },
+        listHostingAccounts: async () => [account(4, github), account(1)],
+        connectHostingAccount: async request => { tokens.push(request.token); return account(5, github); },
+        getWorkspaceHosting: async () => binding(),
+        setWorkspaceHosting: async (_id: string, selected: number) => { accountId = selected; writes.push(selected); return binding(); },
+      };
+      window.bridge = bridge as Bridge;
+      try {
+        flushSync(() => view.root.render(<SettingsWindow section="ws-account" workspace={workspace} onWorkspacesChanged={() => {}} />));
+        await until(() => view.host.querySelector('[aria-label="GitHub account"]') !== null, 'Account picker did not load');
+        const picker = element<HTMLSelectElement>('[aria-label="GitHub account"]', view.host);
+        assert(picker.value === '4' && picker.options.length === 2, 'Only the workspace server\'s GitHub accounts may be offered');
+        button('Add or reconnect a GitHub account', view.host).click(); await settle();
+        changeInput(element<HTMLInputElement>('[aria-label="GitHub personal access token"]', view.host), 'fake-token');
+        await settle();
+        button('Connect GitHub', view.host).click();
+        await until(() => writes.length === 1, 'The connected account was not bound');
+        assert(tokens[0] === 'fake-token' && writes[0] === 5, 'The token must connect an account that the workspace then uses');
       } finally { view.dispose(); }
     }],
   ]);

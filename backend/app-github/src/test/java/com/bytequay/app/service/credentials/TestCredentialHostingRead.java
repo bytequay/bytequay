@@ -39,15 +39,11 @@ import com.bytequay.core.hosting.RemoteHostingAccount;
 import com.bytequay.core.store.HostingCredentialStore;
 import com.bytequay.core.store.HostingIdentityStore;
 import com.bytequay.core.store.HostingPullRequestStore;
-import com.bytequay.core.store.WorkspaceCredentialStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.NullAndEmptySource;
-import org.junit.jupiter.params.provider.ValueSource;
 
 import java.net.URI;
 import java.time.Clock;
@@ -80,7 +76,6 @@ class TestCredentialHostingRead
     private static final Instant NOW = Instant.parse("2026-10-01T00:00:00Z");
     private final InMemoryAppSettingsStore settings = new InMemoryAppSettingsStore();
     private final GitHubAccountClient profiles = mock(GitHubAccountClient.class);
-    private final WorkspaceCredentialStore workspaceStore = mock(WorkspaceCredentialStore.class);
     private final GhCliService ghCli = mock(GhCliService.class);
     private final HostingIdentityStore identities = mock(HostingIdentityStore.class);
     private final HostingCredentialStore manualCredentials = mock(HostingCredentialStore.class);
@@ -133,7 +128,7 @@ class TestCredentialHostingRead
         when(reader.fetch(any(), anyInt(), any())).thenReturn(fetched());
         HostingConnectionService connections = new HostingConnectionService(identities, manualCredentials,
                 integrations(connections(GITHUB, accounts, repositories, reader)), ImmutableList.of());
-        credentials = new CredentialService(settings, workspaceStore, ghCli, profiles, connections, mock(WorkspaceStore.class));
+        credentials = new CredentialService(settings, ghCli, profiles, connections, mock(WorkspaceStore.class));
         requests = new HostingPullRequestService(connections, snapshots, identities, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -174,25 +169,6 @@ class TestCredentialHostingRead
     }
 
     @Test
-    void workspaceOverrideUsesItsOwnVerifiedIdentityWithoutChangingTheGlobalSelection()
-    {
-        HostingReadSession global = credentials.captureHostingRead();
-        requests.refresh(global, 30, 7, false);
-        when(workspaceStore.getSecret("workspace")).thenReturn(Optional.of("workspace-token"));
-        when(accounts.verify(any())).thenAnswer(call -> {
-            assertThat(call.<HostingAccess>getArgument(0).token()).isEqualTo("workspace-token");
-            return new RemoteHostingAccount("123", "alice");
-        });
-
-        HostingReadSession session = credentials.captureWorkspaceHostingRead("workspace");
-
-        assertThat(session.access().token()).isEqualTo("workspace-token");
-        assertThat(session.credentialScope()).isEqualTo("github-workspace:workspace");
-        assertThat(requests.cached(session, 30, 7)).isEmpty();
-        assertThat(credentials.captureHostingRead().access().token()).isEqualTo(global.access().token());
-    }
-
-    @Test
     void replacingTheTokenClearsTheCachedIdentity()
     {
         credentials.captureHostingRead();
@@ -202,23 +178,6 @@ class TestCredentialHostingRead
         assertThat(replacement.access().token()).isEqualTo("replacement");
         assertThat(settings.get(CredentialService.GITHUB_ACCOUNT_SETTING)).contains("20");
         verify(accounts, times(1)).verify(any());
-    }
-
-    @ParameterizedTest
-    @NullAndEmptySource
-    @ValueSource(strings = " ")
-    void workspaceWithoutAnOverrideReusesTheGlobalSessionAndCache(String override)
-    {
-        when(workspaceStore.getSecret("workspace")).thenReturn(Optional.ofNullable(override));
-        HostingReadSession global = credentials.captureHostingRead();
-        HostingPullRequestSnapshot snapshot = requests.refresh(global, 30, 7, false);
-
-        HostingReadSession session = credentials.captureWorkspaceHostingRead("workspace");
-
-        assertThat(session.accountId()).isEqualTo(global.accountId());
-        assertThat(session.credentialScope()).isEqualTo(global.credentialScope());
-        assertThat(requests.cached(session, 30, 7)).contains(snapshot);
-        verify(accounts, never()).verify(any());
     }
 
     private static PullRequestFetch fetched()

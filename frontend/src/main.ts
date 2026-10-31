@@ -1580,23 +1580,6 @@ function registerIpc(): void {
       workspaceUrl(workspaceId, `/agent-model/${encodeURIComponent(type)}`),
       { method: 'DELETE' },
     ));
-  ipcMain.handle('workspaces:token:save', (_event, workspaceId: string, value: string) =>
-    backendJson(
-      workspaceUrl(workspaceId, `/github-token`),
-      jsonInit('PUT', { value }),
-    ));
-  ipcMain.handle('workspaces:token:delete', (_event, workspaceId: string) =>
-    backendJson(workspaceUrl(workspaceId, `/github-token`), {
-      method: 'DELETE',
-    }));
-  ipcMain.handle('workspaces:token:copy', async (_event, workspaceId: string) => {
-    const result = await backendJson<{ value: string }>(
-      workspaceUrl(workspaceId, `/github-token/value`),
-    );
-    await clipboard.writeText(result.value);
-    return true;
-  });
-
   // Recent is local-only: every read answers from SQLite, so these stay
   // useful with the network off.
   ipcMain.handle('recent:list', (_event, query: RecentFilterQuery) =>

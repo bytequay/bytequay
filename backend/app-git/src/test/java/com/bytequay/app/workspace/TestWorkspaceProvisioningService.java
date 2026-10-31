@@ -30,7 +30,6 @@ import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.store.AppSettingsStore;
-import com.bytequay.core.store.WorkspaceCredentialStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -398,7 +397,7 @@ class TestWorkspaceProvisioningService
         when(hosting.resolveRepositoryById(session, "100")).thenReturn(original, renamed);
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         AppSettingsStore global = mock(AppSettingsStore.class);
-        CredentialService credentials = new CredentialService(global, mock(WorkspaceCredentialStore.class), mock(GhCliService.class), gitHub, hosting, store);
+        CredentialService credentials = new CredentialService(global, mock(GhCliService.class), gitHub, hosting, store);
         WorkspacePaths paths = new WorkspacePaths(temporary.resolve("workspaces").toString());
         InMemoryRemoteSourceStore remoteSources = new InMemoryRemoteSourceStore();
         WorkspaceProvisioningService service = new WorkspaceProvisioningService(store, new ManagedWorkspaceGit(paths, authenticated, credentials, remoteSources),
@@ -439,7 +438,6 @@ class TestWorkspaceProvisioningService
     {
         CredentialService credentials = mock(CredentialService.class);
         when(credentials.resolveGitHubToken()).thenReturn("token");
-        when(credentials.resolveGitHubToken(anyString())).thenReturn("token");
         when(credentials.gitAuthenticationEnvironment(anyString(), anyCollection())).thenReturn(ImmutableMap.of("GIT_CONFIG_COUNT", "0"));
         WorkspacePaths paths = new WorkspacePaths(temporary.resolve("workspaces").toString());
         return new WorkspaceProvisioningService(

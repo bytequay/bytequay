@@ -15,7 +15,6 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.config.WriteVersion;
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.service.pr.PullRequestRead;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
@@ -530,7 +529,6 @@ class TestPullRequestRefreshControllers
                 mock(WorkspaceMetadataService.class),
                 issues,
                 mock(ModelSettingsService.class),
-                mock(CredentialService.class),
                 mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class),
                 mock(WorkspaceRelationships.class), new WriteVersion());
 
@@ -549,7 +547,7 @@ class TestPullRequestRefreshControllers
         WorkspaceController controller = new WorkspaceController(
                 workspaces, deletion, pullRequests(), mock(PullRequestRefreshService.class),
                 mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class),
-                mock(ModelSettingsService.class), mock(CredentialService.class), mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class),
+                mock(ModelSettingsService.class), mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class),
                 mock(WorkspaceRelationships.class), new WriteVersion());
         var mvc = standaloneSetup(controller).build();
 
@@ -576,11 +574,10 @@ class TestPullRequestRefreshControllers
         when(workspaces.listWorkspaces()).thenReturn(ImmutableList.of(workspaceSummary("watched-id", 200)));
         WorkspaceDeletionService deletion = mock(WorkspaceDeletionService.class);
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
-        CredentialService credentials = mock(CredentialService.class);
         WorkspaceController controller = new WorkspaceController(
                 workspaces, deletion, pullRequests(), refresh,
                 mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class),
-                mock(ModelSettingsService.class), credentials, mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class),
+                mock(ModelSettingsService.class), mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class),
                 mock(WorkspaceRelationships.class), new WriteVersion());
         var mvc = standaloneSetup(controller).build();
 
@@ -598,7 +595,7 @@ class TestPullRequestRefreshControllers
         verify(workspaces).listRetiredWorkspaces();
         verify(workspaces).listWorkspaces();
         verifyNoMoreInteractions(workspaces);
-        verifyNoInteractions(deletion, refresh, credentials);
+        verifyNoInteractions(deletion, refresh);
     }
 
     @Test
@@ -615,7 +612,6 @@ class TestPullRequestRefreshControllers
                 mock(WorkspaceMetadataService.class),
                 mock(WorkspaceIssueService.class),
                 mock(ModelSettingsService.class),
-                mock(CredentialService.class),
                 mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class),
                 mock(WorkspaceRelationships.class), new WriteVersion());
 

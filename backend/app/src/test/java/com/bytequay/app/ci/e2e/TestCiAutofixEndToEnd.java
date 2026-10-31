@@ -72,7 +72,6 @@ import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.HostingCredentialStore;
 import com.bytequay.core.store.HostingIdentityStore;
 import com.bytequay.core.store.PrDetailStore;
-import com.bytequay.core.store.WorkspaceCredentialStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.bytequay.persistence.sqlite.repository.HostingRepositoryJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
@@ -1006,13 +1005,12 @@ class TestCiAutofixEndToEnd
         @Primary
         CredentialService e2eCredentialService(
                 AppSettingsStore settings,
-                WorkspaceCredentialStore workspaceCredentials,
                 GhCliService ghCli,
                 GitHubAccountClient gitHubAccount,
                 HostingConnectionService hosting,
                 WorkspaceStore workspaces)
         {
-            return new CredentialService(settings, workspaceCredentials, ghCli, gitHubAccount, hosting, workspaces)
+            return new CredentialService(settings, ghCli, gitHubAccount, hosting, workspaces)
             {
                 @Override
                 public String resolveGitHubToken()

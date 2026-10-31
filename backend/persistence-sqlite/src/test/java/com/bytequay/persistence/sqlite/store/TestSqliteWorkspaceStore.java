@@ -259,7 +259,6 @@ class TestSqliteWorkspaceStore
                 300, RepoRef.of("upstream", "project"), Topology.FORK, Optional.of("https://github.com/upstream/project.git"), 1));
         store.setWatched(retained.id(), false);
         for (Workspace workspace : ImmutableList.of(removed, retained)) {
-            jdbc.update("INSERT INTO workspace_credentials (workspace_id, ciphertext, login) VALUES (?, 'encrypted', 'owner')", workspace.id());
             jdbc.update("INSERT INTO app_settings (setting_key, setting_value) VALUES (?, 'model')", "workspace.agentModel." + workspace.id());
             settings.put("workspace.commitsTargetBranch." + workspace.id(), "release/next");
             jdbc.update("INSERT INTO commit_refresh_metadata (workspace_id, error) VALUES (?, 'retained')", workspace.id());
@@ -289,7 +288,7 @@ class TestSqliteWorkspaceStore
         assertThat(store.findById(removed.id())).isEmpty();
         assertThat(store.findAllRetained()).containsExactly(retained);
         assertThat(store.isWatched(retained.id())).isFalse();
-        for (String table : ImmutableList.of("workspace_credentials", "commit_refresh_metadata", "workspace_remote_sources", "work_item", "epic", "repository_memory")) {
+        for (String table : ImmutableList.of("commit_refresh_metadata", "workspace_remote_sources", "work_item", "epic", "repository_memory")) {
             assertThat(jdbc.queryForList("SELECT workspace_id FROM " + table, String.class)).containsExactly(retained.id());
         }
         assertThat(jdbc.queryForList("SELECT work_item_id FROM work_item_identity", String.class)).containsExactly(retained.id() + ":work");

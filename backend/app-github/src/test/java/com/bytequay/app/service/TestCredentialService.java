@@ -48,8 +48,6 @@ import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUI
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -163,57 +161,37 @@ class TestCredentialService
     }
 
     @Test
-    void gitAuthenticationSendsTheWorkspaceTokenOnlyToGitHub()
+    void gitAuthenticationSendsTheBoundTokenOnlyToGitHub()
     {
+        WorkspaceStore workspaces = mock(WorkspaceStore.class);
         HostingConnectionService hosting = mock(HostingConnectionService.class);
-        InMemoryWorkspaceCredentialStore workspaceStore = new InMemoryWorkspaceCredentialStore();
-        workspaceStore.save("workspace-id", "workspace-token", "octocat");
-        CredentialService service = new CredentialService(new InMemoryAppSettingsStore(), workspaceStore, mock(GhCliService.class), mock(GitHubAccountClient.class),
-                hosting, mock(WorkspaceStore.class));
+        when(workspaces.findHostingBinding("workspace-id")).thenReturn(Optional.of(new WorkspaceHostingBinding("workspace-id", 7, 9, Optional.empty())));
+        when(hosting.readSession(7)).thenReturn(session("workspace-token"));
+        CredentialService service = new CredentialService(new InMemoryAppSettingsStore(), mock(GhCliService.class), mock(GitHubAccountClient.class), hosting, workspaces);
 
-        Map<String, String> environment = service.gitAuthenticationEnvironment(
-                "workspace-id",
-                ImmutableList.of("https://github.com/example/source.git", "https://GITHUB.com:443/example/target.git", "https://git.example.com/example/other.git",
-                        "https://github.com.attacker.test/example/other.git", "https://github.com:8443/example/other.git"));
+        Map<String, String> environment = service.gitAuthenticationEnvironment("workspace-id", ImmutableList.of("https://GITHUB.com:443/example/target.git"));
 
         String expectedHeader = "Authorization: Basic " + Base64.getEncoder().encodeToString("x-access-token:workspace-token".getBytes(StandardCharsets.UTF_8));
         assertThat(environment).containsExactlyInAnyOrderEntriesOf(ImmutableMap.<String, String>builder()
-                .put("GIT_CONFIG_COUNT", "1")
+                .put("GIT_CONFIG_COUNT", "2")
                 .put("GIT_CONFIG_KEY_0", "http.https://github.com/.extraHeader")
                 .put("GIT_CONFIG_VALUE_0", expectedHeader)
+                .put("GIT_CONFIG_KEY_1", "http.followRedirects")
+                .put("GIT_CONFIG_VALUE_1", "false")
                 .buildOrThrow());
-        verify(hosting, never()).readSession(anyLong());
-    }
-
-    @Test
-    void verifiesAWorkspaceTokenOnceUntilItChanges()
-    {
-        InMemoryWorkspaceCredentialStore workspaceStore = new InMemoryWorkspaceCredentialStore();
-        workspaceStore.save("workspace-id", "first-token", "octocat");
-        HostingConnectionService hosting = mock(HostingConnectionService.class);
-        when(hosting.verifySession(eq(CredentialService.GITHUB_SERVER), eq("github-workspace:workspace-id"), anyString()))
-                .thenAnswer(call -> new HostingReadSession(7, call.getArgument(1), new HostingAccess(CredentialService.GITHUB_SERVER, call.getArgument(2))));
-        CredentialService service = new CredentialService(new InMemoryAppSettingsStore(), workspaceStore, mock(GhCliService.class), mock(GitHubAccountClient.class),
-                hosting, mock(WorkspaceStore.class));
-
-        HostingReadSession first = service.captureWorkspaceHostingRead("workspace-id");
-        assertThat(service.captureWorkspaceHostingRead("workspace-id")).isSameAs(first);
-        workspaceStore.save("workspace-id", "second-token", "octocat");
-        assertThat(service.captureWorkspaceHostingRead("workspace-id").access().token()).isEqualTo("second-token");
-
-        verify(hosting).verifySession(CredentialService.GITHUB_SERVER, "github-workspace:workspace-id", "first-token");
-        verify(hosting).verifySession(CredentialService.GITHUB_SERVER, "github-workspace:workspace-id", "second-token");
-    }
-
-    @Test
-    void nonGitHubRemotesNeedNoGitHubCredential()
-    {
-        HostingConnectionService hosting = mock(HostingConnectionService.class);
-        CredentialService service = new CredentialService(new InMemoryAppSettingsStore(), new InMemoryWorkspaceCredentialStore(), mock(GhCliService.class),
-                mock(GitHubAccountClient.class), hosting, mock(WorkspaceStore.class));
-
-        assertThat(service.gitAuthenticationEnvironment("workspace-id", ImmutableList.of("https://git.example.com/repo.git")))
+        assertThat(service.gitAuthenticationEnvironment("workspace-id", ImmutableList.of("https://git.example.com/example/other.git",
+                "https://github.com.attacker.test/example/other.git", "https://github.com:8443/example/other.git")))
                 .containsExactlyInAnyOrderEntriesOf(ImmutableMap.of("GIT_CONFIG_COUNT", "0"));
+    }
+
+    @Test
+    void unboundWorkspaceGitAuthenticationRequiresAnAccount()
+    {
+        HostingConnectionService hosting = mock(HostingConnectionService.class);
+        CredentialService service = service(new InMemoryAppSettingsStore(), hosting, mock(GitHubAccountClient.class));
+
+        assertThatThrownBy(() -> service.gitAuthenticationEnvironment("workspace-id", ImmutableList.of("https://github.com/example/source.git")))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(AUTHENTICATION_REQUIRED));
         verify(hosting, never()).readSession(anyLong());
     }
 
@@ -222,14 +200,12 @@ class TestCredentialService
     void boundAccountSuppliesGitCredentialsOnlyWithinItsServer(HostingProvider provider, String base)
     {
         AppSettingsStore global = mock(AppSettingsStore.class);
-        InMemoryWorkspaceCredentialStore overrides = new InMemoryWorkspaceCredentialStore();
-        overrides.save("workspace-id", "override-token", "other");
         WorkspaceStore workspaces = mock(WorkspaceStore.class);
         HostingConnectionService hosting = mock(HostingConnectionService.class);
         when(workspaces.findHostingBinding("workspace-id")).thenReturn(Optional.of(new WorkspaceHostingBinding("workspace-id", 7, 9, Optional.empty())));
         HostingInstance instance = new HostingInstance(3, provider, URI.create(base), URI.create(base + "/api"));
         when(hosting.readSession(7)).thenReturn(new HostingReadSession(7, "hosting-account", new HostingAccess(instance, "selected-token")));
-        CredentialService service = new CredentialService(global, overrides, mock(GhCliService.class), mock(GitHubAccountClient.class), hosting, workspaces);
+        CredentialService service = new CredentialService(global, mock(GhCliService.class), mock(GitHubAccountClient.class), hosting, workspaces);
 
         Map<String, String> environment = service.gitAuthenticationEnvironment("workspace-id", ImmutableList.of(base + "/group/subgroup/project.git"));
 
@@ -255,8 +231,7 @@ class TestCredentialService
         HostingInstance instance = new HostingInstance(3, HostingProvider.GITLAB, URI.create("https://git.example.test:8443/gitlab"),
                 URI.create("https://git.example.test:8443/gitlab/api/v4"));
         when(hosting.readSession(7)).thenReturn(new HostingReadSession(7, "hosting-account", new HostingAccess(instance, "selected-token")));
-        CredentialService service = new CredentialService(new InMemoryAppSettingsStore(), new InMemoryWorkspaceCredentialStore(),
-                mock(GhCliService.class), mock(GitHubAccountClient.class), hosting, workspaces);
+        CredentialService service = new CredentialService(new InMemoryAppSettingsStore(), mock(GhCliService.class), mock(GitHubAccountClient.class), hosting, workspaces);
 
         assertThat(service.gitAuthenticationEnvironment("workspace-id", ImmutableList.of(
                 "https://git.example.test/gitlab/group/project.git", "https://git.example.test:8443/other/project.git",
@@ -272,8 +247,7 @@ class TestCredentialService
         HostingConnectionService hosting = mock(HostingConnectionService.class);
         when(workspaces.findHostingBinding("workspace-id")).thenReturn(Optional.of(new WorkspaceHostingBinding("workspace-id", 7, 9, Optional.empty())));
         when(hosting.readSession(7)).thenThrow(new HostingFailure(AUTHENTICATION_REQUIRED, "Reconnect this hosting account"));
-        CredentialService service = new CredentialService(global, new InMemoryWorkspaceCredentialStore(), mock(GhCliService.class),
-                mock(GitHubAccountClient.class), hosting, workspaces);
+        CredentialService service = new CredentialService(global, mock(GhCliService.class), mock(GitHubAccountClient.class), hosting, workspaces);
 
         assertThatThrownBy(() -> service.gitAuthenticationEnvironment("workspace-id", ImmutableList.of("https://gitlab.com/group/project.git")))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(AUTHENTICATION_REQUIRED));
@@ -282,7 +256,7 @@ class TestCredentialService
 
     private static CredentialService service(InMemoryAppSettingsStore settings, HostingConnectionService hosting, GitHubAccountClient accounts)
     {
-        return new CredentialService(settings, new InMemoryWorkspaceCredentialStore(), mock(GhCliService.class), accounts, hosting, mock(WorkspaceStore.class));
+        return new CredentialService(settings, mock(GhCliService.class), accounts, hosting, mock(WorkspaceStore.class));
     }
 
     private static HostingReadSession session(String token)

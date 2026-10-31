@@ -15,7 +15,6 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.config.WriteVersion;
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.AgentModelSetting;
@@ -73,7 +72,7 @@ class TestWorkspaceCommitsSettingsController
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         WorkspaceController controller = new WorkspaceController(workspaces, deletion, mock(PullRequestService.class), refresh,
                 mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class),
-                models, mock(CredentialService.class), settings, mock(IssueDevelopmentService.class),
+                models, settings, mock(IssueDevelopmentService.class),
                 mock(WorkspaceRelationships.class), new WriteVersion());
         var mvc = standaloneSetup(controller).build();
 
@@ -119,7 +118,7 @@ class TestWorkspaceCommitsSettingsController
         var controller = new WorkspaceController(workspaces, mock(WorkspaceDeletionService.class), mock(PullRequestService.class),
                 mock(PullRequestRefreshService.class), mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class),
                 mock(ModelSettingsService.class),
-                mock(CredentialService.class), mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class), relationships, new WriteVersion());
+                mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class), relationships, new WriteVersion());
         var mvc = standaloneSetup(controller).build();
         mvc.perform(get("/api/workspaces/repository/relationships"))
                 .andExpect(status().isOk())

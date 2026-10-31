@@ -450,10 +450,11 @@ public class PullRequestService
         return store.findById(prId).orElseThrow();
     }
 
-    /** Merged pull requests already stored for one repository; repository sync keeps roughly the last month of them. */
-    public List<PullRequest> listMergedPullRequests(RepoRef repository, String search, int limit)
+    /** Merged pull requests already stored for a workspace's repository; repository sync keeps roughly the last month of them. */
+    public List<PullRequest> listMergedPullRequests(String workspaceId, String search, int limit)
     {
-        return store.findMergedRepositoryPullRequests(requireNonNull(repository, "repository is null").fullName(), search, limit);
+        return workspaceHosting.cachedRepositoryId(workspaceId).map(repositoryId -> store.findMergedRepositoryPullRequests(repositoryId, search, limit))
+                .orElseGet(ImmutableList::of);
     }
 
     /** Exact-fetches a newly created pull request so its workspace projection does not wait for GitHub search. */

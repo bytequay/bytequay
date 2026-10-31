@@ -67,7 +67,7 @@ public interface PullRequestStore
     void observeAttentionActivity(long prId, Instant at);
 
     /** One repository's merged rows, newest merge first; a non-blank search matches the title or a #number. */
-    List<PullRequest> findMergedRepositoryPullRequests(String repository, String search, int limit);
+    List<PullRequest> findMergedRepositoryPullRequests(long hostingRepositoryId, String search, int limit);
 
     /** The request at a repository path; when servers share the path, the most recently updated one. */
     Optional<Long> findIdByRepoAndNumber(String repo, int number);

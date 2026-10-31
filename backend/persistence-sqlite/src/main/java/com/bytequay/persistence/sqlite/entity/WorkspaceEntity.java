@@ -204,8 +204,12 @@ public class WorkspaceEntity
 
     public static String repositoryKey(Workspace workspace)
     {
-        HostingServer server = workspace.server();
-        return server.provider() + "\n" + server.webBaseUrl() + "\n" + server.apiBaseUrl() + "\n" + workspace.selectedRepositoryId();
+        return repositoryKey(workspace.server(), workspace.selectedRepositoryId());
+    }
+
+    public static String repositoryKey(HostingServer server, long selectedRepositoryId)
+    {
+        return server.provider() + "\n" + server.webBaseUrl() + "\n" + server.apiBaseUrl() + "\n" + selectedRepositoryId;
     }
 
     public Workspace toDomain()

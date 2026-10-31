@@ -15,6 +15,7 @@ package com.bytequay.app.workspace;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
@@ -55,8 +56,8 @@ class TestWorkspaceRepositoryIdentity
         gitHub = mock(GitHubAccountClient.class);
         remoteSources = mock(RemoteSourceStore.class);
         workspaces = mock(WorkspaceStore.class);
-        service = new WorkspaceRepositoryService(workspaces, remoteSources, gitHub, mock(CredentialService.class), Clock.fixed(NOW, ZoneOffset.UTC),
-                new WorkspacePaths("/managed"), mock(WorkspaceProvisioningService.class), mock(WorkspaceMetadataService.class),
+        service = new WorkspaceRepositoryService(workspaces, remoteSources, gitHub, mock(CredentialService.class), mock(HostingConnectionService.class),
+                Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/managed"), mock(WorkspaceProvisioningService.class), mock(WorkspaceMetadataService.class),
                 mock(PullRequestRefreshService.class), Runnable::run);
         when(workspaces.findById("target")).thenReturn(Optional.of(directWorkspace("target", 404, RepoRef.of("target", "project"))));
     }

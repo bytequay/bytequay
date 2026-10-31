@@ -405,7 +405,7 @@ class TestWorkspaceHostingService
         assertThat(workspace.hostingServer()).contains(new HostingServer(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl()));
         assertThat(workspace.originCloneUrl()).isEqualTo(base + "/group/subgroup/project.git");
         assertThat(workspace.localRepositoryPath()).isEqualTo("/tmp/managed-workspaces/" + workspace.id() + "/repository");
-        assertThat(workspaces.findBySelectedRepositoryId(100)).contains(workspace());
+        assertThat(workspaces.findBySelectedRepository(HostingServer.GITHUB_COM, 100)).contains(workspace());
         assertThat(workspaces.findBySelectedHostingRepositoryId(60)).contains(workspace);
         assertThat(workspaces.findHostingBinding(workspace.id())).contains(new WorkspaceHostingBinding(workspace.id(), 40, 60, Optional.empty()));
         assertThat(service.captureRead(workspace.id()).session().access().token()).isEqualTo("gitlab-token");

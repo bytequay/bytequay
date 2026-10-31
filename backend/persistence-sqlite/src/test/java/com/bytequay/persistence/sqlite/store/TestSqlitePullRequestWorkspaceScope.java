@@ -258,12 +258,13 @@ class TestSqlitePullRequestWorkspaceScope
                 merged(11L, 11, "Fix the parquet reader", older),
                 merged(12L, 12, "Retry S3 reads", newer),
                 pullRequest(13L, "owner/project", 13)));
+        long project = identities.findRepositories(HostingServer.GITHUB_COM, "owner/project").getFirst().id();
 
-        assertThat(store.findMergedRepositoryPullRequests("OWNER/project", "", 50)).extracting(PullRequest::number).containsExactly(12, 11);
-        assertThat(store.findMergedRepositoryPullRequests("owner/project", "parquet", 50)).extracting(PullRequest::number).containsExactly(11);
-        assertThat(store.findMergedRepositoryPullRequests("owner/project", "#12", 50)).extracting(PullRequest::number).containsExactly(12);
-        assertThat(store.findMergedRepositoryPullRequests("owner/project", "13", 50)).isEmpty();
-        assertThat(store.findMergedRepositoryPullRequests("owner/project", "", 1)).extracting(PullRequest::number).containsExactly(12);
+        assertThat(store.findMergedRepositoryPullRequests(project, "", 50)).extracting(PullRequest::number).containsExactly(12, 11);
+        assertThat(store.findMergedRepositoryPullRequests(project, "parquet", 50)).extracting(PullRequest::number).containsExactly(11);
+        assertThat(store.findMergedRepositoryPullRequests(project, "#12", 50)).extracting(PullRequest::number).containsExactly(12);
+        assertThat(store.findMergedRepositoryPullRequests(project, "13", 50)).isEmpty();
+        assertThat(store.findMergedRepositoryPullRequests(project, "", 1)).extracting(PullRequest::number).containsExactly(12);
     }
 
     private static FetchedPullRequest merged(long remoteId, int number, String title, Instant mergedAt)

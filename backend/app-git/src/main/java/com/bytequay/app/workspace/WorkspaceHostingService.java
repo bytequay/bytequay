@@ -114,7 +114,7 @@ public class WorkspaceHostingService
         checkArgument(isPlainHttps(selected.httpCloneUrl()), "Workspace clone URL must use HTTPS");
         Optional<Workspace> existing = workspaces.findBySelectedHostingRepositoryId(selected.id());
         if (existing.isPresent()) {
-            return workspaces.createHosted(existing.orElseThrow(), accountId, selected.id());
+            return workspaces.createHosted(existing.orElseThrow(), accountId, selected.id(), Optional.empty());
         }
         String branch = selected.defaultBranch().orElseThrow(() -> WorkspaceException.invalidRepository("The repository has no default branch to clone."));
         String id = UUID.randomUUID().toString();
@@ -125,7 +125,7 @@ public class WorkspaceHostingService
         Workspace workspace = new Workspace(id, name.map(String::trim).orElse(selected.fullPath()), remoteId, coordinates, Optional.empty(), Optional.empty(),
                 remoteId, coordinates, Workspace.Topology.DIRECT, branch, selected.httpCloneUrl().toString(), Optional.empty(), Optional.empty(), paths.repository(id).toString(),
                 Optional.empty(), Optional.empty(), order, now, now, Optional.of(server));
-        return workspaces.createHosted(workspace, accountId, selected.id());
+        return workspaces.createHosted(workspace, accountId, selected.id(), Optional.empty());
     }
 
     static RepoRef repositoryRef(HostingRepository repository)

@@ -16,12 +16,18 @@ package com.bytequay.app.workspace;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
+import com.bytequay.app.service.hosting.HostingConnectionService;
+import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.store.RemoteSourceStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -32,6 +38,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -52,6 +59,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -65,7 +73,11 @@ class TestWorkspaceRepositoryService
 {
     private static final Instant NOW = Instant.parse("2026-08-21T00:00:00Z");
 
-    private final CredentialService credentials = mock(CredentialService.class);
+    private static final HostingInstance GITHUB = new HostingInstance(1, HostingProvider.GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
+    private static final HostingReadSession SIGN_IN = new HostingReadSession(7, "hosting-account", new HostingAccess(GITHUB, "token"));
+
+    private final CredentialService credentials = signedIn(mock(CredentialService.class));
+    private final HostingConnectionService connections = connections();
     private final GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
     private final InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
     private final WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
@@ -187,7 +199,7 @@ class TestWorkspaceRepositoryService
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         RemoteSourceStore remotes = remoteSources();
         List<Runnable> queued = new ArrayList<>();
-        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remotes, gitHub, credentials,
+        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remotes, gitHub, credentials, connections,
                 Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/tmp/bytequay-workspaces"), provisioning, metadata, refresh, queued::add);
         Workspace retired = watch(service, 100);
         Workspace watched = watch(service, 200);
@@ -233,7 +245,7 @@ class TestWorkspaceRepositoryService
         when(credentials.resolveGitHubCredential()).thenReturn(credential("owner"));
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         List<Runnable> queued = new ArrayList<>();
-        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remoteSources(), gitHub, credentials,
+        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remoteSources(), gitHub, credentials, connections,
                 Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/tmp/bytequay-workspaces"), provisioning, metadata, refresh, queued::add);
         Workspace workspace = watch(service, 100);
         service.unwatch(workspace.id());
@@ -310,6 +322,7 @@ class TestWorkspaceRepositoryService
                 remoteSources(),
                 gitHub,
                 credentials,
+                connections,
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 new WorkspacePaths("/tmp/bytequay-workspaces"),
                 provisioning,
@@ -340,7 +353,7 @@ class TestWorkspaceRepositoryService
         when(provisioning.synchronizeCode(anyString())).thenThrow(new IllegalStateException("fetch failed"));
         List<Runnable> queued = new ArrayList<>();
         AtomicBoolean reject = new AtomicBoolean(rejectInitially);
-        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remoteSources(), gitHub, credentials,
+        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remoteSources(), gitHub, credentials, connections,
                 Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/tmp/bytequay-workspaces"), provisioning, metadata,
                 mock(PullRequestRefreshService.class), task -> {
                     if (reject.get()) {
@@ -375,6 +388,7 @@ class TestWorkspaceRepositoryService
                 remoteSources(),
                 gitHub,
                 credentials,
+                connections,
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 new WorkspacePaths("/tmp/bytequay-workspaces"),
                 provisioning,
@@ -418,6 +432,7 @@ class TestWorkspaceRepositoryService
                 remoteSources(),
                 gitHub,
                 credentials,
+                connections,
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 new WorkspacePaths("/tmp/bytequay-workspaces"),
                 provisioning,
@@ -440,7 +455,7 @@ class TestWorkspaceRepositoryService
         List<Boolean> held = new ArrayList<>();
         doAnswer(invocation -> held.add(((ReentrantLock) WorkspaceOperationLocks.get(invocation.getArgument(0))).isHeldByCurrentThread()))
                 .when(pullRequestRefresh).refreshWorkspace(anyString());
-        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remoteSources(), gitHub, credentials,
+        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remoteSources(), gitHub, credentials, connections,
                 Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/tmp/bytequay-workspaces"), provisioning, metadata, pullRequestRefresh, Runnable::run);
 
         service.requestSync(watch(service, 100).id());
@@ -474,7 +489,7 @@ class TestWorkspaceRepositoryService
             WorkspaceProvisioningService provisioning,
             WorkspacePaths paths)
     {
-        CredentialService credentials = mock(CredentialService.class);
+        CredentialService credentials = signedIn(mock(CredentialService.class));
         when(credentials.resolveGitHubToken()).thenReturn("token");
         when(credentials.resolveGitHubCredential()).thenReturn(credential("owner"));
         return new WorkspaceRepositoryService(
@@ -482,12 +497,31 @@ class TestWorkspaceRepositoryService
                 remoteSources(),
                 gitHub,
                 credentials,
+                connections(),
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 paths,
                 provisioning,
                 mock(WorkspaceMetadataService.class),
                 mock(PullRequestRefreshService.class),
                 Runnable::run);
+    }
+
+    private static CredentialService signedIn(CredentialService credentials)
+    {
+        when(credentials.captureHostingRead()).thenReturn(SIGN_IN);
+        return credentials;
+    }
+
+    /** Every repository the main sign-in reads is retained under a local id derived from its GitHub number. */
+    private static HostingConnectionService connections()
+    {
+        HostingConnectionService connections = mock(HostingConnectionService.class);
+        when(connections.resolveRepositoryById(eq(SIGN_IN), anyString())).thenAnswer(call -> {
+            String remoteId = call.getArgument(1);
+            return new HostingRepository(1000 + Long.parseLong(remoteId), 1, remoteId, "owner/repository-" + remoteId, URI.create("https://github.com/owner/repository"),
+                    URI.create("https://github.com/owner/repository.git"), Optional.empty(), Optional.of("main"));
+        });
+        return connections;
     }
 
     private static RemoteSourceStore remoteSources()

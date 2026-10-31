@@ -15,6 +15,7 @@ package com.bytequay.app.workspace;
 
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingCacheTarget;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -80,10 +81,10 @@ final class InMemoryWorkspaceStore
     }
 
     @Override
-    public synchronized Optional<Workspace> findBySelectedRepositoryId(long selectedRepositoryId)
+    public synchronized Optional<Workspace> findBySelectedRepository(HostingServer server, long selectedRepositoryId)
     {
         return byId.values().stream()
-                .filter(workspace -> workspace.hostingServer().isEmpty() && workspace.selectedRepositoryId() == selectedRepositoryId)
+                .filter(workspace -> workspace.server().equals(server) && workspace.selectedRepositoryId() == selectedRepositoryId)
                 .findFirst();
     }
 
@@ -96,8 +97,7 @@ final class InMemoryWorkspaceStore
     @Override
     public synchronized Workspace createOrGet(Workspace workspace)
     {
-        Optional<Workspace> existing = byId.values().stream().filter(value -> value.selectedRepositoryId() == workspace.selectedRepositoryId()
-                && value.hostingServer().equals(workspace.hostingServer())).findFirst();
+        Optional<Workspace> existing = findBySelectedRepository(workspace.server(), workspace.selectedRepositoryId());
         if (existing.isPresent()) {
             return existing.orElseThrow();
         }
@@ -106,10 +106,10 @@ final class InMemoryWorkspaceStore
     }
 
     @Override
-    public synchronized Workspace createHosted(Workspace workspace, long accountId, long selectedRepositoryId)
+    public synchronized Workspace createHosted(Workspace workspace, long accountId, long selectedRepositoryId, Optional<Long> upstreamRepositoryId)
     {
         Workspace saved = createOrGet(workspace);
-        bindHosting(saved.id(), accountId, selectedRepositoryId, Optional.empty());
+        bindHosting(saved.id(), accountId, selectedRepositoryId, upstreamRepositoryId);
         setWatched(saved.id(), true);
         return saved;
     }

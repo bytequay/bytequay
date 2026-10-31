@@ -15,6 +15,7 @@ package com.bytequay.core.store;
 
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingCacheTarget;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 
 import java.util.Comparator;
@@ -43,7 +44,7 @@ public interface WorkspaceStore
     Optional<Workspace> findById(String workspaceId);
 
     /** Finds a workspace by the selected repository's stable remote identifier. */
-    Optional<Workspace> findBySelectedRepositoryId(long selectedRepositoryId);
+    Optional<Workspace> findBySelectedRepository(HostingServer server, long selectedRepositoryId);
 
     Optional<Workspace> findBySelectedHostingRepositoryId(long repositoryId);
 
@@ -78,7 +79,7 @@ public interface WorkspaceStore
     Workspace createOrGet(Workspace workspace);
 
     /** Creates a hosted workspace and its account binding together. */
-    Workspace createHosted(Workspace workspace, long accountId, long selectedRepositoryId);
+    Workspace createHosted(Workspace workspace, long accountId, long selectedRepositoryId, Optional<Long> upstreamRepositoryId);
 
     /** Saves an existing workspace without changing its watch-list membership. */
     Workspace save(Workspace workspace);

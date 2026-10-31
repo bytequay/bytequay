@@ -105,10 +105,9 @@ public class SqliteWorkspaceStore
     }
 
     @Override
-    public Optional<Workspace> findBySelectedRepositoryId(long selectedRepositoryId)
+    public Optional<Workspace> findBySelectedRepository(HostingServer server, long selectedRepositoryId)
     {
-        return repository.findBySelectedRepositoryIdAndHostingServerIsNull(selectedRepositoryId)
-                .map(WorkspaceEntity::toDomain);
+        return repository.findByRepositoryKey(WorkspaceEntity.repositoryKey(server, selectedRepositoryId)).map(WorkspaceEntity::toDomain);
     }
 
     @Override
@@ -181,8 +180,7 @@ public class SqliteWorkspaceStore
     public Workspace createOrGet(Workspace workspace)
     {
         requireNonNull(workspace, "workspace is null");
-        Optional<Workspace> existing = workspace.hostingServer().isEmpty() ? findBySelectedRepositoryId(workspace.selectedRepositoryId())
-                : repository.findByRepositoryKey(WorkspaceEntity.repositoryKey(workspace)).map(WorkspaceEntity::toDomain);
+        Optional<Workspace> existing = repository.findByRepositoryKey(WorkspaceEntity.repositoryKey(workspace)).map(WorkspaceEntity::toDomain);
         if (existing.isPresent()) {
             return existing.orElseThrow();
         }
@@ -192,11 +190,11 @@ public class SqliteWorkspaceStore
 
     @Override
     @Transactional
-    public Workspace createHosted(Workspace workspace, long accountId, long selectedRepositoryId)
+    public Workspace createHosted(Workspace workspace, long accountId, long selectedRepositoryId, Optional<Long> upstreamRepositoryId)
     {
         checkArgument(workspace.hostingServer().isPresent(), "Hosted workspace has no server");
         WorkspaceEntity entity = repository.findByRepositoryKey(WorkspaceEntity.repositoryKey(workspace)).orElseGet(() -> WorkspaceEntity.fromDomain(workspace));
-        bind(entity, accountId, selectedRepositoryId, Optional.empty());
+        bind(entity, accountId, selectedRepositoryId, upstreamRepositoryId);
         entity.setWatched(true);
         return repository.saveAndFlush(entity).toDomain();
     }

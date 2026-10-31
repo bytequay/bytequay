@@ -38,7 +38,6 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestPage;
 import com.bytequay.core.domain.RemoteSource;
-import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryMetadataSnapshot;
 import com.bytequay.core.domain.Workspace.Topology;
@@ -64,7 +63,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -157,9 +155,7 @@ public class WorkspaceController
     @GetMapping("/{workspaceId}/pull-requests/merged")
     public List<PullRequest> mergedPullRequests(@PathVariable String workspaceId, @RequestParam(defaultValue = "") String search, @RequestParam(defaultValue = "50") int limit)
     {
-        WorkspaceSummary workspace = workspaces.getWorkspace(workspaceId);
-        checkArgument(workspace.hostingServer() == null, "Use the hosting request list for GitLab workspaces");
-        return pullRequests.listMergedPullRequests(RepoRef.of(workspace.monitoredOwner(), workspace.monitoredRepo()), search, limit);
+        return pullRequests.listMergedPullRequests(workspaceId, search, limit);
     }
 
     @PostMapping("/{workspaceId}/pull-requests/sync")

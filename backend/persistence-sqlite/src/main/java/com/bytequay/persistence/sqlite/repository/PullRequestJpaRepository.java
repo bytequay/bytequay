@@ -47,9 +47,9 @@ public interface PullRequestJpaRepository
     @Query("SELECT COUNT(e) FROM PullRequestEntity e WHERE (" + DASHBOARD + ") AND e.state = 'open'")
     long countOpenDashboard();
 
-    @Query("SELECT e FROM PullRequestEntity e WHERE LOWER(e.repo) = LOWER(:repo) AND e.mergedAt IS NOT NULL "
+    @Query("SELECT e FROM PullRequestEntity e WHERE e.hostingRepository.id = :repositoryId AND e.mergedAt IS NOT NULL "
             + "AND (:search = '' OR LOWER(e.title) LIKE CONCAT('%', CONCAT(LOWER(:search), '%')) OR e.number = :number) ORDER BY e.mergedAt DESC, e.id DESC")
-    List<PullRequestEntity> findMerged(@Param("repo") String repo, @Param("search") String search, @Param("number") Integer number, Pageable pageable);
+    List<PullRequestEntity> findMerged(@Param("repositoryId") long repositoryId, @Param("search") String search, @Param("number") Integer number, Pageable pageable);
 
     Optional<PullRequestEntity> findByHostingRepositoryIdAndNumber(long repositoryId, int number);
 

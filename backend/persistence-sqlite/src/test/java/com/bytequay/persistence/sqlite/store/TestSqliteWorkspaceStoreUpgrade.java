@@ -71,7 +71,6 @@ class TestSqliteWorkspaceStoreUpgrade
         entities.clear();
 
         assertThat(store.findAllRetained()).containsExactlyInAnyOrder(existing, hosted);
-        assertThat(store.findBySelectedRepositoryId(100)).contains(existing);
     }
 
     @Test

@@ -16,6 +16,8 @@ package com.bytequay.app.workspace;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.HostingConnectionService;
+import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
@@ -23,6 +25,7 @@ import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.hosting.HostingCapabilities;
+import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.store.RemoteSourceStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -54,6 +57,7 @@ import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static com.bytequay.app.git.command.RepositoryUrls.isPlainHttps;
 import static com.bytequay.app.workspace.WorkspaceException.requireFeature;
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
+import static com.bytequay.core.hosting.HostingServer.GITHUB_COM;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
@@ -70,6 +74,7 @@ public class WorkspaceRepositoryService
     private final RemoteSourceStore remoteSources;
     private final GitHubAccountClient gitHub;
     private final CredentialService credentials;
+    private final HostingConnectionService connections;
     private final Clock clock;
     private final WorkspacePaths paths;
     private final WorkspaceProvisioningService provisioning;
@@ -84,6 +89,7 @@ public class WorkspaceRepositoryService
             RemoteSourceStore remoteSources,
             GitHubAccountClient gitHub,
             CredentialService credentials,
+            HostingConnectionService connections,
             Clock clock,
             WorkspacePaths paths,
             WorkspaceProvisioningService provisioning,
@@ -95,6 +101,7 @@ public class WorkspaceRepositoryService
         this.remoteSources = requireNonNull(remoteSources, "remoteSources is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
+        this.connections = requireNonNull(connections, "connections is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.paths = requireNonNull(paths, "paths is null");
         this.provisioning = requireNonNull(provisioning, "provisioning is null");
@@ -170,7 +177,7 @@ public class WorkspaceRepositoryService
         requireNonNull(command, "command is null");
         var credential = credentials.resolveGitHubCredential();
         WatchRouting routing = resolveWatch(command.selectedRepositoryId(), Optional.of(command.topology()), credential.token(), credential.profile().login());
-        Optional<Workspace> existing = routing.pushRepository().flatMap(value -> store.findBySelectedRepositoryId(value.id()));
+        Optional<Workspace> existing = routing.pushRepository().flatMap(value -> store.findBySelectedRepository(GITHUB_COM, value.id()));
         if (existing.filter(value -> store.isWatched(value.id()) && matchesWatch(value, routing)).isPresent()) {
             Workspace workspace = existing.orElseThrow();
             scheduleIncompleteWork(workspace);
@@ -404,7 +411,7 @@ public class WorkspaceRepositoryService
     {
         validate(selected);
 
-        Optional<Workspace> existing = store.findBySelectedRepositoryId(selected.id());
+        Optional<Workspace> existing = store.findBySelectedRepository(GITHUB_COM, selected.id());
         if (existing.isPresent()) {
             return existing.orElseThrow();
         }
@@ -433,8 +440,13 @@ public class WorkspaceRepositoryService
                 Optional.empty(),
                 displayOrder,
                 now,
-                now);
-        Workspace saved = store.createOrGet(proposed);
+                now,
+                Optional.of(GITHUB_COM));
+        // The main GitHub sign-in read these repositories, so the workspace is bound to that account and to them.
+        HostingReadSession session = credentials.captureHostingRead();
+        HostingRepository selectedRepository = connections.resolveRepositoryById(session, Long.toString(selected.id()));
+        Optional<Long> upstreamRepository = upstream.map(value -> connections.resolveRepositoryById(session, Long.toString(value.id())).id());
+        Workspace saved = store.createHosted(proposed, session.accountId(), selectedRepository.id(), upstreamRepository);
         scheduleIncompleteWork(saved);
         return saved;
     }
@@ -461,7 +473,7 @@ public class WorkspaceRepositoryService
     {
         Optional<RepoRef> upstream = repository.upstream()
                 .map(value -> RepoRef.of(value.owner(), value.name()));
-        Optional<String> existingWorkspaceId = store.findBySelectedRepositoryId(repository.id())
+        Optional<String> existingWorkspaceId = store.findBySelectedRepository(GITHUB_COM, repository.id())
                 .filter(value -> store.isWatched(value.id())).map(Workspace::id);
         return new RepositorySearchResult(
                 repository.id(),
@@ -546,7 +558,7 @@ public class WorkspaceRepositoryService
                 monitoredRef,
                 fingerprint(routing.topology() + "\0" + routing.login() + "\0" + fingerprint(selected) + "\0" + fingerprint(monitored) + "\0"
                         + routing.pushRepository().map(WorkspaceRepositoryService::fingerprint).orElse("create-fork")),
-                routing.pushRepository().flatMap(value -> store.findBySelectedRepositoryId(value.id()))
+                routing.pushRepository().flatMap(value -> store.findBySelectedRepository(GITHUB_COM, value.id()))
                         .filter(value -> store.isWatched(value.id()) && matchesWatch(value, routing)).map(Workspace::id));
     }
 

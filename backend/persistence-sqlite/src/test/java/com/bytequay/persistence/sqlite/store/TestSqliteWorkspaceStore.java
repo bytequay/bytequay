@@ -160,7 +160,7 @@ class TestSqliteWorkspaceStore
         entities.flush();
         entities.clear();
         assertThat(store.findById(original.id())).contains(original);
-        assertThat(store.findBySelectedRepositoryId(200)).isEmpty();
+        assertThat(store.findBySelectedRepository(HostingServer.GITHUB_COM, 200)).isEmpty();
         assertThat(repository.count()).isEqualTo(1);
     }
 
@@ -187,7 +187,7 @@ class TestSqliteWorkspaceStore
         assertThat(store.findAll()).containsExactly(direct);
         assertThat(store.findAllRetained()).containsExactly(direct, fork);
         assertThat(store.findById(fork.id())).contains(fork);
-        assertThat(store.findBySelectedRepositoryId(fork.selectedRepositoryId())).contains(fork);
+        assertThat(store.findBySelectedRepository(HostingServer.GITHUB_COM, fork.selectedRepositoryId())).contains(fork);
         assertThat(store.createOrGet(fork("replacement", 200, 300, 2))).isEqualTo(fork);
         assertThat(store.isWatched(fork.id())).isFalse();
 

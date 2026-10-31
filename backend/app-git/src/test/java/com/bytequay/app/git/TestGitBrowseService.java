@@ -81,6 +81,20 @@ class TestGitBrowseService
     }
 
     @Test
+    void remoteBranchesSkipTheRemoteHead()
+    {
+        write(repository, "a.txt", "one\n");
+        gitOutput(repository, "add", "-A");
+        gitOutput(repository, "commit", "--quiet", "-m", "First");
+        gitOutput(repository, "update-ref", "refs/remotes/upstream/main", "HEAD");
+        gitOutput(repository, "update-ref", "refs/remotes/upstream/release/1", "HEAD");
+        // Git shortens refs/remotes/upstream/HEAD to the bare remote name.
+        gitOutput(repository, "symbolic-ref", "refs/remotes/upstream/HEAD", "refs/remotes/upstream/main");
+
+        assertThat(service.remoteBranches(repository, "upstream")).containsExactly("main", "release/1");
+    }
+
+    @Test
     void diffSplitsPerFileWithStatusesAndCounts()
     {
         write(repository, "kept.txt", "line\n");

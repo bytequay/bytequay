@@ -86,8 +86,9 @@ public class GitBrowseService
     {
         checkArgument(!remote.isBlank(), "remote is blank");
         String prefix = "refs/remotes/" + remote + "/";
-        return lines(require(repository, "for-each-ref", "--format=%(refname:short)", prefix)).stream()
-                .map(name -> name.substring(remote.length() + 1))
+        // The short form of refs/remotes/<remote>/HEAD is the bare remote name, so strip the full prefix instead.
+        return lines(require(repository, "for-each-ref", "--format=%(refname)", prefix)).stream()
+                .map(name -> name.substring(prefix.length()))
                 .filter(name -> !name.equals("HEAD"))
                 .collect(toImmutableList());
     }

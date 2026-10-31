@@ -13,7 +13,9 @@
  */
 package com.bytequay.app.config;
 
+import com.bytequay.app.git.CommitHistoryService;
 import com.bytequay.app.jira.JiraService;
+import com.bytequay.app.scheduler.CommitHistorySyncJob;
 import com.bytequay.app.scheduler.PullRequestSyncJob;
 import com.bytequay.app.scheduler.WorkflowMonitorJob;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -21,7 +23,9 @@ import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.settings.AppPreferences;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
+import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.store.WorkspaceStore;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -36,6 +40,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -120,6 +125,52 @@ class TestSchedulingConfig
                 context.refresh();
                 assertThat(refreshing.await(10, TimeUnit.SECONDS)).isTrue();
                 assertThat(localFinished.await(5, TimeUnit.SECONDS)).isTrue();
+            }
+            finally {
+                release.countDown();
+            }
+        }
+    }
+
+    @Test
+    void commitHistoryRefreshesWhilePullRequestDetailsWarm()
+            throws Exception
+    {
+        CountDownLatch warming = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch commitsChecked = new CountDownLatch(1);
+        PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
+        CredentialService credentials = mock(CredentialService.class);
+        AppSettingsService settings = mock(AppSettingsService.class);
+        WorkspaceRepositoryService repositories = mock(WorkspaceRepositoryService.class);
+        when(credentials.isGitHubAccountConfigured()).thenReturn(true);
+        when(settings.preferences()).thenReturn(AppPreferences.DEFAULT);
+        doAnswer(invocation -> {
+            warming.countDown();
+            assertThat(release.await(30, TimeUnit.SECONDS)).isTrue();
+            return null;
+        }).when(refresh).warmRecentDetails(anyInt());
+        when(repositories.listWorkspaces()).thenAnswer(invocation -> {
+            if (warming.getCount() == 0) {
+                commitsChecked.countDown();
+            }
+            return ImmutableList.of();
+        });
+        PullRequestSyncJob pullRequests = new PullRequestSyncJob(refresh, mock(WorkspaceMetadataService.class), mock(WorkspaceStore.class),
+                credentials, settings, Clock.systemUTC());
+        CommitHistorySyncJob commits = new CommitHistorySyncJob(repositories, mock(CommitHistoryService.class), settings, Clock.systemUTC());
+
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.register(SchedulingConfig.class);
+            context.registerBean(PullRequestSyncJob.class, () -> pullRequests);
+            context.registerBean(CommitHistorySyncJob.class, () -> commits);
+            try {
+                context.refresh();
+                assertThat(warming.await(10, TimeUnit.SECONDS)).isTrue();
+                // The commit job's next tick is a minute away, so run it on its own scheduler as that tick would.
+                String scheduler = CommitHistorySyncJob.class.getMethod("tick").getAnnotation(Scheduled.class).scheduler();
+                context.getBean(scheduler, ThreadPoolTaskScheduler.class).execute(commits::tick);
+                assertThat(commitsChecked.await(5, TimeUnit.SECONDS)).isTrue();
             }
             finally {
                 release.countDown();

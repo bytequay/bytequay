@@ -55,7 +55,7 @@ public class CommitHistorySyncJob
         this.clock = requireNonNull(clock, "clock is null");
     }
 
-    @Scheduled(fixedDelay = 60_000, scheduler = "repositorySyncScheduler")
+    @Scheduled(fixedDelay = 60_000, scheduler = "commitHistoryScheduler")
     public void tick()
     {
         // Startup and manual refreshes are never paused; only the periodic tick is.

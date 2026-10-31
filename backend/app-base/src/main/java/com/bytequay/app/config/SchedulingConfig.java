@@ -40,6 +40,15 @@ class SchedulingConfig
         return scheduler;
     }
 
+    /** Commit history only runs Git, so a long pull-request warm pass must not hold back a new workspace's Commits tab. */
+    @Bean
+    ThreadPoolTaskScheduler commitHistoryScheduler()
+    {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setThreadNamePrefix("commit-history-");
+        return scheduler;
+    }
+
     /** Git and network operations must not delay local execution reconciliation and timeouts. */
     @Bean
     ThreadPoolTaskScheduler workflowScheduler()

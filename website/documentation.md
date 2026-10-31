@@ -171,8 +171,8 @@ GitLab workspaces can be linked as forks and carry backports; each backport open
 its merge request in the destination workspace's own project.
 
 GitLab supports a different set of review operations. Request-changes reviews,
-multi-line review comments, merge trains, GitHub-specific CI automation and
-remote epic-child synchronization are not yet integrated. The app reports
+multi-line review comments, merge trains and remote epic-child synchronization
+are not yet integrated. CI repair follows the merge request's head pipeline. The app reports
 unsupported remote actions explicitly. Project settings control GitLab merge
 methods. Use **Open in GitLab** for unsupported operations.
 

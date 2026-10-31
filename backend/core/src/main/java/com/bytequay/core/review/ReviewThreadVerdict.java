@@ -25,9 +25,9 @@ import static java.util.Objects.requireNonNull;
  * A review's conclusion on one pull-request thread the user started. The thread's place and opening words are kept as
  * they were when it was judged, so the conclusion still reads after the discussion moves on.
  *
- * @param line the thread's line; absent when GitHub reports none
+ * @param line the thread's line; absent when the provider reports none
  * @param opening the start of the user's first comment
- * @param resolved the thread was marked resolved on GitHub, which alone does not make it addressed
+ * @param resolved the thread was marked resolved on the provider, which alone does not make it addressed
  */
 public record ReviewThreadVerdict(
         String threadId,

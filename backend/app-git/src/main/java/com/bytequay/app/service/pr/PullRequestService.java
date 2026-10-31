@@ -296,7 +296,7 @@ public class PullRequestService
                 row.activityAt(), row.reviewRequestedAt(), row.reviewDecision());
     }
 
-    /** Reads the stored row without contacting GitHub or marking the pull request viewed. */
+    /** Reads the stored row without contacting the provider or marking the pull request viewed. */
     public Optional<PullRequest> findStored(String repo, int number)
     {
         return store.findIdByRepoAndNumber(repo, number).flatMap(store::findById);
@@ -328,7 +328,7 @@ public class PullRequestService
         return findStoredId(route).flatMap(details::find).map(detail -> Optional.ofNullable(detail.raw().body()).orElse(""));
     }
 
-    /** Reads cached avatar URLs without loading full details or contacting GitHub. */
+    /** Reads cached avatar URLs without loading full details or contacting the provider. */
     public Map<Long, String> findCachedAuthorAvatarUrls(Set<Long> prIds)
     {
         return details.findAuthorAvatarUrls(prIds);
@@ -346,7 +346,7 @@ public class PullRequestService
         store.findActivities(ids).forEach((id, activity) -> activities.merge(id, activity, (cached, card) -> cached.timestamp().isAfter(card.timestamp()) ? cached : card));
         ImmutableMap.Builder<Long, PrActivitySummary> latest = ImmutableMap.builder();
         for (PullRequest pullRequest : pullRequests) {
-            // GitHub can update a PR without a timeline event; an older actor cannot explain that update.
+            // The provider can update a PR without a timeline event; an older actor cannot explain that update.
             Optional.ofNullable(activities.get(pullRequest.id()))
                     .filter(activity -> !activity.timestamp().isBefore(pullRequest.updatedAt()))
                     .ifPresent(activity -> latest.put(pullRequest.id(), activity));
@@ -935,7 +935,7 @@ public class PullRequestService
             PullRequest cached = row.orElseThrow();
             Instant source = store.findDiscussionActivityAt(cached.id()).filter(at -> at.isAfter(cached.updatedAt())).orElse(cached.updatedAt());
             Duration interval = cached.origin() == AUTHORED || cached.ciStatus() == PullRequestDetail.CiStatus.PENDING ? Duration.ofMinutes(1) : Duration.ofMinutes(10);
-            // A notification's time trails the activity it reports, so GitHub's timeline can stay behind that marker for good;
+            // A notification's time trails the activity it reports, so the provider's timeline can stay behind that marker for good;
             // a summary read a while after the notification already holds the activity.
             boolean behind = source.isAfter(stamp.sourceAt()) && stamp.checkedAt().isBefore(source.plus(NOTIFICATION_SETTLE));
             return behind || (timed(cached) && !now.isBefore(stamp.checkedAt().plus(interval)));
@@ -1481,7 +1481,7 @@ public class PullRequestService
         boolean missingCoordinates = previous.filter(detail -> detail.raw().headSha() == null || detail.raw().baseSha() == null).isPresent();
         boolean missingHead = previous.filter(detail -> detail.raw().headSha() == null || detail.raw().headSha().isBlank()).isPresent();
         // A warm pass rechecks on a timer only what timed summaries follow; any other pull request waits for activity. The reactions
-        // and thread resolutions GitHub does not report as activity wait until someone opens it.
+        // and thread resolutions the provider does not report as activity wait until someone opens it.
         boolean timed = !policy.warm() || previousRow.filter(PullRequestService::timed).isPresent();
         Optional<HostingPullRequestSnapshot> cachedMetadata = requests.cached(route.session(), route.repository().id(), route.number());
         boolean metadataDue = missing || policy.force() || metadataLag || missingHead || cachedMetadata.isEmpty()
@@ -1579,7 +1579,7 @@ public class PullRequestService
 
     private record DetailWork(RefreshPolicy policy, CompletableFuture<DetailRefresh> result) {}
 
-    /** Returns locally persisted diff files without contacting GitHub. */
+    /** Returns locally persisted diff files without contacting the provider. */
     public List<DiffFile> getPullRequestDiffFiles(String repo, int number, String baseSha, String headSha)
     {
         parseRef(repo, number);
@@ -1617,7 +1617,7 @@ public class PullRequestService
         return snapshots.getDiffCommits(storedPullRequestId(route));
     }
 
-    /** Returns locally persisted file content without contacting GitHub. */
+    /** Returns locally persisted file content without contacting the provider. */
     public DiffFileContent getPullRequestDiffFileContent(String repo, int number, String path, String baseSha, String headSha)
     {
         parseRef(repo, number);
@@ -1750,7 +1750,7 @@ public class PullRequestService
         actions.replyToReviewComment(route, commentId, body);
     }
 
-    /** Edits a posted comment or review body on GitHub, then patches the cached copies of that body. */
+    /** Edits a posted comment or review body on the provider, then patches the cached copies of that body. */
     public PullRequestDetail editComment(String repo, int number, String target, long commentId, String body)
     {
         return actions.editComment(prepareRead(repo, number), target, commentId, body);
@@ -1778,7 +1778,7 @@ public class PullRequestService
     }
 
     /**
-     * Submits a review, with any inline comments, for the given pull request on GitHub and
+     * Submits a review, with any inline comments, for the given pull request on the provider and
      * records a local reviewed state.
      */
     public Posted submitReview(String repo, int number, long prId, String event, String body, List<InlineReviewComment> comments, String commitId)
@@ -1792,7 +1792,7 @@ public class PullRequestService
     }
 
     /**
-     * A write GitHub accepted. The threads are what it returned for the new comments, empty when they
+     * A write the provider accepted. The threads are what it returned for the new comments, empty when they
      * could not be read back; a review id limits them to that review.
      */
     public record Posted(PullRequestDetail detail, OptionalLong reviewId, List<PrTimelineEvent> threads)
@@ -1805,7 +1805,7 @@ public class PullRequestService
         }
     }
 
-    /** The head SHA locally recorded for a pull request, without contacting GitHub. */
+    /** The head SHA locally recorded for a pull request, without contacting the provider. */
     public Optional<String> findHeadSha(String repo, int number)
     {
         return store.findIdByRepoAndNumber(parseRef(repo, number).repoFullName(), number).flatMap(snapshots::findHeadSha);
@@ -1967,7 +1967,7 @@ public class PullRequestService
                 .orElseThrow(() -> PullRequestSnapshotService.missing("Pull request"));
     }
 
-    /** Returns persisted detail without contacting GitHub or dating the viewer's last look. */
+    /** Returns persisted detail without contacting the provider or dating the viewer's last look. */
     public Optional<PullRequestDetail> findPullRequestDetail(String repo, int number)
     {
         return store.findIdByRepoAndNumber(repo, number)
@@ -2014,7 +2014,7 @@ public class PullRequestService
      * If the user has submitted a review on this PR outside the app (via the
      * embedded github.com window, a browser tab, or the GitHub mobile app),
      * mirror that state into {@code pr_view_state.handled_action} so the PR
-     * shows up correctly in the Handled bucket. A later GitHub review advances
+     * shows up correctly in the Handled bucket. A later remote review advances
      * the baseline; an equal or newer local action remains authoritative.
      */
     private void reconcileHandledActionFromReviews(long prId, List<PrReviewState> reviews, String currentLogin, PrViewState existing)

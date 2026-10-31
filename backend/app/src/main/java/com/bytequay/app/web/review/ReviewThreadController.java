@@ -28,7 +28,7 @@ import java.util.List;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Private discussions of a review's answers and its pull request's GitHub comments. They belong to the review's
+ * Private discussions of a review's answers and its pull request's comments. They belong to the review's
  * task, reached only through the review, because the interactive task routes refuse a workflow-owned task.
  */
 @RestController
@@ -78,7 +78,7 @@ public class ReviewThreadController
         return discussions.retryReviewThread(reviewId, id, messageId);
     }
 
-    /** Only drafts: the text reaches GitHub solely through the user's own Comment on the thread's reply editor. */
+    /** Only drafts: the text reaches the pull request solely through the user's own Comment on the thread's reply editor. */
     @PostMapping("/{id}/reply-draft")
     public ReplyDraft draftReply(@PathVariable String reviewId, @PathVariable String id)
     {

@@ -16,8 +16,8 @@ package com.bytequay.agent.spi;
 /**
  * Publishes one task's already-verified development revision as a draft pull request.
  *
- * <p>ByteQuay owns the push and the GitHub write: the credential never reaches the provider
- * process, so a session needs no {@code git push} and no GitHub CLI. Publication is open only
+ * <p>ByteQuay owns the push and the hosting write: the credential never reaches the provider
+ * process, so a session needs no {@code git push} and no hosting CLI. Publication is open only
  * while ByteQuay is running the task's draft-pull-request follow-up; every other call is
  * refused, and the accepted destination and revision come from that follow-up rather than from
  * the caller.

@@ -81,7 +81,7 @@ import static java.util.Objects.requireNonNull;
  * Reads what the assistant's {@code assistant_context} answers, fresh on every call: the agenda's pages over the stores as they are
  * now, the tasks at work, the cards a message lists as visible, the page it was sent from, any item named by its ref or found by its
  * title, number or key, what a task said last, and what a new task can start with. Like the agenda's reader, it reads only what
- * ByteQuay stores: no GitHub, Jira, calendar or provider request is made here.
+ * ByteQuay stores: no hosting, Jira, calendar or provider request is made here.
  */
 @Component
 class AssistantReader
@@ -409,7 +409,7 @@ class AssistantReader
 
     /**
      * @param mine whether the signed-in user opened it, as the pull request list decides
-     * @param mergeBlocked whether GitHub blocks merging it for now, such as for a missing approval or a failing required check
+     * @param mergeBlocked whether the provider blocks merging it for now, such as for a missing approval or a failing required check
      */
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     record PullRequestFacts(String ref, String title, String author, boolean mine, String state, Optional<String> ci, Optional<String> review, boolean mergeBlocked,

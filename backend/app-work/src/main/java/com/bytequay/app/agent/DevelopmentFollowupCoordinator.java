@@ -331,7 +331,7 @@ public class DevelopmentFollowupCoordinator
     }
 
     /**
-     * Review replies reach GitHub only once the fix they describe is the pushed head, read fresh here. Posting is the
+     * Review replies reach the pull request only once the fix they describe is the pushed head, read fresh here. Posting is the
      * review service's to report, so a failure here never stops the delivery that already happened.
      */
     private void publishReviewReplies(DevelopmentTurnCompletion completion, DevelopmentBaseline baseline, DevelopmentAutomation automation)

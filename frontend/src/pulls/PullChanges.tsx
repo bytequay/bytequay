@@ -122,7 +122,7 @@ type ReviewOptions = {
   onDetailChange: (detail: PullRequestDetailDto) => void;
 };
 
-/** Changes and Tears of time share the same GitHub thread source and refresh actions. */
+/** Changes and Tears of time share the same remote thread source and refresh actions. */
 export function pullReviewThreads(pr: PullRequestDto, detail: PullRequestDetailDto, workspaceId: string | undefined,
   onRefresh: ReviewThreads['onRefresh'], onDetailUpdate: PullDetailUpdater): ReviewThreads {
   return { activities: detail.recentActivity, pr, workspaceId,
@@ -631,7 +631,7 @@ export type ReviewLineComposerProps = {
   viewer?: PullRequestViewer | null;
   review?: { repo: string; workspaceId?: string };
   canReview: boolean;
-  /** Why Add to review and Post now are unavailable on this range, given instead of letting GitHub refuse it. */
+  /** Why Add to review and Post now are unavailable on this range, given instead of letting the provider refuse it. */
   reviewDisabledReason?: string | null;
   body: string;
   onBodyChange: (body: string) => void;

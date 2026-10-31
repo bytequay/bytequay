@@ -503,7 +503,7 @@ export type HandledEntry = {
   until: number | null;
   /** The item's updatedAt when it was handled, or a pull request's later attention activity. */
   seenUpdatedAt: string;
-  /** Includes the CI result and mergeability, which need not advance GitHub's updatedAt. */
+  /** Includes the CI result and mergeability, which need not advance the provider's updatedAt. */
   seenActivityVersion?: string;
   /** Toast/footer wording, e.g. "next monday". */
   label: string;
@@ -607,7 +607,7 @@ export function attentionActivityVersion(item: AttentionItem): string {
   if (item.jira) return JSON.stringify([item.updatedAt, item.title, item.jira.status.id, item.jira.assignee?.accountId,
     [...item.labels].sort(), item.jira.priority?.id, item.jira.dueDate]);
   const pr = item.pr;
-  // Not pr.activityAt: it moves whenever a single CI job starts or finishes. What people do on GitHub moves updatedAt instead.
+  // Not pr.activityAt: it moves whenever a single CI job starts or finishes. What people do on the provider moves updatedAt instead.
   // pullRequestNews reads these fields by position.
   return JSON.stringify(pr === null ? [item.updatedAt, item.title, item.body, item.commentCount, [...item.labels].sort(), item.issueState ?? 'open'] : [
     pr.updatedAt, pr.title, pr.state, pr.draft, pr.ciStatus, pr.mergeable, pr.mergeableState,

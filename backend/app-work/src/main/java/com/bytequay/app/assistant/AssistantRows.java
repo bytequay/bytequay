@@ -81,7 +81,7 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Reads the items the assistant names from what ByteQuay stores: the rows of the lists it showed, and what a search finds among pull
- * requests, repository issues, cached Jira tickets, tasks, work items and Epics. No GitHub, Jira or provider request is made here.
+ * requests, repository issues, cached Jira tickets, tasks, work items and Epics. No hosting, Jira or provider request is made here.
  */
 @Component
 class AssistantRows

@@ -58,7 +58,7 @@ public class TaskDiscussionController
         return discussions.askComment(new AskCommentCommand(workspaceId, taskId, request.repo(), request.number(), request.key(), request.question()));
     }
 
-    /** Only drafts: the text reaches GitHub solely through the user's own Comment on the thread's reply editor. */
+    /** Only drafts: the text reaches the pull request solely through the user's own Comment on the thread's reply editor. */
     @PostMapping("/agent/tasks/{taskId}/discussions/{id}/reply-draft")
     public ReplyDraft draftReply(@PathVariable String taskId, @PathVariable String id, @RequestParam String workspaceId)
     {

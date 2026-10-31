@@ -65,7 +65,7 @@ public interface PrDetailStore
     /** Reads only cached author avatar URLs; missing details or avatars have no entry. */
     Map<Long, String> findAuthorAvatarUrls(Set<Long> prIds);
 
-    /** Reads the latest cached GitHub timeline action for each requested PR, including inline replies. */
+    /** Reads the latest cached remote timeline action for each requested PR, including inline replies. */
     Map<Long, PrActivitySummary> findLatestActivities(Set<Long> prIds);
 
     /** Reads the cached commits each PR received after its instant, newest first; a PR without any has no entry. */

@@ -257,7 +257,7 @@ public class GoalReferenceReader
         }
     }
 
-    /** Reads items of one workspace from local stores; never from GitHub or Jira. */
+    /** Reads items of one workspace from local stores; never from the provider or Jira. */
     private final class Resolver
     {
         private final Workspace workspace;

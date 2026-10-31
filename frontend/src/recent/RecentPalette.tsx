@@ -99,7 +99,7 @@ export default function RecentPalette({
   useEffect(() => {
     window.bridge.fetchRecentChanges()
       .then(list => setChanges(Object.fromEntries(list.map(change => [change.itemKey, change]))))
-      // The dots are the one signal that leans on a GitHub refresh having
+      // The dots are the one signal that leans on a provider refresh having
       // happened. Losing them must never blank the stream.
       .catch(() => setChanges({}));
   }, []);

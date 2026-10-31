@@ -16,7 +16,7 @@ package com.bytequay.core.domain;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** A locally cached GitHub label keyed by its stable provider ID. */
+/** A locally cached label keyed by its stable provider ID. */
 public record RepositoryLabel(long id, String name, String color)
 {
     public RepositoryLabel

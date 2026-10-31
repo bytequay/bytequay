@@ -19,7 +19,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Identifies a specific pull request within a GitHub repository.
+ * Identifies a specific pull request within a hosting repository.
  * Bundles owner, repo name, and PR number so PR-scoped repository methods
  * only need one parameter instead of three.
  *

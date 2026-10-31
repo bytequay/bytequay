@@ -34,7 +34,7 @@ import static java.util.Objects.requireNonNull;
  *
  * <p>Every commentable line gets one identifier, numbered in diff order, so the same patches always
  * yield the same identifiers. A deleted line is anchored on the left side at its old number; a
- * context or added line on the right side at its new number, which is where GitHub places a
+ * context or added line on the right side at its new number, which is where the provider places a
  * comment on it. Binary and unavailable patches contribute no anchors at all.
  */
 public final class ReviewDiffAnchors

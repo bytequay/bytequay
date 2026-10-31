@@ -38,7 +38,7 @@ public class PullRequestTimelineService
     /**
      * Records one idempotent local event after a push has been reconciled.
      * SHAs must come from the durable push journal, never from agent prose, so
-     * they are rechecked here. The pushed commits already appear in the GitHub
+     * they are rechecked here. The pushed commits already appear in the provider's
      * timeline and the changed files in the Files tab, so the event names only
      * the push.
      */

@@ -18,7 +18,7 @@ import java.time.LocalTime;
 import static com.google.common.base.Preconditions.checkArgument;
 
 /**
- * Daily window, in local minutes of day, during which background GitHub and Jira
+ * Daily window, in local minutes of day, during which background hosting and Jira
  * refresh stays idle. The window may wrap midnight; an empty window
  * (equal start and end) never pauses anything.
  */

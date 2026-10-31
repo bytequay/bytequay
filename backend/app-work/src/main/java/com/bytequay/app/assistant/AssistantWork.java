@@ -45,7 +45,7 @@ import static java.util.Objects.requireNonNull;
 /**
  * What the assistant's work operations do once its checks pass: mark an Epic, add work to one, create a work item, and acknowledge or
  * snooze a Needs attention item. Each goes through the service the app's own buttons use, and all of it stays local: nothing here asks
- * GitHub or Jira.
+ * the provider or Jira.
  */
 @Component
 class AssistantWork
@@ -169,7 +169,7 @@ class AssistantWork
     }
 
     /**
-     * The receipt for a draft the user created with its own button: the Epic it became, and the GitHub issue it was published as.
+     * The receipt for a draft the user created with its own button: the Epic it became, and the issue it was published as.
      *
      * @throws IllegalArgumentException when the draft's work item was not created
      */

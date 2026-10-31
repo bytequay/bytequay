@@ -692,7 +692,7 @@ public class WorkspaceRepositoryService
     private void submit(Runnable task, String workspaceId, Runnable finished)
     {
         try {
-            // Each task takes the workspace lock for its local part; holding it here would freeze the workspace while a PR refresh waits on GitHub.
+            // Each task takes the workspace lock for its local part; holding it here would freeze the workspace while a PR refresh waits on the provider.
             executor.execute(() -> {
                 try {
                     if (store.isWatched(workspaceId)) {

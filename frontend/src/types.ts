@@ -78,14 +78,14 @@ export type PullRequestDto = {
   headPushedAt: string | null;
   headRef: string | null;
   mergedAt?: string | null;
-  /** Local monitoring baseline and latest observed GitHub activity. */
+  /** Local monitoring baseline and latest observed remote activity. */
   monitoredAt?: string | null;
   activityAt?: string | null;
   reviewRequestedAt?: string | null;
   reviewDecision?: 'APPROVED' | 'CHANGES_REQUESTED' | null;
   /** Latest activity that ends an acknowledgment in Needs attention; pushes, labels and bot comments are not part of it. */
   attentionActivityAt?: string | null;
-  /** Latest known GitHub action; local change-detection timestamps are separate. */
+  /** Latest known remote action; local change-detection timestamps are separate. */
   latestActivity?: {
     event: string;
     actor: string | null;
@@ -102,7 +102,7 @@ export type PullRequestDto = {
   commitsSinceReview?: { sha: string; message: string; actor: string | null; committedAt: string }[];
   /** Needs attention only: the latest checks failing on a PR whose CI fails. */
   failingChecks?: string[];
-  /** Needs attention only: the viewer's GitHub inbox files this PR as a direct @mention. */
+  /** Needs attention only: the viewer's inbox files this PR as a direct @mention. */
   mentioned?: boolean;
   /** Needs attention only: the watched workspace a hosted request opens through. */
   workspaceId?: string | null;
@@ -1538,7 +1538,7 @@ export type AssistantItemDto = {
   receipt: AssistantReceiptDto | null;
   /** The style a list shows first and its refs in order; their rows come with the conversation. */
   list: AssistantListDto | null;
-  /** A new GitHub issue the assistant drafted, which the user edits and creates as an Epic with a click. */
+  /** A new issue the assistant drafted, which the user edits and creates as an Epic with a click. */
   draft: AssistantDraftDto | null;
 };
 
@@ -1578,7 +1578,7 @@ export type AssistantRowDto = {
   approvals: number | null;
   /** Whether a pull request is the user's own. */
   mine: boolean;
-  /** Whether GitHub blocks merging a pull request, as its cached detail says. */
+  /** Whether the provider blocks merging a pull request, as its cached detail says. */
   mergeBlocked: boolean;
   /** Whether the user's own latest review approves a pull request. */
   youApproved: boolean;
@@ -1698,7 +1698,7 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   /** Open issues the viewer opened anywhere on GitHub and that changed in the last thirty days. */
   fetchAuthoredIssues: () => Promise<AuthoredIssueDto[]>;
   lookupPullRequest: (repo: string, number: number, route?: PullRequestRoute) => Promise<PullRequestDto>;
-  /** The description a detail read cached, without reaching GitHub or marking the PR viewed; null until one did. */
+  /** The description a detail read cached, without reaching the provider or marking the PR viewed; null until one did. */
   findStoredPullRequestDescription: (repo: string, number: number, route?: PullRequestRoute) => Promise<{ body: string | null }>;
   setPrMonitored: (prId: number, monitored: boolean, route?: PullRequestRoute) => Promise<PullRequestDto>;
   setPrAttentionHandled: (handled: import('./home/attention').Handled) => Promise<void>;
@@ -1816,7 +1816,7 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   fetchWorkspaceIssue: (workspaceId: string, issueNumber: number) => Promise<RepositoryIssueSnapshotDto['issues'][number] | null>;
   fetchWorkspaceIssueAttention: (workspaceId: string, etag?: string | null) => Promise<IssueAttentionRead>;
   setWorkspaceIssueEpic: (workspaceId: string, issueNumber: number, isEpic: boolean) => Promise<IssueDevelopmentDto>;
-  /** The workspace's work items with every link read locally; nothing here writes to GitHub or Jira. */
+  /** The workspace's work items with every link read locally; nothing here writes to the provider or Jira. */
   listWorkItems: (workspaceId: string) => Promise<WorkItemDto[]>;
   setLocalWorkItemEpic: (workspaceId: string, itemId: string, isEpic: boolean) => Promise<void>;
   /** New Local work that is an Epic from the start; the context is saved under its own heading. */
@@ -2116,7 +2116,7 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   archiveAgentTask: (taskId: string, workspaceId: string, expectedVersion: number, archived: boolean) => Promise<AgentTaskDto>;
   /** Removes the task, its runtime files, its checkout and its generated branch; a no-op once it is gone. */
   deleteAgentTask: (taskId: string, workspaceId: string) => Promise<void>;
-  /** Reads cached PRs on the task's generated/current branch, or refreshes those branches directly from GitHub. */
+  /** Reads cached PRs on the task's generated/current branch, or refreshes those branches directly from the provider. */
   listAgentTaskPullRequests: (taskId: string, workspaceId: string, refresh?: boolean) => Promise<PullRequestDto[]>;
   /** Reads every listed task's live checkout at once, by task id; a checkout that cannot be read is absent. */
   listAgentTaskChanges: (workspaceId: string, taskIds: string[]) => Promise<Record<string, AgentTaskChangesDto>>;
@@ -2209,7 +2209,7 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   refreshAgentReviewExplanation: (reviewId: string, runId: string, expectedRevision: number) => Promise<AgentReviewDto>;
   /** Completes the task, closes the review, then cleans the worktree. */
   endAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
-  /** Private discussions of the review's answers and GitHub comments. */
+  /** Private discussions of the review's answers and pull request comments. */
   listReviewDiscussions: (reviewId: string) => Promise<TaskDiscussionDto[]>;
   openReviewDiscussion: (reviewId: string, request: Omit<OpenDiscussionRequest, keyof DiscussionQuery>) => Promise<TaskDiscussionDto>;
   askReviewDiscussion: (reviewId: string, discussionId: string, question: string) => Promise<TaskDiscussionDto>;
@@ -2217,7 +2217,7 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   askReviewCommentThread: (reviewId: string, key: string, question: string) => Promise<TaskDiscussionDto>;
   resolveReviewDiscussion: (reviewId: string, discussionId: string, resolved: boolean, expectedVersion: number) => Promise<TaskDiscussionDto>;
   retryReviewDiscussion: (reviewId: string, discussionId: string, messageId: string) => Promise<TaskDiscussionDto>;
-  /** Drafts a GitHub reply in the reviewer's voice; nothing is posted. */
+  /** Drafts a reply in the reviewer's voice; nothing is posted. */
   draftReviewCommentReply: (reviewId: string, discussionId: string) => Promise<string>;
   /** Every file of the host's working copy, or of a review's reviewed revision once its working copy is gone. */
   readWorktreeChanges: (host: CodeHostRef, request: WorktreeChangesRequest) => Promise<WorktreeChangesDto>;
@@ -2311,9 +2311,9 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
     route?: PullRequestRoute,
   ) => Promise<ReviewDraftDto>;
   removeReviewDraftComment: (repo: string, number: number, expectedVersion: number, itemId: string, route?: PullRequestRoute) => Promise<ReviewDraftDto>;
-  /** Returns an uncertain comment to pending after the user confirms it is absent on GitHub; does not publish it. */
+  /** Returns an uncertain comment to pending after the user confirms it is absent on the provider; does not publish it. */
   confirmReviewDraftCommentNotPosted: (repo: string, number: number, expectedVersion: number, itemId: string, route?: PullRequestRoute) => Promise<ReviewDraftDto>;
-  /** Records an uncertain comment as posted after the user finds it on GitHub; it is never sent again. */
+  /** Records an uncertain comment as posted after the user finds it on the provider; it is never sent again. */
   confirmReviewDraftCommentPosted: (repo: string, number: number, expectedVersion: number, itemId: string, route?: PullRequestRoute) => Promise<ReviewDraftDto>;
   /** Settles review text whose send has an unknown outcome: posted clears it like a successful send, not posted unlocks it. Never publishes. */
   confirmReviewDraftReview: (repo: string, number: number, expectedVersion: number, posted: boolean, route?: PullRequestRoute) => Promise<ReviewDraftDto>;

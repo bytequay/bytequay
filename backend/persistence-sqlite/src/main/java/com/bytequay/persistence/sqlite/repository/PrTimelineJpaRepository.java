@@ -63,7 +63,7 @@ public interface PrTimelineJpaRepository
     }
 
     // Inline replies carry their own timestamps inside the payload, so every thread remains a candidate.
-    // LENGTH keeps SQLite off the unique local_event_key index: every GitHub row shares its NULL key, so the
+    // LENGTH keeps SQLite off the unique local_event_key index: every remote row shares its NULL key, so the
     // planner's one-row guess for IS NULL would scan the whole table for each correlated lookup instead of seeking by PR.
     @Query("""
             SELECT e.prId AS prId, e.event AS event, e.actor AS actor, e.timestamp AS timestamp, e.body AS body, e.payload AS payload

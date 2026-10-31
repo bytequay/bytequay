@@ -69,7 +69,7 @@ export interface PullRequestChangesSource {
   retryFailedRead: () => void;
 }
 
-/** Both PR surfaces own the same selection, snapshot reads, and GitHub comparisons. */
+/** Both PR surfaces own the same selection, snapshot reads, and remote comparisons. */
 export function usePullRequestChanges(
   target: PullRequestChangesTarget | null,
   { active = true, revision = null }: { active?: boolean; revision?: string | null } = {},

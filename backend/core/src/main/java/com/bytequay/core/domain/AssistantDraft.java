@@ -17,7 +17,7 @@ import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /**
- * A new GitHub issue the assistant drafted for the user to edit and create as an Epic with a click; the assistant creates nothing.
+ * A new issue the assistant drafted for the user to edit and create as an Epic with a click; the assistant creates nothing.
  *
  * @param workspaceId the watched repository the issue goes to
  * @param repository that repository's full name, as the card names it

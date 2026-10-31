@@ -1732,7 +1732,7 @@ export function ReviewDialog({
   const busy = submitting || saving || command.loading;
   const [error, setError] = useState<string | null>(null);
   const promoted = draft?.items.filter(item => !item.published && (item.included || item.publication !== null)) ?? [];
-  // Review text in a send stays as sent until the user says whether it reached GitHub.
+  // Review text in a send stays as sent until the user says whether it reached the provider.
   const reviewSend = draft?.reviewPublication?.state ?? null;
   const unconfirmed = reviewSend !== null || (draft?.items.some(item => item.publication?.state === 'UNCERTAIN' || item.publication?.state === 'RESERVED') ?? false);
   const earlierCommentsNeedText = event === 'REQUEST_CHANGES' && pendingComments.length + promoted.length > 0

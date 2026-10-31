@@ -103,7 +103,7 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Gathers one agenda run's pages from what ByteQuay already stores: the pull requests Needs attention ranks, the tasks app notices
- * describe, Epic work, assigned issues and tickets, and earlier agendas. No GitHub, Jira or provider request is made here.
+ * describe, Epic work, assigned issues and tickets, and earlier agendas. No hosting, Jira or provider request is made here.
  */
 @Component
 public class AgendaReader

@@ -72,7 +72,7 @@ public interface WorkspaceStore
     WorkspaceHostingBinding bindHosting(String workspaceId, long accountId, long selectedRepositoryId, Optional<Long> upstreamRepositoryId);
 
     /**
-     * Creates a workspace or returns the row that already owns the selected GitHub repository.
+     * Creates a workspace or returns the row that already owns the selected hosting repository.
      * The database unique constraint is the final concurrency guard.
      */
     Workspace createOrGet(Workspace workspace);

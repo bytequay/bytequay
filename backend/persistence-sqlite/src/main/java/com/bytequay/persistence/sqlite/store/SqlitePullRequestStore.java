@@ -392,7 +392,7 @@ public class SqlitePullRequestStore
             entity.setHeadPushedAt(headPushedAt);
             // Only overwrite head_ref when the detail sync actually
             // produced one. Detail can briefly miss it on first fetch
-            // (GitHub still computing); keeping the previous value
+            // (the provider still computing); keeping the previous value
             // beats blanking the IN_REVIEW lookup.
             if (headRef != null) {
                 entity.setHeadRef(headRef);

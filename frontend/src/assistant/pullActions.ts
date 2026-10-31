@@ -35,7 +35,7 @@ export async function approvePull(repo: string, number: number, head: string | n
 }
 
 /**
- * Uses the merge sheet's guard after reading GitHub again, bound to the head commit the card showed.
+ * Uses the merge sheet's guard after reading the provider again, bound to the head commit the card showed.
  * Queue branches schedule GitHub's merge when ready.
  */
 export async function mergePull(repo: string, number: number, head: string | null, workspaceId?: string): Promise<void> {

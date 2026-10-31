@@ -94,7 +94,7 @@ public class PullRequestSnapshotService
     List<DiffFile> getValidatedDiffFiles(long prId, String headSha)
     {
         checkText(headSha, "head");
-        // GitHub's recorded base trails the base branch tip, so only it, not a freshly fetched tip, identifies the cached diff.
+        // The provider's recorded base trails the base branch tip, so only it, not a freshly fetched tip, identifies the cached diff.
         Optional<String> baseSha = details.find(prId).map(StoredPrDetail::raw).map(PrRawDetail::baseSha);
         return diffs.find(prId, null, null)
                 .filter(diff -> baseSha.isPresent() && diff.baseSha().equals(baseSha)

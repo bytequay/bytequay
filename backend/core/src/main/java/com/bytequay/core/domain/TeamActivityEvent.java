@@ -25,7 +25,7 @@ import java.util.stream.Stream;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** One deduplicated GitHub fact, scoped to its collecting account by the storage port. */
+/** One deduplicated hosting fact, scoped to its collecting account by the storage port. */
 public record TeamActivityEvent(
         String id,
         String kind,

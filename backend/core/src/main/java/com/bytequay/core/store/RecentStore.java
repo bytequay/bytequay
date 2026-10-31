@@ -22,7 +22,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Local-only storage for the Recent stream. Nothing here contacts GitHub, so
+ * Local-only storage for the Recent stream. Nothing here contacts the provider, so
  * every read answers with the network off.
  */
 public interface RecentStore

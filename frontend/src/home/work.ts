@@ -208,7 +208,7 @@ export function isOwnWork(item: AttentionItem, viewerLogin: string | null): bool
 }
 
 /**
- * Everything the viewer is working on: open Jira tickets and GitHub issues assigned to them, issues they opened anywhere, local work in
+ * Everything the viewer is working on: open Jira tickets and issues assigned to them, issues they opened anywhere, local work in
  * progress, open tasks of their own, and their open pull requests that none of those already deliver. Each task and pull request belongs
  * to one piece of work.
  */

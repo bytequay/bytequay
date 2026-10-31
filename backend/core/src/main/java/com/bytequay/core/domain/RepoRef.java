@@ -16,7 +16,7 @@ package com.bytequay.core.domain;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Identifies a GitHub repository by owner login and repository name.
+ * Identifies a hosting repository by owner login and repository name.
  * Carried as a single parameter to repository methods instead of passing
  * {@code owner} and {@code repo} separately.
  *
@@ -38,7 +38,7 @@ public record RepoRef(String owner, String repo)
         return new RepoRef(owner, repo);
     }
 
-    /** Returns the canonical {@code "owner/repo"} string used in GitHub API paths and UI. */
+    /** Returns the canonical {@code "owner/repo"} string used in provider API paths and UI. */
     public String fullName()
     {
         return owner + "/" + repo;

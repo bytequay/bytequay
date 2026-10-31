@@ -128,7 +128,7 @@ public class PullRequestController
         return pullRequests.lookupPullRequest(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number));
     }
 
-    /** For a hover card, which must neither reach GitHub nor mark the pull request viewed the way opening its detail does. */
+    /** For a hover card, which must neither reach the provider nor mark the pull request viewed the way opening its detail does. */
     @GetMapping("/prs/stored/description")
     public StoredDescription storedDescription(@RequestParam("repo") String repo, @RequestParam("number") int number,
             @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)

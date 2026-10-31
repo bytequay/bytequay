@@ -52,7 +52,7 @@ import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Whether each item of a day is done, from facts the app already stores; nothing here reaches GitHub, Jira or a provider. The user's
+ * Whether each item of a day is done, from facts the app already stores; nothing here reaches a hosting server, Jira or a provider. The user's
  * own mark wins, and an item no fact can close stays open until the user marks it.
  */
 @Component

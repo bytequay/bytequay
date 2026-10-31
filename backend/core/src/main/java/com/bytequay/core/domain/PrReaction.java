@@ -15,7 +15,7 @@ package com.bytequay.core.domain;
 
 import static java.util.Objects.requireNonNull;
 
-/** Aggregate reaction count and optional viewer state returned by GitHub for a reactable item. */
+/** Aggregate reaction count and optional viewer state returned by the provider for a reactable item. */
 public record PrReaction(String content, int count, Boolean viewerHasReacted)
 {
     public PrReaction

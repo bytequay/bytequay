@@ -118,7 +118,7 @@ public class WorkspaceMetadataService
     }
 
     /**
-     * Reads the latest local metadata without contacting GitHub.
+     * Reads the latest local metadata without contacting the provider.
      *
      * @param workspaceId workspace whose monitored repository identifies the shared cache
      * @return latest snapshot, possibly empty or stale

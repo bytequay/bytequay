@@ -495,7 +495,7 @@ public class SqlitePrDetailStore
     }
 
     /**
-     * Reconciles the stored reviews for a PR against the full list GitHub
+     * Reconciles the stored reviews for a PR against the full list the provider
      * returned. Matching is on {@code remote_id}.
      */
     private void saveReviews(long prId, List<PrReviewState> reviews, boolean complete)
@@ -518,7 +518,7 @@ public class SqlitePrDetailStore
     /**
      * Counterpart of {@link #saveReviews} for the timeline, matched on
      * {@link #sourceKey}. Locally recorded events are never part of what
-     * GitHub returns, so they are neither rewritten nor swept.
+     * the provider returns, so they are neither rewritten nor swept.
      */
     private void saveTimeline(long prId, List<PrTimelineEvent> events, boolean complete)
     {
@@ -537,9 +537,9 @@ public class SqlitePrDetailStore
     }
 
     /**
-     * Reconciles one PR-scoped detail table against the full list GitHub
+     * Reconciles one PR-scoped detail table against the full list the provider
      * returned: rows keep their identity across refreshes, and when the list
-     * is {@code complete}, rows GitHub no longer reports are swept. A stored
+     * is {@code complete}, rows the provider no longer reports are swept. A stored
      * row with a null or duplicate key cannot be matched and is replaced; an
      * incoming item with a null key always creates a new row.
      */

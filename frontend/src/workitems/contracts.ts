@@ -143,7 +143,7 @@ export type WorkItemDto = {
   priority: WorkItemPriority;
   /** The same Epic's work it waits on. */
   blockedBy: string[];
-  /** The Epic the work belongs to: a local item, GitHub issue, or Jira ticket identity. */
+  /** The Epic the work belongs to: a local item, issue, or Jira ticket identity. */
   epicId?: string | null;
   /** Its place in its Epic's order, lowest first; equal places keep creation order. */
   epicRank?: number;
@@ -151,7 +151,7 @@ export type WorkItemDto = {
 export type CreateWorkItem = Pick<WorkItemDto, 'id' | 'title' | 'kind' | 'acceptanceCriteria' | 'completionRule' | 'epicId'>;
 /** Work an Epic took in, and the other Epic it left, if any. */
 export type EpicJoinDto = { item: WorkItemDto; movedFrom: string | null };
-/** A GitHub sub-issue or Jira child ticket an Epic's source reports, as ByteQuay last read it. */
+/** A provider's child issue or Jira child ticket an Epic's source reports, as ByteQuay last read it. */
 export type EpicChildDto = { identity: string; kind: 'ISSUE' | 'JIRA'; key: string; label: string; title: string; status: string; closed: boolean; url: string | null };
 /** Work the Development model proposed for an Epic, waiting until the user accepts or dismisses it. */
 export type EpicProposalDto = {

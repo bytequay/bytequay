@@ -27,7 +27,7 @@ import static java.util.Objects.requireNonNull;
  * how long Auto-merge waits once a pull request can merge.
  *
  * <p>The bounds are what the pickers offer. They exist so a hand-edited
- * settings row cannot stop the retention jobs or hammer GitHub, not to express
+ * settings row cannot stop the retention jobs or hammer the provider, not to express
  * a product rule.
  */
 public record AppPreferences(int taskRetentionDays, int recentRetentionDays, AppTheme theme, int prWarmCount, int autoMergeDelayMinutes)

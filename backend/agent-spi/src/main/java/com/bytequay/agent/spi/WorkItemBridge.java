@@ -17,7 +17,7 @@ import java.util.function.Function;
 
 import static java.util.Objects.requireNonNull;
 
-/** Workspace-scoped access to local work and cached GitHub/Jira requests, never remote publication. */
+/** Workspace-scoped access to local work and cached hosting/Jira requests, never remote publication. */
 public record WorkItemBridge(Function<String, String> call)
 {
     public static final String TOOL_NAME = "work_items";

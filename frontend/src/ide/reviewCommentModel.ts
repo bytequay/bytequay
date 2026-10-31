@@ -61,7 +61,7 @@ export function reviewCommentCards({ review, comments }: Pick<IdeContext, 'revie
       messages: [...payload.comments.map(comment => ({ author: comment.actor ?? 'GitHub', body: comment.body ?? '', timestamp: comment.timestamp })),
         ...(comments?.pending.filter(comment => root && comment.replyToCommentId === root.remoteId) ?? [])
           .map((comment): ReviewCommentCard['messages'][number] => ({ author: `${user} · Pending`, body: comment.body, timestamp: null }))],
-      // GitHub's thread payload has no original commit. Old-side and outdated threads open the file without inventing a current line.
+      // The thread payload has no original commit. Old-side and outdated threads open the file without inventing a current line.
       target: payload.path === null ? null : { path: payload.path, start: current ? payload.startLine : null, end: current ? payload.line : null,
         revision: current ? review?.observedHeadSha ?? null : null } });
   }

@@ -364,7 +364,7 @@ function previewItem(item: AttentionItem, summary: AttentionSummary): ReferenceC
 
 /**
  * A pull request's description as its last detail read stored it; undefined while reading and null when none has. The list
- * carries no PR bodies, and the detail read itself would reach GitHub on a miss and mark the pull request viewed.
+ * carries no PR bodies, and the detail read itself would reach the provider on a miss and mark the pull request viewed.
  */
 function useStoredDescription(item: AttentionItem): string | null | undefined {
   const [description, setDescription] = useState<string | null>();

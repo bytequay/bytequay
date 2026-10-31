@@ -38,7 +38,7 @@ final class ReviewOwnThreads
     private ReviewOwnThreads() {}
 
     /**
-     * @param line the line GitHub last attached the thread to, which for an outdated thread is its original line
+     * @param line the line the provider last attached the thread to, which for an outdated thread is its original line
      * @param opening the start of the user's first comment, on one line
      * @param awaitingReply unresolved, and the last word is another person's
      */

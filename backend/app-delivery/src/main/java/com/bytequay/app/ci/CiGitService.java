@@ -311,7 +311,7 @@ public class CiGitService
 
     /**
      * Returns where the pull request's own commits start. The observed base is the base branch tip, which moves on after the
-     * branch was cut or rebased, so the range starts at the fork point, as GitHub computes it, rather than at that tip.
+     * branch was cut or rebased, so the range starts at the fork point, as the provider computes it, rather than at that tip.
      */
     private String requireLinearRange(Path worktree, String baseSha, String headSha)
     {

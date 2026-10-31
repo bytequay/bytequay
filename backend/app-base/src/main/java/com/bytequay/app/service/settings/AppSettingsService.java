@@ -112,7 +112,7 @@ public class AppSettingsService
         return save(QUIET_HOURS_KEY, quietHours, "quiet hours could not be encoded");
     }
 
-    /** True while background GitHub and Jira refresh should stay idle, in local time. */
+    /** True while background hosting and Jira refresh should stay idle, in local time. */
     public boolean inQuietHours()
     {
         return quietHours().quietAt(clock.instant().atZone(ZoneId.systemDefault()).toLocalTime());

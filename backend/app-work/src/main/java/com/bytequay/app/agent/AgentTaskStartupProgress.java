@@ -35,7 +35,7 @@ public final class AgentTaskStartupProgress
     {
         /** Probing the provider CLI and its sign-in. */
         PROVIDER,
-        /** Refreshing the workspace repository from GitHub. */
+        /** Refreshing the workspace repository from the remote. */
         REPOSITORY,
         /** Understanding the request to name the task and branch. */
         NAMING,

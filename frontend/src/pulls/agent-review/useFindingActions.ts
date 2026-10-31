@@ -31,8 +31,8 @@ export function recordReviewAttentionAction(review: AgentReviewDto, action: Atte
  * The private and outgoing actions a finding offers, defined once so the Agent review tab and the
  * Changes projection cannot drift.
  *
- * <p>None of these reuses a GitHub reply, resolve or submit callback: Ask agent and Resolve locally
- * are review-service calls that never reach GitHub, and only Post now crosses that line,
+ * <p>None of these reuses a provider reply, resolve or submit callback: Ask agent and Resolve locally
+ * are review-service calls that never reach the provider, and only Post now crosses that line,
  * through the durable draft so a single item can never be sent twice.
  */
 export function useFindingActions({

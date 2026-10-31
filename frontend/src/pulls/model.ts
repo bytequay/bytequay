@@ -166,7 +166,7 @@ export type PullSearch = {
   text: string;
 };
 
-/** Only a complete #number can request an exact PR from GitHub. */
+/** Only a complete #number can request an exact PR from the provider. */
 export function exactPullNumber(query: string): number | null {
   if (!/^#\d+$/.test(query.trim())) return null;
   const number = Number(query.trim().slice(1));

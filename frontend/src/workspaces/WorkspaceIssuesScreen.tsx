@@ -468,7 +468,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     }
   }, [loadDetail, selectedNumber, selectedId, previewIssue?.id]);
 
-  // A reread row that changed on GitHub brings its timeline up to date.
+  // A reread row that changed on the provider brings its timeline up to date.
   const selectedVersion = selected !== null && selected !== previewIssue ? `${selected.id}:${selected.updatedAt}` : null;
   const seenVersion = useRef(selectedVersion);
   useEffect(() => {

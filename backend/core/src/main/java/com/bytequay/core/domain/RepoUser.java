@@ -15,7 +15,7 @@ package com.bytequay.core.domain;
 
 import static java.util.Objects.requireNonNull;
 
-/** A GitHub user available in a repository people picker. */
+/** An account available in a repository people picker. */
 public record RepoUser(String login, String avatarUrl, boolean bot)
 {
     public RepoUser

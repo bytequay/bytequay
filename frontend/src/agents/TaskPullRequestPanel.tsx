@@ -196,7 +196,7 @@ export function TaskChangesView({
 /**
  * The PR tab before the branch has one.
  *
- * Check again is the only button in the panel: it re-reads the branch from GitHub, which is how a
+ * Check again is the only button in the panel: it re-reads the branch from the provider, which is how a
  * pull request opened outside this task reaches the panel between turns.
  */
 export function NoPullRequestView({ branch, repository, onCheck, checking = false }: {

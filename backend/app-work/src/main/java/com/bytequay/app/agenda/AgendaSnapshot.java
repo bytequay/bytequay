@@ -101,8 +101,8 @@ public record AgendaSnapshot(
     record Last(String by, String text) {}
 
     /**
-     * @param mergeable whether GitHub can merge it without a conflict
-     * @param mergeBlocked whether GitHub blocks merging it for now, such as for a missing approval or a failing required check
+     * @param mergeable whether the provider can merge it without a conflict
+     * @param mergeBlocked whether the provider blocks merging it for now, such as for a missing approval or a failing required check
      */
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     record Mine(String ref, String title, boolean draft, Review review, Optional<String> ci, List<String> failingChecks, Optional<Boolean> mergeable,

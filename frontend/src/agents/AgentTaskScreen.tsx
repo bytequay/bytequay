@@ -1107,7 +1107,7 @@ export function AgentTaskBody({
   };
   const pullRequestShowing = panelOpen && visiblePanelTab === 'pr';
   /**
-   * A link to this task's own pull request reads in the panel instead of leaving for GitHub.
+   * A link to this task's own pull request reads in the panel instead of leaving for the provider.
    * The task route does not change, and every other link keeps its ordinary behaviour. It runs in the
    * capture phase because a pull request title link navigates from its own click handler, which runs first.
    */
@@ -2269,7 +2269,7 @@ export default function AgentTaskScreen({
     {
       active: state.task?.interactive === true,
       bridge: explicitBridge,
-      // A discussion is private and never reaches GitHub, so a closed pull request is nothing to it.
+      // A discussion is private and never reaches the provider, so a closed pull request is nothing to it.
       // What stops it is the task releasing the files the agent would read.
       disabledReason: state.task?.checkoutRemovedAt == null ? null
         : 'This task released its files, so its discussions are read-only.',

@@ -24,7 +24,7 @@ import java.util.Optional;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** Latest local reference metadata for one stable GitHub repository ID. */
+/** Latest local reference metadata for one stable provider repository ID. */
 public record RepositoryMetadataSnapshot(
         long repositoryId,
         RepoRef repository,

@@ -117,7 +117,7 @@ public class PullRequestEntity
 
     // Detail-enrichment fields. Nullable until a row has been synced.
 
-    /** GitHub PR state: "open", "closed", "merged" (the latter is closed+merged_at). */
+    /** PR state: "open", "closed", "merged" (the latter is closed+merged_at). */
     @Column(name = "state")
     private String state;
 
@@ -127,7 +127,7 @@ public class PullRequestEntity
     @Column(name = "merged_at")
     private Instant mergedAt;
 
-    /** GitHub's mergeable flag — null while GitHub is still computing it. */
+    /** The provider's mergeable flag — null while the provider is still computing it. */
     @Column(name = "mergeable")
     private Boolean mergeable;
 
@@ -172,7 +172,7 @@ public class PullRequestEntity
         return new HostingPullRequest(id, hostingRepository.getId(), number);
     }
 
-    /** The row for a pull request GitHub reported. */
+    /** The row for a pull request the provider reported. */
     public static PullRequestEntity from(FetchedPullRequest pr, Instant syncedAt)
     {
         PullRequestEntity entity = new PullRequestEntity();
@@ -194,7 +194,7 @@ public class PullRequestEntity
         this.setLabelColors(pr.labelColors());
         this.setDraft(pr.draft());
         this.setSyncedAt(syncedAt);
-        // state/closedAt/mergedAt come straight from the GitHub response; the
+        // state/closedAt/mergedAt come straight from the provider response; the
         // enrichment a fetch cannot report is carried over by preserveEnrichment.
         this.setState(pr.mergedAt() != null ? "merged" : pr.state());
         this.setClosedAt(pr.closedAt());

@@ -15,6 +15,7 @@ package com.bytequay.app.git;
 
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.hosting.PullRequestAssociation;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.cache.Cache;

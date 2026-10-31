@@ -14,13 +14,13 @@
 package com.bytequay.app.context;
 
 import com.bytequay.app.git.CherryPickPullRequestLookup;
-import com.bytequay.app.git.PullRequestAssociation;
 import com.bytequay.app.git.PullRequestLookupResult;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.CommitEnrichmentSnapshot;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.hosting.PullRequestAssociation;
 import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;

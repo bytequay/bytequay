@@ -14,7 +14,6 @@
 package com.bytequay.app.cherrypick;
 
 import com.bytequay.app.cherrypick.CherryPickCommitPreview.TargetMatch;
-import com.bytequay.app.git.PullRequestAssociation;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.git.command.GitCommandRunner.Result;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -26,6 +25,7 @@ import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.MergedPullRequestRange;
 import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.hosting.PullRequestAssociation;
 import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.base.Ascii;
 import com.google.common.base.Ticker;

@@ -35,6 +35,7 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.PullRequestAssociation;
 import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;

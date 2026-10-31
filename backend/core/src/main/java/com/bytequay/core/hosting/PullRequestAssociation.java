@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.git;
+package com.bytequay.core.hosting;
 
 import java.time.Instant;
 import java.time.format.DateTimeParseException;

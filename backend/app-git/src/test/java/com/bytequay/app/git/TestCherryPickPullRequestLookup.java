@@ -14,6 +14,7 @@
 package com.bytequay.app.git;
 
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.hosting.PullRequestAssociation;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;

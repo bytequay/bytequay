@@ -285,12 +285,12 @@ class TestAgendaService
     void keepsWhatTheAgentReadAndLogsTheRun()
     {
         now.set(FRIDAY_MORNING);
-        when(teams.directory()).thenThrow(new IllegalStateException("GitHub is unreachable"));
+        when(teams.directories()).thenThrow(new IllegalStateException("GitHub is unreachable"));
         agenda.runIfDue(Optional.of(FRIDAY_MORNING));
 
         // The account behind the circles is resolved before the snapshot, which reads only cached circles; failing costs only circles.
         InOrder order = inOrder(teams, reader);
-        order.verify(teams).directory();
+        order.verify(teams).directories();
         order.verify(reader).read(any(), any(), anyBoolean(), any(), any());
         AgentSessionContext context = opened.get();
         assertThat(context.access()).isEqualTo(SessionAccess.READ_ONLY);

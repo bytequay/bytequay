@@ -1877,15 +1877,16 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   fetchGitHubIssuePreview: (owner: string, repo: string, number: number) => Promise<GitHubIssuePreviewDto>;
   fetchGitHubCodeSnippet: (request: GitHubCodeSnippetRequest) => Promise<GitHubCodeSnippetDto>;
   getFollowingActivity: (login: string) => Promise<RecentEventDto[]>;
-  getTeams: () => Promise<TeamDirectory>;
-  fetchTeamContributors: () => Promise<RepositoryMetadataDto['contributors']>;
-  createTeam: (input: TeamCreateInput) => Promise<TeamDirectory>;
-  updateTeam: (id: string, input: TeamCircleInput) => Promise<TeamDirectory>;
-  removeTeam: (id: string) => Promise<TeamDirectory>;
-  addTeamMember: (id: string, member: TeamMemberInput) => Promise<TeamDirectory>;
-  removeTeamMember: (id: string, githubId: number) => Promise<TeamDirectory>;
-  getTeamActivity: (query?: TeamActivityQuery) => Promise<TeamActivitySnapshot>;
-  refreshTeamActivity: (query?: TeamActivityQuery) => Promise<TeamActivitySnapshot>;
+  /** One directory per hosting account; every other Teams call names its account first. */
+  getTeams: () => Promise<TeamDirectory[]>;
+  fetchTeamContributors: (accountId: number) => Promise<RepositoryMetadataDto['contributors']>;
+  createTeam: (accountId: number, input: TeamCreateInput) => Promise<TeamDirectory>;
+  updateTeam: (accountId: number, id: string, input: TeamCircleInput) => Promise<TeamDirectory>;
+  removeTeam: (accountId: number, id: string) => Promise<TeamDirectory>;
+  addTeamMember: (accountId: number, id: string, member: TeamMemberInput) => Promise<TeamDirectory>;
+  removeTeamMember: (accountId: number, id: string, remoteId: number) => Promise<TeamDirectory>;
+  getTeamActivity: (accountId: number, query?: TeamActivityQuery) => Promise<TeamActivitySnapshot>;
+  refreshTeamActivity: (accountId: number, query?: TeamActivityQuery) => Promise<TeamActivitySnapshot>;
 
   getGitHubCliAvailable: () => Promise<{ available: boolean }>;
   importGitHubCliToken: () => Promise<{ login: string }>;

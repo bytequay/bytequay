@@ -17,14 +17,15 @@ import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-public record TeamMember(long githubId, String login, String name, String avatarUrl)
+/** A person on the circle's server, by the provider's user id. */
+public record TeamMember(long remoteId, String login, String name, String avatarUrl)
 {
     public TeamMember
     {
-        checkArgument(githubId > 0, "GitHub user ID must be positive");
-        checkText(login, "GitHub login");
+        checkArgument(remoteId > 0, "User ID must be positive");
+        checkText(login, "Login");
         requireNonNull(name, "name is null");
         requireNonNull(avatarUrl, "avatarUrl is null");
-        checkArgument(login.length() <= 100 && name.length() <= 200 && avatarUrl.length() <= 2048, "GitHub profile fields are too long");
+        checkArgument(login.length() <= 100 && name.length() <= 200 && avatarUrl.length() <= 2048, "Profile fields are too long");
     }
 }

@@ -36,7 +36,7 @@ export default function CircleMembers({ circle, circles, members, statistics, pe
   if (members.length === 0) return <div className="cir-empty">
     <span className="cir-empty__badge" aria-hidden="true"><UserPlus size={18} strokeWidth={1.8} /></span>
     <h2>No one in this circle yet</h2>
-    <p>Add people from contributors cached across your watched repositories. They won’t be notified, and nothing changes on GitHub.</p>
+    <p>Add people from contributors cached across your watched repositories. They won’t be notified, and their access doesn’t change.</p>
     {circle && <button type="button" className="bq-button bq-button--primary" onClick={onAddPeople}>Add people</button>}
   </div>;
 
@@ -55,12 +55,12 @@ export default function CircleMembers({ circle, circles, members, statistics, pe
         <span title="Direct interactions with you">With you</span><span className="cir-member__last">Last update</span><span />
       </div>
       {shown.map(member => {
-        const stats = statistics.find(person => person.memberId === member.githubId);
-        const others = circles.filter(item => item.id !== circle?.id && item.members.some(person => person.githubId === member.githubId));
+        const stats = statistics.find(person => person.memberId === member.remoteId);
+        const others = circles.filter(item => item.id !== circle?.id && item.members.some(person => person.remoteId === member.remoteId));
         const summary = stats ? contributionSummary(stats.statistics) : '';
         const named = member.name !== '' && member.name !== member.login;
-        return <div role="listitem" key={member.githubId}>
-          <Clickable className={`card-row cir-member${inspected === member.githubId ? ' is-selected' : ''}`} label={`Open ${member.login}`} onOpen={() => onInspect(member.githubId)}>
+        return <div role="listitem" key={member.remoteId}>
+          <Clickable className={`card-row cir-member${inspected === member.remoteId ? ' is-selected' : ''}`} label={`Open ${member.login}`} onOpen={() => onInspect(member.remoteId)}>
             <span className="cir-member__person">
               <Avatar login={member.login} avatarUrl={member.avatarUrl} size={28} />
               <span className="cir-stack"><span className="cir-member__name" title={member.name || member.login}>{named ? member.name : member.login}</span>

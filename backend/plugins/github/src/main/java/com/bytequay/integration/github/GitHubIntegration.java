@@ -21,6 +21,7 @@ import com.bytequay.core.hosting.PullRequestContentReader;
 import com.bytequay.core.hosting.PullRequestDiscovery;
 import com.bytequay.core.hosting.PullRequestWriter;
 import com.bytequay.core.hosting.RepositoryMetadataReader;
+import com.bytequay.core.hosting.TeamActivityReader;
 import com.bytequay.integration.github.impl.GitHubConnectionClient;
 import com.bytequay.integration.github.impl.GitHubPullRequestReader;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -31,12 +32,12 @@ public final class GitHubIntegration
 {
     private GitHubIntegration() {}
 
-    /** Content, write, issue, discovery and CI adapters are supplied by the application, which still builds them on its existing GitHub clients. */
+    /** Content, write, issue, discovery, CI and team adapters are supplied by the application, which still builds them on its existing GitHub clients. */
     public static HostingIntegration create(HttpClient http, ObjectMapper mapper, PullRequestContentReader contents, PullRequestWriter writer, IssueClient issues,
-            RepositoryMetadataReader metadata, PullRequestDiscovery discovery, PullRequestCi ci)
+            RepositoryMetadataReader metadata, PullRequestDiscovery discovery, PullRequestCi ci, TeamActivityReader team)
     {
         GitHubConnectionClient connections = new GitHubConnectionClient(http, mapper);
         return new HostingIntegration(HostingProvider.GITHUB, connections, connections, new GitHubPullRequestReader(http, mapper), contents, writer, issues, metadata,
-                discovery, ci);
+                discovery, ci, team);
     }
 }

@@ -70,7 +70,7 @@ final class ScriptedPullRequestCi
             {
                 HostingIntegration real = super.of(provider);
                 return new HostingIntegration(real.provider(), real.accounts(), real.repositories(), real.pullRequests(), real.contents(), real.writer(), real.issues(),
-                        real.metadata(), real.discovery(), ci);
+                        real.metadata(), real.discovery(), ci, real.team());
             }
         };
     }

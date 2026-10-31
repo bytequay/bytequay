@@ -17,12 +17,12 @@ import Avatar from '../Avatar';
 import { useModalDialog } from '../useModalDialog';
 import { remoteErrorMessage } from '../remoteError';
 import type { RepositoryMetadataDto } from '../types';
-import { people } from './activity';
-import { CIRCLE_COLORS, CIRCLE_SHAPES, type CircleAvatar, type TeamCircle, type TeamCreateInput } from './types';
+import { people, providerName } from './activity';
+import { CIRCLE_COLORS, CIRCLE_SHAPES, type CircleAvatar, type TeamCircle, type TeamCreateInput, type TeamDirectory } from './types';
 import '../css/confirm-dialog.css';
 
 type Contributor = RepositoryMetadataDto['contributors'][number];
-type Selected = { githubId: number; login: string; avatarUrl: string };
+type Selected = { remoteId: number; login: string; avatarUrl: string };
 const SHOWN = 50;
 
 /** A circle's avatar: a plain block of the color and shape chosen for it. */
@@ -42,11 +42,12 @@ export function unverifiedPerson(error: string | null, selected: { login: string
   return selected.find(person => error.toLowerCase().startsWith(`${person.login.toLowerCase()} `))?.login ?? null;
 }
 
-export default function CircleDialog({ circle, initialName = '', circles, busy, error, onSave, onCancel, onClearError, onDelete, onManagePeople }: {
+export default function CircleDialog({ circle, initialName = '', directory, busy, error, onSave, onCancel, onClearError, onDelete, onManagePeople }: {
   /** Absent for a new circle. */
   circle: TeamCircle | null;
   initialName?: string;
-  circles: TeamCircle[];
+  /** The account the circle belongs to. */
+  directory: TeamDirectory;
   busy: boolean;
   error: string | null;
   onSave: (input: TeamCreateInput) => void;
@@ -55,6 +56,7 @@ export default function CircleDialog({ circle, initialName = '', circles, busy, 
   onDelete?: () => void;
   onManagePeople?: () => void;
 }) {
+  const { accountId, circles, server } = directory;
   const nameInput = useRef<HTMLInputElement>(null);
   const dialog = useModalDialog(nameInput);
   const [name, setName] = useState(circle?.name ?? initialName);
@@ -76,17 +78,23 @@ export default function CircleDialog({ circle, initialName = '', circles, busy, 
   useEffect(() => {
     let current = true;
     if (circle === null) {
-      Promise.resolve().then(() => window.bridge.fetchTeamContributors())
+      Promise.resolve().then(() => window.bridge.fetchTeamContributors(accountId))
         .then(value => { if (current) setContributors(value); })
         .catch((failure: unknown) => { if (current) { setContributors([]); setContributorError(remoteErrorMessage(failure)); } });
     }
+    const base = (url: string) => url.replace(/\/+$/, '').toLowerCase();
     Promise.resolve().then(() => window.bridge.listWorkspaces())
-      .then(workspaces => { if (current) setWatched([...new Set(workspaces.map(workspace => `${workspace.monitoredOwner}/${workspace.monitoredRepo}`.toLowerCase()))].sort()); })
+      .then(workspaces => {
+        if (!current) return;
+        // A workspace without a server is a GitHub.com one; only the account's own server can be followed.
+        const onServer = workspaces.filter(workspace => base(workspace.hostingServer?.webBaseUrl ?? 'https://github.com') === base(server.webBaseUrl));
+        setWatched([...new Set(onServer.map(workspace => `${workspace.monitoredOwner}/${workspace.monitoredRepo}`.toLowerCase()))].sort());
+      })
       .catch(() => { /* Suggestions are optional; typing a repository still works. */ });
     return () => { current = false; };
-  }, [circle]);
+  }, [accountId, circle, server.webBaseUrl]);
 
-  const known = new Map(circles.flatMap(item => item.members.map(member => [member.githubId, member] as const)));
+  const known = new Map(circles.flatMap(item => item.members.map(member => [member.remoteId, member] as const)));
   const normalized = query.trim().replace(/^@/, '').toLowerCase();
   const options = (contributors ?? []).filter(person => !normalized || person.login.toLowerCase().includes(normalized)
     || known.get(person.id)?.name.toLowerCase().includes(normalized)).sort((left, right) => left.login.localeCompare(right.login)).slice(0, SHOWN);
@@ -94,12 +102,12 @@ export default function CircleDialog({ circle, initialName = '', circles, busy, 
   const bad = unverifiedPerson(error, selected);
 
   function toggle(person: Contributor) {
-    setSelected(current => current.some(item => item.githubId === person.id) ? current.filter(item => item.githubId !== person.id)
-      : [...current, { githubId: person.id, login: person.login, avatarUrl: person.avatarUrl }]);
+    setSelected(current => current.some(item => item.remoteId === person.id) ? current.filter(item => item.remoteId !== person.id)
+      : [...current, { remoteId: person.id, login: person.login, avatarUrl: person.avatarUrl }]);
     if (error !== null) onClearError();
   }
-  function remove(githubId: number) {
-    setSelected(current => current.filter(item => item.githubId !== githubId));
+  function remove(remoteId: number) {
+    setSelected(current => current.filter(item => item.remoteId !== remoteId));
     if (error !== null) onClearError();
   }
   function pickerKey(event: KeyboardEvent<HTMLInputElement>) {
@@ -108,12 +116,14 @@ export default function CircleDialog({ circle, initialName = '', circles, busy, 
       setFocus(Math.max(0, Math.min(options.length - 1, active + (event.key === 'ArrowDown' ? 1 : -1))));
     }
     else if (event.key === 'Enter') { event.preventDefault(); if (options[active]) toggle(options[active]); }
-    else if (event.key === 'Backspace' && query === '' && selected.length > 0) remove(selected[selected.length - 1].githubId);
+    else if (event.key === 'Backspace' && query === '' && selected.length > 0) remove(selected[selected.length - 1].remoteId);
   }
   /** The typed repository, normalized, or null after naming what is wrong with it. */
   function typedRepository(value: string): string | null {
-    const repository = value.trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\/+$/, '').toLowerCase();
-    if (/^[\w.-]+\/[\w.-]+$/.test(repository)) return repository;
+    const base = server.webBaseUrl.replace(/\/*$/, '/').toLowerCase();
+    const typed = value.trim().toLowerCase();
+    const repository = (typed.startsWith(base) ? typed.slice(base.length) : typed).replace(/\/+$/, '');
+    if (/^[\w.-]+(?:\/[\w.-]+)+$/.test(repository)) return repository;
     setRepositoryError('Use owner/repository, for example octo-org/octo-repo.');
     return null;
   }
@@ -133,7 +143,7 @@ export default function CircleDialog({ circle, initialName = '', circles, busy, 
     const pending = draft.trim() === '' ? null : typedRepository(draft);
     if (draft.trim() !== '' && pending === null) return;
     onSave({ name, description, avatar, repositories: pending === null || repositories.includes(pending) ? repositories : [...repositories, pending],
-      members: selected.map(({ githubId, login }) => ({ githubId, login })) });
+      members: selected.map(({ remoteId, login }) => ({ remoteId, login })) });
   }
   const suggestions = (watched ?? []).filter(repository => !repositories.includes(repository) && (!draft.trim() || repository.includes(draft.trim().toLowerCase()))).slice(0, 5);
   const title = circle === null ? 'New circle' : 'Edit circle';
@@ -183,17 +193,17 @@ export default function CircleDialog({ circle, initialName = '', circles, busy, 
       {circle === null ? <div className="cir-field">
         <span>People <span className="cir-muted">{selected.length > 0 ? `${selected.length} selected` : 'Optional — add people now or later'}</span></span>
         <div className="cir-tokens">
-          {selected.map(person => <span key={person.githubId} className={`cir-token${person.login === bad ? ' is-bad' : ''}`}>
-            <Avatar login={person.login} avatarUrl={person.avatarUrl} size={18} /><span className="cir-ellipsis">{person.login}</span>
-            <button type="button" className="cir-token__x" aria-label={`Remove ${person.login}`} onClick={() => remove(person.githubId)}><X size={12} strokeWidth={2.2} aria-hidden="true" /></button>
+          {selected.map(person => <span key={person.remoteId} className={`cir-token${person.login === bad ? ' is-bad' : ''}`}>
+            <Avatar login={person.login} avatarUrl={person.avatarUrl} size={18} allowGitHubFallback={server.provider === 'GITHUB'} /><span className="cir-ellipsis">{person.login}</span>
+            <button type="button" className="cir-token__x" aria-label={`Remove ${person.login}`} onClick={() => remove(person.remoteId)}><X size={12} strokeWidth={2.2} aria-hidden="true" /></button>
           </span>)}
           <input value={query} placeholder="Type a name or username to filter" aria-label="Filter cached contributors" aria-autocomplete="list"
             onChange={event => { setQuery(event.target.value); setFocus(0); }} onKeyDown={pickerKey} />
         </div>
         <div className="cir-picker" role="listbox" aria-label="Cached contributors" aria-multiselectable="true">
           {options.map((person, index) => {
-            const on = selected.some(item => item.githubId === person.id);
-            const circlesOf = circles.filter(item => item.members.some(member => member.githubId === person.id)).map(item => item.name);
+            const on = selected.some(item => item.remoteId === person.id);
+            const circlesOf = circles.filter(item => item.members.some(member => member.remoteId === person.id)).map(item => item.name);
             const display = known.get(person.id)?.name;
             const label = display && display !== person.login ? `${display} · @${person.login}` : `@${person.login}`;
             return <button type="button" role="option" aria-selected={on} aria-label={label} key={person.id} tabIndex={-1}
@@ -210,7 +220,7 @@ export default function CircleDialog({ circle, initialName = '', circles, busy, 
             ? <div className="cir-picker__empty"><strong>No cached contributors yet</strong>
               <span>{contributorError ?? 'ByteQuay only searches people it has already seen in your watched repositories. Watch a repository and let it sync, or create the circle now and add people later.'}</span></div>
             : <div className="cir-picker__empty"><strong>No contributors match “{query}”</strong>
-              <span>Search covers usernames and display names of contributors cached across your watched repositories. It doesn’t search GitHub.</span></div>)}
+              <span>Search covers usernames and display names of contributors cached across your watched repositories. It doesn’t search {providerName(server)}.</span></div>)}
         </div>
         <span className="cir-help">From contributors cached across your watched repositories. Typing only filters — use ↑ ↓ and Return, or click, to select.</span>
       </div> : <div className="cir-people-note">
@@ -246,7 +256,7 @@ export default function CircleDialog({ circle, initialName = '', circles, busy, 
       {error !== null && <div className="cir-alert" role="alert">
         <CircleAlert size={15} aria-hidden="true" />
         <div><span className="cir-strong">Circle not saved.</span> {error}{bad !== null ? '. Nothing was saved. Remove them and try again, or re-add them after the repository syncs.' : ''}
-          {bad !== null && <div><button type="button" className="bq-button" onClick={() => remove(selected.find(person => person.login === bad)?.githubId ?? 0)}>Remove {bad}</button></div>}
+          {bad !== null && <div><button type="button" className="bq-button" onClick={() => remove(selected.find(person => person.login === bad)?.remoteId ?? 0)}>Remove {bad}</button></div>}
         </div>
       </div>}
     </div>

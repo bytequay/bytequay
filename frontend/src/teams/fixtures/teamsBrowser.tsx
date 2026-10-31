@@ -19,34 +19,46 @@ import { assert, changeInput, settle, element as requiredElement, runScenarios }
 import { pr } from '../../pulls/fixtures/pullRequest';
 import CirclesGrid from '../../home/CirclesGrid';
 import { loadHandled, saveHandled } from '../../home/attention';
-import type { Bridge, PullRequestDto, RepositoryIssueSnapshotDto, WorkspaceDto } from '../../types';
+import type { Bridge, HostingServerDto, PullRequestDto, RepositoryIssueSnapshotDto, WorkspaceDto } from '../../types';
 import TeamsPage from '../TeamsPage';
 import { membersOf } from '../activity';
-import type { TeamActivityEvent, TeamActivityQuery, TeamActivitySnapshot, TeamDirectory, TeamMember, TeamStatistics } from '../types';
-import { GITHUB_ACCOUNT_CHANGED, updateTeams, useTeams } from '../useTeams';
+import type { TeamActivityEvent, TeamActivityQuery, TeamActivitySnapshot, TeamCircle, TeamDirectory, TeamMember, TeamStatistics } from '../types';
+import { GITHUB_ACCOUNT_CHANGED, useTeams } from '../useTeams';
 import '../../css/base.css';
 import '../../css/home.css';
 import '../../css/pulls.css';
 
 const noOp = () => {};
-const alice: TeamMember = { githubId: 101, login: 'alice', name: 'Alice Chen', avatarUrl: '' };
-const bob: TeamMember = { githubId: 202, login: 'bob', name: 'Bob Rivera', avatarUrl: '' };
-const cara: TeamMember = { githubId: 303, login: 'cara', name: 'Cara Patel', avatarUrl: '' };
-const knownPeople = [alice, bob, cara];
+const alice: TeamMember = { remoteId: 101, login: 'alice', name: 'Alice Chen', avatarUrl: '' };
+const bob: TeamMember = { remoteId: 202, login: 'bob', name: 'Bob Rivera', avatarUrl: '' };
+const cara: TeamMember = { remoteId: 303, login: 'cara', name: 'Cara Patel', avatarUrl: '' };
+const dana: TeamMember = { remoteId: 404, login: 'dana', name: 'Dana Kim', avatarUrl: '' };
+const knownPeople = [alice, bob, cara, dana];
 const ago = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
+const GITHUB: HostingServerDto = { provider: 'GITHUB', webBaseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' };
+const GITLAB: HostingServerDto = { provider: 'GITLAB', webBaseUrl: 'https://gitlab.example.com', apiBaseUrl: 'https://gitlab.example.com/api/v4' };
 
-function seededDirectory(): TeamDirectory {
-  return { accountLogin: 'viewer', circles: [
-    { id: 'trusted-oss', name: 'Trusted OSS', description: 'Trusted open-source collaborators', avatar: { color: 'teal', shape: 'circle' }, repositories: ['owner/repository'], members: [alice, bob] },
-    { id: 'platform', name: 'Platform team', description: 'Our internal platform group', avatar: { color: 'gray', shape: 'square' }, repositories: ['acme/query-engine'], members: [alice, cara] },
-  ] };
+function account(circles: TeamCircle[], accountId = 1, accountLogin = 'viewer', server = GITHUB): TeamDirectory {
+  return { accountId, accountLogin, server, circles };
 }
 
-function event(id: string, kind: TeamActivityEvent['kind'], actor: { githubId: number; login: string }, number: number, title: string, hours: number,
+function seededDirectory(): TeamDirectory {
+  return account([
+    { id: 'trusted-oss', name: 'Trusted OSS', description: 'Trusted open-source collaborators', avatar: { color: 'teal', shape: 'circle' }, repositories: ['owner/repository'], members: [alice, bob] },
+    { id: 'platform', name: 'Platform team', description: 'Our internal platform group', avatar: { color: 'gray', shape: 'square' }, repositories: ['acme/query-engine'], members: [alice, cara] },
+  ]);
+}
+
+function gitlabDirectory(): TeamDirectory {
+  return account([{ id: 'runners', name: 'Runners', description: '', avatar: { color: 'green', shape: 'square' }, repositories: ['group/sub/project'], members: [dana] }],
+    2, 'viewer', GITLAB);
+}
+
+function event(id: string, kind: TeamActivityEvent['kind'], actor: { remoteId: number; login: string }, number: number, title: string, hours: number,
   extra: Partial<TeamActivityEvent> = {}): TeamActivityEvent {
-  return { id, kind, actorId: actor.githubId, actorLogin: actor.login, repository: 'owner/repository', number, title,
+  return { id, kind, actorId: actor.remoteId, actorLogin: actor.login, repository: 'owner/repository', number, title,
     url: `https://github.com/owner/repository/${kind.startsWith('ISSUE_') ? 'issues' : 'pull'}/${number}#${id}`,
-    occurredAt: ago(hours), subjectAuthorId: alice.githubId, subjectAuthorLogin: alice.login,
+    occurredAt: ago(hours), subjectAuthorId: alice.remoteId, subjectAuthorLogin: alice.login,
     source: 'REPOSITORY', viewerInteractionMemberIds: [], ...extra };
 }
 
@@ -54,16 +66,16 @@ function seededEvents(): TeamActivityEvent[] {
   const title = 'Avoid repeated metadata calls when planning large queries';
   return [
     event('review-1', 'PR_REVIEWED', bob, 24118, title, 1),
-    event('comment-1', 'PR_COMMENT', alice, 24118, title, 2, { viewerInteractionMemberIds: [alice.githubId] }),
-    event('outsider-1', 'PR_COMMENT', { githubId: 777, login: 'mallory' }, 24118, title, 2.5),
+    event('comment-1', 'PR_COMMENT', alice, 24118, title, 2, { viewerInteractionMemberIds: [alice.remoteId] }),
+    event('outsider-1', 'PR_COMMENT', { remoteId: 777, login: 'mallory' }, 24118, title, 2.5),
     event('merge-1', 'PR_MERGED', alice, 24105, 'Improve predicate pushdown for nested Parquet columns', 3),
     event('issue-1', 'ISSUE_OPENED', alice, 24122, 'Document retry behavior for long-running transactions', 4),
     event('review-2', 'PR_REVIEWED', alice, 24090, 'Handle connection resets during query cancellation', 5,
-      { subjectAuthorId: 999, subjectAuthorLogin: 'viewer', viewerInteractionMemberIds: [alice.githubId] }),
+      { subjectAuthorId: 999, subjectAuthorLogin: 'viewer', viewerInteractionMemberIds: [alice.remoteId] }),
     event('platform-1', 'PR_OPENED', cara, 318, 'Reduce coordinator memory use during deployment rollouts', 6,
-      { repository: 'acme/query-engine', url: 'https://github.com/acme/query-engine/pull/318', subjectAuthorId: cara.githubId, subjectAuthorLogin: cara.login }),
-    event('unknown-merge', 'PR_MERGED', { githubId: 0, login: 'unknown' }, 24095, 'Remove deprecated hive.s3 properties', 8,
-      { subjectAuthorId: bob.githubId, subjectAuthorLogin: bob.login }),
+      { repository: 'acme/query-engine', url: 'https://github.com/acme/query-engine/pull/318', subjectAuthorId: cara.remoteId, subjectAuthorLogin: cara.login }),
+    event('unknown-merge', 'PR_MERGED', { remoteId: 0, login: 'unknown' }, 24095, 'Remove deprecated hive.s3 properties', 8,
+      { subjectAuthorId: bob.remoteId, subjectAuthorLogin: bob.login }),
   ];
 }
 
@@ -123,18 +135,24 @@ const pageTitle = () => document.querySelector('.bq-page-header__title')?.textCo
 let root: Root | null = null;
 async function dispose() { if (root) { flushSync(() => root?.unmount()); root = null; await settled(); } }
 
-async function mount(initial = seededDirectory(), { home = false, observations = seededEvents(), prs = [] as PullRequestDto[], keepStorage = false } = {}) {
+async function mount(initial: TeamDirectory | TeamDirectory[] = seededDirectory(),
+  { home = false, observations = seededEvents(), prs = [] as PullRequestDto[], keepStorage = false } = {}) {
   await dispose();
   if (!keepStorage) {
     window.localStorage.clear();
     saveHandled({});
   }
-  const directory = structuredClone(initial);
-  const queries: TeamActivityQuery[] = [];
+  const directories = structuredClone([initial].flat());
+  const owned = (accountId: number) => {
+    const found = directories.find(item => item.accountId === accountId);
+    if (!found) throw new Error('This account is no longer signed in');
+    return found;
+  };
+  const queries: (TeamActivityQuery & { accountId: number })[] = [];
   const opened: string[] = [];
   const created: unknown[] = [];
   const removed: number[] = [];
-  const added: { id: string; githubId: number }[] = [];
+  const added: { id: string; remoteId: number }[] = [];
   let refreshes = 0;
   let workspaceReads = 0;
   let workspaces: WorkspaceDto[] = [];
@@ -143,15 +161,16 @@ async function mount(initial = seededDirectory(), { home = false, observations =
   let delayRefresh = false;
   let finishRefresh = noOp;
   let createFailure: string | null = null;
-  const copy = () => structuredClone(directory);
-  function snapshot(query: TeamActivityQuery = {}): TeamActivitySnapshot {
-    queries.push({ ...query });
+  const copy = (accountId: number) => structuredClone(owned(accountId));
+  function snapshot(accountId: number, query: TeamActivityQuery = {}): TeamActivitySnapshot {
+    queries.push({ accountId, ...query });
+    const directory = owned(accountId);
     const circles = directory.circles.filter(circle => !query.circleId || circle.id === query.circleId);
-    const people = membersOf(circles).filter(person => !query.memberId || person.githubId === query.memberId);
-    const ids = new Set(people.map(person => person.githubId));
+    const people = membersOf(circles).filter(person => !query.memberId || person.remoteId === query.memberId);
+    const ids = new Set(people.map(person => person.remoteId));
     const involves = (item: TeamActivityEvent, id: number) => item.actorId === id || item.subjectAuthorId === id || item.viewerInteractionMemberIds.includes(id);
     const events = observations.filter(item => circles.some(circle => (circle.repositories.length === 0 || circle.repositories.includes(item.repository))
-      && circle.members.some(person => ids.has(person.githubId) && involves(item, person.githubId))))
+      && circle.members.some(person => ids.has(person.remoteId) && involves(item, person.remoteId))))
       .filter(item => {
         switch (query.filter ?? 'all') {
           case 'merged': return item.kind === 'PR_MERGED';
@@ -165,14 +184,14 @@ async function mount(initial = seededDirectory(), { home = false, observations =
         }
       }).sort((left, right) => Date.parse(right.occurredAt) - Date.parse(left.occurredAt));
     const days = query.days ?? 7;
-    const total = people.map(person => statistics(knownPeople.find(known => known.githubId === person.githubId) ?? person))
+    const total = people.map(person => statistics(knownPeople.find(known => known.remoteId === person.remoteId) ?? person))
       .reduce((sum, each) => Object.fromEntries(Object.entries(sum).map(([key, value]) => [key, value + each[key as keyof TeamStatistics]])) as TeamStatistics,
         { prsOpened: 0, authoredPrsMerged: 0, mergesPerformed: 0, prsReviewed: 0, issuesOpened: 0, issuesClosed: 0, comments: 0, directInteractions: 0, sharedPullRequests: 0, sharedIssues: 0 });
     return {
       accountLogin: directory.accountLogin, events: events.slice(0, query.limit ?? 100), updates: events.length,
       workItems: new Set(events.map(item => `${item.repository}#${item.number}`)).size,
-      people: people.map(person => ({ memberId: person.githubId, login: person.login,
-        statistics: statistics(knownPeople.find(known => known.githubId === person.githubId) ?? person), lastActiveAt: ago(2) })),
+      people: people.map(person => ({ memberId: person.remoteId, login: person.login,
+        statistics: statistics(knownPeople.find(known => known.remoteId === person.remoteId) ?? person), lastActiveAt: ago(2) })),
       totals: total,
       days: Array.from({ length: days }, (_, index) => ({ date: new Date(Date.now() - (days - 1 - index) * 86_400_000).toLocaleDateString('en-CA'),
         updates: index % 3, collected: index >= 5 })),
@@ -181,35 +200,42 @@ async function mount(initial = seededDirectory(), { home = false, observations =
     };
   }
   const bridge = {
-    getTeams: async () => copy(),
-    fetchTeamContributors: async () => knownPeople.map(person => ({ id: person.githubId, login: person.login, avatarUrl: person.avatarUrl, bot: false })),
-    createTeam: async value => {
+    getTeams: async () => structuredClone(directories),
+    fetchTeamContributors: async () => knownPeople.map(person => ({ id: person.remoteId, login: person.login, avatarUrl: person.avatarUrl, bot: false })),
+    createTeam: async (accountId, value) => {
       created.push(value);
       if (createFailure !== null) throw new Error(createFailure);
+      const directory = owned(accountId);
       directory.circles.push({ id: `circle-${directory.circles.length + 1}`, ...value,
-        members: knownPeople.filter(person => value.members.some(selected => selected.githubId === person.githubId)) });
-      return copy();
+        members: knownPeople.filter(person => value.members.some(selected => selected.remoteId === person.remoteId)) });
+      return copy(accountId);
     },
-    updateTeam: async (id, value) => { directory.circles = directory.circles.map(circle => circle.id === id ? { ...circle, ...value, members: circle.members } : circle); return copy(); },
-    removeTeam: async id => { directory.circles = directory.circles.filter(circle => circle.id !== id); return copy(); },
-    addTeamMember: async (id, selected) => {
-      added.push({ id, githubId: selected.githubId });
-      const person = knownPeople.find(candidate => candidate.githubId === selected.githubId);
-      if (!person) throw new Error('GitHub user not found');
-      directory.circles = directory.circles.map(circle => circle.id !== id || circle.members.some(member => member.githubId === person.githubId)
+    updateTeam: async (accountId, id, value) => {
+      const directory = owned(accountId);
+      directory.circles = directory.circles.map(circle => circle.id === id ? { ...circle, ...value, members: circle.members } : circle);
+      return copy(accountId);
+    },
+    removeTeam: async (accountId, id) => { const directory = owned(accountId); directory.circles = directory.circles.filter(circle => circle.id !== id); return copy(accountId); },
+    addTeamMember: async (accountId, id, selected) => {
+      added.push({ id, remoteId: selected.remoteId });
+      const person = knownPeople.find(candidate => candidate.remoteId === selected.remoteId);
+      if (!person) throw new Error('User not found');
+      const directory = owned(accountId);
+      directory.circles = directory.circles.map(circle => circle.id !== id || circle.members.some(member => member.remoteId === person.remoteId)
         ? circle : { ...circle, members: [...circle.members, person] });
-      return copy();
+      return copy(accountId);
     },
-    removeTeamMember: async (id, memberId) => {
+    removeTeamMember: async (accountId, id, memberId) => {
       removed.push(memberId);
-      directory.circles = directory.circles.map(circle => circle.id === id ? { ...circle, members: circle.members.filter(person => person.githubId !== memberId) } : circle);
-      return copy();
+      const directory = owned(accountId);
+      directory.circles = directory.circles.map(circle => circle.id === id ? { ...circle, members: circle.members.filter(person => person.remoteId !== memberId) } : circle);
+      return copy(accountId);
     },
-    getTeamActivity: async query => snapshot(query),
-    refreshTeamActivity: async query => {
+    getTeamActivity: async (accountId, query) => snapshot(accountId, query),
+    refreshTeamActivity: async (accountId, query) => {
       refreshes++;
       if (failRefresh) throw new Error('GitHub rate limit reached');
-      const result = snapshot(query);
+      const result = snapshot(accountId, query);
       if (delayRefresh) await new Promise<void>(resolve => { finishRefresh = resolve; });
       return result;
     },
@@ -225,7 +251,8 @@ async function mount(initial = seededDirectory(), { home = false, observations =
     openInAppBrowser: async url => { opened.push(url); },
   } satisfies Partial<Bridge>;
   window.bridge = bridge as unknown as Bridge;
-  updateTeams(copy());
+  // The directory store outlives a mount; this reads the new bridge at once.
+  window.dispatchEvent(new Event(GITHUB_ACCOUNT_CHANGED));
   window.location.hash = home ? '#/home' : '#/teams';
   document.body.innerHTML = '<div id="root"></div>';
   function Surface() {
@@ -242,7 +269,7 @@ async function mount(initial = seededDirectory(), { home = false, observations =
         browserRailVisible={false} onToggleBrowserRail={noOp} />
       <main className="app-content">{page === 'teams' ? <TeamsPage />
         : <div style={{ padding: 36 }}><h1>Home</h1>
-          <CirclesGrid key={teams.directory?.accountLogin ?? ''} directory={teams.directory} attention={[]} viewerLogin={teams.directory?.accountLogin ?? null} />
+          <CirclesGrid key={teams.directories?.[0]?.accountId ?? ''} directories={teams.directories} attention={[]} />
         </div>}</main>
     </div>;
   }
@@ -251,21 +278,23 @@ async function mount(initial = seededDirectory(), { home = false, observations =
   root = createRoot(host);
   flushSync(() => root?.render(<Surface />));
   await settled();
-  return { queries, opened, created, removed, added, get directory() { return directory; }, get refreshes() { return refreshes; },
+  return { queries, opened, created, removed, added, get directory() { return directories[0]; }, get refreshes() { return refreshes; },
     get workspaceReads() { return workspaceReads; }, issueEtags,
     watchWorkspace() { workspaces = [{ id: 'workspace-1', monitoredOwner: 'owner', monitoredRepo: 'repository' } as WorkspaceDto]; },
     failRefresh() { failRefresh = true; }, delayRefresh() { delayRefresh = true; }, finishRefresh() { finishRefresh(); },
     failCreate(message: string | null) { createFailure = message; },
+    /** The desktop sign-in becomes another account, which owns its own directory. */
     async switchAccount(next: TeamDirectory) {
-      directory.accountLogin = next.accountLogin; directory.circles = structuredClone(next.circles);
+      directories[0] = structuredClone(next);
       window.dispatchEvent(new Event(GITHUB_ACCOUNT_CHANGED));
       await settled();
     } };
 }
 
 async function firstUse() {
-  const f = await mount({ accountLogin: 'viewer', circles: [] });
+  const f = await mount(account([]));
   assert(text().includes('Keep the people you review close') && document.querySelector('.cir-switcher') === null, 'No circles must explain circles without a switcher');
+  assert(document.querySelector('[aria-label="Account"]') === null, 'One account needs no account choice');
   await click('Trusted OSS');
   assert(document.querySelector<HTMLInputElement>('[aria-label="Circle name"]')?.value === 'Trusted OSS', 'A suggested name must prefill the dialog');
   await input('Circle name', ' ');
@@ -312,10 +341,10 @@ async function membersAndUndo() {
   assert(document.querySelectorAll('.cir-table [role="listitem"]').length === 2, 'Members must list the circle’s people');
   assert(document.querySelector('.cir-table [role="listitem"] .cir-member__circles')?.textContent === 'Also in Platform team', 'Members must name a person’s other circles');
   await click('Remove bob from Trusted OSS');
-  assert(f.removed[0] === bob.githubId && document.querySelectorAll('.cir-table [role="listitem"]').length === 1, 'Removal must update the list');
+  assert(f.removed[0] === bob.remoteId && document.querySelectorAll('.cir-table [role="listitem"]').length === 1, 'Removal must update the list');
   assert(document.querySelector('.bq-toast')?.textContent?.includes('Removed bob from Trusted OSS') === true, 'Removal must say what changed');
   await click('Undo');
-  assert(f.added.at(-1)?.githubId === bob.githubId && document.querySelectorAll('.cir-table [role="listitem"]').length === 2, 'Undo must re-add the stored GitHub ID');
+  assert(f.added.at(-1)?.remoteId === bob.remoteId && document.querySelectorAll('.cir-table [role="listitem"]').length === 2, 'Undo must re-add the stored GitHub ID');
   await click('Add people');
   assert(document.querySelector('.cir-add [aria-label="@alice"], .cir-add [aria-label="Alice Chen · @alice"]')?.hasAttribute('disabled') === true,
     'Existing members must not be picked again');
@@ -358,7 +387,7 @@ async function insightsDrill() {
   const cell = [...document.querySelectorAll<HTMLButtonElement>('.cir-person-row')].find(row => row.textContent?.includes('bob'))?.querySelectorAll<HTMLButtonElement>('.cir-cell')[0];
   assert(cell?.textContent === '–' && cell.title === 'No recorded observation', 'A zero must read as no observation');
   cell.click(); await settled();
-  assert(f.queries.at(-1)?.memberId === bob.githubId && f.queries.at(-1)?.filter === 'prs-opened', 'A person cell must drill into that person’s metric');
+  assert(f.queries.at(-1)?.memberId === bob.remoteId && f.queries.at(-1)?.filter === 'prs-opened', 'A person cell must drill into that person’s metric');
 }
 
 async function personPanel() {
@@ -368,11 +397,11 @@ async function personPanel() {
   await click('Open alice');
   const panel = document.querySelector('.cir-person');
   assert(panel?.querySelector('.cir-person__name')?.textContent === 'Alice Chen', 'A row must open the person');
-  assert(f.queries.some(query => query.memberId === alice.githubId && query.limit === 50), 'The panel must read that person’s own activity');
+  assert(f.queries.some(query => query.memberId === alice.remoteId && query.limit === 50), 'The panel must read that person’s own activity');
   await click('Circles…', panel);
   assert(document.querySelector('[role="menuitemcheckbox"][aria-checked="true"]') !== null, 'The circle menu must show current membership');
   await click('Trusted OSS', document.querySelector('.cir-person__circles [role="menu"]') ?? document);
-  assert(!f.directory.circles[0].members.some(person => person.githubId === alice.githubId), 'Unchecking a circle must remove the person from it');
+  assert(!f.directory.circles[0].members.some(person => person.remoteId === alice.remoteId), 'Unchecking a circle must remove the person from it');
   await press('', 'Escape');
   await press('', 'Escape');
   assert(document.querySelector('.cir-person') === null || document.querySelector('.cir-person__name')?.textContent !== 'Alice Chen', 'Esc must close the panel');
@@ -431,9 +460,9 @@ async function accountSwitchDuringRefresh() {
   await openTab('Activity');
   f.delayRefresh(); await click('Refresh activity');
   assert(button('Refresh activity').disabled, 'The delayed refresh must be in flight');
-  await f.switchAccount({ accountLogin: 'second-viewer', circles: [
+  await f.switchAccount(account([
     { id: 'second-circle', name: 'Second account circle', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: ['acme/query-engine'], members: [cara] },
-  ] });
+  ], 3, 'second-viewer'));
   await settled();
   assert(pageTitle() === 'All circles', 'An account change must reset the circle');
   await openTab('Activity');
@@ -441,6 +470,24 @@ async function accountSwitchDuringRefresh() {
   assert(actors() === 'cara', 'The new account must show only its own activity');
   f.finishRefresh(); await settled();
   assert(actors() === 'cara', 'The old account’s delayed refresh must not overwrite the new account');
+}
+
+async function accountChoice() {
+  const f = await mount([seededDirectory(), gitlabDirectory()]);
+  const choices = () => [...document.querySelectorAll('[aria-label="Account"] button')]
+    .map(item => `${item.textContent}${item.getAttribute('aria-pressed') === 'true' ? ' (selected)' : ''}`).join();
+  assert(choices() === 'viewer · GitHub (selected),viewer · GitLab', 'Two accounts must offer a choice, starting on the first');
+  await click('viewer · GitLab');
+  assert(pageTitle() === 'All circles' && text().includes('1 circle') && !text().includes('Trusted OSS'), 'An account must show only its own circles');
+  await switcher('Runners');
+  await openTab('Activity');
+  assert(f.queries.at(-1)?.accountId === 2 && f.queries.at(-1)?.circleId === 'runners', 'Activity must read the chosen account');
+  await openTab('Members');
+  await click('Open dana');
+  await click('Open GitLab profile');
+  assert(f.opened.at(-1) === 'https://gitlab.example.com/dana', 'A profile must open on the account’s own server');
+  await mount([seededDirectory(), gitlabDirectory()], { keepStorage: true });
+  assert(choices() === 'viewer · GitHub,viewer · GitLab (selected)' && pageTitle() === 'Runners', 'The last account and its circle must reopen');
 }
 
 async function rememberedView() {
@@ -483,7 +530,7 @@ async function homeNavigation() {
 }
 
 async function homeCreation() {
-  const f = await mount({ accountLogin: 'viewer', circles: [] }, { home: true });
+  const f = await mount(account([]), { home: true });
   const trigger = [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === '+ Add circle');
   assert(trigger !== undefined, 'Home must offer circle creation');
   trigger.focus();
@@ -506,14 +553,14 @@ async function homeCreation() {
   assert(document.querySelector('[data-circle-id="circle-1"]')?.textContent?.includes('Home reviewers') === true && f.directory.circles[0]?.members[0]?.login === 'alice',
     'The new circle and selected people must appear immediately');
   await click('+ Add circle');
-  await f.switchAccount({ accountLogin: 'other', circles: [] });
+  await f.switchAccount(account([], 4, 'other'));
   assert(document.querySelector('dialog') === null && document.querySelector('[data-circle-id]') === null, 'Switching accounts must discard the open dialog and old circles');
   assert(f.refreshes === 0, 'Creating from Home must not start a collection pass');
 }
 
 export async function run() {
   const scenarios = { firstUse, saveFailure, membersAndUndo, activityWording, insightsDrill, personPanel, needsYou, refreshFailure,
-    accountSwitchDuringRefresh, rememberedView, avatarChoice, homeNavigation, homeCreation };
+    accountSwitchDuringRefresh, accountChoice, rememberedView, avatarChoice, homeNavigation, homeCreation };
   const results = await runScenarios(Object.entries(scenarios), dispose);
   return results;
 }
@@ -536,7 +583,7 @@ export function commentShown(): boolean {
 }
 
 export async function showPreview(view: 'needs' | 'activity' | 'members' | 'insights' | 'person' | 'create' | 'edit' | 'empty' | 'remove' | 'switcher' = 'needs') {
-  if (view === 'empty') { await mount({ accountLogin: 'viewer', circles: [] }); return; }
+  if (view === 'empty') { await mount(account([])); return; }
   await mount(seededDirectory(), { prs: [alicePr()] });
   if (view === 'create') { await click('New circle'); await input('Circle name', 'Review friends'); await input('Filter cached contributors', 'a'); return; }
   await switcher('Trusted OSS');

@@ -11,15 +11,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { Check, ChevronDown, LockKeyhole, Pencil, Plus, RefreshCw, TriangleAlert, UserPlus, Users, X } from 'lucide-react';
 import Avatar from '../Avatar';
 import { ConfirmDialog } from '../ConfirmDialog';
 import Toast from '../Toast';
+import { PullRequestWorkspaceProvider } from '../pulls/PullRequestWorkspace';
 import { remoteErrorMessage } from '../remoteError';
 import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import { ago } from '@bytequay/ui/relativeTime';
-import { ACTIVITY_TYPES, METRICS, membersOf, people, type ActivityType, type Metric } from './activity';
+import { ACTIVITY_TYPES, METRICS, membersOf, people, providerName, type ActivityType, type Metric } from './activity';
 import CircleActivity, { ACTIVITY_LIMIT_MAX } from './CircleActivity';
 import CircleDialog, { CircleIcon } from './CircleDialog';
 import CircleInsights from './CircleInsights';
@@ -30,7 +31,7 @@ import PersonPanel from './PersonPanel';
 import { circleNeeds } from './priority';
 import TeamPeoplePicker from './TeamPeoplePicker';
 import type { CircleAvatar, TeamActivityFilter, TeamCircle, TeamCoverage, TeamCreateInput, TeamDirectory, TeamMember, TeamMemberInput } from './types';
-import { GITHUB_ACCOUNT_CHANGED, updateTeams, useTeams } from './useTeams';
+import { updateTeams, useTeams } from './useTeams';
 import { useTeamActivity } from './useTeamActivity';
 import './teams.css';
 
@@ -42,7 +43,8 @@ type ToastState = { id: number; text: string; undo?: () => void };
 type View = { circleId: string | null; tab: Tab };
 const TEMPLATES = ['Internal engineering', 'Trusted OSS', 'Connector maintainers'];
 const PERIODS = [7, 30, 90];
-const VIEW_KEY = 'bytequay.circles.view.v1';
+const VIEW_KEY = 'bytequay.circles.view.v2';
+const ACCOUNT_KEY = 'bytequay.circles.account.v1';
 const ALL_CIRCLES: CircleAvatar = { color: 'gray', shape: 'circle' };
 
 const scopeShort = (circle: TeamCircle) => circle.repositories.length === 0 ? 'Any repository'
@@ -59,21 +61,37 @@ function savedViews(): Record<string, unknown> {
 }
 
 /** The circle and view an account used last; the first visit opens All circles on Needs you. */
-function loadView(account: string): View {
-  const view = savedViews()[account.toLowerCase()];
+function loadView(accountId: number): View {
+  const view = savedViews()[accountId];
   if (typeof view !== 'object' || view === null) return { circleId: null, tab: 'needs' };
   const { circleId, tab } = view as Record<string, unknown>;
   return { circleId: typeof circleId === 'string' ? circleId : null, tab: TABS.find(([id]) => id === tab)?.[0] ?? 'needs' };
 }
 
-function saveView(account: string, view: View): void {
-  try { window.localStorage.setItem(VIEW_KEY, JSON.stringify({ ...savedViews(), [account.toLowerCase()]: view })); }
+function saveView(accountId: number, view: View): void {
+  try { window.localStorage.setItem(VIEW_KEY, JSON.stringify({ ...savedViews(), [accountId]: view })); }
   catch { /* The remembered view is a convenience; the page works without it. */ }
 }
 
-/** Opens the Circles page on one circle, keeping the account's last tab. */
-export function openCircle(account: string, circleId: string): void {
-  saveView(account, { ...loadView(account), circleId });
+function loadAccount(): number | null {
+  try {
+    const id = Number(window.localStorage.getItem(ACCOUNT_KEY));
+    return Number.isSafeInteger(id) && id > 0 ? id : null;
+  }
+  catch {
+    return null;
+  }
+}
+
+function saveAccount(accountId: number): void {
+  try { window.localStorage.setItem(ACCOUNT_KEY, String(accountId)); }
+  catch { /* The page opens on the first account instead. */ }
+}
+
+/** Opens the Circles page on one account's circle, keeping that account's last tab. */
+export function openCircle(accountId: number, circleId: string): void {
+  saveView(accountId, { ...loadView(accountId), circleId });
+  saveAccount(accountId);
   window.location.hash = '#/teams';
 }
 
@@ -89,11 +107,14 @@ function arrowFocus(event: ReactKeyboardEvent<HTMLElement>, keys: [string, strin
 }
 
 export default function TeamsPage() {
-  const { directory, loading, error: directoryError } = useTeams();
-  const account = directory?.accountLogin;
-  const viewerLogin = account ?? null;
+  const { directories, loading, error: directoryError } = useTeams();
+  const [selectedAccount, setSelectedAccount] = useState(loadAccount);
+  const directory = directories?.find(item => item.accountId === selectedAccount) ?? directories?.[0] ?? null;
+  const account = directory?.accountId;
+  const viewerLogin = directory?.accountLogin ?? null;
   const circles = directory?.circles ?? [];
-  const [view, setView] = useState<View & { account?: string }>({ circleId: null, tab: 'needs' });
+  const provider = directory === null ? '' : providerName(directory.server);
+  const [view, setView] = useState<View & { account?: number }>({ circleId: null, tab: 'needs' });
   const [person, setPerson] = useState<number | null>(null);
   const [period, setPeriod] = useState<number | 'custom'>(30);
   const [customDays, setCustomDays] = useState(14);
@@ -112,10 +133,13 @@ export default function TeamsPage() {
   currentAccount.current = account;
 
   useLayoutEffect(() => {
-    if (account && view.account !== account) setView({ account, ...loadView(account) });
+    if (account === undefined || view.account === account) return;
+    setView({ account, ...loadView(account) });
+    // Selections name the previous account's people and circles.
+    setPerson(null); setMetric(null); setType('all'); setLimit(100); setInspect(null); setPopover(null); setEditing(null); setDeleting(null); setError(null);
   }, [account, view.account]);
   useEffect(() => {
-    if (account && view.account === account) saveView(account, { circleId: view.circleId, tab: view.tab });
+    if (account !== undefined && view.account === account) saveView(account, { circleId: view.circleId, tab: view.tab });
   }, [account, view]);
 
   const circle = circles.find(item => item.id === view.circleId) ?? null;
@@ -123,29 +147,21 @@ export default function TeamsPage() {
   const scope = circle ? [circle] : circles;
   const members = membersOf(scope);
   const everyone = membersOf(circles);
-  const byId = new Map(everyone.map(member => [member.githubId, member]));
+  const byId = new Map(everyone.map(member => [member.remoteId, member]));
   const logins = new Set(everyone.map(member => member.login.toLowerCase()));
-  const personMember = members.find(member => member.githubId === person) ?? null;
+  const personMember = members.find(member => member.remoteId === person) ?? null;
   const inspected = inspect === null ? null : byId.get(inspect) ?? null;
   const days = period === 'custom' ? customDays : period;
   const periodLabel = `Past ${days} ${days === 1 ? 'day' : 'days'}`;
   const filter: TeamActivityFilter = tab === 'activity' ? metric ?? type : 'all';
-  const activity = useTeamActivity(account, { circleId: circle?.id, memberId: tab === 'members' ? undefined : personMember?.githubId, days, limit, filter });
-  const panelCircle = circle && inspected && circle.members.some(member => member.githubId === inspected.githubId) ? circle : null;
-  const panel = useTeamActivity(inspected ? account : undefined, { circleId: panelCircle?.id, memberId: inspected?.githubId, days, limit: 50 });
-  const attention = useLiveAttention(account);
-  const only = (githubId: number) => (item: TeamCircle) => ({ ...item, members: item.members.filter(member => member.githubId === githubId) });
-  const needs = circleNeeds(attention.live, personMember ? scope.map(only(personMember.githubId)) : scope, viewerLogin);
-  const personNeeds = inspected ? circleNeeds(attention.live, circles.map(only(inspected.githubId)), viewerLogin) : [];
-
-  useEffect(() => {
-    const reset = () => {
-      currentAccount.current = undefined;
-      setPerson(null); setMetric(null); setType('all'); setInspect(null); setPopover(null); setEditing(null); setDeleting(null); setError(null);
-    };
-    window.addEventListener(GITHUB_ACCOUNT_CHANGED, reset);
-    return () => window.removeEventListener(GITHUB_ACCOUNT_CHANGED, reset);
-  }, []);
+  const activity = useTeamActivity(account, { circleId: circle?.id, memberId: tab === 'members' ? undefined : personMember?.remoteId, days, limit, filter });
+  const panelCircle = circle && inspected && circle.members.some(member => member.remoteId === inspected.remoteId) ? circle : null;
+  const panel = useTeamActivity(inspected ? account : undefined, { circleId: panelCircle?.id, memberId: inspected?.remoteId, days, limit: 50 });
+  const attention = useLiveAttention(directory?.accountLogin);
+  const within = (scoped: TeamCircle[]): TeamDirectory[] => directory === null ? [] : [{ ...directory, circles: scoped }];
+  const only = (remoteId: number) => (item: TeamCircle) => ({ ...item, members: item.members.filter(member => member.remoteId === remoteId) });
+  const needs = circleNeeds(attention.live, within(personMember ? scope.map(only(personMember.remoteId)) : scope));
+  const personNeeds = inspected ? circleNeeds(attention.live, within(circles.map(only(inspected.remoteId)))) : [];
 
   function setTab(next: Tab) { setView(current => ({ ...current, tab: next })); setPopover(null); setLimit(100); }
   function selectCircle(id: string | null) {
@@ -181,16 +197,15 @@ export default function TeamsPage() {
     return () => document.removeEventListener('keydown', onKey);
   }, []);
 
-  /** Applies a directory change unless the account changed while it ran. */
-  async function mutate(action: () => Promise<TeamDirectory>, failed: (text: string) => void): Promise<TeamDirectory | null> {
-    if (busy) return null;
+  /** Applies a directory change to its account; what follows on screen waits for that account still being shown. */
+  async function mutate(action: (accountId: number) => Promise<TeamDirectory>, failed: (text: string) => void): Promise<TeamDirectory | null> {
     const owner = currentAccount.current;
+    if (busy || owner === undefined) return null;
     setBusy(true); setError(null);
     try {
-      const result = await action();
-      if (owner !== currentAccount.current || result.accountLogin.toLowerCase() !== owner?.toLowerCase()) return null;
+      const result = await action(owner);
       updateTeams(result);
-      return result;
+      return owner === currentAccount.current ? result : null;
     }
     catch (failure) {
       if (owner === currentAccount.current) failed(remoteErrorMessage(failure));
@@ -205,7 +220,7 @@ export default function TeamsPage() {
     catch (failure) { setError(remoteErrorMessage(failure)); return; }
     const existing = editing?.circle ?? null;
     const before = circles;
-    void mutate(() => existing ? window.bridge.updateTeam(existing.id, input) : window.bridge.createTeam(input), setError).then(result => {
+    void mutate(id => existing ? window.bridge.updateTeam(id, existing.id, input) : window.bridge.createTeam(id, input), setError).then(result => {
       if (result === null) return;
       setEditing(null);
       if (existing) { notify(`Saved “${input.name}”`); return; }
@@ -219,7 +234,7 @@ export default function TeamsPage() {
   }
 
   function deleteCircle(target: TeamCircle) {
-    void mutate(() => window.bridge.removeTeam(target.id), text => notify(`Couldn’t delete “${target.name}”: ${text}`)).then(result => {
+    void mutate(id => window.bridge.removeTeam(id, target.id), text => notify(`Couldn’t delete “${target.name}”: ${text}`)).then(result => {
       if (result === null) return;
       setDeleting(null);
       selectCircle(null);
@@ -228,23 +243,23 @@ export default function TeamsPage() {
   }
 
   function addMember(target: TeamCircle, member: TeamMemberInput) {
-    void mutate(() => window.bridge.addTeamMember(target.id, member), text => notify(`Couldn’t add ${member.login}: ${text}`)).then(result => {
+    void mutate(id => window.bridge.addTeamMember(id, target.id, member), text => notify(`Couldn’t add ${member.login}: ${text}`)).then(result => {
       if (result !== null) notify(`Added ${member.login} to ${target.name} · they aren’t notified`);
     });
   }
 
   function removeMember(target: TeamCircle, member: TeamMember) {
-    const others = circles.filter(item => item.id !== target.id && item.members.some(person => person.githubId === member.githubId));
-    void mutate(() => window.bridge.removeTeamMember(target.id, member.githubId), text => notify(`Couldn’t remove ${member.login}: ${text}`)).then(result => {
-      // Undo re-adds the stored GitHub ID, which is verified again like any addition.
+    const others = circles.filter(item => item.id !== target.id && item.members.some(person => person.remoteId === member.remoteId));
+    void mutate(id => window.bridge.removeTeamMember(id, target.id, member.remoteId), text => notify(`Couldn’t remove ${member.login}: ${text}`)).then(result => {
+      // Undo re-adds the stored user ID, which is verified again like any addition.
       if (result !== null) notify(`Removed ${member.login} from ${target.name}${others.length > 0 ? ` · still in ${others[0].name}` : ''}`,
-        () => addMember(target, { githubId: member.githubId, login: member.login }));
+        () => addMember(target, { remoteId: member.remoteId, login: member.login }));
     });
   }
 
   function toggleCircle(target: TeamCircle, add: boolean, member: TeamMember) {
-    void mutate(() => add ? window.bridge.addTeamMember(target.id, { githubId: member.githubId, login: member.login })
-      : window.bridge.removeTeamMember(target.id, member.githubId), text => notify(text)).then(result => {
+    void mutate(id => add ? window.bridge.addTeamMember(id, target.id, { remoteId: member.remoteId, login: member.login })
+      : window.bridge.removeTeamMember(id, target.id, member.remoteId), text => notify(text)).then(result => {
       if (result !== null) notify(`${add ? 'Added to' : 'Removed from'} ${target.name}`);
     });
   }
@@ -254,28 +269,32 @@ export default function TeamsPage() {
     void activity.refresh().then(() => { if (inspected) void panel.reload(); });
   }
 
-  const dialogs = <>
-    {editing && <CircleDialog key={editing.circle?.id ?? 'new'} circle={editing.circle} initialName={editing.name} circles={circles} busy={busy} error={error}
+  const dialogs = directory && <>
+    {editing && <CircleDialog key={editing.circle?.id ?? 'new'} circle={editing.circle} initialName={editing.name} directory={directory} busy={busy} error={error}
       onSave={saveCircle} onCancel={() => { setEditing(null); setError(null); }} onClearError={() => setError(null)}
       onDelete={editing.circle ? () => { setDeleting(editing.circle); setEditing(null); } : undefined}
       onManagePeople={() => { setEditing(null); setTab('members'); setPopover('add'); }} />}
     {deleting && <ConfirmDialog title={`Delete “${deleting.name}”?`} confirmLabel="Delete circle" destructive busy={busy}
       onCancel={() => setDeleting(null)} onConfirm={() => deleteCircle(deleting)}>
-      <p>This removes the private circle and its Home priority preference. {deleting.members.length === 0 ? 'Nothing changes on GitHub.'
-        : `Its ${people(deleting.members.length).toLowerCase()} ${deleting.members.length === 1 ? 'stays' : 'stay'} in any other circles, and nothing changes on GitHub.`}</p>
+      <p>This removes the private circle and its Home priority preference. {deleting.members.length === 0 ? `Nothing changes on ${provider}.`
+        : `Its ${people(deleting.members.length).toLowerCase()} ${deleting.members.length === 1 ? 'stays' : 'stay'} in any other circles, and nothing changes on ${provider}.`}</p>
     </ConfirmDialog>}
     {toast && <Toast key={toast.id} text={toast.text} onDismiss={() => setToast(null)}
       onUndo={toast.undo ? () => { toast.undo?.(); setToast(null); } : undefined} />}
   </>;
 
   if (directory === null) return <div className="cir-page">
-    {directoryError && !loading ? <div className="cir-empty" role="alert"><h2>Circles are unavailable</h2><p>{directoryError}</p></div> : <LoadingPage />}
+    {directoryError && !loading ? <div className="cir-empty" role="alert"><h2>Circles are unavailable</h2><p>{directoryError}</p></div>
+      : directories?.length === 0 ? <div className="cir-empty"><h2>No account signed in</h2><p>Connect an account in Settings to keep circles.</p></div>
+        : <LoadingPage />}
   </div>;
 
-  if (circles.length === 0) return <div className="cir-page">
-    <FirstUse onCreate={openCreate} />
+  const accounts = <Accounts directories={directories ?? []} current={directory.accountId} onSelect={id => { setSelectedAccount(id); saveAccount(id); }} />;
+
+  if (circles.length === 0) return <PullRequestWorkspaceProvider server={directory.server}><div className="cir-page">
+    <FirstUse provider={provider} accounts={accounts} onCreate={openCreate} />
     {dialogs}
-  </div>;
+  </div></PullRequestWorkspaceProvider>;
 
   const coverage = activity.snapshot?.coverage ?? null;
   const status = activity.refreshing ? { tone: 'busy', text: 'Refreshing…' } : activity.refreshError ? { tone: 'failed', text: 'Refresh failed' }
@@ -284,7 +303,7 @@ export default function TeamsPage() {
   const counts: Partial<Record<Tab, number>> = { needs: needs.length, members: members.length };
   const emptyScope = personMember?.login ?? (circle ? `people in ${circle.name}` : 'people in your circles');
 
-  return <div className="cir-page">
+  return <PullRequestWorkspaceProvider server={directory.server}><div className="cir-page">
     <main className="cir-main">
       <div className="cir-work">
         <header className="bq-page-header">
@@ -296,13 +315,13 @@ export default function TeamsPage() {
                 <ChevronDown size={14} strokeWidth={2.2} aria-hidden="true" />
               </button>
             </h1>
-            {popover === 'switcher' && <Switcher circles={circles} current={circle} needsOf={scope => circleNeeds(attention.live, scope, viewerLogin).length}
+            {popover === 'switcher' && <Switcher circles={circles} current={circle} needsOf={scoped => circleNeeds(attention.live, within(scoped)).length}
               onSelect={selectCircle} onCreate={() => openCreate('')} onClose={() => setPopover(null)} />}
           </div>
           <div className="bq-page-header__meta">
             <button type="button" className="cir-people" onClick={() => setTab('members')}>
               {members.length > 0 && <span className="cir-avatars">{members.slice(0, 5).map(member =>
-                <Avatar key={member.githubId} login={member.login} avatarUrl={member.avatarUrl} size={20} />)}</span>}
+                <Avatar key={member.remoteId} login={member.login} avatarUrl={member.avatarUrl} size={20} />)}</span>}
               <span>{people(members.length)}</span>
             </button>
             <span className="cir-sep" aria-hidden="true">·</span>
@@ -311,6 +330,7 @@ export default function TeamsPage() {
             </span> : <span className="cir-ellipsis">{circles.length} {circles.length === 1 ? 'circle' : 'circles'}</span>}
           </div>
           <div className="bq-page-header__actions cir-anchor">
+            {accounts}
             {circle ? <>
               <button type="button" className="cir-iconbtn" aria-label="Add people" title="Add people" aria-haspopup="dialog" aria-expanded={popover === 'add'} onClick={() => {
                 const opening = popover !== 'add';
@@ -321,7 +341,7 @@ export default function TeamsPage() {
                 onClick={() => { setError(null); setPopover(null); setEditing({ circle, name: circle.name }); }}>
                 <Pencil size={14} strokeWidth={1.9} aria-hidden="true" />
               </button>
-              {popover === 'add' && <TeamPeoplePicker key={circle.id} circle={circle} circles={circles} busy={busy}
+              {popover === 'add' && <TeamPeoplePicker key={circle.id} accountId={directory.accountId} circle={circle} circles={circles} busy={busy}
                 onAdd={member => addMember(circle, member)} onClose={() => setPopover(null)} />}
             </> : <button type="button" className="cir-iconbtn" aria-label="New circle" title="New circle" onClick={() => openCreate('')}>
               <Plus size={16} strokeWidth={1.9} aria-hidden="true" />
@@ -404,17 +424,28 @@ export default function TeamsPage() {
                 : tab === 'members' ? <CircleMembers circle={circle} circles={circles} members={members} statistics={activity.snapshot.people} periodLabel={periodLabel}
                   inspected={inspect} busy={busy} onInspect={setInspect} onRemove={member => { if (circle) removeMember(circle, member); }} onAddPeople={() => setPopover('add')} />
                   : <CircleInsights snapshot={activity.snapshot} caption={`${personMember?.login ?? title} · ${periodLabel}`} members={byId}
-                    personId={personMember?.githubId ?? null} onDrill={drill} onPerson={setInspect} />}
+                    personId={personMember?.remoteId ?? null} onDrill={drill} onPerson={setInspect} />}
         </div>
       </div>
-      {inspected && <PersonPanel member={inspected} circles={circles} backLabel={title} needs={personNeeds} snapshot={panel.snapshot} periodLabel={periodLabel}
+      {inspected && <PersonPanel member={inspected} server={directory.server} circles={circles} backLabel={title} needs={personNeeds} snapshot={panel.snapshot} periodLabel={periodLabel}
         viewerLogin={viewerLogin} circlesOpen={popover === 'circles'} busy={busy}
         onClose={() => { setInspect(null); setPopover(current => current === 'circles' ? null : current); }}
         onCircles={open => setPopover(open ? 'circles' : null)} onSelectCircle={selectCircle}
-        onToggleCircle={(target, add) => toggleCircle(target, add, inspected)} onDrill={next => drill(next, inspected.githubId)}
-        onAllActivity={() => { setPerson(inspected.githubId); setMetric(null); setType('all'); setLimit(100); setTab('activity'); }} />}
+        onToggleCircle={(target, add) => toggleCircle(target, add, inspected)} onDrill={next => drill(next, inspected.remoteId)}
+        onAllActivity={() => { setPerson(inspected.remoteId); setMetric(null); setType('all'); setLimit(100); setTab('activity'); }} />}
     </main>
     {dialogs}
+  </div></PullRequestWorkspaceProvider>;
+}
+
+/** Circles belong to one account at a time; a single account needs no choice. */
+function Accounts({ directories, current, onSelect }: { directories: TeamDirectory[]; current: number; onSelect: (accountId: number) => void }) {
+  if (directories.length < 2) return null;
+  return <div className="atn-filters cir-accounts" role="group" aria-label="Account">
+    {directories.map(item => <button key={item.accountId} type="button" aria-pressed={item.accountId === current} title={item.server.webBaseUrl}
+      className={`atn-filter${item.accountId === current ? ' is-active' : ''}`} onClick={() => onSelect(item.accountId)}>
+      {item.accountLogin} · {providerName(item.server)}
+    </button>)}
   </div>;
 }
 
@@ -462,9 +493,9 @@ function PersonFilter({ members, selected, onSelect, onClose }: {
       <span className="cir-menu__check">{selected === null && <Check size={14} strokeWidth={2.2} aria-hidden="true" />}</span>
       <Users size={16} aria-hidden="true" /><span>Everyone</span><span className="cir-muted">{people(members.length)}</span>
     </button>
-    {members.map(member => <button type="button" role="option" key={member.githubId} aria-selected={selected?.githubId === member.githubId} className="cir-menu__item"
-      onClick={() => onSelect(member.githubId)}>
-      <span className="cir-menu__check">{selected?.githubId === member.githubId && <Check size={14} strokeWidth={2.2} aria-hidden="true" />}</span>
+    {members.map(member => <button type="button" role="option" key={member.remoteId} aria-selected={selected?.remoteId === member.remoteId} className="cir-menu__item"
+      onClick={() => onSelect(member.remoteId)}>
+      <span className="cir-menu__check">{selected?.remoteId === member.remoteId && <Check size={14} strokeWidth={2.2} aria-hidden="true" />}</span>
       <Avatar login={member.login} avatarUrl={member.avatarUrl} size={20} /><span className="cir-ellipsis">{member.login}</span>
       <span className="cir-muted cir-ellipsis">{member.name !== member.login ? member.name : ''}</span>
     </button>)}
@@ -493,15 +524,16 @@ function CoveragePopover({ coverage, refreshError, onRefresh, onClose }: {
   </div>;
 }
 
-function FirstUse({ onCreate }: { onCreate: (name: string) => void }) {
+function FirstUse({ provider, accounts, onCreate }: { provider: string; accounts: ReactNode; onCreate: (name: string) => void }) {
   return <div className="cir-first">
     <div className="cir-first__inner">
+      {accounts}
       <span className="cir-first__icon" aria-hidden="true"><Users size={20} strokeWidth={1.7} /></span>
       <h1>Keep the people you review close</h1>
-      <p>A circle is a private list of GitHub people — colleagues or trusted open-source contributors. See what needs your review from them,
+      <p>A circle is a private list of {provider} people — colleagues or trusted open-source contributors. See what needs your review from them,
         what they’ve been working on, and how you’ve collaborated.</p>
       <ul className="cir-facts">
-        {['Only you can see it', 'No invitations or notifications', 'GitHub access stays the same'].map(fact =>
+        {['Only you can see it', 'No invitations or notifications', `${provider} access stays the same`].map(fact =>
           <li key={fact}><Check size={13} strokeWidth={2.4} aria-hidden="true" />{fact}</li>)}
       </ul>
       <button type="button" className="bq-button bq-button--primary bq-button--large" onClick={() => onCreate('')}><Plus aria-hidden="true" />Create a circle</button>

@@ -14,51 +14,47 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { remoteErrorMessage } from '../remoteError';
 import type { TeamActivityQuery, TeamActivitySnapshot } from './types';
-import { GITHUB_ACCOUNT_CHANGED, TEAMS_CHANGED } from './useTeams';
+import { TEAMS_CHANGED } from './useTeams';
 
 /**
  * Page reads are local; only the user's Refresh action starts a collection pass. A new query keeps the last
  * data on screen until its own answer arrives, and a failed refresh keeps it too.
  */
-export function useTeamActivity(accountLogin: string | undefined, { circleId, memberId, days = 7, limit = 100, filter = 'all' }: TeamActivityQuery = {}) {
+export function useTeamActivity(accountId: number | undefined, { circleId, memberId, days = 7, limit = 100, filter = 'all' }: TeamActivityQuery = {}) {
   const [snapshot, setSnapshot] = useState<TeamActivitySnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const generation = useRef(0);
-  const account = useRef(accountLogin);
+  const account = useRef(accountId);
   const refreshInFlight = useRef(false);
   const load = useCallback(async (refresh = false) => {
-    if (!accountLogin || refresh && refreshInFlight.current) return;
+    if (accountId === undefined || refresh && refreshInFlight.current) return;
     if (refresh) { refreshInFlight.current = true; setRefreshing(true); setRefreshError(null); }
     const request = ++generation.current;
     try {
       const query = { circleId, memberId, days, limit, filter };
-      const result = await (refresh ? window.bridge.refreshTeamActivity(query) : window.bridge.getTeamActivity(query));
+      const result = await (refresh ? window.bridge.refreshTeamActivity(accountId, query) : window.bridge.getTeamActivity(accountId, query));
       if (request !== generation.current) return;
-      if (result.accountLogin.toLowerCase() !== accountLogin.toLowerCase()) { setSnapshot(null); return; }
       setSnapshot(result); setError(null);
     }
     catch (failure) {
       // A refresh failure outlives a filter change but never an account change.
-      if (refresh && account.current === accountLogin) setRefreshError(remoteErrorMessage(failure));
+      if (refresh && account.current === accountId) setRefreshError(remoteErrorMessage(failure));
       else if (request === generation.current) setError(remoteErrorMessage(failure));
     }
     finally {
       if (refresh) { refreshInFlight.current = false; setRefreshing(false); }
     }
-  }, [accountLogin, circleId, memberId, days, limit, filter]);
+  }, [accountId, circleId, memberId, days, limit, filter]);
 
   useEffect(() => {
-    account.current = accountLogin;
+    account.current = accountId;
     setSnapshot(null); setError(null); setRefreshError(null);
-    const clear = () => { account.current = undefined; generation.current++; setSnapshot(null); setError(null); setRefreshError(null); };
-    window.addEventListener(GITHUB_ACCOUNT_CHANGED, clear);
-    return () => window.removeEventListener(GITHUB_ACCOUNT_CHANGED, clear);
-  }, [accountLogin]);
+  }, [accountId]);
 
   useEffect(() => {
-    if (accountLogin) void load();
+    if (accountId !== undefined) void load();
     const reload = () => { if (!refreshInFlight.current) void load(); };
     const invalidate = () => { generation.current++; };
     const timer = window.setInterval(() => { if (!document.hidden) reload(); }, 30_000);
@@ -72,7 +68,7 @@ export function useTeamActivity(accountLogin: string | undefined, { circleId, me
       window.removeEventListener('bytequay:pr-attention-updated', reload);
       stopSync();
     };
-  }, [accountLogin, load]);
+  }, [accountId, load]);
 
   return { snapshot, refreshing, error, refreshError, dismissRefreshError: () => setRefreshError(null), refresh: () => load(true), reload: () => load() };
 }

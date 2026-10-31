@@ -54,7 +54,7 @@ export type RowCircle = {
   /** Whether a login is outside every circle, which the row says beside it. */
   outside?: (login: string | null) => boolean;
   /** Opens the person; without it the name is plain text. */
-  onPerson?: (githubId: number) => void;
+  onPerson?: (remoteId: number) => void;
 };
 
 type Props = {
@@ -140,7 +140,7 @@ export default function AttentionRow({
   </>;
   const onPerson = circle?.onPerson;
   const who = name !== null && (member !== null && onPerson !== undefined
-    ? <button type="button" className="item-person" title="Circle member · open person" onClick={event => { event.stopPropagation(); onPerson(member.githubId); }}>{name}</button>
+    ? <button type="button" className="item-person" title="Circle member · open person" onClick={event => { event.stopPropagation(); onPerson(member.remoteId); }}>{name}</button>
     : <span className="item-person">{name}</span>);
   const circlePill = circles.length > 0 && (
     <Pill tone="blue" title={`Your private circle${circles.length > 1 ? 's' : ''}: ${circles.map(value => value.name).join(', ')}`}>

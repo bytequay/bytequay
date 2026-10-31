@@ -20,8 +20,6 @@ import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.localreview.LocalReviewService;
 import com.bytequay.app.notices.AppNotice;
 import com.bytequay.app.notices.AppNoticeService;
-import com.bytequay.app.repository.github.GitHubAccountClient;
-import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.attention.AttentionMarkService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -47,7 +45,6 @@ import com.bytequay.core.store.EpicStore;
 import com.bytequay.core.store.IssueDevelopmentStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.RepositoryIssueStore;
-import com.bytequay.core.store.RepositoryMetadataStore;
 import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.bytequay.integration.jira.JiraActivityReader;
@@ -71,7 +68,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.withSettings;
 
@@ -84,7 +80,6 @@ class TestAgendaReader
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final PrDetailStore details = mock(PrDetailStore.class);
     private final CredentialService credentials = mock(CredentialService.class);
-    private final GitHubAccountClient github = mock(GitHubAccountClient.class);
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final WorkItemStore items = mock(WorkItemStore.class);
     private final WorkItemService work = mock(WorkItemService.class);
@@ -170,7 +165,6 @@ class TestAgendaReader
         reader().read(LocalDate.parse("2026-10-16"), SINCE, false, ImmutableList.of(), AgendaCalendar.of("off"));
 
         verify(credentials, never()).resolveGitHubCredential();
-        verifyNoInteractions(github);
     }
 
     @Test
@@ -211,7 +205,6 @@ class TestAgendaReader
         assertThat(snapshot.epics().getFirst().ready()).extracting(AgendaSnapshot.Ready::ref).containsExactly(AgendaRefs.work("local-child"));
         assertThat(snapshot.refs().get(AgendaRefs.epic("LOCAL:local-parent")).target()).isEqualTo(AgendaTarget.of(AgendaTarget.Kind.WORK, "workspace", parent.id()));
         assertThat(snapshot.refs().get(AgendaRefs.epic("ISSUE:github.com:41")).target()).isEqualTo(AgendaTarget.issue("org/repo", 7, "workspace"));
-        verifyNoInteractions(github);
     }
 
     private AgendaReader reader()
@@ -221,7 +214,7 @@ class TestAgendaReader
         return new AgendaReader(pullRequests, details, credentials, mock(WorkspaceHostingService.class), workspaces, notices, mock(AgentTaskStore.class),
                 mock(TaskPullRequestOwnership.class), localReviews, items, work, epics,
                 markers, mock(RepositoryIssueStore.class), mock(IssueDevelopmentService.class), jira, mock(JiraActivityReader.class),
-                new TeamService(new InMemoryAppSettingsStore(), mapper, credentials, github, mock(RepositoryMetadataStore.class)), marks, mock(AgendaDone.class));
+                mock(TeamService.class), marks, mock(AgendaDone.class));
     }
 
     private static WorkItemView work(String id, String epicId)

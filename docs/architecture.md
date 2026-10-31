@@ -295,7 +295,14 @@ evidence takes the merge commit, else the squash commit, else the request's head
 for a fast-forward merge. A GitLab merge request opens within one project: GitLab
 workspaces have no fork topology, so two GitLab workspaces related as forks each
 push to their own project. Remote epic-child synchronization still has a native
-GitHub consumer that GitLab's capabilities hide and refuse. GitLab contributor account profiles are unavailable where the API only
+GitHub consumer that GitLab's capabilities hide and refuse.
+
+Circles belong to one hosting account, the desktop GitHub sign-in or a connected
+account, and their people are users on that account's server, keyed by the
+provider's user id. Activity collection reads through each integration's
+`TeamActivityReader` with the owning account's sign-in: GitHub reads members'
+public events and pages of watched repositories; GitLab reads the project events
+of watched projects, since its per-user events leave out merge requests. GitLab contributor account profiles are unavailable where the API only
 supplies commit author names and emails. GitLab commit history reads the local
 checkout without GitHub avatar or pull-request association enrichment.
 

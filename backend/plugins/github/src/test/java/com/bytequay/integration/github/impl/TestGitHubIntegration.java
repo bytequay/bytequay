@@ -31,6 +31,7 @@ import com.bytequay.core.hosting.PullRequestWriter;
 import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.bytequay.core.hosting.RepositoryMetadataReader;
 import com.bytequay.core.hosting.RepositoryVisibility;
+import com.bytequay.core.hosting.TeamActivityReader;
 import com.bytequay.integration.github.GitHubIntegration;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
@@ -716,6 +717,6 @@ class TestGitHubIntegration
     private static HostingIntegration connections(HttpClient http, ObjectMapper mapper)
     {
         return GitHubIntegration.create(http, mapper, mock(PullRequestContentReader.class), mock(PullRequestWriter.class), mock(IssueClient.class),
-                mock(RepositoryMetadataReader.class), mock(PullRequestDiscovery.class), mock(PullRequestCi.class));
+                mock(RepositoryMetadataReader.class), mock(PullRequestDiscovery.class), mock(PullRequestCi.class), mock(TeamActivityReader.class));
     }
 }

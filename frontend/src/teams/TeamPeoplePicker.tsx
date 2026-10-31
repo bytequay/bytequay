@@ -19,7 +19,8 @@ import type { RepositoryMetadataDto } from '../types';
 import type { TeamCircle, TeamMemberInput } from './types';
 
 /** Add people: the assignee picker over contributors cached from every watched repository; a pick adds at once. */
-export default function TeamPeoplePicker({ circle, circles, busy, onAdd, onClose }: {
+export default function TeamPeoplePicker({ accountId, circle, circles, busy, onAdd, onClose }: {
+  accountId: number;
   circle: TeamCircle;
   circles: TeamCircle[];
   busy: boolean;
@@ -33,17 +34,17 @@ export default function TeamPeoplePicker({ circle, circles, busy, onAdd, onClose
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let current = true;
-    Promise.resolve().then(() => window.bridge.fetchTeamContributors()).then(value => { if (current) setContributors(value); })
+    Promise.resolve().then(() => window.bridge.fetchTeamContributors(accountId)).then(value => { if (current) setContributors(value); })
       .catch((failure: unknown) => { if (current) setError(remoteErrorMessage(failure)); })
       .finally(() => { if (current) setLoading(false); });
     return () => { current = false; };
-  }, []);
+  }, [accountId]);
   const normalized = query.trim().replace(/^@/, '').toLowerCase();
-  const names = new Map(circles.flatMap(item => item.members.map(member => [member.githubId, member.name] as const)));
+  const names = new Map(circles.flatMap(item => item.members.map(member => [member.remoteId, member.name] as const)));
   const options = contributors.map(person => {
     const name = names.get(person.id);
-    const selected = circle.members.some(member => member.githubId === person.id);
-    const others = circles.filter(item => item.id !== circle.id && item.members.some(member => member.githubId === person.id)).map(item => item.name);
+    const selected = circle.members.some(member => member.remoteId === person.id);
+    const others = circles.filter(item => item.id !== circle.id && item.members.some(member => member.remoteId === person.id)).map(item => item.name);
     return {
       key: String(person.id), login: person.login, avatarUrl: person.avatarUrl, bot: person.bot,
       label: name && name !== person.login ? `${name} · @${person.login}` : `@${person.login}`, selected, disabled: selected,
@@ -58,7 +59,7 @@ export default function TeamPeoplePicker({ circle, circles, busy, onAdd, onClose
         : `No cached contributor matches “${query}”. Only people from your watched repositories are searchable.`)}
       onToggle={option => {
         const person = contributors.find(candidate => candidate.id === Number(option.key));
-        if (person) onAdd({ githubId: person.id, login: person.login });
+        if (person) onAdd({ remoteId: person.id, login: person.login });
       }} />
     <div className="cir-popover__foot">Contributors from all your watched repositories. Selecting adds them right away; they aren’t notified.</div>
   </div>;

@@ -13,18 +13,23 @@
  */
 package com.bytequay.app.team;
 
+import com.bytequay.core.hosting.HostingServer;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
+import static java.util.Objects.requireNonNull;
 
-public record TeamDirectory(String accountLogin, List<TeamCircle> circles)
+/** One hosting account's private circles; their people are users on that account's server. */
+public record TeamDirectory(long accountId, String accountLogin, HostingServer server, List<TeamCircle> circles)
 {
     public TeamDirectory
     {
+        checkArgument(accountId > 0, "Account ID must be positive");
         checkText(accountLogin, "Account login");
+        requireNonNull(server, "server is null");
         circles = ImmutableList.copyOf(circles);
         checkArgument(circles.stream().map(TeamCircle::id).distinct().count() == circles.size(), "Directory contains duplicate circle IDs");
     }

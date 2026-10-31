@@ -22,6 +22,7 @@ import com.bytequay.integration.gitlab.impl.GitLabPullRequestContentReader;
 import com.bytequay.integration.gitlab.impl.GitLabPullRequestDiscovery;
 import com.bytequay.integration.gitlab.impl.GitLabPullRequestReader;
 import com.bytequay.integration.gitlab.impl.GitLabPullRequestWriter;
+import com.bytequay.integration.gitlab.impl.GitLabTeamActivityReader;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.net.http.HttpClient;
@@ -36,6 +37,6 @@ public final class GitLabIntegration
         GitLabIssueClient issues = new GitLabIssueClient(http, mapper);
         return new HostingIntegration(HostingProvider.GITLAB, connections, connections, new GitLabPullRequestReader(http, mapper),
                 new GitLabPullRequestContentReader(http, mapper), new GitLabPullRequestWriter(http, mapper), issues, issues, new GitLabPullRequestDiscovery(http, mapper),
-                new GitLabPullRequestCi(http, mapper));
+                new GitLabPullRequestCi(http, mapper), new GitLabTeamActivityReader(http, mapper));
     }
 }

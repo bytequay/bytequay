@@ -109,6 +109,12 @@ public class CredentialService
         return session;
     }
 
+    /** The desktop sign-in's last verified session, without CLI or network work; a token change shows once a session is captured again. */
+    public Optional<HostingReadSession> cachedHostingRead()
+    {
+        return isGitHubAccountConfigured() ? cachedHostingRead : Optional.empty();
+    }
+
     public HostingReadSession captureWorkspaceHostingRead(String workspaceId)
     {
         checkText(workspaceId, "workspaceId");

@@ -20,15 +20,16 @@ import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 
 /** Selected identity from the locally cached repository contributor picker. */
-public record TeamMemberInput(long githubId, String login)
+public record TeamMemberInput(long remoteId, String login)
 {
-    private static final Pattern LOGIN = Pattern.compile("[A-Za-z0-9][A-Za-z0-9_-]{0,99}(?:\\[bot\\])?");
+    // GitHub logins, and GitLab usernames, which may also contain dots.
+    private static final Pattern LOGIN = Pattern.compile("[A-Za-z0-9][A-Za-z0-9_.-]{0,99}(?:\\[bot\\])?");
 
     public TeamMemberInput
     {
-        checkArgument(githubId > 0, "GitHub user ID must be positive");
-        checkText(login, "GitHub login");
+        checkArgument(remoteId > 0, "User ID must be positive");
+        checkText(login, "Login");
         login = login.strip().toLowerCase(Locale.ROOT);
-        checkArgument(LOGIN.matcher(login).matches(), "Enter a GitHub login, not a profile URL");
+        checkArgument(LOGIN.matcher(login).matches(), "Enter a login, not a profile URL");
     }
 }

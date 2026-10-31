@@ -26,6 +26,7 @@ import com.bytequay.core.hosting.PullRequestDiscovery;
 import com.bytequay.core.hosting.PullRequestReader;
 import com.bytequay.core.hosting.PullRequestWriter;
 import com.bytequay.core.hosting.RepositoryMetadataReader;
+import com.bytequay.core.hosting.TeamActivityReader;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 
 import static org.mockito.ArgumentMatchers.argThat;
@@ -54,7 +55,7 @@ public final class HostingIntegrationFixtures
     public static HostingIntegration connections(HostingProvider provider, HostingAccounts accounts, HostingRepositories repositories, PullRequestReader pullRequests)
     {
         return new HostingIntegration(provider, accounts, repositories, pullRequests, mock(PullRequestContentReader.class), mock(PullRequestWriter.class),
-                mock(IssueClient.class), mock(RepositoryMetadataReader.class), mock(PullRequestDiscovery.class), mock(PullRequestCi.class));
+                mock(IssueClient.class), mock(RepositoryMetadataReader.class), mock(PullRequestDiscovery.class), mock(PullRequestCi.class), mock(TeamActivityReader.class));
     }
 
     public static HostingIntegration pullRequests(HostingProvider provider, PullRequestContentReader contents, PullRequestWriter writer)
@@ -65,26 +66,33 @@ public final class HostingIntegrationFixtures
     public static HostingIntegration pullRequests(HostingProvider provider, PullRequestContentReader contents, PullRequestWriter writer, PullRequestDiscovery discovery)
     {
         return new HostingIntegration(provider, mock(HostingAccounts.class), mock(HostingRepositories.class), mock(PullRequestReader.class), contents, writer,
-                mock(IssueClient.class), mock(RepositoryMetadataReader.class), discovery, mock(PullRequestCi.class));
+                mock(IssueClient.class), mock(RepositoryMetadataReader.class), discovery, mock(PullRequestCi.class), mock(TeamActivityReader.class));
     }
 
     public static HostingIntegration ci(HostingProvider provider, PullRequestContentReader contents, PullRequestWriter writer, PullRequestCi ci)
     {
         return new HostingIntegration(provider, mock(HostingAccounts.class), mock(HostingRepositories.class), mock(PullRequestReader.class), contents, writer,
-                mock(IssueClient.class), mock(RepositoryMetadataReader.class), mock(PullRequestDiscovery.class), ci);
+                mock(IssueClient.class), mock(RepositoryMetadataReader.class), mock(PullRequestDiscovery.class), ci, mock(TeamActivityReader.class));
+    }
+
+    public static HostingIntegration team(HostingProvider provider, TeamActivityReader team)
+    {
+        return new HostingIntegration(provider, mock(HostingAccounts.class), mock(HostingRepositories.class), mock(PullRequestReader.class),
+                mock(PullRequestContentReader.class), mock(PullRequestWriter.class), mock(IssueClient.class), mock(RepositoryMetadataReader.class),
+                mock(PullRequestDiscovery.class), mock(PullRequestCi.class), team);
     }
 
     public static HostingIntegration issues(HostingProvider provider, IssueClient issues)
     {
         return new HostingIntegration(provider, mock(HostingAccounts.class), mock(HostingRepositories.class), mock(PullRequestReader.class),
                 mock(PullRequestContentReader.class), mock(PullRequestWriter.class), issues, mock(RepositoryMetadataReader.class), mock(PullRequestDiscovery.class),
-                mock(PullRequestCi.class));
+                mock(PullRequestCi.class), mock(TeamActivityReader.class));
     }
 
     public static HostingIntegration metadata(HostingProvider provider, RepositoryMetadataReader metadata)
     {
         return new HostingIntegration(provider, mock(HostingAccounts.class), mock(HostingRepositories.class), mock(PullRequestReader.class),
                 mock(PullRequestContentReader.class), mock(PullRequestWriter.class), mock(IssueClient.class), metadata, mock(PullRequestDiscovery.class),
-                mock(PullRequestCi.class));
+                mock(PullRequestCi.class), mock(TeamActivityReader.class));
     }
 }

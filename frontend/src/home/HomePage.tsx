@@ -114,7 +114,7 @@ function HomePage({
     () => getCached<PullRequestDto[]>(SEED.attention) ?? null);
   const [attentionError, setAttentionError] = useState<string | null>(null);
   const jira = useJiraAttention();
-  const teams = useTeams(profile?.login ?? null);
+  const teams = useTeams();
   const [issueAttentionError, setIssueAttentionError] = useState<string | null>(null);
   const [loading, setLoading] = useState(() => getCached(SEED.workspaces) === undefined);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
@@ -431,10 +431,9 @@ function HomePage({
         onWatch={() => setShowModal(true)}
       />
       <CirclesGrid
-        key={teams.directory?.accountLogin ?? ''}
-        directory={teams.directory}
+        key={teams.directories?.[0]?.accountId ?? ''}
+        directories={teams.directories}
         attention={visibleAttention(candidates, handled, Date.now())}
-        viewerLogin={login ?? null}
       />
 
       </main>

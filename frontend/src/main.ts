@@ -15,7 +15,10 @@ import { backendJson, backendJsonIfChanged } from './backendJson';
 import { closeLab, labPage, labTask, openLab, resolveLabPage, stopLab } from '@bytequay/lab/main';
 import type { JiraLocation } from './jira/contracts';
 import { registerJiraIpc } from '@bytequay/jira/main';
-import { parseTeamActivity, parseTeamContributors, parseTeamCreateInput, parseTeamInput, parseTeamMemberInput, parseTeamQuery, parseTeams, teamId, teamMemberId } from './teams/contracts';
+import {
+  parseTeamActivity, parseTeamContributors, parseTeamCreateInput, parseTeamDirectory, parseTeamInput, parseTeamMemberInput, parseTeamQuery, parseTeams, teamAccountId, teamId, teamMemberId,
+} from './teams/contracts';
+import type { TeamDirectory } from './teams/types';
 import { parseUnifiedWorkItem, parseWorkItemContextLink, type Publication, parseConcludedEpics, parseEpicDraftReply, parseEpicJoin, parseEpicRecord, type EpicDraftMessage, parseWorkItem, type CreateWorkItem, type WorkItemDecision, parseGoalItem, parseList, type GoalItemKind } from './workitems/contracts';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, screen, shell, systemPreferences } from 'electron';
 import fs from 'node:fs';
@@ -2051,26 +2054,39 @@ function registerIpc(): void {
       workspaceUrl(workspaceId, `/data`),
       jsonInit('DELETE', { confirmed, repositoryName }),
     ));
-  const teamUrl = (id: unknown) => `${backendBase()}/api/teams/${encodeURIComponent(teamId(id))}`;
-  ipcMain.handle('teams:list', () => backendJson(`${backendBase()}/api/teams`).then(parseTeams));
-  ipcMain.handle('teams:contributors', () => backendJson(`${backendBase()}/api/teams/contributors`).then(parseTeamContributors));
-  ipcMain.handle('teams:create', (_event, input: unknown) =>
-    backendJson(`${backendBase()}/api/teams`, jsonInit('POST', parseTeamCreateInput(input))).then(parseTeams));
-  ipcMain.handle('teams:update', (_event, id: unknown, input: unknown) =>
-    backendJson(teamUrl(id), jsonInit('PUT', parseTeamInput(input))).then(parseTeams));
-  ipcMain.handle('teams:remove', (_event, id: unknown) =>
-    backendJson(teamUrl(id), { method: 'DELETE' }).then(parseTeams));
-  ipcMain.handle('teams:members:add', (_event, id: unknown, member: unknown) =>
-    backendJson(`${teamUrl(id)}/members`, jsonInit('POST', parseTeamMemberInput(member))).then(parseTeams));
-  ipcMain.handle('teams:members:remove', (_event, id: unknown, memberId: unknown) =>
-    backendJson(`${teamUrl(id)}/members/${teamMemberId(memberId)}`, { method: 'DELETE' }).then(parseTeams));
+  const accountUrl = (accountId: unknown, path: string) => `${backendBase()}/api/teams/${teamAccountId(accountId)}${path}`;
+  const circleUrl = (accountId: unknown, id: unknown, path = '') => accountUrl(accountId, `/circles/${encodeURIComponent(teamId(id))}${path}`);
+  // Activity links must stay on their account's server. Every directory the renderer knows passes through here first.
+  const teamServers = new Map<number, string>();
+  const remember = (directory: TeamDirectory) => { teamServers.set(directory.accountId, directory.server.webBaseUrl); return directory; };
+  const teamDirectory = (value: unknown) => remember(parseTeamDirectory(value));
+  const teamDirectories = (value: unknown) => parseTeams(value).map(remember);
+  async function teamServer(accountId: number): Promise<string> {
+    if (!teamServers.has(accountId)) teamDirectories(await backendJson(`${backendBase()}/api/teams`));
+    const server = teamServers.get(accountId);
+    if (server === undefined) throw new Error('This account is no longer signed in');
+    return server;
+  }
+  ipcMain.handle('teams:list', () => backendJson(`${backendBase()}/api/teams`).then(teamDirectories));
+  ipcMain.handle('teams:contributors', (_event, accountId: unknown) => backendJson(accountUrl(accountId, '/contributors')).then(parseTeamContributors));
+  ipcMain.handle('teams:create', (_event, accountId: unknown, input: unknown) =>
+    backendJson(accountUrl(accountId, '/circles'), jsonInit('POST', parseTeamCreateInput(input))).then(teamDirectory));
+  ipcMain.handle('teams:update', (_event, accountId: unknown, id: unknown, input: unknown) =>
+    backendJson(circleUrl(accountId, id), jsonInit('PUT', parseTeamInput(input))).then(teamDirectory));
+  ipcMain.handle('teams:remove', (_event, accountId: unknown, id: unknown) =>
+    backendJson(circleUrl(accountId, id), { method: 'DELETE' }).then(teamDirectory));
+  ipcMain.handle('teams:members:add', (_event, accountId: unknown, id: unknown, member: unknown) =>
+    backendJson(circleUrl(accountId, id, '/members'), jsonInit('POST', parseTeamMemberInput(member))).then(teamDirectory));
+  ipcMain.handle('teams:members:remove', (_event, accountId: unknown, id: unknown, remoteId: unknown) =>
+    backendJson(circleUrl(accountId, id, `/members/${teamMemberId(remoteId)}`), { method: 'DELETE' }).then(teamDirectory));
   for (const action of ['activity', 'refresh'] as const) {
-    ipcMain.handle(`teams:${action}`, (_event, input: unknown) => {
+    ipcMain.handle(`teams:${action}`, (_event, accountId: unknown, input: unknown) => {
+      const account = teamAccountId(accountId);
       const query = new URLSearchParams(Object.entries(parseTeamQuery(input)).map(([key, value]) => [key, String(value)]));
-      return backendJson(`${backendBase()}/api/teams/${action}?${query}`, {
+      return backendJson(accountUrl(account, `/${action}?${query}`), {
         method: action === 'refresh' ? 'POST' : 'GET',
         ...(action === 'refresh' ? { signal: AbortSignal.timeout(15 * 60_000) } : {}),
-      }).then(parseTeamActivity);
+      }).then(async snapshot => parseTeamActivity(snapshot, await teamServer(account)));
     });
   }
   ipcMain.handle('repos:avatar', (_event, owner: unknown, refresh: unknown) => repositoryAvatar(owner, refresh));

@@ -13,11 +13,9 @@
  */
 package com.bytequay.app.team;
 
-import com.bytequay.app.repository.github.GitHubTeamActivityClient;
-import com.bytequay.app.repository.github.GitHubTeamActivityClient.Observation;
 import com.bytequay.app.scheduler.TeamActivitySyncJob;
-import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
+import com.bytequay.app.service.hosting.HostingIntegrations;
+import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.team.TeamActivitySnapshot.Statistics;
 import com.bytequay.app.team.TeamCircle.Avatar;
@@ -26,9 +24,13 @@ import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.TeamActivityEvent;
-import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingAccount;
+import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.TeamActivityReader;
+import com.bytequay.core.hosting.TeamObservation;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PullRequestStore;
@@ -55,13 +57,18 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.BiFunction;
 
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.team;
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
+import static com.bytequay.core.hosting.HostingServer.GITHUB_COM;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -74,12 +81,13 @@ class TestTeamActivityService
 {
     private static final TeamMember ALICE = new TeamMember(2, "alice", "Alice", "");
     private static final TeamMember BOB = new TeamMember(3, "bob", "Bob", "");
+    private static final TeamAccount ACCOUNT = account(1, "viewer");
 
     @Test
     void statisticsSeparateAuthorshipMergingReviewsAndDirectVersusSharedWork()
     {
         Fixture fixture = fixture();
-        when(fixture.teams().directory()).thenReturn(new TeamDirectory("viewer", ImmutableList.of(
+        when(fixture.teams().directory(ACCOUNT)).thenReturn(new TeamDirectory(1, "viewer", GITHUB_COM, ImmutableList.of(
                 new TeamCircle("all", "All", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of(ALICE, BOB)))));
         when(fixture.store().findSince(anyLong(), any())).thenReturn(ImmutableList.of(
                 event("opened", "PR_OPENED", 2, 2, 7, "owner/repo", ImmutableList.of()),
@@ -87,7 +95,7 @@ class TestTeamActivityService
                 event("review1", "PR_REVIEWED", 2, 1, 8, "owner/repo", ImmutableList.of(2L)),
                 event("review2", "PR_REVIEWED", 2, 1, 8, "owner/repo", ImmutableList.of(2L)),
                 event("comment", "PR_COMMENT", 1, 2, 7, "owner/repo", ImmutableList.of())));
-        TeamActivitySnapshot snapshot = fixture.service().snapshot(Optional.empty(), Optional.empty(), 7, 100, "all");
+        TeamActivitySnapshot snapshot = fixture.service().snapshot(1, Optional.empty(), Optional.empty(), 7, 100, "all");
         assertThat(snapshot.people().getFirst().statistics()).satisfies(person -> {
             assertThat(person.prsOpened()).isEqualTo(1);
             assertThat(person.authoredPrsMerged()).isEqualTo(1);
@@ -108,7 +116,7 @@ class TestTeamActivityService
     void computesStatisticsBeforeDisplayLimitAndKeepsMemberRepositoryScopesIndependent()
     {
         Fixture fixture = fixture();
-        when(fixture.teams().directory()).thenReturn(new TeamDirectory("viewer", ImmutableList.of(
+        when(fixture.teams().directory(ACCOUNT)).thenReturn(new TeamDirectory(1, "viewer", GITHUB_COM, ImmutableList.of(
                 new TeamCircle("alice", "Alice scope", "", Avatar.DEFAULT, ImmutableList.of("owner/repo"), ImmutableList.of(ALICE)),
                 new TeamCircle("bob", "Bob everywhere", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of(BOB)))));
         when(fixture.store().findSince(anyLong(), any())).thenReturn(ImmutableList.of(
@@ -116,7 +124,7 @@ class TestTeamActivityService
                 event("two", "PR_OPENED", 2, 2, 8, "owner/repo", ImmutableList.of()),
                 event("wrong-scope", "PR_OPENED", 2, 2, 9, "other/repo", ImmutableList.of()),
                 event("other-circle-merger", "PR_MERGED", 3, 2, 9, "other/repo", ImmutableList.of())));
-        TeamActivitySnapshot snapshot = fixture.service().snapshot(Optional.empty(), Optional.empty(), 7, 1, "all");
+        TeamActivitySnapshot snapshot = fixture.service().snapshot(1, Optional.empty(), Optional.empty(), 7, 1, "all");
         assertThat(snapshot.events()).hasSize(1);
         // Bob's merge in his wider scope is his update; alice's own PR there is outside hers.
         assertThat(snapshot.updates()).isEqualTo(3);
@@ -124,8 +132,8 @@ class TestTeamActivityService
         assertThat(snapshot.people().getFirst().statistics().prsOpened()).isEqualTo(2);
         assertThat(snapshot.coverage().partial()).isTrue();
         verify(fixture.store()).findSince(eq(1L), any());
-        assertThat(fixture.service().snapshot(Optional.empty(), Optional.empty(), 7, 100, "authored-merges").events()).isEmpty();
-        assertThatThrownBy(() -> fixture.service().snapshot(Optional.empty(), Optional.empty(), 91, 100, "all")).isInstanceOf(ResponseStatusException.class);
+        assertThat(fixture.service().snapshot(1, Optional.empty(), Optional.empty(), 7, 100, "authored-merges").events()).isEmpty();
+        assertThatThrownBy(() -> fixture.service().snapshot(1, Optional.empty(), Optional.empty(), 91, 100, "all")).isInstanceOf(ResponseStatusException.class);
     }
 
     @Test
@@ -134,14 +142,15 @@ class TestTeamActivityService
         Fixture fixture = fixture();
         List<TeamMember> members = ImmutableList.of(ALICE, BOB, new TeamMember(4, "carol", "", ""), new TeamMember(5, "dan", "", ""),
                 new TeamMember(6, "eve", "", ""), new TeamMember(7, "frank", "", ""));
-        when(fixture.teams().directory()).thenReturn(new TeamDirectory("viewer", ImmutableList.of(new TeamCircle("all", "All", "", Avatar.DEFAULT, ImmutableList.of(), members))));
-        when(fixture.github().publicEvents(anyString(), anyString(), any())).thenReturn(new Observation(ImmutableList.of(), ImmutableList.of(), false));
+        when(fixture.teams().directory(ACCOUNT)).thenReturn(new TeamDirectory(1, "viewer", GITHUB_COM, ImmutableList.of(
+                new TeamCircle("all", "All", "", Avatar.DEFAULT, ImmutableList.of(), members))));
+        when(fixture.reader().personActivity(any(), anyString(), any())).thenReturn(new TeamObservation(ImmutableList.of(), ImmutableList.of(), false));
         fixture.service().collect();
-        TeamActivityService restarted = new TeamActivityService(fixture.teams(), fixture.credentials(), fixture.workspaces(), fixture.github(), fixture.store(),
-                fixture.settings(), mapper(), mock(PullRequestStore.class), mock(PrDetailStore.class));
+        TeamActivityService restarted = new TeamActivityService(fixture.teams(), fixture.workspaces(), fixture.integrations(), fixture.store(), fixture.settings(), mapper(),
+                mock(PullRequestStore.class), mock(PrDetailStore.class));
         restarted.collect();
         ArgumentCaptor<String> logins = ArgumentCaptor.forClass(String.class);
-        verify(fixture.github(), times(8)).publicEvents(anyString(), logins.capture(), any());
+        verify(fixture.reader(), times(8)).personActivity(any(), logins.capture(), any());
         assertThat(logins.getAllValues()).containsExactly("alice", "bob", "carol", "dan", "eve", "frank", "alice", "bob");
     }
 
@@ -149,7 +158,7 @@ class TestTeamActivityService
     void metricFiltersSelectMatchingFactsBeforeLimitWithoutChangingStatistics()
     {
         Fixture fixture = fixture();
-        when(fixture.teams().directory()).thenReturn(new TeamDirectory("viewer", ImmutableList.of(
+        when(fixture.teams().directory(ACCOUNT)).thenReturn(new TeamDirectory(1, "viewer", GITHUB_COM, ImmutableList.of(
                 new TeamCircle("all", "All", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of(ALICE, BOB)))));
         TeamActivityEvent authoredMerge = new TeamActivityEvent("authored", "PR_MERGED", 3, "bob", "owner/repo", 7, "Title",
                 "https://github.com/owner/repo/pull/7", Instant.now().minusSeconds(3600), Optional.of(2L), Optional.of("alice"), "REPOSITORY", ImmutableList.of());
@@ -165,7 +174,7 @@ class TestTeamActivityService
                 event("other-interaction", "PR_COMMENT", 1, 2, 7, "owner/repo", ImmutableList.of(3L)),
                 event("direct-interaction", "PR_COMMENT", 1, 3, 8, "owner/repo", ImmutableList.of(2L))));
 
-        TeamActivitySnapshot all = fixture.service().snapshot(Optional.empty(), Optional.of(2L), 7, 1, "all");
+        TeamActivitySnapshot all = fixture.service().snapshot(1, Optional.empty(), Optional.of(2L), 7, 1, "all");
         assertThat(all.events()).doesNotContain(authoredMerge);
         assertThat(all.updates()).isGreaterThan(all.events().size());
         Map<String, List<String>> metricFacts = ImmutableMap.<String, List<String>>builder()
@@ -181,29 +190,29 @@ class TestTeamActivityService
                 .put("shared", ImmutableList.of("authored", "performed-merge", "performed-review", "received-review", "other-interaction", "direct-interaction"))
                 .buildOrThrow();
         metricFacts.forEach((filter, ids) -> {
-            TeamActivitySnapshot filtered = fixture.service().snapshot(Optional.empty(), Optional.of(2L), 7, 100, filter);
+            TeamActivitySnapshot filtered = fixture.service().snapshot(1, Optional.empty(), Optional.of(2L), 7, 100, filter);
             assertThat(filtered.events()).extracting(TeamActivityEvent::id).containsExactlyInAnyOrderElementsOf(ids);
             assertThat(filtered.updates()).isEqualTo(ids.size());
             assertThat(filtered.people()).isEqualTo(all.people());
         });
         assertThat(all.people().getFirst().statistics()).isEqualTo(new Statistics(1, 1, 1, 1, 1, 1, 1, 1, 3, 0));
         ImmutableMap.of("merged", 2, "reviews", 2, "issues", 3).forEach((filter, count) ->
-                assertThat(fixture.service().snapshot(Optional.empty(), Optional.of(2L), 7, 100, filter).events()).hasSize(count));
+                assertThat(fixture.service().snapshot(1, Optional.empty(), Optional.of(2L), 7, 100, filter).events()).hasSize(count));
     }
 
     @Test
     void daysOutsideTheCollectedWindowAreUnknownRatherThanQuiet()
     {
         Fixture fixture = fixture();
-        when(fixture.teams().directory()).thenReturn(new TeamDirectory("viewer", ImmutableList.of(
+        when(fixture.teams().directory(ACCOUNT)).thenReturn(new TeamDirectory(1, "viewer", GITHUB_COM, ImmutableList.of(
                 new TeamCircle("all", "All", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of(ALICE)))));
         when(fixture.store().findSince(anyLong(), any())).thenReturn(ImmutableList.of(event("today", "PR_OPENED", 2, 2, 7, "owner/repo", ImmutableList.of())));
-        assertThat(fixture.service().snapshot(Optional.empty(), Optional.empty(), 7, 100, "all").days())
+        assertThat(fixture.service().snapshot(1, Optional.empty(), Optional.empty(), 7, 100, "all").days())
                 .hasSize(7).allSatisfy(day -> assertThat(day.collected()).isFalse());
 
-        when(fixture.github().publicEvents(anyString(), anyString(), any())).thenReturn(new Observation(ImmutableList.of(), ImmutableList.of(), false));
+        when(fixture.reader().personActivity(any(), anyString(), any())).thenReturn(new TeamObservation(ImmutableList.of(), ImmutableList.of(), false));
         fixture.service().collect();
-        TeamActivitySnapshot collected = fixture.service().snapshot(Optional.empty(), Optional.empty(), 90, 100, "all");
+        TeamActivitySnapshot collected = fixture.service().snapshot(1, Optional.empty(), Optional.empty(), 90, 100, "all");
         assertThat(collected.days()).hasSize(90);
         assertThat(collected.days().getLast()).satisfies(day -> {
             assertThat(day.date()).isEqualTo(LocalDate.now());
@@ -223,25 +232,32 @@ class TestTeamActivityService
     void invalidActivityFilterIsRejectedBeforeCollection()
     {
         Fixture fixture = fixture();
-        assertThatThrownBy(() -> fixture.service().refresh(Optional.empty(), Optional.empty(), 7, 100, "unknown"))
+        assertThatThrownBy(() -> fixture.service().refresh(1, Optional.empty(), Optional.empty(), 7, 100, "unknown"))
                 .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST));
-        verify(fixture.credentials(), never()).resolveGitHubCredential();
-        verify(fixture.github(), never()).publicEvents(anyString(), anyString(), any());
+        verify(fixture.teams(), never()).account(anyLong());
+        verify(fixture.reader(), never()).personActivity(any(), anyString(), any());
     }
 
     @Test
-    void accountSwitchDuringCollectionRefusesObservationAndCoverageWrites()
+    void collectsEachAccountIntoItsOwnStore()
     {
         Fixture fixture = fixture();
-        when(fixture.teams().directory()).thenReturn(new TeamDirectory("viewer", ImmutableList.of(
+        TeamAccount other = account(9, "other");
+        when(fixture.teams().accounts()).thenReturn(ImmutableList.of(ACCOUNT, other));
+        when(fixture.teams().directory(ACCOUNT)).thenReturn(new TeamDirectory(1, "viewer", GITHUB_COM, ImmutableList.of(
                 new TeamCircle("all", "All", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of(ALICE)))));
-        when(fixture.github().publicEvents(anyString(), anyString(), any())).thenAnswer(invocation -> {
-            when(fixture.credentials().resolveGitHubCredential()).thenReturn(new GitHubCredential("other", new UserProfile("other", "", "", "", 0, 0, 0, "", "", "", "")));
-            return new Observation(ImmutableList.of(event("one", "PR_OPENED", 2, 2, 7, "owner/repo", ImmutableList.of())), ImmutableList.of(), false);
-        });
-        assertThatThrownBy(() -> fixture.service().collect()).isInstanceOf(ResponseStatusException.class).hasMessageContaining("account changed");
-        verify(fixture.store(), never()).save(anyLong(), any());
-        verify(fixture.settings(), never()).put(anyString(), anyString());
+        when(fixture.teams().directory(other)).thenReturn(new TeamDirectory(9, "other", GITHUB_COM, ImmutableList.of(
+                new TeamCircle("all", "All", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of(BOB)))));
+        TeamActivityEvent alice = event("alice", "PR_OPENED", 2, 2, 7, "owner/repo", ImmutableList.of());
+        TeamActivityEvent bob = event("bob", "PR_OPENED", 3, 3, 8, "owner/repo", ImmutableList.of());
+        when(fixture.reader().personActivity(any(), eq("alice"), any())).thenReturn(new TeamObservation(ImmutableList.of(alice), ImmutableList.of(), false));
+        when(fixture.reader().personActivity(any(), eq("bob"), any())).thenReturn(new TeamObservation(ImmutableList.of(bob), ImmutableList.of(), false));
+
+        fixture.service().collect();
+
+        verify(fixture.store()).save(1, ImmutableList.of(alice));
+        verify(fixture.store()).save(9, ImmutableList.of(bob));
+        verify(fixture.reader()).personActivity(eq(other.session().access()), eq("bob"), argThat(identity -> identity.viewerId() == 9 && identity.viewerLogin().equals("other")));
     }
 
     @ParameterizedTest
@@ -249,7 +265,7 @@ class TestTeamActivityService
     void sharedDetailReuseRequiresCompleteCurrentDiscussionAndMetadata(String freshness)
     {
         Fixture fixture = fixture();
-        when(fixture.teams().directory()).thenReturn(new TeamDirectory("viewer", ImmutableList.of(
+        when(fixture.teams().directory(ACCOUNT)).thenReturn(new TeamDirectory(1, "viewer", GITHUB_COM, ImmutableList.of(
                 new TeamCircle("all", "All", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of(ALICE)))));
         RepoRef repository = RepoRef.of("owner", "repo");
         Instant createdAt = Instant.now().minusSeconds(120);
@@ -257,8 +273,8 @@ class TestTeamActivityService
                 Workspace.Topology.DIRECT, "main", "https://github.com/owner/repo.git", Optional.empty(), Optional.empty(), "/tmp/repo",
                 Optional.empty(), Optional.empty(), 0, createdAt, createdAt);
         when(fixture.workspaces().findAll()).thenReturn(ImmutableList.of(workspace));
-        Observation empty = new Observation(ImmutableList.of(), ImmutableList.of(), false);
-        when(fixture.github().publicEvents(anyString(), anyString(), any())).thenReturn(empty);
+        TeamObservation empty = new TeamObservation(ImmutableList.of(), ImmutableList.of(), false);
+        when(fixture.reader().personActivity(any(), anyString(), any())).thenReturn(empty);
         Instant sourceAt = Instant.now().minusSeconds(60);
         Instant checkedAt = freshness.equals("expired") ? sourceAt.minusSeconds(600) : Instant.now();
         Instant coveredAt = freshness.equals("new-source") ? sourceAt.minusSeconds(1) : sourceAt;
@@ -271,7 +287,7 @@ class TestTeamActivityService
         StoredPrDetail cached = new StoredPrDetail(raw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
                 freshness.equals("incomplete") ? ImmutableList.of(StoredPrDetail.REVIEWS) : ImmutableList.of(), false);
         when(fixture.details().find(7L)).thenReturn(Optional.of(cached));
-        when(fixture.github().repository(eq("token"), eq("owner/repo"), any(), anyInt(), any())).thenAnswer(invocation -> {
+        when(fixture.reader().repositoryActivity(any(), eq("owner/repo"), any(), anyInt(), any())).thenAnswer(invocation -> {
             BiFunction<Integer, Instant, Optional<StoredPrDetail>> lookup = invocation.getArgument(4);
             assertThat(lookup.apply(7, sourceAt)).isEqualTo(freshness.equals("fresh") ? Optional.of(cached) : Optional.empty());
             return empty;
@@ -279,37 +295,35 @@ class TestTeamActivityService
 
         fixture.service().collect();
 
-        verify(fixture.github()).repository(eq("token"), eq("owner/repo"), any(), anyInt(), any());
+        verify(fixture.reader()).repositoryActivity(any(), eq("owner/repo"), any(), anyInt(), any());
     }
 
     @Test
     void scansOnlyWatchedRepositoriesWhoseProviderHasTeamActivity()
     {
         Fixture fixture = fixture();
-        when(fixture.teams().directory()).thenReturn(new TeamDirectory("viewer", ImmutableList.of(
+        when(fixture.teams().directory(ACCOUNT)).thenReturn(new TeamDirectory(1, "viewer", GITHUB_COM, ImmutableList.of(
                 new TeamCircle("all", "All", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of(ALICE)))));
         when(fixture.workspaces().findAll()).thenReturn(ImmutableList.of(workspace("github", RepoRef.of("owner", "repo"), Optional.empty()),
                 workspace("gitlab", RepoRef.of("group", "project"),
                         Optional.of(new HostingServer(GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"))))));
-        Observation empty = new Observation(ImmutableList.of(), ImmutableList.of(), false);
-        when(fixture.github().publicEvents(anyString(), anyString(), any())).thenReturn(empty);
-        when(fixture.github().repository(anyString(), anyString(), any(), anyInt(), any())).thenReturn(empty);
+        TeamObservation empty = new TeamObservation(ImmutableList.of(), ImmutableList.of(), false);
+        when(fixture.reader().personActivity(any(), anyString(), any())).thenReturn(empty);
+        when(fixture.reader().repositoryActivity(any(), anyString(), any(), anyInt(), any())).thenReturn(empty);
 
         fixture.service().collect();
 
-        verify(fixture.github()).repository(eq("token"), eq("owner/repo"), any(), anyInt(), any());
-        verify(fixture.github(), never()).repository(anyString(), eq("group/project"), any(), anyInt(), any());
+        verify(fixture.reader()).repositoryActivity(any(), eq("owner/repo"), any(), anyInt(), any());
+        verify(fixture.reader(), never()).repositoryActivity(any(), eq("group/project"), any(), anyInt(), any());
     }
 
     @Test
     void automaticCollectionRespectsSharedQuietHours()
     {
         TeamActivityService activity = mock(TeamActivityService.class);
-        CredentialService credentials = mock(CredentialService.class);
         AppSettingsService settings = mock(AppSettingsService.class);
-        when(credentials.isGitHubAccountConfigured()).thenReturn(true);
         when(settings.inQuietHours()).thenReturn(true);
-        new TeamActivitySyncJob(activity, credentials, settings).tick();
+        new TeamActivitySyncJob(activity, settings).tick();
         verify(activity, never()).collect();
     }
 
@@ -329,7 +343,6 @@ class TestTeamActivityService
     private static Fixture fixture()
     {
         TeamService teams = mock(TeamService.class);
-        CredentialService credentials = mock(CredentialService.class);
         TeamActivityStore store = mock(TeamActivityStore.class);
         WorkspaceStore workspaces = mock(WorkspaceStore.class);
         AppSettingsStore settings = mock(AppSettingsStore.class);
@@ -340,14 +353,20 @@ class TestTeamActivityService
             return null;
         }).when(settings).put(anyString(), anyString());
         when(workspaces.findAll()).thenReturn(ImmutableList.of());
-        when(teams.accountId()).thenReturn(1L);
-        GitHubCredential credential = new GitHubCredential("token", new UserProfile("viewer", "", "", "", 0, 0, 0, "", "", "", ""));
-        when(credentials.resolveGitHubCredential()).thenReturn(credential);
-        GitHubTeamActivityClient github = mock(GitHubTeamActivityClient.class);
+        when(teams.account(1)).thenReturn(ACCOUNT);
+        when(teams.accounts()).thenReturn(ImmutableList.of(ACCOUNT));
+        TeamActivityReader reader = mock(TeamActivityReader.class);
+        HostingIntegrations integrations = integrations(team(GITHUB, reader));
         PullRequestStore pulls = mock(PullRequestStore.class);
         PrDetailStore details = mock(PrDetailStore.class);
-        TeamActivityService service = new TeamActivityService(teams, credentials, workspaces, github, store, settings, mapper(), pulls, details);
-        return new Fixture(teams, store, service, credentials, github, settings, workspaces, pulls, details);
+        TeamActivityService service = new TeamActivityService(teams, workspaces, integrations, store, settings, mapper(), pulls, details);
+        return new Fixture(teams, store, service, reader, integrations, settings, workspaces, pulls, details);
+    }
+
+    private static TeamAccount account(long id, String login)
+    {
+        HostingAccess access = new HostingAccess(new HostingInstance(1, GITHUB, GITHUB_COM.webBaseUrl(), GITHUB_COM.apiBaseUrl()), login + "-token");
+        return new TeamAccount(new HostingReadSession(id, "github-global", access), new HostingAccount(id, 1, Long.toString(id), login));
     }
 
     private static TeamActivityEvent event(String id, String kind, long actor, long author, int number, String repository, List<Long> direct)
@@ -356,6 +375,6 @@ class TestTeamActivityService
                 Instant.now(), Optional.of(author), Optional.of("author"), "REPOSITORY", direct);
     }
 
-    private record Fixture(TeamService teams, TeamActivityStore store, TeamActivityService service, CredentialService credentials,
-            GitHubTeamActivityClient github, AppSettingsStore settings, WorkspaceStore workspaces, PullRequestStore pulls, PrDetailStore details) {}
+    private record Fixture(TeamService teams, TeamActivityStore store, TeamActivityService service, TeamActivityReader reader, HostingIntegrations integrations,
+            AppSettingsStore settings, WorkspaceStore workspaces, PullRequestStore pulls, PrDetailStore details) {}
 }

@@ -15,7 +15,7 @@ import { plural } from '@bytequay/ui/displayText';
 import type { JiraIssue } from '../jira/contracts';
 import { pullRequestIsMine } from '../pulls/model';
 import { teamAttentionMatch, type TeamAttentionPreference } from '../teams/priority';
-import type { TeamCircle } from '../teams/types';
+import type { TeamDirectory } from '../teams/types';
 import type { AgentTaskActivityDto, AgentTaskDto, AttentionMarkDto, PullRequestDto, PullRequestRoute, RepositoryIssueSnapshotDto } from '../types';
 
 /** Why an item is on the "Needs attention" list. */
@@ -54,6 +54,8 @@ export type AttentionItem = {
   labels: string[];
   /** The pull request row the list already loaded; null for issues. */
   pr: PullRequestDto | null;
+  /** An issue's web page; a pull request's is on its row. */
+  htmlUrl?: string;
   /** Issues carry their body and comment count in the list payload. */
   body: string;
   commentCount: number;
@@ -157,7 +159,7 @@ export function issueAttentionItem(issue: RepositoryIssueSnapshotDto['issues'][n
   return {
     key: issueAttentionKey(repo, issue.number, workspaceId), sourceKey: `${URL.parse(issue.htmlUrl)?.origin ?? workspaceId}:issue:${issue.id}`, type: 'issue', kind: 'updated',
     repo, number: issue.number, title: issue.title, author: issue.author, authorAvatarUrl: issue.authorAvatarUrl,
-    createdAt: issue.createdAt, updatedAt: issue.updatedAt, labels: issue.labels, pr: null,
+    createdAt: issue.createdAt, updatedAt: issue.updatedAt, labels: issue.labels, pr: null, htmlUrl: issue.htmlUrl,
     body: issue.body, commentCount: issue.commentCount, workspaceId,
     canStartDevelopment: !issue.isEpic && issue.developmentTask == null, isEpic: issue.isEpic === true, epicId: issue.epicId,
   };
@@ -464,7 +466,7 @@ export type AttentionFilter = 'all' | AttentionSource;
  * reviewed or monitor; then circle members' own pull requests and issues. Null keeps it off the list, such as
  * a circle member's comment on someone else's pull request.
  */
-export function attentionRank(item: AttentionItem, circles: TeamCircle[], viewerLogin: string | null): number | null {
+export function attentionRank(item: AttentionItem, directories: TeamDirectory[], viewerLogin: string | null): number | null {
   if (item.task) return 0;
   // The Jira attention read lists only tickets assigned to the viewer.
   if (item.jira) return 2;
@@ -472,7 +474,7 @@ export function attentionRank(item: AttentionItem, circles: TeamCircle[], viewer
   if (pr !== null ? pullRequestIsMine(pr, viewerLogin) : viewerLogin !== null && item.author?.toLowerCase() === viewerLogin.toLowerCase()) return 0;
   // Approval keeps routine updates in Approved by me; an explicit re-request clears the approval in the backend.
   if (pr?.state === 'open' && pr.handledAction === 'APPROVED') return null;
-  const circle = teamAttentionMatch(item, circles, viewerLogin);
+  const circle = teamAttentionMatch(item, directories);
   if (item.kind === 'review' || item.kind === 'assigned' || pr?.mentioned === true) return circle === null ? 2 : 1;
   if (pr !== null && (pr.reviewedAt !== null || pr.handledAction !== null || pr.monitoredAt != null)) return 3;
   return circle === null ? null : 4;
@@ -483,11 +485,11 @@ const RANKED_WINDOW_MS = 7 * 86_400_000;
 
 /** The cards a filter draws, capped: the last week's activity by rank, then older items newest first. */
 export function attentionCards(live: AttentionItem[], filter: AttentionFilter, limit = ATTENTION_CARD_LIMIT,
-  team: TeamAttentionPreference = { circles: [], viewerLogin: null }, now = Date.now()): AttentionItem[] {
+  team: TeamAttentionPreference = { directories: [], viewerLogin: null }, now = Date.now()): AttentionItem[] {
   return live.flatMap(item => {
-    const rank = attentionRank(item, team.circles, team.viewerLogin);
+    const rank = attentionRank(item, team.directories, team.viewerLogin);
     if (rank === null || (filter !== 'all' && attentionSource(item) !== filter)
-      || (team.onlyTeam && teamAttentionMatch(item, team.circles, team.viewerLogin) === null)) return [];
+      || (team.onlyTeam && teamAttentionMatch(item, team.directories) === null)) return [];
     const recent = now - attentionAt(item) <= RANKED_WINDOW_MS;
     return [{ item, order: recent ? rank : Number.MAX_SAFE_INTEGER }];
   }).sort((left, right) => left.order - right.order || compareAttention(left.item, right.item)).slice(0, limit).map(entry => entry.item);

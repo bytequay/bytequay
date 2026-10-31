@@ -26,7 +26,8 @@ public record HostingIntegration(
         IssueClient issues,
         RepositoryMetadataReader metadata,
         PullRequestDiscovery discovery,
-        PullRequestCi ci)
+        PullRequestCi ci,
+        TeamActivityReader team)
 {
     public HostingIntegration
     {
@@ -40,5 +41,6 @@ public record HostingIntegration(
         requireNonNull(metadata, "metadata is null");
         requireNonNull(discovery, "discovery is null");
         requireNonNull(ci, "ci is null");
+        requireNonNull(team, "team is null");
     }
 }

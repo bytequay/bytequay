@@ -30,7 +30,8 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 /** Empty repository scope means all accessible activity collected for the members. */
 public record TeamCircle(String id, String name, String description, Avatar avatar, List<String> repositories, List<TeamMember> members)
 {
-    private static final Pattern REPOSITORY = Pattern.compile("[A-Za-z0-9_-]{1,100}/[A-Za-z0-9_.-]{1,100}");
+    // owner/name, or a GitLab project nested in subgroups.
+    private static final Pattern REPOSITORY = Pattern.compile("[A-Za-z0-9_.-]{1,100}(?:/[A-Za-z0-9_.-]{1,100}){1,20}");
 
     public TeamCircle
     {
@@ -44,13 +45,14 @@ public record TeamCircle(String id, String name, String description, Avatar avat
         checkArgument(description.length() <= 2000, "Circle description must contain at most 2000 characters");
         repositories = normalizeNames(repositories, "Repositories").stream()
                 .map(repository -> {
-                    checkArgument(REPOSITORY.matcher(repository).matches() && !repository.endsWith("/.") && !repository.endsWith("/.."), "Enter a repository as owner/name");
+                    checkArgument(REPOSITORY.matcher(repository).matches() && !repository.contains("/./") && !repository.contains("/../") && !repository.endsWith("/.")
+                            && !repository.endsWith("/..") && !repository.startsWith("./") && !repository.startsWith("../"), "Enter a repository as owner/name");
                     return repository.toLowerCase(Locale.ROOT);
                 })
                 .distinct()
                 .collect(toImmutableList());
         members = ImmutableList.copyOf(members);
-        checkArgument(members.stream().map(TeamMember::githubId).distinct().count() == members.size(), "Circle contains duplicate members");
+        checkArgument(members.stream().map(TeamMember::remoteId).distinct().count() == members.size(), "Circle contains duplicate members");
     }
 
     /** A circle's avatar: a solid palette color, drawn as a circle or a rounded square. */

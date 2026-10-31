@@ -86,8 +86,8 @@ export default function AttentionList({
   const [openOnly, setOpenOnly] = useState(loadOpenOnly);
   const [showAllApproved, setShowAllApproved] = useState(false);
   const [showHandled, setShowHandled] = useState(false);
-  const directory = useTeams(viewerLogin).directory;
-  const circles = useMemo(() => directory?.circles ?? [], [directory]);
+  const loaded = useTeams().directories;
+  const directories = useMemo(() => loaded ?? [], [loaded]);
   const [snooze, setSnooze] = useState<Anchored | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [session, setSession] = useState<string[]>([]);
@@ -111,10 +111,10 @@ export default function AttentionList({
         && (!openOnly || attentionEnded(item) === null) && skip?.(item) !== true);
     const filters = (variant === 'home' ? HOME_FILTERS : FILTERS).filter(id => id !== 'jira' || jiraConnected || live.some(item => attentionSource(item) === 'jira'));
     const cards = myPrs ? myPullRequestCards(reminders, handled, viewerLogin, at)
-      : attentionCards(live, filters.includes(filter) ? filter : 'all', undefined, { circles, viewerLogin, onlyTeam }, at);
+      : attentionCards(live, filters.includes(filter) ? filter : 'all', undefined, { directories, viewerLogin, onlyTeam }, at);
     const approved = myPrs ? [] : approvedPullRequestCards(reminders, handled, viewerLogin, at);
     return { filters, cards, approved };
-  }, [reminders, handled, now, variant, viewerLogin, openOnly, skip, jiraConnected, myPrs, filter, circles, onlyTeam]);
+  }, [reminders, handled, now, variant, viewerLogin, openOnly, skip, jiraConnected, myPrs, filter, directories, onlyTeam]);
   const sessionEntries = session
     .map(key => handled[key])
     .filter((entry): entry is HandledEntry => entry !== undefined);
@@ -164,7 +164,7 @@ export default function AttentionList({
       <div className="atn-head">
         <span className="atn-head__label">{title}</span>
         {!myPrs && <>
-          {(circles.length > 0 || onlyTeam) && (
+          {(directories.some(directory => directory.circles.length > 0) || onlyTeam) && (
             <button type="button" className={`atn-toggle${onlyTeam ? ' is-active' : ''}`} aria-pressed={onlyTeam} onClick={() => setOnlyTeam(value => !value)}>Circles</button>
           )}
           <button type="button" className={`atn-toggle${openOnly ? ' is-active' : ''}`} aria-pressed={openOnly} title="Hide merged, closed and completed items"
@@ -187,7 +187,7 @@ export default function AttentionList({
       {cards.length > 0 ? (
         <div className="item-list" role="list">
           {cards.map(item => {
-            const match = teamAttentionMatch(item, circles, viewerLogin);
+            const match = teamAttentionMatch(item, directories);
             return (
               <AttentionRow
                 key={item.key}
@@ -224,7 +224,7 @@ export default function AttentionList({
       {showHandled && sessionItems.length > 0 && (
         <div className="item-list" role="list" aria-label="Handled this session">
           {sessionItems.map(item => {
-            const match = teamAttentionMatch(item, circles, viewerLogin);
+            const match = teamAttentionMatch(item, directories);
             return (
               <AttentionRow key={item.key} item={item} viewerLogin={viewerLogin} showRepo={variant === 'home'} compact
                 circle={match === null ? null : { match, circles: [match.circle] }}
@@ -258,7 +258,7 @@ export default function AttentionList({
         </div>
         <div className="item-list" role="list">
           {(showAllApproved ? approved : approved.slice(0, ATTENTION_CARD_LIMIT)).map(item => {
-            const match = teamAttentionMatch(item, circles, viewerLogin);
+            const match = teamAttentionMatch(item, directories);
             return (
               <AttentionRow key={item.key} item={item} viewerLogin={viewerLogin} showRepo={variant === 'home'} compact
                 circle={match === null ? null : { match, circles: [match.circle] }}

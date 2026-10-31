@@ -13,11 +13,7 @@
  */
 package com.bytequay.app.team;
 
-import com.bytequay.app.repository.github.GitHubTeamActivityClient;
-import com.bytequay.app.repository.github.GitHubTeamActivityClient.Identity;
-import com.bytequay.app.repository.github.GitHubTeamActivityClient.Observation;
-import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
+import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.app.team.TeamActivitySnapshot.Coverage;
 import com.bytequay.app.team.TeamActivitySnapshot.Day;
 import com.bytequay.app.team.TeamActivitySnapshot.PersonStatistics;
@@ -26,6 +22,10 @@ import com.bytequay.core.domain.PrDetailFreshness;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.TeamActivityEvent;
+import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.TeamActivityReader;
+import com.bytequay.core.hosting.TeamIdentity;
+import com.bytequay.core.hosting.TeamObservation;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PullRequestStore;
@@ -59,8 +59,8 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Predicate;
 import java.util.stream.IntStream;
 
-import static com.bytequay.app.repository.github.GitHubTeamActivityClient.LOOK_BACK;
-import static com.bytequay.app.repository.github.GitHubTeamActivityClient.mentions;
+import static com.bytequay.core.hosting.TeamActivityReader.LOOK_BACK;
+import static com.bytequay.core.hosting.TeamIdentity.mentions;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Comparator.naturalOrder;
 import static java.util.Objects.requireNonNull;
@@ -76,9 +76,8 @@ public class TeamActivityService
             "reviews-performed", "issues-opened", "issues-closed", "comments", "interactions", "shared");
 
     private final TeamService teams;
-    private final CredentialService credentials;
     private final WorkspaceStore workspaces;
-    private final GitHubTeamActivityClient github;
+    private final HostingIntegrations integrations;
     private final TeamActivityStore store;
     private final AppSettingsStore settings;
     private final ObjectMapper mapper;
@@ -86,13 +85,12 @@ public class TeamActivityService
     private final PrDetailStore details;
     private final Lock refreshLock = new ReentrantLock();
 
-    public TeamActivityService(TeamService teams, CredentialService credentials, WorkspaceStore workspaces, GitHubTeamActivityClient github,
-            TeamActivityStore store, AppSettingsStore settings, ObjectMapper mapper, PullRequestStore pulls, PrDetailStore details)
+    public TeamActivityService(TeamService teams, WorkspaceStore workspaces, HostingIntegrations integrations, TeamActivityStore store, AppSettingsStore settings,
+            ObjectMapper mapper, PullRequestStore pulls, PrDetailStore details)
     {
         this.teams = requireNonNull(teams, "teams is null");
-        this.credentials = requireNonNull(credentials, "credentials is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
-        this.github = requireNonNull(github, "github is null");
+        this.integrations = requireNonNull(integrations, "integrations is null");
         this.store = requireNonNull(store, "store is null");
         this.settings = requireNonNull(settings, "settings is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
@@ -100,50 +98,52 @@ public class TeamActivityService
         this.details = requireNonNull(details, "details is null");
     }
 
-    public TeamActivitySnapshot snapshot(Optional<String> circleId, Optional<Long> memberId, int days, int limit, String filter)
+    public TeamActivitySnapshot snapshot(long accountId, Optional<String> circleId, Optional<Long> memberId, int days, int limit, String filter)
     {
         validate(days, limit, filter);
-        GitHubCredential credential = credentials.resolveGitHubCredential();
-        TeamDirectory directory = teams.directory();
-        long accountId = teams.accountId();
-        requireSameAccount(credential);
+        return snapshot(teams.account(accountId), circleId, memberId, days, limit, filter);
+    }
+
+    private TeamActivitySnapshot snapshot(TeamAccount account, Optional<String> circleId, Optional<Long> memberId, int days, int limit, String filter)
+    {
+        TeamDirectory directory = teams.directory(account);
+        long viewerId = account.viewerId();
         List<TeamCircle> circles = circles(directory, circleId);
-        List<TeamMember> members = members(circles).stream().filter(member -> memberId.isEmpty() || member.githubId() == memberId.get()).collect(toImmutableList());
+        List<TeamMember> members = members(circles).stream().filter(member -> memberId.isEmpty() || member.remoteId() == memberId.get()).collect(toImmutableList());
         if (memberId.isPresent() && members.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "This person is not in this circle");
         }
-        Set<Long> memberIds = members.stream().map(TeamMember::githubId).collect(toSet());
-        List<TeamActivityEvent> observations = store.findSince(accountId, Instant.now().minusSeconds(days * 86400L)).stream()
+        Set<Long> memberIds = members.stream().map(TeamMember::remoteId).collect(toSet());
+        List<TeamActivityEvent> observations = store.findSince(account.id(), Instant.now().minusSeconds(days * 86400L)).stream()
                 .filter(event -> circles.stream().anyMatch(circle -> includes(circle, event)))
-                .filter(event -> memberIds.stream().anyMatch(id -> involves(event, id)) || event.actorId() == accountId)
+                .filter(event -> memberIds.stream().anyMatch(id -> involves(event, id)) || event.actorId() == viewerId)
                 .sorted(Comparator.comparing(TeamActivityEvent::occurredAt).reversed().thenComparing(TeamActivityEvent::id)).collect(toImmutableList());
-        Set<String> viewerWork = observations.stream().filter(event -> event.actorId() == accountId || event.subjectAuthorId().filter(id -> id == accountId).isPresent()
+        Set<String> viewerWork = observations.stream().filter(event -> event.actorId() == viewerId || event.subjectAuthorId().filter(id -> id == viewerId).isPresent()
                 || !event.viewerInteractionMemberIds().isEmpty()).map(TeamActivityService::workKey).collect(toSet());
         // A person counts only in repositories that one of their circles covers.
         Map<Long, List<TeamActivityEvent>> scoped = new LinkedHashMap<>();
-        members.forEach(member -> scoped.put(member.githubId(), observations.stream()
-                .filter(event -> circles.stream().anyMatch(circle -> includes(circle, event) && contains(circle, member.githubId()))).collect(toImmutableList())));
+        members.forEach(member -> scoped.put(member.remoteId(), observations.stream()
+                .filter(event -> circles.stream().anyMatch(circle -> includes(circle, event) && contains(circle, member.remoteId()))).collect(toImmutableList())));
         List<TeamActivityEvent> display = observations.stream().filter(event -> {
             Set<Long> ids = circles.stream().filter(circle -> includes(circle, event)).flatMap(circle -> circle.members().stream())
-                    .map(TeamMember::githubId).filter(memberIds::contains).collect(toSet());
+                    .map(TeamMember::remoteId).filter(memberIds::contains).collect(toSet());
             return ids.stream().anyMatch(id -> involves(event, id)) && matchesFilter(event, filter, ids, viewerWork);
         }).collect(toImmutableList());
-        CollectionState state = state(accountId);
-        List<String> repositories = repositories(circles);
+        CollectionState state = state(account.id());
+        List<String> repositories = repositories(circles, account.server());
         int membersScanned = (int) state.membersScanned().stream().filter(memberIds::contains).count();
         int repositoriesScanned = (int) state.repositoriesScanned().stream().filter(repositories::contains).count();
         Coverage coverage = new Coverage(!state.errors().isEmpty() || membersScanned < members.size() || repositoriesScanned < repositories.size(),
                 state.observedSince(), state.lastRefreshedAt(), state.errors(), members.size(), membersScanned, repositories.size(), repositoriesScanned);
-        requireSameAccount(credential);
-        List<PersonStatistics> people = members.stream().map(member -> new PersonStatistics(member.githubId(), member.login(),
-                statistics(ImmutableMap.of(member.githubId(), scoped.get(member.githubId())), viewerWork),
-                scoped.get(member.githubId()).stream().filter(event -> event.actorId() == member.githubId()).map(TeamActivityEvent::occurredAt).max(naturalOrder())))
+        List<PersonStatistics> people = members.stream().map(member -> new PersonStatistics(member.remoteId(), member.login(),
+                statistics(ImmutableMap.of(member.remoteId(), scoped.get(member.remoteId())), viewerWork),
+                scoped.get(member.remoteId()).stream().filter(event -> event.actorId() == member.remoteId()).map(TeamActivityEvent::occurredAt).max(naturalOrder())))
                 .collect(toImmutableList());
         return new TeamActivitySnapshot(directory.accountLogin(), display.stream().limit(limit).collect(toImmutableList()), display.size(),
                 (int) display.stream().map(TeamActivityService::workKey).distinct().count(), people, statistics(scoped, viewerWork), perDay(display, days, state), coverage);
     }
 
-    /** Each pass reads back {@link GitHubTeamActivityClient#LOOK_BACK}, so days before the first pass's window or after the latest pass were never observed. */
+    /** Each pass reads back {@link TeamActivityReader#LOOK_BACK}, so days before the first pass's window or after the latest pass were never observed. */
     private static List<Day> perDay(List<TeamActivityEvent> events, int days, CollectionState state)
     {
         // ponytail: one window from the first to the latest pass; record pass dates if a closed app outlasting the look-back must show as a gap.
@@ -156,78 +156,83 @@ public class TeamActivityService
                 from.filter(start -> !date.isBefore(start)).isPresent() && to.filter(end -> !date.isAfter(end)).isPresent())).collect(toImmutableList());
     }
 
-    public TeamActivitySnapshot refresh(Optional<String> circleId, Optional<Long> memberId, int days, int limit, String filter)
+    public TeamActivitySnapshot refresh(long accountId, Optional<String> circleId, Optional<Long> memberId, int days, int limit, String filter)
     {
         validate(days, limit, filter);
+        TeamAccount account = teams.account(accountId);
         // Validate requested filters before any collection; the shared round-robin remains independent of the open page.
-        snapshot(circleId, memberId, days, limit, filter);
-        collect();
-        return snapshot(circleId, memberId, days, limit, filter);
+        snapshot(account, circleId, memberId, days, limit, filter);
+        locked(() -> collect(account));
+        return snapshot(account, circleId, memberId, days, limit, filter);
     }
 
+    /** One pass for every account that has circle members. */
     public void collect()
+    {
+        locked(() -> teams.accounts().forEach(this::collect));
+    }
+
+    private void locked(Runnable pass)
     {
         if (!refreshLock.tryLock()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "A refresh is already running");
         }
         try {
-            GitHubCredential credential = credentials.resolveGitHubCredential();
-            TeamDirectory directory = teams.directory();
-            long accountId = teams.accountId();
-            requireSameAccount(credential);
-            List<TeamMember> members = members(directory.circles());
-            if (members.isEmpty()) {
-                return;
-            }
-            List<String> repositories = repositories(directory.circles());
-            Map<Long, String> identities = new LinkedHashMap<>();
-            members.forEach(member -> identities.put(member.githubId(), member.login()));
-            Identity identity = new Identity(accountId, directory.accountLogin(), identities);
-            CollectionState old = state(accountId);
-            List<String> errors = new ArrayList<>();
-            List<Long> scannedMembers = new ArrayList<>();
-            List<String> scannedRepositories = new ArrayList<>();
-            int memberCursor = old.memberCursor();
-            int repositoryCursor = old.repositoryCursor();
-            Map<String, Integer> reviewOffsets = new LinkedHashMap<>();
-            repositories.forEach(repository -> reviewOffsets.put(repository, old.reviewOffsets().getOrDefault(repository, 0)));
-            boolean rateLimited = false;
-            for (int index = 0; index < Math.min(4, members.size()) && !rateLimited; index++) {
-                TeamMember member = members.get(Math.floorMod(memberCursor++, members.size()));
-                Observation result = github.publicEvents(credential.token(), member.login(), identity);
-                requireSameAccount(credential);
-                store.save(accountId, result.events());
-                errors.addAll(result.errors());
-                if (result.errors().isEmpty()) {
-                    scannedMembers.add(member.githubId());
-                }
-                rateLimited = result.rateLimited();
-            }
-            for (int index = 0; index < Math.min(2, repositories.size()) && !rateLimited; index++) {
-                String repository = repositories.get(Math.floorMod(repositoryCursor++, repositories.size()));
-                Observation result = github.repository(credential.token(), repository, identity, reviewOffsets.get(repository),
-                        (number, updatedAt) -> cachedDetail(repository, number, updatedAt));
-                requireSameAccount(credential);
-                store.save(accountId, result.events());
-                requireSameAccount(credential);
-                store.save(accountId, cachedReviews(result.events(), identity));
-                reviewOffsets.put(repository, Math.floorMod(reviewOffsets.get(repository) + 5, 100));
-                errors.addAll(result.errors());
-                if (result.errors().isEmpty()) {
-                    scannedRepositories.add(repository);
-                }
-                rateLimited = result.rateLimited();
-            }
-            Instant now = Instant.now();
-            requireSameAccount(credential);
-            writeState(accountId, new CollectionState(old.observedSince().or(() -> Optional.of(now)), Optional.of(now), memberCursor, repositoryCursor,
-                    reviewOffsets, scannedMembers, scannedRepositories, errors));
-            store.deleteBefore(now.minusSeconds(RETENTION_DAYS * 86400L));
-            requireSameAccount(credential);
+            pass.run();
         }
         finally {
             refreshLock.unlock();
         }
+    }
+
+    private void collect(TeamAccount account)
+    {
+        TeamDirectory directory = teams.directory(account);
+        List<TeamMember> members = members(directory.circles());
+        if (members.isEmpty()) {
+            return;
+        }
+        TeamActivityReader reader = integrations.of(account.server().provider()).team();
+        List<String> repositories = repositories(directory.circles(), account.server());
+        Map<Long, String> identities = new LinkedHashMap<>();
+        members.forEach(member -> identities.put(member.remoteId(), member.login()));
+        TeamIdentity identity = new TeamIdentity(account.viewerId(), directory.accountLogin(), identities);
+        CollectionState old = state(account.id());
+        List<String> errors = new ArrayList<>();
+        List<Long> scannedMembers = new ArrayList<>();
+        List<String> scannedRepositories = new ArrayList<>();
+        int memberCursor = old.memberCursor();
+        int repositoryCursor = old.repositoryCursor();
+        Map<String, Integer> reviewOffsets = new LinkedHashMap<>();
+        repositories.forEach(repository -> reviewOffsets.put(repository, old.reviewOffsets().getOrDefault(repository, 0)));
+        boolean rateLimited = false;
+        for (int index = 0; index < Math.min(4, members.size()) && !rateLimited; index++) {
+            TeamMember member = members.get(Math.floorMod(memberCursor++, members.size()));
+            TeamObservation result = reader.personActivity(account.session().access(), member.login(), identity);
+            store.save(account.id(), result.events());
+            errors.addAll(result.errors());
+            if (result.errors().isEmpty()) {
+                scannedMembers.add(member.remoteId());
+            }
+            rateLimited = result.rateLimited();
+        }
+        for (int index = 0; index < Math.min(2, repositories.size()) && !rateLimited; index++) {
+            String repository = repositories.get(Math.floorMod(repositoryCursor++, repositories.size()));
+            TeamObservation result = reader.repositoryActivity(account.session().access(), repository, identity, reviewOffsets.get(repository),
+                    (number, updatedAt) -> cachedDetail(repository, number, updatedAt));
+            store.save(account.id(), result.events());
+            store.save(account.id(), cachedReviews(result.events(), identity));
+            reviewOffsets.put(repository, Math.floorMod(reviewOffsets.get(repository) + 5, 100));
+            errors.addAll(result.errors());
+            if (result.errors().isEmpty()) {
+                scannedRepositories.add(repository);
+            }
+            rateLimited = result.rateLimited();
+        }
+        Instant now = Instant.now();
+        writeState(account.id(), new CollectionState(old.observedSince().or(() -> Optional.of(now)), Optional.of(now), memberCursor, repositoryCursor,
+                reviewOffsets, scannedMembers, scannedRepositories, errors));
+        store.deleteBefore(now.minusSeconds(RETENTION_DAYS * 86400L));
     }
 
     private Optional<StoredPrDetail> cachedDetail(String repository, int number, Instant updatedAt)
@@ -243,8 +248,8 @@ public class TeamActivityService
         });
     }
 
-    /** Cached reviews have logins but no actor user IDs; only enrich identities confirmed by this GitHub batch. */
-    private List<TeamActivityEvent> cachedReviews(List<TeamActivityEvent> observations, Identity identity)
+    /** Cached reviews have logins but no actor user IDs; only enrich identities confirmed by this provider batch. */
+    private List<TeamActivityEvent> cachedReviews(List<TeamActivityEvent> observations, TeamIdentity identity)
     {
         Map<String, Long> verified = new LinkedHashMap<>();
         verified.put(identity.viewerLogin().toLowerCase(Locale.ROOT), identity.viewerId());
@@ -354,7 +359,7 @@ public class TeamActivityService
 
     private static boolean contains(TeamCircle circle, long memberId)
     {
-        return circle.members().stream().anyMatch(member -> member.githubId() == memberId);
+        return circle.members().stream().anyMatch(member -> member.remoteId() == memberId);
     }
 
     private static boolean includes(TeamCircle circle, TeamActivityEvent event)
@@ -374,14 +379,15 @@ public class TeamActivityService
     private static List<TeamMember> members(List<TeamCircle> circles)
     {
         Map<Long, TeamMember> result = new LinkedHashMap<>();
-        circles.forEach(circle -> circle.members().forEach(member -> result.putIfAbsent(member.githubId(), member)));
+        circles.forEach(circle -> circle.members().forEach(member -> result.putIfAbsent(member.remoteId(), member)));
         return ImmutableList.copyOf(result.values());
     }
 
-    private List<String> repositories(List<TeamCircle> circles)
+    /** The watched repositories on the account's server that a circle covers. */
+    private List<String> repositories(List<TeamCircle> circles, HostingServer server)
     {
         Set<String> watched = new LinkedHashSet<>();
-        workspaces.findAll().stream().filter(workspace -> workspace.provider().capabilities().teamActivity())
+        workspaces.findAll().stream().filter(workspace -> workspace.server().equals(server) && workspace.provider().capabilities().teamActivity())
                 .forEach(workspace -> watched.add(workspace.monitoredRepository().fullName().toLowerCase(Locale.ROOT)));
         return watched.stream().filter(repository -> circles.stream().anyMatch(circle -> circle.repositories().isEmpty()
                 || circle.repositories().stream().anyMatch(repository::equalsIgnoreCase))).collect(toImmutableList());
@@ -406,13 +412,6 @@ public class TeamActivityService
         }
         catch (JsonProcessingException failure) {
             throw new IllegalStateException("Could not save circle activity coverage", failure);
-        }
-    }
-
-    private void requireSameAccount(GitHubCredential credential)
-    {
-        if (credentials.resolveGitHubCredential() != credential) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "GitHub account changed; reload circle activity");
         }
     }
 

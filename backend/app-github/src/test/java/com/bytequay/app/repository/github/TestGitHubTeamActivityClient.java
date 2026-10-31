@@ -14,13 +14,16 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.app.repository.github.GitHubTeamActivityClient.Collector;
-import com.bytequay.app.repository.github.GitHubTeamActivityClient.Identity;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.TeamActivityEvent;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.TeamIdentity;
+import com.bytequay.core.hosting.TeamObservation;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -32,8 +35,10 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 
+import static com.bytequay.core.hosting.HostingServer.GITHUB_COM;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
@@ -41,9 +46,10 @@ class TestGitHubTeamActivityClient
         extends AbstractGitHubClientTest
 {
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final Identity IDENTITY = new Identity(1, "viewer", ImmutableMap.of(2L, "alice"));
+    private static final TeamIdentity IDENTITY = new TeamIdentity(1, "viewer", ImmutableMap.of(2L, "alice"));
+    private static final HostingAccess ACCESS = new HostingAccess(new HostingInstance(1, GITHUB_COM.provider(), GITHUB_COM.webBaseUrl(), GITHUB_COM.apiBaseUrl()), "pat");
 
-    private final GitHubTeamActivityClient client = new GitHubTeamActivityClient(restClient);
+    private final GitHubTeamActivityClient client = new GitHubTeamActivityClient(restClient, mock(GitHubAccountClient.class));
 
     @Test
     void deduplicatesCommentAcrossSourcesAndRecognizesExactMentions()
@@ -68,9 +74,9 @@ class TestGitHubTeamActivityClient
             assertThat(event.title()).isEqualTo("Question");
             assertThat(event.url()).isEqualTo("https://github.com/owner/repo/issues/7");
         });
-        assertThat(GitHubTeamActivityClient.mentions("@viewer-other", "viewer")).isFalse();
-        assertThat(GitHubTeamActivityClient.mentions("mail@viewer", "viewer")).isFalse();
-        assertThat(GitHubTeamActivityClient.mentions("Hi @VIEWER!", "viewer")).isTrue();
+        assertThat(TeamIdentity.mentions("@viewer-other", "viewer")).isFalse();
+        assertThat(TeamIdentity.mentions("mail@viewer", "viewer")).isFalse();
+        assertThat(TeamIdentity.mentions("Hi @VIEWER!", "viewer")).isTrue();
     }
 
     @Test
@@ -144,7 +150,7 @@ class TestGitHubTeamActivityClient
                           "created_at":"%s"}]
                         """.formatted(time), MediaType.APPLICATION_JSON));
 
-        GitHubTeamActivityClient.Observation result = client.repository("pat", "owner/repo", IDENTITY, 0, (number, updatedAt) -> Optional.empty());
+        TeamObservation result = client.repositoryActivity(ACCESS, "owner/repo", IDENTITY, 0, (number, updatedAt) -> Optional.empty());
         assertThat(result.events()).filteredOn(event -> event.kind().equals("REVIEW_REQUESTED")).singleElement().satisfies(event -> {
             assertThat(event.source()).isEqualTo("REPOSITORY");
             assertThat(event.actorId()).isEqualTo(1);
@@ -177,7 +183,7 @@ class TestGitHubTeamActivityClient
                         new PrTimelineEvent(10L, "merged", "viewer", time, null, PrTimelinePayload.empty(), Optional.empty())),
                 ImmutableList.of(), ImmutableList.of(), false);
 
-        GitHubTeamActivityClient.Observation result = client.repository("pat", "owner/repo", IDENTITY, 0, (number, updatedAt) -> {
+        TeamObservation result = client.repositoryActivity(ACCESS, "owner/repo", IDENTITY, 0, (number, updatedAt) -> {
             assertThat(number).isEqualTo(7);
             assertThat(updatedAt).isEqualTo(time);
             return Optional.of(cached);
@@ -197,9 +203,9 @@ class TestGitHubTeamActivityClient
     {
         server.expect(requestTo("https://api.github.test/users/alice/events/public?per_page=100&page=1"))
                 .andRespond(withSuccess("[]", MediaType.APPLICATION_JSON));
-        assertThat(client.publicEvents("pat", "alice", IDENTITY).errors()).isEmpty();
-        assertThatThrownBy(() -> client.repository("pat", "owner/..", IDENTITY, 0, (number, updatedAt) -> Optional.empty())).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> client.repository("pat", "owner/.", IDENTITY, 0, (number, updatedAt) -> Optional.empty())).isInstanceOf(IllegalArgumentException.class);
+        assertThat(client.personActivity(ACCESS, "alice", IDENTITY).errors()).isEmpty();
+        assertThatThrownBy(() -> client.repositoryActivity(ACCESS, "owner/..", IDENTITY, 0, (number, updatedAt) -> Optional.empty())).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> client.repositoryActivity(ACCESS, "owner/.", IDENTITY, 0, (number, updatedAt) -> Optional.empty())).isInstanceOf(IllegalArgumentException.class);
         Collector collector = new Collector(IDENTITY);
         collector.read("one repository", () -> { throw new IllegalStateException("private response body"); });
         assertThat(collector.result().errors()).containsExactly("one repository: unavailable (IllegalStateException)");

@@ -198,13 +198,13 @@ class TestPullRequestCiBridgeResolverImpl
         assertThat(summary.at("/pullRequest/headRepository").asText()).isEqualTo(FORK.fullName());
         assertThat(summary.at("/pullRequest/number").asInt()).isEqualTo(PR.number());
         assertThat(summary.at("/pullRequest/headSha").asText()).isEqualTo(HEAD);
-        assertThat(summary.at("/actions/green").asBoolean()).isFalse();
-        assertThat(summary.at("/actions/requiredChecksVerified").asBoolean()).isFalse();
-        assertThat(summary.at("/actions/workflows/0/jobs/0/name").asText()).isEqualTo("check-commit-messages");
-        assertThat(summary.at("/actions/workflows/0/jobs/0/failedSteps").toString()).contains("Check commit messages");
+        assertThat(summary.at("/ci/green").asBoolean()).isFalse();
+        assertThat(summary.at("/ci/requiredChecksVerified").asBoolean()).isFalse();
+        assertThat(summary.at("/ci/runs/0/jobs/0/name").asText()).isEqualTo("check-commit-messages");
+        assertThat(summary.at("/ci/runs/0/jobs/0/failedSteps").toString()).contains("Check commit messages");
         verify(ciLogs, never()).read(any(), any(), any());
 
-        long jobId = summary.at("/actions/workflows/0/jobs/0/id").asLong();
+        long jobId = summary.at("/ci/runs/0/jobs/0/id").asLong();
         JsonNode detail = read(bridge, Optional.of(jobId));
         assertThat(detail.path("status").asText()).isEqualTo("available");
         assertThat(detail.at("/log/excerpt").asText()).contains(
@@ -346,8 +346,8 @@ class TestPullRequestCiBridgeResolverImpl
 
         PullRequestCiBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
         JsonNode summary = read(bridge, Optional.empty());
-        assertThat(summary.at("/actions/workflows/0/attempt").asInt()).isEqualTo(2);
-        long jobId = summary.at("/actions/workflows/0/jobs/0/id").asLong();
+        assertThat(summary.at("/ci/runs/0/attempt").asInt()).isEqualTo(2);
+        long jobId = summary.at("/ci/runs/0/jobs/0/id").asLong();
         JsonNode result = read(bridge, Optional.of(jobId));
 
         assertThat(result.path("status").asText()).isEqualTo("available");
@@ -492,7 +492,7 @@ class TestPullRequestCiBridgeResolverImpl
         JsonNode result = mapper.readTree(output);
 
         assertThat(output.length()).isLessThanOrEqualTo(PullRequestCiBridge.MAXIMUM_OUTPUT_LENGTH);
-        assertThat(result.at("/actions/workflowsOmitted").asInt()).isGreaterThan(0);
+        assertThat(result.at("/ci/runsOmitted").asInt()).isGreaterThan(0);
         assertThat(result.path("untrusted").asBoolean()).isTrue();
     }
 
@@ -512,9 +512,9 @@ class TestPullRequestCiBridgeResolverImpl
         JsonNode result = mapper.readTree(output);
 
         assertThat(output.length()).isLessThanOrEqualTo(PullRequestCiBridge.MAXIMUM_OUTPUT_LENGTH);
-        assertThat(result.at("/actions/workflows/0/jobs/0/id").asLong()).isEqualTo(201);
-        assertThat(result.at("/actions/workflows/0/jobs/0/name").asText()).isEqualTo("check-commit-messages");
-        assertThat(result.at("/actions/jobsOmitted").asInt()).isGreaterThan(0);
+        assertThat(result.at("/ci/runs/0/jobs/0/id").asLong()).isEqualTo(201);
+        assertThat(result.at("/ci/runs/0/jobs/0/name").asText()).isEqualTo("check-commit-messages");
+        assertThat(result.at("/ci/jobsOmitted").asInt()).isGreaterThan(0);
     }
 
     @Test

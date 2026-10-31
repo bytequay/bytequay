@@ -961,7 +961,7 @@ public class CiAutofixService
             }
             boolean oldEventPresent = snapshot.runs().stream().anyMatch(workflow -> workflow.id() == change.previousRunId());
             Optional<CiRun> replacement = snapshot.runs().stream()
-                    .filter(workflow -> !oldEventPresent && workflow.definitionId() == change.workflowId() && workflow.id() > change.previousRunId()).findFirst();
+                    .filter(workflow -> !oldEventPresent && workflow.definitionId() == change.definitionId() && workflow.id() > change.previousRunId()).findFirst();
             if (replacement.isEmpty()) {
                 return now.isBefore(change.appliedAt().orElseThrow().plus(RERUN_OBSERVATION_PERIOD)) ? run
                         : pause(run, PauseReason.RERUN_UNAVAILABLE, "Description updated, but CI has not started a new check; the old event will not be rerun", now);
@@ -1125,7 +1125,7 @@ public class CiAutofixService
             return rejected.orElseThrow();
         }
         Optional<CiRun> later = snapshot.runs().stream()
-                .filter(workflow -> workflow.id() == journal.workflowRunId())
+                .filter(workflow -> workflow.id() == journal.runId())
                 .filter(workflow -> workflow.attempt() > journal.previousAttempt())
                 .max(Comparator.comparingInt(CiRun::attempt));
         if (journal.observedAttempt().isEmpty()) {

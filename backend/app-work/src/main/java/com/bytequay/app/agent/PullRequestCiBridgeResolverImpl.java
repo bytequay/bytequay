@@ -257,21 +257,21 @@ public class PullRequestCiBridgeResolverImpl
     {
         CiHeadSnapshot head = candidate.head();
         ObjectNode result = anchor(head);
-        ObjectNode ci = result.putObject("actions")
+        ObjectNode ci = result.putObject("ci")
                 .put("green", head.green()).put("pending", head.pending()).put("requiredChecksVerified", false)
-                .put("workflowsOmitted", head.runs().size()).put("jobsOmitted", head.jobs().size());
-        ArrayNode workflows = ci.putArray("workflows");
+                .put("runsOmitted", head.runs().size()).put("jobsOmitted", head.jobs().size());
+        ArrayNode runs = ci.putArray("runs");
         int includedJobs = 0;
-        for (CiRun workflow : head.runs().stream()
-                .sorted(Comparator.comparing((CiRun run) -> run.jobs().stream().anyMatch(CiJob::actionableFailure)).reversed()).toList()) {
-            ObjectNode value = workflow(workflow);
+        for (CiRun run : head.runs().stream()
+                .sorted(Comparator.comparing((CiRun each) -> each.jobs().stream().anyMatch(CiJob::actionableFailure)).reversed()).toList()) {
+            ObjectNode value = run(run);
             ArrayNode jobs = value.putArray("jobs");
-            workflows.add(value);
+            runs.add(value);
             if (json(result).length() > SUMMARY_BUDGET) {
-                workflows.remove(workflows.size() - 1);
+                runs.remove(runs.size() - 1);
                 break;
             }
-            for (CiJob job : workflow.jobs().stream().sorted(Comparator.comparing(CiJob::actionableFailure).reversed()).toList()) {
+            for (CiJob job : run.jobs().stream().sorted(Comparator.comparing(CiJob::actionableFailure).reversed()).toList()) {
                 jobs.add(job(job));
                 if (json(result).length() > SUMMARY_BUDGET) {
                     jobs.remove(jobs.size() - 1);
@@ -280,7 +280,7 @@ public class PullRequestCiBridgeResolverImpl
                 includedJobs++;
             }
         }
-        ci.put("workflowsOmitted", head.runs().size() - workflows.size());
+        ci.put("runsOmitted", head.runs().size() - runs.size());
         ci.put("jobsOmitted", head.jobs().size() - includedJobs);
         cachedChecks(result, candidate);
         if (scope.expectedHead().isPresent()) {
@@ -330,13 +330,13 @@ public class PullRequestCiBridgeResolverImpl
     private String readLog(TaskId taskId, Remote remote, Scope scope, CiHeadSnapshot head, long jobId)
     {
         // A partial rerun retains the latest result of jobs that were not rerun, including earlier-attempt failures.
-        Optional<CiRun> workflow = head.runs().stream()
+        Optional<CiRun> found = head.runs().stream()
                 .filter(run -> run.jobs().stream().anyMatch(job -> job.id() == jobId && job.actionableFailure()))
                 .findFirst();
-        if (workflow.isEmpty()) {
+        if (found.isEmpty()) {
             return message("unknown_job", "No current failed CI job in this task's pull request matches that jobId.");
         }
-        CiRun run = workflow.orElseThrow();
+        CiRun run = found.orElseThrow();
         CiJob job = run.jobs().stream().filter(value -> value.id() == jobId).findFirst().orElseThrow();
         BoundedCiLog fetched = ciLogs.read(remote.target(), remote.integration().ci(), new ReadCiLogQuery(taskId, head.pullRequest(), run, job, MAXIMUM_LOG_BYTES));
         List<String> annotations = remote.integration().ci().failureNotes(remote.target(), head.pullRequest().number(), job.id());
@@ -352,10 +352,10 @@ public class PullRequestCiBridgeResolverImpl
                 || !head.baseSha().equals(after.baseSha())
                 || after.runs().stream().noneMatch(value -> value.id() == run.id() && value.attempt() == run.attempt()
                         && value.jobs().stream().anyMatch(current -> current.id() == job.id() && current.attempt() == job.attempt() && current.actionableFailure()))) {
-            return message("stale", "The pull request head or workflow attempt changed while reading the log. Read the current CI summary again.");
+            return message("stale", "The pull request head or CI run attempt changed while reading the log. Read the current CI summary again.");
         }
         ObjectNode result = anchor(head);
-        ObjectNode log = result.putObject("log").put("jobId", job.id()).put("workflowRunId", run.id()).put("attempt", job.attempt())
+        ObjectNode log = result.putObject("log").put("jobId", job.id()).put("runId", run.id()).put("attempt", job.attempt())
                 .put("unavailableReason", fetched.unavailableReason().orElse(null));
         log.put("rawLogId", fetched.rawLogId().orElse(null)).put("diagnosticsMatched", fetched.diagnosticsMatched());
         log.put("message", fetched.unavailableReason().orElseGet(() -> fetched.diagnosticsMatched()
@@ -434,7 +434,7 @@ public class PullRequestCiBridgeResolverImpl
         return result;
     }
 
-    private ObjectNode workflow(CiRun run)
+    private ObjectNode run(CiRun run)
     {
         ObjectNode result = objectMapper.createObjectNode().put("id", run.id()).put("attempt", run.attempt())
                 .put("status", run.status()).put("conclusion", run.conclusion().orElse(null));

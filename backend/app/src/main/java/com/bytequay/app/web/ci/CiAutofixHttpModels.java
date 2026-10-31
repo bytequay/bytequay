@@ -69,7 +69,7 @@ public final class CiAutofixHttpModels
                         journal.retries())),
                 run.rerunJournal().map(journal -> new RerunJournalResponse(
                         journal.attemptId().toString(),
-                        journal.workflowRunId(),
+                        journal.runId(),
                         journal.headSha(),
                         journal.previousAttempt(),
                         journal.observedAttempt(),
@@ -116,8 +116,8 @@ public final class CiAutofixHttpModels
                 attempt.failures().stream().map(failure -> new FailureResponse(
                         failure.signature(),
                         failure.summary(),
-                        failure.workflowRunId(),
-                        failure.workflowAttempt(),
+                        failure.runId(),
+                        failure.runAttempt(),
                         failure.jobId(),
                         failure.jobAttempt())).collect(toImmutableList()),
                 attempt.agentTurnId(),
@@ -232,7 +232,7 @@ public final class CiAutofixHttpModels
 
     record RerunJournalResponse(
             String attemptId,
-            long workflowRunId,
+            long runId,
             String headSha,
             int previousAttempt,
             Optional<Integer> observedAttempt,
@@ -259,8 +259,8 @@ public final class CiAutofixHttpModels
     record FailureResponse(
             String signature,
             String summary,
-            long workflowRunId,
-            int workflowAttempt,
+            long runId,
+            int runAttempt,
             long jobId,
             int jobAttempt) {}
 

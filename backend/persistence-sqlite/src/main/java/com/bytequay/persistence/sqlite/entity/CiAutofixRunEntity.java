@@ -172,7 +172,7 @@ public class CiAutofixRunEntity
 
     private String rerunAttemptId;
 
-    private Long rerunWorkflowRunId;
+    private Long rerunRunId;
 
     private String rerunJournalHeadSha;
 
@@ -314,7 +314,7 @@ public class CiAutofixRunEntity
     private void updateRerunJournal(Optional<RerunJournal> journal)
     {
         rerunAttemptId = journal.map(value -> value.attemptId().toString()).orElse(null);
-        rerunWorkflowRunId = journal.map(RerunJournal::workflowRunId).orElse(null);
+        rerunRunId = journal.map(RerunJournal::runId).orElse(null);
         rerunJournalHeadSha = journal.map(RerunJournal::headSha).orElse(null);
         rerunPreviousAttempt = journal.map(RerunJournal::previousAttempt).orElse(null);
         rerunStartedAt = journal.map(RerunJournal::startedAt).orElse(null);
@@ -325,7 +325,7 @@ public class CiAutofixRunEntity
     {
         return Optional.ofNullable(rerunAttemptId)
                 .map(attempt -> new RerunJournal(
-                        CiAutofixAttemptId.valueOf(attempt), rerunWorkflowRunId, rerunJournalHeadSha, rerunPreviousAttempt, rerunStartedAt,
+                        CiAutofixAttemptId.valueOf(attempt), rerunRunId, rerunJournalHeadSha, rerunPreviousAttempt, rerunStartedAt,
                         Optional.ofNullable(rerunObservedAttempt)));
     }
 }

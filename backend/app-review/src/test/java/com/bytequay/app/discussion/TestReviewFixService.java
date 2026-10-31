@@ -266,7 +266,7 @@ class TestReviewFixService
 
         verify(pullRequests, times(1)).replyToReviewComment(REPO, 12, 10, "Renamed it.");
         verify(pullRequests, never()).setReviewThreadResolved(anyString(), eq(12), anyLong(), eq(true));
-        assertThat(rows.values()).singleElement().satisfies(reply -> assertThat(reply.failure().orElseThrow()).startsWith("The reply may not have reached GitHub"));
+        assertThat(rows.values()).singleElement().satisfies(reply -> assertThat(reply.failure().orElseThrow()).startsWith("The reply may not have been posted"));
 
         // A post interrupted before its outcome was saved is given up on the next pass, not repeated.
         rows.replaceAll((id, reply) -> new ReviewFixReply(reply.taskId(), reply.repo(), reply.number(), reply.rootCommentId(), reply.commentId(), reply.requestKey(),

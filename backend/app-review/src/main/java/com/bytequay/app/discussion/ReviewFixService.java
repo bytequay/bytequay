@@ -60,7 +60,7 @@ import static java.util.stream.Collectors.groupingBy;
 /**
  * Auto-Review fix: hands new reviewer comments on a task's pull request to the task's own agent as one fix turn, then
  * posts the agent's replies once its fix is pushed and resolves the threads it fixed. The task's accepted automation
- * level is the authority for these GitHub writes.
+ * level is the authority for these writes.
  */
 @Service
 public class ReviewFixService
@@ -98,7 +98,7 @@ public class ReviewFixService
 
     /**
      * Comments arrive between list refreshes, so tasks that fix reviews refresh their pull request on their own. The scheduler
-     * thread also times out approvals, so the GitHub reads run on this service's own thread.
+     * thread also times out approvals, so the provider reads run on this service's own thread.
      */
     @Scheduled(initialDelayString = "PT1M", fixedDelayString = "PT5M")
     public void monitor()
@@ -174,7 +174,7 @@ public class ReviewFixService
     /**
      * Saves the agent's answers from a finished turn and posts them. A fixed comment's reply waits until the fix is the
      * pull request's pushed head; a declined comment's reply needs no push. Each post is marked started first, and one
-     * that fails after that is reported, never retried, because GitHub may already show it.
+     * that fails after that is reported, never retried, because the pull request may already show it.
      */
     public synchronized void publish(TaskId taskId, TurnId turnId, boolean pushed)
     {
@@ -212,7 +212,7 @@ public class ReviewFixService
         }
         catch (RuntimeException failure) {
             log.warn("The review fix reply to comment {} on task {} may not have been posted", reply.commentId(), reply.taskId(), failure);
-            store.update(reply.failed("The reply may not have reached GitHub; check the thread before answering it again: " + message(failure)));
+            store.update(reply.failed("The reply may not have been posted; check the thread before answering it again: " + message(failure)));
             return;
         }
         reply = reply.posted(clock.instant());
@@ -297,7 +297,7 @@ public class ReviewFixService
         Instant cutoff = clock.instant().minus(POST_OUTCOME_WAIT);
         handled.stream()
                 .filter(reply -> reply.waiting() && reply.postStartedAt().filter(cutoff::isAfter).isPresent())
-                .forEach(reply -> store.update(reply.failed("The reply's outcome is unknown; check the thread on GitHub before answering it again")));
+                .forEach(reply -> store.update(reply.failed("The reply's outcome is unknown; check the thread before answering it again")));
     }
 
     private void send(AgentTask task, PullRequest pr, String key, List<ReviewThreadItem> threads)

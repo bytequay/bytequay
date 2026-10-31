@@ -17,7 +17,8 @@ import Avatar from '../Avatar';
 import { useModalDialog } from '../useModalDialog';
 import { remoteErrorMessage } from '../remoteError';
 import type { RepositoryMetadataDto } from '../types';
-import { people, providerName } from './activity';
+import { people } from './activity';
+import { providerName } from '../pulls/PullRequestWorkspace';
 import { CIRCLE_COLORS, CIRCLE_SHAPES, type CircleAvatar, type TeamCircle, type TeamCreateInput, type TeamDirectory } from './types';
 import '../css/confirm-dialog.css';
 

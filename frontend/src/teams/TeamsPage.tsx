@@ -16,11 +16,11 @@ import { Check, ChevronDown, LockKeyhole, Pencil, Plus, RefreshCw, TriangleAlert
 import Avatar from '../Avatar';
 import { ConfirmDialog } from '../ConfirmDialog';
 import Toast from '../Toast';
-import { PullRequestWorkspaceProvider } from '../pulls/PullRequestWorkspace';
+import { providerName, PullRequestWorkspaceProvider } from '../pulls/PullRequestWorkspace';
 import { remoteErrorMessage } from '../remoteError';
 import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import { ago } from '@bytequay/ui/relativeTime';
-import { ACTIVITY_TYPES, METRICS, membersOf, people, providerName, type ActivityType, type Metric } from './activity';
+import { ACTIVITY_TYPES, METRICS, membersOf, people, type ActivityType, type Metric } from './activity';
 import CircleActivity, { ACTIVITY_LIMIT_MAX } from './CircleActivity';
 import CircleDialog, { CircleIcon } from './CircleDialog';
 import CircleInsights from './CircleInsights';

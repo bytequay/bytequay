@@ -555,7 +555,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
 /** The creation steps in backend order; the image step exists only when images were attached. */
 const STARTUP_STEPS: { phase: AgentTaskStartupPhase; withImages?: true; label: (provider: string) => string }[] = [
   { phase: 'PROVIDER', label: (provider) => `Checking that ${provider} is installed and signed in` },
-  { phase: 'REPOSITORY', label: () => 'Fetching the latest commits from GitHub' },
+  { phase: 'REPOSITORY', label: () => 'Fetching the latest commits' },
   { phase: 'NAMING', label: () => 'Naming task and branch' },
   { phase: 'WORKTREE', label: () => 'Creating the task branch and worktree' },
   { phase: 'ATTACHMENTS', withImages: true, label: () => 'Storing the attached images' },
@@ -1317,7 +1317,7 @@ export function AgentTaskList({
         >
           <p>
             This permanently removes everything ByteQuay stored for {confirm.length === 1 ? `“${confirm[0].title}”` : 'these tasks'}.
-            Nothing on GitHub is touched.
+            Remote branches and pull requests are not touched.
           </p>
           <ul className="agt-del-list">
             <li>Transcript, events, approvals and queued inputs</li>
@@ -1327,7 +1327,7 @@ export function AgentTaskList({
             ))}
           </ul>
           {confirm.some(task => task.developmentCi != null) && <>
-            <p>Linked CI tasks and their local worktrees are also removed after their agents stop. These remote results remain on GitHub:</p>
+            <p>Linked CI tasks and their local worktrees are also removed after their agents stop. These remote results are kept:</p>
             <ul className="agt-del-list">
               {confirm.map(task => task.developmentCi == null ? null : <li key={task.id}>
                 <a href={task.developmentCi.pullRequestUrl}>PR #{task.developmentCi.pullRequestNumber}</a>{' · '}

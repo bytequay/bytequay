@@ -622,8 +622,8 @@ it('reads a directory’s spec sources and starts a check of it, refusing a forg
   await desktop.handlers.get('repository-context:spec-checks:start')?.({}, 'workspace/one', { ...request, specs: [] });
   expect(fetch).toHaveBeenLastCalledWith(base, expect.objectContaining({ method: 'POST', body: JSON.stringify({ ...request, specs: [] }) }));
   fetch.mockImplementation(async () => new Response(JSON.stringify(check)));
-  await expect(desktop.handlers.get('repository-context:spec-checks:dismiss')?.({}, 'workspace/one', 'check/1', 'c1', { reason: 'Filed on GitHub' })).resolves.toEqual(check);
-  expect(fetch).toHaveBeenLastCalledWith(base + '/check%2F1/candidates/c1/dismiss', expect.objectContaining({ method: 'POST', body: JSON.stringify({ reason: 'Filed on GitHub' }) }));
+  await expect(desktop.handlers.get('repository-context:spec-checks:dismiss')?.({}, 'workspace/one', 'check/1', 'c1', { reason: 'Filed as an issue' })).resolves.toEqual(check);
+  expect(fetch).toHaveBeenLastCalledWith(base + '/check%2F1/candidates/c1/dismiss', expect.objectContaining({ method: 'POST', body: JSON.stringify({ reason: 'Filed as an issue' }) }));
 });
 
 it('routes memory reads and the user’s changes, refusing a forged memory id before sending it', async () => {

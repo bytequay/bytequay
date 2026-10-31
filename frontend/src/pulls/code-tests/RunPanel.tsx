@@ -412,7 +412,7 @@ export default function RunPanel({
                   <dt>Local files</dt><dd>{run.localPaths.length === 0 ? '—' : run.localPaths.join(', ')}</dd>
                   <dt>Started · duration</dt><dd>{new Date(run.startedAt).toLocaleString()} · {run.endedAt === null ? 'running' : formatDuration(Date.parse(run.endedAt) - Date.parse(run.startedAt))}</dd>
                   <dt>Exit status</dt><dd>{run.exitCode ?? '—'}</dd>
-                  <dt>Where it ran</dt><dd>Locally, in this working copy — separate from GitHub CI</dd>
+                  <dt>Where it ran</dt><dd>Locally, in this working copy — separate from CI</dd>
                 </dl>
               )}
             </>

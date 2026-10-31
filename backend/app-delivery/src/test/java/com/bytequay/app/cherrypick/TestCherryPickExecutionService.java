@@ -706,7 +706,7 @@ class TestCherryPickExecutionService
                 .contains("ByteQuay has already committed")
                 .contains("git commit --fixup=")
                 .contains("Do not run git cherry-pick --continue, --skip, or --abort")
-                .contains("push, use gh, or")
+                .contains("push, use gh or glab, or")
                 .contains("Your final message is for the user")
                 .contains("Conflict files:")
                 .contains("seed.txt")

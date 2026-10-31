@@ -120,7 +120,7 @@ class TestBetterWordsService
         verify(session).start(command.capture());
         assertThat(command.getValue().message())
                 .contains(
-                        "code review or issue discussion in GitHub or Jira",
+                        "code review or issue discussion in GitHub, GitLab or Jira",
                         "professional, friendly, and concise",
                         "without inventing details",
                         "Keep requirements firm and suggestions optional",

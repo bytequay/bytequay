@@ -25,7 +25,7 @@ import java.util.Optional;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 
-/** Adds local development state without putting it into the replaceable GitHub issue cache. */
+/** Adds local development state without putting it into the replaceable issue cache. */
 final class WorkspaceIssueHttpContract
 {
     private WorkspaceIssueHttpContract() {}

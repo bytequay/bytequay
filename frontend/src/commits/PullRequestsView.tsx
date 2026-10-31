@@ -15,6 +15,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { ExternalLink, GitMerge } from 'lucide-react';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import type { PullRequestDto } from '../types';
+import { useProviderName } from '../pulls/PullRequestWorkspace';
 
 /** `#123`, `123`, or a link to a pull request of `slug`; anything else is ordinary search text. */
 export function typedPullRequestNumber(query: string, slug: string | null): number | null {
@@ -40,6 +41,7 @@ export default function PullRequestsView({ workspaceId, slug, query, selected, l
   onSelect: (number: number) => void;
   onOpenPullRequest: (number: number) => void;
 }) {
+  const provider = useProviderName();
   const [rows, setRows] = useState<PullRequestDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const typed = typedPullRequestNumber(query, slug);
@@ -75,7 +77,7 @@ export default function PullRequestsView({ workspaceId, slug, query, selected, l
                     <GitMerge className="cmt-merged-icon" size={14} strokeWidth={2} aria-hidden="true" />
                     <span className="cmt-merged-main">
                       <span className="cmt-merged-title">#{typed}</span>
-                      <span className="cmt-merged-meta">Not in the recent list · read from GitHub when you pick it</span>
+                      <span className="cmt-merged-meta">Not in the recent list · read from {provider} when you pick it</span>
                     </span>
                   </button>
                 </li>

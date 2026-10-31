@@ -82,7 +82,7 @@ public class DevelopmentGitInspector
         this.cachedPullRequests = requireNonNull(cachedPullRequests, "cachedPullRequests is null");
     }
 
-    /** Captures only local Git and persisted workspace routing; no fetch or GitHub read occurs. */
+    /** Captures only local Git and persisted workspace routing; no fetch or provider read occurs. */
     public DevelopmentBaseline capture(AgentTask task)
     {
         TaskWorktree worktree = task.taskWorktree().orElseThrow(() -> new IllegalStateException("Development task has no managed worktree"));
@@ -184,7 +184,7 @@ public class DevelopmentGitInspector
                 "refs/heads/" + branch, "refs/remotes/origin/" + branch, "refs/remotes/upstream/" + branch).isBlank(), "The proposed branch name is already in use");
         DevelopmentPublicationRoute renamedRoute = route.withHeadBranch(branch);
         DevelopmentPublicationFacts target = readPublication(worktree, renamedRoute);
-        checkState(target.remoteHeadSha().isEmpty() && target.matchingPullRequests().isEmpty(), "The proposed branch name is already in use on GitHub");
+        checkState(target.remoteHeadSha().isEmpty() && target.matchingPullRequests().isEmpty(), "The proposed branch name is already in use on the remote");
         WorktreeSnapshot checked = verify(worktree, route);
         checkState(checked.head().equals(before.head()) && !checked.gitOperationInProgress(), "Task changed while checking its branch name");
         recordIntent.accept(new DevelopmentBranchRename(worktree.generatedBranch(), branch, checked.head()));
@@ -263,7 +263,7 @@ public class DevelopmentGitInspector
             remoteHead = Optional.empty();
         }
         else {
-            checkState(result.successful(), "Cannot verify the remote development branch; check GitHub access");
+            checkState(result.successful(), "Cannot verify the remote development branch; check repository access");
             String[] values = result.output().strip().split("\\s+", -1);
             checkState(values.length == 2 && values[1].equals(ref), "Remote development branch response was ambiguous");
             checkSha(values[0], "remote SHA");

@@ -67,7 +67,7 @@ class TestAgentPermissionScope
                 .isEqualTo(access == SessionAccess.FULL && policy != AgentPermissionPolicy.CHERRY_PICK);
         assertThat(scope.unattended()).as("unattended for %s / %s / review=%s", policy, access, review).isEqualTo(unattended);
         if (policy == AgentPermissionPolicy.CI_AUTOFIX) {
-            assertThat(AgentCommandPolicy.instructions(scope)).contains("Never push", "Do not read or expose", "GitHub credentials");
+            assertThat(AgentCommandPolicy.instructions(scope)).contains("Never push", "Do not read or expose", "GitHub or GitLab credentials");
         }
         else {
             assertThat(AgentCommandPolicy.instructions(scope))

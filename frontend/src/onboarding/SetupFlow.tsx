@@ -184,7 +184,7 @@ export default function SetupFlow({ initial, connected, revisit = false, onSaved
             </SettingsRow>}
           </SettingsCard>
           {includesLevel(automation.level, 'CI_FIX') && !ciSupported && <p role="status">This agent can’t repair CI. Choose a CI repair agent or an earlier step.</p>}
-          <p className="setup-hint">Each step includes the ones before it. Auto-Commit keeps work on this Mac; every later step can publish to GitHub.</p>
+          <p className="setup-hint">Each step includes the ones before it. Auto-Commit keeps work on this Mac; every later step can publish to the repository.</p>
           <FeaturePreview feature="automation" />
         </>}
         {step === 'FEATURES' && <div className="setup-features">

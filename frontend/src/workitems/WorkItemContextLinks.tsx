@@ -18,13 +18,16 @@ import { Link2, X } from 'lucide-react';
 import type { WorkItemDto, UnifiedWorkItem, WorkItemContextLink, WorkSource } from './contracts';
 import { GOALS_CHANGED } from './changes';
 import { zoomReference } from '../githubReference';
+import { useProviderName } from '../pulls/PullRequestWorkspace';
 
-const SOURCE: Record<WorkSource, string> = { LOCAL: 'Local', GITHUB: 'GitHub', JIRA: 'Jira' };
+const SOURCE: Record<Exclude<WorkSource, 'GITHUB'>, string> = { LOCAL: 'Local', JIRA: 'Jira' };
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 export default function WorkItemContextLinks({ work, catalog, onChanged }: {
   work: WorkItemDto; catalog: UnifiedWorkItem[]; onChanged: () => Promise<void>;
 }) {
+  const provider = useProviderName();
+  const sourceName = (source: WorkSource) => source === 'GITHUB' ? provider : SOURCE[source];
   const [links, setLinks] = useState<WorkItemContextLink[] | null>(null);
   const [readError, setReadError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
@@ -91,7 +94,7 @@ export default function WorkItemContextLinks({ work, catalog, onChanged }: {
           ? <button type="button" className="work-items__link" onClick={() => open(link)}>{link.title}</button>
           : <span>{link?.title ?? saved.title}</span>}
           {link?.reference && <span className="card-key">{link.reference.label}</span>}
-          <small>{link ? `${SOURCE[link.source]} · ${link.status}` : readError ? 'Could not load linked work' : 'Loading…'}</small>
+          <small>{link ? `${sourceName(link.source)} · ${link.status}` : readError ? 'Could not load linked work' : 'Loading…'}</small>
         </span>
         <button type="button" className="work-items__quiet" aria-label={`Unlink ${link?.title ?? saved.title}`} title="Unlink context" disabled={busy}
           onClick={() => void change(saved.targetId, true)}><X size={14} aria-hidden="true" /></button>
@@ -100,12 +103,12 @@ export default function WorkItemContextLinks({ work, catalog, onChanged }: {
     {readError && <div className="work-items__context-note" role="alert">{readError} <button type="button" className="work-items__link" onClick={() => setRetry(value => value + 1)}>Retry</button></div>}
     {error && <div className="work-items__context-note" role="alert">{error}</div>}
     {picking && <div className="work-items__context-picker">
-      <input type="search" autoFocus aria-label="Search work to link" placeholder="Search local work, GitHub, or Jira" value={query} onChange={event => setQuery(event.target.value)} />
+      <input type="search" autoFocus aria-label="Search work to link" placeholder={`Search local work, ${provider}, or Jira`} value={query} onChange={event => setQuery(event.target.value)} />
       {available === null && catalogError === null && <p className="work-items__context-note">Loading available work…</p>}
       {catalogError && <p className="work-items__context-note" role="alert">{catalogError} <button type="button" onClick={() => setRetry(value => value + 1)}>Retry</button></p>}
       {choices.slice(0, 20).map(item => <div className="work-items__dev-row" key={item.id}>
         <Link2 size={15} aria-hidden="true" />
-        <span>{item.title}{item.reference && <span className="card-key">{item.reference.label}</span>}<small>{SOURCE[item.source]} · {item.status}</small></span>
+        <span>{item.title}{item.reference && <span className="card-key">{item.reference.label}</span>}<small>{sourceName(item.source)} · {item.status}</small></span>
         <button type="button" className="work-items__plain" aria-label={`Link ${item.title}`} disabled={busy || links === null} onClick={() => void change(item.id, false)}>Link</button>
       </div>)}
       {available !== null && choices.length === 0 && <p className="work-items__context-note">{search ? 'No matching work items.' : 'No other work items to link.'}</p>}

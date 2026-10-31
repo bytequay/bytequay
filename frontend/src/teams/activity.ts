@@ -11,7 +11,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { HostingServerDto } from '../types';
 import type { TeamActivityEvent, TeamActivityFilter, TeamCircle, TeamMember, TeamStatistics } from './types';
 
 /** Every count on the page links to Activity with its exact filter; these are the counts and their names. */
@@ -31,7 +30,6 @@ export type Metric = keyof typeof METRICS;
 export const ACTIVITY_TYPES = [['all', 'All'], ['merged', 'Merged'], ['reviews', 'Reviews'], ['issues', 'Issues'], ['interactions', 'With you']] as const;
 export type ActivityType = typeof ACTIVITY_TYPES[number][0];
 
-export const providerName = (server: HostingServerDto) => server.provider === 'GITLAB' ? 'GitLab' : 'GitHub';
 
 export function membersOf(circles: TeamCircle[]): TeamMember[] {
   return [...new Map(circles.flatMap(circle => circle.members.map(member => [member.remoteId, member] as const))).values()]

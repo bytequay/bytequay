@@ -261,7 +261,7 @@ class TestAutoMergeService
         cache(HEAD, false, "blocked");
         clock.advance(Duration.ofMinutes(30));
         service.advance(task);
-        assertThat(summary()).isEqualTo(new AutoMergeService.AutoMergeSummary("WAITING", Optional.empty(), Optional.of("Waiting for GitHub to allow the merge (blocked)")));
+        assertThat(summary()).isEqualTo(new AutoMergeService.AutoMergeSummary("WAITING", Optional.empty(), Optional.of("Waiting until the pull request can merge (blocked)")));
 
         cache(HEAD, true, "clean");
         service.advance(task);

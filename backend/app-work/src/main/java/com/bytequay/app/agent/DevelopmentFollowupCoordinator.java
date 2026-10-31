@@ -696,8 +696,8 @@ public class DevelopmentFollowupCoordinator
                 and no open Git operation. Stop and report any mismatch.
                 Do not commit, edit code, amend, rebase, reset, switch branches, or run an independent CI repair loop.
                 Call %s exactly once with title and body as tool input; never write a body file.
-                ByteQuay owns the push and the GitHub write: exact HEAD, its own lease, draft PR creation or existing PR update.
-                Never run git push, a GitHub CLI command, or other remote writes; never read or ask for credentials.
+                ByteQuay owns the push and the pull request: exact HEAD, its own lease, draft PR creation or existing PR update.
+                Never run git push, a gh or glab command, or other remote writes; never read or ask for credentials.
 
                 For publicPublication=true, sanitize title/body against private sources using *** or synthetic examples.
                 Derive title and body from the actual change and repository PR template. Fill relevant sections only;

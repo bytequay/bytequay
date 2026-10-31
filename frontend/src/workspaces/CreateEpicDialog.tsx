@@ -19,7 +19,7 @@ import { AgentSetupNotice, useAgentAvailability } from '../agents/availability';
 import type { EpicDraftDto, EpicDraftMessage, UnifiedWorkItem } from '../workitems/contracts';
 import { notifyJiraChanged } from '../jira/contracts';
 import MarkdownBody from '../pulls/MarkdownBody';
-import { useHostingPresentation } from '../pulls/PullRequestWorkspace';
+import { useProviderName } from '../pulls/PullRequestWorkspace';
 import { useModalDialog } from '../useModalDialog';
 import { createLocalEpic, ticketEpicId } from './epics';
 import { notifyIssueDevelopmentChanged } from './issueDevelopment';
@@ -51,8 +51,7 @@ export default function CreateEpicDialog({ workspaceId, marked, jiraConnected, o
   onClose: () => void;
   onCreated: (created: CreatedEpic) => void;
 }) {
-  const { server } = useHostingPresentation();
-  const issueProvider = server?.provider === 'GITLAB' ? 'GitLab' : 'GitHub';
+  const issueProvider = useProviderName();
   const dialog = useModalDialog();
   // Opening a modal moves focus to the dialog itself, away from the field its first view focused while mounting.
   useEffect(() => { dialog.current?.querySelector<HTMLElement>('textarea, input')?.focus(); }, [dialog]);

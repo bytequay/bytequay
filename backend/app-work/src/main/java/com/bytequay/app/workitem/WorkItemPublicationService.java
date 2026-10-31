@@ -58,7 +58,7 @@ public class WorkItemPublicationService
     {
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
         WorkItem item = work.requireItem(workspaceId, id);
-        checkArgument(request.source() == UnifiedWorkItem.Source.GITHUB || request.source() == UnifiedWorkItem.Source.JIRA, "Choose GitHub or Jira");
+        checkArgument(request.source() == UnifiedWorkItem.Source.GITHUB || request.source() == UnifiedWorkItem.Source.JIRA, "Choose an issue or a Jira ticket");
         checkArgument(item.links().stream().noneMatch(link -> request.source() == UnifiedWorkItem.Source.GITHUB ? link.issueSource().isPresent()
                 : link.jiraSource().isPresent()), "This work already has a source on that provider");
         checkArgument(item.title().length() <= (request.source() == UnifiedWorkItem.Source.GITHUB ? 256 : 255), "Shorten the title before publishing");
@@ -108,7 +108,7 @@ public class WorkItemPublicationService
             source = GoalReferenceReader.issueLink(issues.source(workspaceId, Integer.parseInt(key.replace("#", "")), false), clock.instant());
         }
         else {
-            checkArgument(request.source() == UnifiedWorkItem.Source.JIRA, "Choose GitHub or Jira");
+            checkArgument(request.source() == UnifiedWorkItem.Source.JIRA, "Choose an issue or a Jira ticket");
             JiraIssue issue = jira.refreshIssueByKey(request.connectionId().orElseThrow(), request.cloudId().orElseThrow(), key);
             pending.ifPresent(event -> checkArgument(issue.key().startsWith(request.project().orElseThrow().toUpperCase(Locale.ROOT) + "-"),
                     "The ticket must belong to the project of the pending publication"));

@@ -47,7 +47,7 @@ export const CHECK_STATE: Record<ContextSpecCheckDto['state'], { label: string; 
   CHECKING: { label: 'Checking', tone: 'blue' }, REPRODUCING: { label: 'Reproducing', tone: 'blue' }, DONE: { label: 'Done', tone: 'green' },
   STOPPED: { label: 'Stopped', tone: 'gray' }, FAILED: { label: 'Failed', tone: 'red' },
 };
-export const DISMISS_REASONS = ['Filed on GitHub', 'Not a real gap', 'Not worth filing'] as const;
+export const DISMISS_REASONS = ['Filed as an issue', 'Not a real gap', 'Not worth filing'] as const;
 
 /** Confirmed gaps the user has not dismissed: the ones to file. */
 export function openFindings(check: ContextSpecCheckDto | null): ContextSpecCandidateDto[] {

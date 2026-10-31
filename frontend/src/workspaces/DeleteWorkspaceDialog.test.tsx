@@ -21,6 +21,7 @@ function confirmation(finalConfirmation = false, name = '', busy = false) {
   const onCancel = vi.fn();
   const view = DeleteWorkspaceConfirmation({
     repositoryName: 'octocat/repository',
+    provider: 'GitLab',
     finalConfirmation,
     confirmation: name,
     busy,
@@ -34,12 +35,12 @@ function confirmation(finalConfirmation = false, name = '', busy = false) {
 }
 
 describe('workspace deletion confirmations', () => {
-  it('discloses local data loss and preserves the GitHub repository before moving to a separate final dialog', () => {
+  it('discloses local data loss and keeps the hosted repository before moving to a separate final dialog', () => {
     const { view, html, onContinue, onDelete } = confirmation();
 
     expect(view.key).toBe('disclosure');
     expect(html).toContain('checkout, worktrees, task history, and settings');
-    expect(html).toContain('Your GitHub repository and fork will be kept.');
+    expect(html).toContain('Nothing on GitLab is deleted.');
     expect(html).toContain('choose Unwatch instead');
     expect(html).toContain('>Continue</button>');
     expect(onDelete).not.toHaveBeenCalled();

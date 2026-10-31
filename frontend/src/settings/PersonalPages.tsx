@@ -66,7 +66,7 @@ export function GeneralPage({ preferences, quietHours, quietHoursBusy, version, 
       <div className="setw-section"><span className="setw-section-title">Background refresh</span></div>
       <SettingsCard>
         {quietHours === null ? <div className="setw-row-empty">Loading quiet hours…</div> : <div className="setw-quiet-hours">
-          <SettingsRow title="Quiet hours" subtitle="GitHub and Jira · this Mac’s local time">
+          <SettingsRow title="Quiet hours" subtitle="Code hosting and Jira · this Mac’s local time">
             <TimePill ariaLabel="Quiet hours start" minute={quietHours.startMinute} disabled={!quietHours.enabled || quietHoursBusy}
               onSelect={startMinute => onQuietHours({ ...quietHours, startMinute })} />
             <span className="setw-row-sub">to</span>

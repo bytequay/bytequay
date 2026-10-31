@@ -341,7 +341,7 @@ public class ReviewTools
                                 + "Lead with the request, a question or the change you want, within the first two sentences, and do not hedge it. "
                                 + "Preserve the trigger, consequence and uncertainty. "
                                 + "Keep the example brief; retain full reproduction code, commands and results in captured evidence. For an exact replacement, "
-                                + "include one GitHub ```suggestion block replacing the complete RIGHT-side startAnchor/endAnchor range. "
+                                + "include one ```suggestion block replacing the complete RIGHT-side startAnchor/endAnchor range. "
                                 + "Revisions require findingId and expectedRevision; nothing is published. "
                                 + "Save every supported claim, deduplicating shared root causes by findingId; "
                                 + "select at most " + ReviewValidation.MAX_SELECTED + " final comments in review_finish. "
@@ -1905,7 +1905,7 @@ public class ReviewTools
                 refreshFailed = true;
             }
         }
-        String provenance = "Cached open issue projection; synced at " + syncedAt.map(Instant::toString).orElse("unknown") + "; GitHub issue updated at " + issue.updatedAt();
+        String provenance = "Cached open issue projection; synced at " + syncedAt.map(Instant::toString).orElse("unknown") + "; issue updated at " + issue.updatedAt();
         HostedIssuePreview preview = new HostedIssuePreview(issue.title(), issue.body(), issue.author(), issue.labels(), issue.updatedAt(), "open", false,
                 issue.htmlUrl(), issue.authorAvatarUrl());
         ObjectNode node = issueNode(call, issue.number(), preview, "workspace-issue-cache", provenance);
@@ -1957,7 +1957,7 @@ public class ReviewTools
         String ref = registerEvidence(
                 call,
                 call.review().repo() + "#" + number + ": " + preview.title(),
-                provenance + "; GitHub object updated at " + preview.updatedAt(),
+                provenance + "; updated at " + preview.updatedAt(),
                 excerpt);
         ObjectNode node = objectMapper.createObjectNode()
                 .put("number", number)

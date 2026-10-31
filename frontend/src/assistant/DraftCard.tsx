@@ -19,8 +19,8 @@ import { remoteErrorMessage } from '../remoteError';
 import type { AgendaTargetDto, AssistantItemDto } from '../types';
 
 /**
- * A new GitHub issue the assistant drafted. The user edits its title and description, and Create makes it a local Epic and publishes
- * it to the repository as an issue, the way a work item is pushed to GitHub. The assistant creates nothing; only this click writes.
+ * A new issue the assistant drafted. The user edits its title and description, and Create makes it a local Epic and publishes
+ * it to the repository as an issue, the way a work item is pushed. The assistant creates nothing; only this click writes.
  * Once it is created, its receipt says so and the draft goes.
  */
 export default function DraftCard({ item, created, onCreated, onOpen }: {
@@ -53,7 +53,7 @@ export default function DraftCard({ item, created, onCreated, onOpen }: {
   // Once the work is made, its words are kept: a lock says why they no longer change.
   const locked = made && !busy;
   return (
-    <form className="assistant-draft" aria-label="New GitHub issue as an Epic" onSubmit={event => { event.preventDefault(); void create(); }}>
+    <form className="assistant-draft" aria-label="New issue as an Epic" onSubmit={event => { event.preventDefault(); void create(); }}>
       <div className="assistant-draft__head">
         <SourceIcon source="issue" />
         <span>New issue as an Epic</span>
@@ -73,7 +73,7 @@ export default function DraftCard({ item, created, onCreated, onOpen }: {
       </div>
       <div className="assistant-draft__actions">
         {made ? <Lock size={12} aria-hidden="true" /> : <ArrowUpRight size={12} aria-hidden="true" />}
-        <span className="assistant-draft__note">{made ? 'Saved as a local Epic' : 'Creates the issue on GitHub'}</span>
+        <span className="assistant-draft__note">{made ? 'Saved as a local Epic' : 'Creates the issue in the repository'}</span>
         <span className="assistant-spacer" />
         {/* A push whose outcome is unknown is linked or pushed again from the work item's own page. */}
         {made && error !== null && <button type="button" className="bq-button bq-button--ghost assistant-draft__open" onClick={() => onOpen(work)}>Open work item</button>}

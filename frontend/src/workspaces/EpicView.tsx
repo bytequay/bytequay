@@ -23,9 +23,8 @@ import { openGoalItem, startTicket } from '../workitems/open';
 import { Candidate, useCandidates } from '../workitems/Candidate';
 import { GOAL_SOURCES, goalRef, isOpen, itemNeedsYou, progressWidths, refKey, summarize, waitingOn } from '../workitems/model';
 import MarkdownBody from '../pulls/MarkdownBody';
-import { useHostingPresentation } from '../pulls/PullRequestWorkspace';
+import { useProviderName } from '../pulls/PullRequestWorkspace';
 import type { AttentionTone } from '../home/attention';
-import type { HostingServerDto } from '../types';
 import { EpicGlyph } from './EpicDrawer';
 import { assignWorkItemEpic, epicIdentity, epicWork, joinEpic, orderEpic, removeFromEpic, startEpicWork, useEpicGoals, useEpicLend, useEpicRecord, type EpicItem } from './epics';
 import { notifyIssueDevelopmentChanged } from './issueDevelopment';
@@ -40,7 +39,7 @@ const STATE_WORDS: Record<WorkItemDto['state'], string> = { PLANNED: 'Planned', 
 type Shown = 'ALL' | Exclude<WorkItemDto['state'], 'DROPPED'>;
 const SHOWN: Shown[] = ['ALL', 'PLANNED', 'WORKING', 'DONE'];
 type Finding = 'ALL' | 'LOCAL' | GoalItemKind;
-const FINDING: [Finding, string][] = [['ALL', 'All'], ['LOCAL', 'Local'], ['ISSUE', 'GitHub issues'], ['JIRA', 'Jira'], ['PULL_REQUEST', 'Pull requests'], ['TASK', 'Tasks']];
+const FINDING: [Finding, string][] = [['ALL', 'All'], ['LOCAL', 'Local'], ['ISSUE', 'Issues'], ['JIRA', 'Jira'], ['PULL_REQUEST', 'Pull requests'], ['TASK', 'Tasks']];
 
 /** The issue or ticket the work came from; work without one is Local. */
 function sourceOfWork(item: WorkItemDto): GoalItemDto | undefined {
@@ -55,11 +54,6 @@ function upstreamOf(item: WorkItemDto, record: EpicRecordDto | null): Upstream |
   if (child !== undefined) return { child, former: false };
   const former = record.former.find(matches);
   return former === undefined ? null : { child: former, former: true };
-}
-
-/** Where a child comes from: Jira, or the workspace's own hosting provider, which a workspace without a server has as GitHub. */
-function upstreamName(kind: EpicChildDto['kind'], server: HostingServerDto | undefined): string {
-  return kind === 'JIRA' ? 'Jira' : server?.provider === 'GITLAB' ? 'GitLab' : 'GitHub';
 }
 
 /**
@@ -123,6 +117,7 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
   const [title, setTitle] = useState('');
   const [adding, setAdding] = useState(false);
   const [finding, setFinding] = useState<Finding>('ALL');
+  const provider = useProviderName();
   const [filter, setFilter] = useState<Shown>('ALL');
   const [picked, setPicked] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -200,7 +195,7 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
       <header className="epic-view__head">
         <div className="epic-view__kicker">
           <Pill tone="purple"><EpicGlyph />Epic</Pill>
-          <span>Parent of work from Local, GitHub and Jira</span>
+          <span>Parent of work from Local, {provider} and Jira</span>
           <span className="item-row__sep">·</span>
           <button type="button" className="epic-view__link" title={`Show ${sourceName}`} onClick={onShowSource}>
             {source === null ? <LocalBadge /> : source.jira ? source.jira.key : `${source.repo} #${source.number}`}<ArrowUpRight size={11} aria-hidden="true" />
@@ -232,7 +227,7 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
           </div>
           <div className="epic-view__mix" aria-label="Where the work comes from">
             {mix.local > 0 && <span className="is-local"><LockKeyhole size={11} aria-hidden="true" />{mix.local} Local</span>}
-            {mix.github > 0 && <span className="card-src is-issue"><SourceIcon source="issue" size={12} />{mix.github} GitHub</span>}
+            {mix.github > 0 && <span className="card-src is-issue"><SourceIcon source="issue" size={12} />{mix.github} {provider}</span>}
             {mix.jira > 0 && <span className="card-src is-jira"><SourceIcon source="jira" size={12} />{mix.jira} Jira</span>}
           </div>
         </div>
@@ -250,7 +245,7 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
                   await window.bridge.closeWorkspaceIssue(workspaceId, source.number);
                   notifyIssueDevelopmentChanged();
                 });
-              }}>Close #{source.number} on GitHub</button>)}
+              }}>Close #{source.number} on {provider}</button>)}
           </div>
           <p className="epic-view__outcome">{record.outcome}</p>
         </section>
@@ -259,12 +254,12 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
         <div className="epic-view__found">
           <ListTree size={14} aria-hidden="true" />
           <span className="epic-view__found-count" title={unsynced.map((child) => `${child.label} ${child.title}`).join('\n')}>
-            Found in {source.jira ? 'Jira' : 'GitHub'} · {unsynced.length} {source.jira ? 'child ticket' : 'sub-issue'}{unsynced.length === 1 ? '' : 's'} of {sourceName}
+            Found in {source.jira ? 'Jira' : provider} · {unsynced.length} {source.jira ? 'child ticket' : 'child issue'}{unsynced.length === 1 ? '' : 's'} of {sourceName}
             {unsynced.length === 1 ? ' isn\'t' : ' aren\'t'} in this Epic's work yet
           </span>
           <button type="button" className="epic-view__sync" disabled={busy} onClick={() => {
             const count = unsynced.length;
-            void run(() => children.sync().then(() => setNotice(`Synced ${count} ${source.jira ? 'child ticket' : 'sub-issue'}${count === 1 ? '' : 's'} from ${source.jira ? 'Jira' : 'GitHub'}.`)));
+            void run(() => children.sync().then(() => setNotice(`Synced ${count} ${source.jira ? 'child ticket' : 'child issue'}${count === 1 ? '' : 's'} from ${source.jira ? 'Jira' : provider}.`)));
           }}>Sync</button>
           <button type="button" className="epic-view__link" disabled={busy} onClick={() => { void run(children.dismiss); }}>Not now</button>
         </div>
@@ -296,7 +291,7 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
           </label>
           <div className="epic-view__kinds" role="group" aria-label="Kind of work to find">
             {FINDING.map(([value, label]) => (
-              <button type="button" key={value} className={finding === value ? 'is-active' : ''} aria-pressed={finding === value} onClick={() => setFinding(value)}>{label}</button>
+              <button type="button" key={value} className={finding === value ? 'is-active' : ''} aria-pressed={finding === value} onClick={() => setFinding(value)}>{value === 'ISSUE' ? `${provider} issues` : label}</button>
             ))}
           </div>
           <div className="epic-view__results">
@@ -354,7 +349,7 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
           </>}
         </form>
         <span className="epic-view__hint">
-          New work here is always Local. Push it to GitHub or Jira later, or use Add existing to bring in an issue, ticket, pull request or task.
+          New work here is always Local. Push it to {provider} or Jira later, or use Add existing to bring in an issue, ticket, pull request or task.
         </span>
       </div>
       {record !== null && (record.breakingDown || proposals.length > 0) && (
@@ -475,7 +470,7 @@ function WorkRow({ item, items, upstream, needsYou, workspaceId, busy, onRun, fi
   onDrop: () => void;
   onRemove: () => void;
 }): React.JSX.Element {
-  const { server } = useHostingPresentation();
+  const provider = useProviderName();
   const detail = workDetail(item, items, needsYou);
   const source = sourceOfWork(item);
   const mates = items.filter((other) => other.id !== item.id && other.state !== 'DROPPED' && !item.blockedBy.includes(other.id));
@@ -483,7 +478,7 @@ function WorkRow({ item, items, upstream, needsYou, workspaceId, busy, onRun, fi
   // An attempt that has not ended is the work's task; another starts only once it ends.
   const task = item.links.filter((link) => link.kind === 'TASK').at(-1);
   const current = task !== undefined && task.state !== 'ENDED' ? task : null;
-  const side = upstream === null ? undefined : upstream.former ? 'no longer a child' : `${upstreamName(upstream.child.kind, server)}: ${upstream.child.status}`;
+  const side = upstream === null ? undefined : upstream.former ? 'no longer a child' : `${upstream.child.kind === 'JIRA' ? 'Jira' : provider}: ${upstream.child.status}`;
   // Closing upstream never makes work Done on its own; it offers the same one-click Accept a merged PR does.
   const closed = upstream !== null && !upstream.former && upstream.child.closed && isOpen(item) && detail?.accept !== true ? upstream.child : null;
   const words = [STATE_WORDS[item.state], detail?.text, side].filter((part) => part !== undefined).join(' · ');
@@ -507,7 +502,7 @@ function WorkRow({ item, items, upstream, needsYou, workspaceId, busy, onRun, fi
         {closed !== null && (
           <button type="button" className="epic-row__accept" disabled={busy} onClick={(event) => {
             event.stopPropagation();
-            onDecide({ action: 'ACCEPT', detail: closed.kind === 'JIRA' ? `Closed in Jira as ${closed.status}` : 'Closed on GitHub', completionRule: 'ACCEPTED_RESULT',
+            onDecide({ action: 'ACCEPT', detail: closed.kind === 'JIRA' ? `Closed in Jira as ${closed.status}` : `Closed on ${provider}`, completionRule: 'ACCEPTED_RESULT',
               acceptanceCriteria: item.acceptanceCriteria.trim() === '' ? item.title : undefined });
           }}>Accept</button>
         )}

@@ -33,7 +33,7 @@ public final class AgentCommandPolicy
             """
             Block printing, extracting, or transmitting credentials outside the service's normal
             authentication flow. Existing CLI login and credential helpers may authenticate an authorized
-            action without exposing their values. ByteQuay does not pass GitHub tokens or SSH-agent
+            action without exposing their values. ByteQuay does not pass GitHub or GitLab tokens or SSH-agent
             access from its host environment into agent tools.
             If normal authentication fails, report the missing login; do not search unrelated files,
             browser profiles, or logs for secrets.
@@ -46,7 +46,7 @@ public final class AgentCommandPolicy
             """.strip());
     private static final List<String> RESTRICTIONS = ImmutableList.<String>builder()
             .add("""
-                    Block GitHub writes, including pushes, pull-request creation or updates, comments, reviews,
+                    Block GitHub and GitLab writes, including pushes, pull-request creation or updates, comments, reviews,
                     approvals, and merges, unless direct explicit user authorization covers that remote action
                     and scope. An earlier request in the same task or the user's accepted automation settings
                     supplies that authorization; do not require the user to repeat it. A general development
@@ -56,7 +56,7 @@ public final class AgentCommandPolicy
                     """
                     Block remote writes unless the exact destination and outgoing payload are verified to match
                     the authorized task. For Git, verify the task repository, configured remote, task branch,
-                    and outgoing commits; the shell's working directory alone proves none of these. For GitHub,
+                    and outgoing commits; the shell's working directory alone proves none of these. For GitHub or GitLab,
                     verify the target repository and resource and the exact content or operation. Rewritten
                     history requires a single task-branch push with an exact --force-with-lease naming the
                     expected remote revision; never use an unleased force push, broad refspec, or branch deletion.
@@ -66,7 +66,7 @@ public final class AgentCommandPolicy
     private static final List<String> REVIEW_RESTRICTIONS = ImmutableList.<String>builder()
             .add("""
                     Block creating commits, publishing changes, and moving HEAD or branch references to other commits.
-                    Private review experiments must remain uncommitted. Block pushes, GitHub writes, and credential probing.
+                    Private review experiments must remain uncommitted. Block pushes, GitHub and GitLab writes, and credential probing.
                     Allow local experiment edits, staging, unstaging, applying patches, and read-only Git metadata commands.
                     Resetting files to the current HEAD is allowed; moving HEAD or a branch to another commit is not.
                     Evaluate complete commands, including Git options, aliases, shell chains, and invoked scripts.
@@ -75,8 +75,8 @@ public final class AgentCommandPolicy
                     """.strip(),
                     """
                     Allow reading from the network: fetching Git objects and remote-tracking references, read-only gh
-                    commands and GitHub API GET requests, and fetching or searching documentation and package
-                    registries. Git and gh may use a login already available to the CLI without displaying credentials.
+                    or glab commands and GitHub or GitLab API GET requests, and fetching or searching documentation and package
+                    registries. Git, gh and glab may use a login already available to the CLI without displaying credentials.
                     Block every remote write, including a gh api request with a write method, fields, or a request
                     body, and block any request that sends repository content, credentials, or other private data.
                     """.strip())
@@ -102,8 +102,8 @@ public final class AgentCommandPolicy
             ## ByteQuay CI Repair Scope
 
             Use network access for builds, tests, and dependency downloads. Do not read or expose
-            GitHub credentials. Never push, modify GitHub resources, or use raw HTTP to write to
-            GitHub. ByteQuay verifies and publishes an authorized repair after this turn.
+            GitHub or GitLab credentials. Never push, modify GitHub or GitLab resources, or use raw HTTP to write to
+            them. ByteQuay verifies and publishes an authorized repair after this turn.
             Use native permission requests for worktree-external side effects that are not pregranted;
             native review handles eligible escalations, and ByteQuay checks any provider request
             it receives before asking the user when it cannot grant it from task scope.

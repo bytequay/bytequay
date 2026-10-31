@@ -558,7 +558,7 @@ export function WorkspaceCards({
           <span className="ws-new-tile__plus" aria-hidden="true">＋</span>
           <span className="ws-new-tile__title">Watch a repository</span>
           <span className="ws-new-tile__hint">
-            Search GitHub and watch it — the repo becomes a workspace.
+            Find a GitHub or GitLab repository and watch it — the repo becomes a workspace.
           </span>
         </button>
       )}

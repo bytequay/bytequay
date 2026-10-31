@@ -27,6 +27,16 @@ export function PullRequestWorkspaceProvider({ workspaceId, accountId, server, c
   return <PullRequestWorkspace value={value}>{children}</PullRequestWorkspace>;
 }
 
+/** The provider's name for people; a workspace without a server is on GitHub. */
+export function providerName(server: HostingServerDto | undefined): string {
+  return server?.provider === 'GITLAB' ? 'GitLab' : 'GitHub';
+}
+
+/** The name of the provider this screen's requests reach. */
+export function useProviderName(): string {
+  return providerName(useContext(PullRequestWorkspace).server);
+}
+
 export function usePullRequestWorkspace() {
   return useContext(PullRequestWorkspace).workspaceId;
 }

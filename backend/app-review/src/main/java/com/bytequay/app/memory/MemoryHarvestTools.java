@@ -62,7 +62,7 @@ public class MemoryHarvestTools
     static final String REPLACED = "harvest-replaced:";
     static final int PAGE_SIZE = 25;
     private static final String POLICY = "This harvest reads closed pull requests' review discussion and saves repository memory through its tools only. It must "
-            + "not commit, push, comment on GitHub, change files, read credentials or start child agents.";
+            + "not commit, push, post comments, change files, read credentials or start child agents.";
 
     private final ContextBuildStore builds;
     private final ContextBuildService service;

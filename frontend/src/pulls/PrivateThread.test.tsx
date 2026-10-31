@@ -278,7 +278,7 @@ describe('private thread surfaces', () => {
 
   it('shows a resolved thread with Reopen instead of the composer', () => {
     const html = forward(threads({ forward: KEY }, thread({ resolved: true })));
-    expect(html).toContain('The GitHub thread is unchanged.');
+    expect(html).toContain('The posted thread is unchanged.');
     expect(html).toContain('>Reopen</button>');
     expect(html).not.toContain('Reply to the agent');
   });

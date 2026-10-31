@@ -1476,8 +1476,8 @@ class TestDevelopmentFollowupCoordinator
         String prompt = DevelopmentFollowupCoordinator.publicationPrompt(new DevelopmentBaseline(worktree, route, local(BASE, false)),
                 local(HEAD, false), Optional.of(pr(BASE, true)), true);
         assertThat(prompt).contains(DevelopmentResultBridge.PUBLISH_TOOL_NAME, "already tracks this branch",
-                "ByteQuay owns the push and the GitHub write", "never read or ask for credentials");
-        assertThat(prompt).contains("Never run git push, a GitHub CLI command");
+                "ByteQuay owns the push and the pull request", "never read or ask for credentials");
+        assertThat(prompt).contains("Never run git push, a gh or glab command");
         assertThat(prompt).doesNotContain("--force-with-lease", "pr create", "--body-file");
     }
 

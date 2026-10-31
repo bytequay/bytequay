@@ -59,7 +59,7 @@ export default function ReviewComments({ cards, selectedPath, repository, unavai
     </div>
     {scope === 'file' && selectedPath && <p className="ide-comments__path" title={selectedPath}>{selectedPath}</p>}
     {onComment && <button type="button" className="ide-comments__compose" onClick={onComment}>Comment on selection</button>}
-    {unavailable && <p role="status">GitHub review comments could not be loaded.</p>}
+    {unavailable && <p role="status">Posted review comments could not be loaded.</p>}
     {error && <p role="alert">{error}</p>}
     <div className="ide-comments__list" role="tabpanel" id={`${id}-cards`} aria-labelledby={`${id}-${scope}`} tabIndex={0}>
       {visible.length === 0 && <p className="ide-comments__empty">{scope === 'file'

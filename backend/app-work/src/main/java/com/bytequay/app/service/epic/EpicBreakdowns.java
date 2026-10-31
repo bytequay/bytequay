@@ -87,8 +87,8 @@ public class EpicBreakdowns
     private static final String NOTHING_NEW = NOTHING_MORE + " What the model suggested is already the Epic's work or already waiting as a suggestion.";
     private static final ObjectMapper MAPPER = JsonContracts.mapper();
     private static final String INSTRUCTIONS = """
-            You suggest the work an Epic still needs, for a software developer in ByteQuay, a desktop app for their GitHub
-            pull-request work. The Epic is ByteQuay's local grouping of work, based on a local work item, GitHub issue or Jira ticket.
+            You suggest the work an Epic still needs, for a software developer in ByteQuay, a desktop app for their
+            pull-request work. The Epic is ByteQuay's local grouping of work, based on a local work item, an issue or a Jira ticket.
             The epic data holds its title and description, any children its source lists, every piece of work it already has with its state, source and context,
             and what was suggested before.
 

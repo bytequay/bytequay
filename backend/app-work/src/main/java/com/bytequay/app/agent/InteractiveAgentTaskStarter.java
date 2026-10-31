@@ -138,7 +138,7 @@ public class InteractiveAgentTaskStarter
                     start.idempotencyKey()).withDevelopmentAutomation(start.initialAutomation()));
             AgentTask task = taskService.get(taskId);
             if (!replay) {
-                String context = source.map(issue -> "GitHub issue #" + issue.number() + ": " + issue.title() + "\n" + issue.body()
+                String context = source.map(issue -> "Issue #" + issue.number() + ": " + issue.title() + "\n" + issue.body()
                                 + "\n\nUser request:\n" + start.message())
                         .or(() -> jiraSource.map(issue -> "Jira " + issue.key() + ": " + issue.title() + "\n" + issue.body()
                                 + "\n\nUser request:\n" + start.message())).orElse(start.message());

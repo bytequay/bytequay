@@ -471,7 +471,7 @@ export function Row({ row, change, open, onToggle, onOpen }: {
               copy('markdown', rowMarkdown(row));
             }}><Copy size={12} aria-hidden="true" />{copied === 'markdown' ? 'Copied' : 'Markdown'}</button>
             {row.htmlUrl && (
-              <button type="button" className="rc-mini" aria-label="Open on GitHub" onClick={event => {
+              <button type="button" className="rc-mini" aria-label="Open in browser" onClick={event => {
                 event.stopPropagation();
                 void window.bridge.openInAppBrowser(row.htmlUrl ?? '');
               }}><ArrowUpRight size={12} aria-hidden="true" /></button>

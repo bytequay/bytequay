@@ -301,7 +301,7 @@ export function PrivateThreadForward({ threads, threadKey, author, avatarUrl, ti
   body: string;
   repository: string;
   viewerLogin?: string;
-  /** Review-thread comments only: their thread has a GitHub reply editor to fill. */
+  /** Review-thread comments only: their thread has a reply editor to fill. */
   onDraftReply?: (thread: TaskDiscussionDto) => void;
 }) {
   threads = { ...threads, ...threads.statusFor?.(threadKey) };
@@ -346,7 +346,7 @@ export function PrivateThreadForward({ threads, threadKey, author, avatarUrl, ti
     ? <footer className="lrc__foot"><span className="pr-local-review__note" role="status">{threads.disabledReason}</span></footer>
     : thread?.resolved === true
       ? <footer className="lrc__foot pr-private-resolved">
-        <span>The GitHub thread is unchanged.</span>
+        <span>The posted thread is unchanged.</span>
         {errorNote}
         <button type="button" className="lrc__action" disabled={sending}
           onClick={() => { void run(() => threads.resolve(thread, false)); }}>Reopen</button>
@@ -413,7 +413,7 @@ export function PrivateThreadForward({ threads, threadKey, author, avatarUrl, ti
               menu={onDraftReply !== undefined && thread !== undefined && (available.development || thread.replyDraft) && (
                 <button type="button" className="pr-private-draft"
                   disabled={!thread.replyDraft && (threads.busy || thread.pending || threads.disabledReason !== null || replyCount(thread) === 0)}
-                  title={thread.replyDraft ? 'Open the prepared draft in the reply editor. Nothing is posted.' : 'Agent drafts a GitHub reply from this thread. Nothing is posted.'} onClick={() => onDraftReply(thread)}>
+                  title={thread.replyDraft ? 'Open the prepared draft in the reply editor. Nothing is posted.' : 'Agent drafts a reply from this thread. Nothing is posted.'} onClick={() => onDraftReply(thread)}>
                   {thread.replyDraft ? 'Use draft' : 'Draft with agent'}
                 </button>)}>
               {summary !== null ? <CommentSummary summary={summary} /> : <MarkdownBody body={message.body} repository={repository} />}

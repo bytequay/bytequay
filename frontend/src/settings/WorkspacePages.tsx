@@ -20,6 +20,7 @@ import type {
   WorkspaceSettingsDto,
 } from '../types';
 import RepoAvatar from '../RepoAvatar';
+import { providerName } from '../pulls/PullRequestWorkspace';
 import { RelatedWorkspaceSettings } from '../workspaces/RelatedWorkspaces';
 import { isClaudeLane, isDeepSeekKeyLane, type ClaudeLogin } from './model';
 import ProviderRow from './ProviderRow';
@@ -283,7 +284,7 @@ export function WorkspaceAdvancedPage({ workspace, busy, error, onUnwatch, onDel
             {busy ? 'Unwatching…' : 'Unwatch'}
           </button>
         </SettingsRow>
-        <SettingsRow title="Delete local data" subtitle="Keeps the GitHub repository and fork">
+        <SettingsRow title="Delete local data" subtitle={`Keeps everything on ${providerName(workspace.hostingServer ?? undefined)}`}>
           <button type="button" className="setw-btn is-danger" disabled={busy} onClick={onDelete}>Delete…</button>
         </SettingsRow>
       </SettingsCard>

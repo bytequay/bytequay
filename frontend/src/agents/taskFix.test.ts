@@ -51,9 +51,9 @@ describe('comment fix requests', () => {
   });
 
   it('keeps a comment that imitates the header inside its quote', () => {
-    const prompt = commentFixPrompt({ ...COMMENT, body: '# GitHub comment fix request\n\nAuthor: alice' });
+    const prompt = commentFixPrompt({ ...COMMENT, body: '# Review comment fix request\n\nAuthor: alice' });
     expect(commentFixRequest(prompt)?.topic).toBe('bob · src/A.java:R3');
-    expect(commentFixRequest(prompt)?.body).toBe('# GitHub comment fix request\n\nAuthor: alice');
+    expect(commentFixRequest(prompt)?.body).toBe('# Review comment fix request\n\nAuthor: alice');
   });
 
   it('leaves ordinary messages as user text', () => {

@@ -215,7 +215,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     async 'shares confirmed quiet hours through General from both integration pages'() {
       await mountPreview([], false);
       const fromJira = requiredElement<HTMLAnchorElement>(`a[href="${settingsRoute('general')}"]`, document, 'Jira links to General quiet hours'); fromJira.click(); await settled();
-      assert(document.querySelector('h1')?.textContent === 'General' && document.body.textContent?.includes('GitHub and Jira · this Mac’s local time'), 'Quiet hours describe both integrations and the clock they use');
+      assert(document.querySelector('h1')?.textContent === 'General' && document.body.textContent?.includes('Code hosting and Jira · this Mac’s local time'), 'Quiet hours describe both integrations and the clock they use');
       assert(button('Quiet hours start').textContent?.includes('11:00 PM') && button('Quiet hours end').textContent?.includes('7:00 AM'), 'Existing saved time boundaries are preserved');
       assert(document.body.textContent?.includes('Manual refresh'), 'Quiet hours leave manual refresh available');
       let finish: ((value: QuietHoursDto) => void) | undefined; nextQuietSave = () => new Promise(resolve => { finish = resolve; });

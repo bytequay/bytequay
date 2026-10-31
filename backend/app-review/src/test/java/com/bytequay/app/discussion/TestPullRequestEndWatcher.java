@@ -91,8 +91,8 @@ class TestPullRequestEndWatcher
 
         watcher.pass(true);
 
-        verify(completions).complete(new CompleteAgentTaskCommand(merged.id(), Optional.of("Completed: pull request #14 was merged on GitHub")));
-        verify(completions).complete(new CompleteAgentTaskCommand(closed.id(), Optional.of("Completed: pull request #21 was closed on GitHub")));
+        verify(completions).complete(new CompleteAgentTaskCommand(merged.id(), Optional.of("Completed: pull request #14 was merged")));
+        verify(completions).complete(new CompleteAgentTaskCommand(closed.id(), Optional.of("Completed: pull request #21 was closed")));
     }
 
     @Test
@@ -132,11 +132,11 @@ class TestPullRequestEndWatcher
         when(tasks.listLive()).thenReturn(ImmutableList.of(busy, done));
         when(ownership.pullRequests(any())).thenReturn(ImmutableList.of(pullRequest(30, "merged")));
         doThrow(new AgentConflictException("Task worktree has tracked, staged, or untracked changes"))
-                .when(completions).complete(new CompleteAgentTaskCommand(busy.id(), Optional.of("Completed: pull request #30 was merged on GitHub")));
+                .when(completions).complete(new CompleteAgentTaskCommand(busy.id(), Optional.of("Completed: pull request #30 was merged")));
 
         watcher.pass(true);
 
-        verify(completions).complete(new CompleteAgentTaskCommand(done.id(), Optional.of("Completed: pull request #30 was merged on GitHub")));
+        verify(completions).complete(new CompleteAgentTaskCommand(done.id(), Optional.of("Completed: pull request #30 was merged")));
     }
 
     @Test
@@ -147,14 +147,14 @@ class TestPullRequestEndWatcher
         when(tasks.listLive()).thenReturn(ImmutableList.of(reviewed, busy));
         when(ownership.pullRequests(any())).thenReturn(ImmutableList.of(pullRequest(31, "merged")));
         doThrow(new ReviewConflictException("Stop the running turn before ending the review"))
-                .when(reviews).endForTask(busy.id(), "Agent review ended: pull request #31 was merged on GitHub");
+                .when(reviews).endForTask(busy.id(), "Agent review ended: pull request #31 was merged");
 
         watcher.pass(true);
 
         InOrder order = inOrder(reviews, completions);
-        order.verify(reviews).endForTask(reviewed.id(), "Agent review ended: pull request #31 was merged on GitHub");
-        order.verify(completions).complete(new CompleteAgentTaskCommand(reviewed.id(), Optional.of("Completed: pull request #31 was merged on GitHub")));
-        verify(completions, never()).complete(new CompleteAgentTaskCommand(busy.id(), Optional.of("Completed: pull request #31 was merged on GitHub")));
+        order.verify(reviews).endForTask(reviewed.id(), "Agent review ended: pull request #31 was merged");
+        order.verify(completions).complete(new CompleteAgentTaskCommand(reviewed.id(), Optional.of("Completed: pull request #31 was merged")));
+        verify(completions, never()).complete(new CompleteAgentTaskCommand(busy.id(), Optional.of("Completed: pull request #31 was merged")));
     }
 
     @Test
@@ -168,7 +168,7 @@ class TestPullRequestEndWatcher
 
         watcher.pass(false);
 
-        verify(completions).complete(new CompleteAgentTaskCommand(merged.id(), Optional.of("Completed: pull request #40 was merged on GitHub")));
+        verify(completions).complete(new CompleteAgentTaskCommand(merged.id(), Optional.of("Completed: pull request #40 was merged")));
         verifyNoInteractions(reviewFixes);
 
         watcher.pass(true);
@@ -193,7 +193,7 @@ class TestPullRequestEndWatcher
 
         watcher.afterDetailRefresh(REPO, 50);
 
-        verify(completions).complete(new CompleteAgentTaskCommand(merged.id(), Optional.of("Completed: pull request #50 was merged on GitHub")));
+        verify(completions).complete(new CompleteAgentTaskCommand(merged.id(), Optional.of("Completed: pull request #50 was merged")));
         verifyNoInteractions(reviewFixes);
     }
 

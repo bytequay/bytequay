@@ -47,8 +47,8 @@ final class BranchRebasePromptBuilder
                 Touch no unrelated files; leave no unrelated tracked or untracked changes.
 
                 Do not run git rebase --continue, --skip, or --abort. Do not
-                commit, amend, cherry-pick, reset, push, use gh, or write to
-                GitHub.
+                commit, amend, cherry-pick, reset, push, use gh or glab, or write
+                to GitHub or GitLab.
 
                 Your final message is for the user. ByteQuay inspects Git and decides.
                 """).toString();

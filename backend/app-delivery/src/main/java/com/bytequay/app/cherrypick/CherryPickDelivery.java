@@ -293,7 +293,7 @@ public class CherryPickDelivery
         }
         return switch (pull.state()) {
             case OPEN -> current;
-            case CLOSED -> hold(current, Reason.PULL_REQUEST_CLOSED, "The pull request was closed on GitHub");
+            case CLOSED -> hold(current, Reason.PULL_REQUEST_CLOSED, "The pull request was closed");
             case MERGED -> merged(current);
         };
     }

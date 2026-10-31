@@ -58,7 +58,7 @@ public class EpicDrafts
     private static final String UNREADABLE = "The model did not answer in the expected shape. Send your message again.";
     private static final ObjectMapper MAPPER = JsonContracts.mapper();
     private static final String INSTRUCTIONS = """
-            You help a software developer plan a new Epic in ByteQuay, a desktop app for their GitHub pull-request work. An Epic is
+            You help a software developer plan a new Epic in ByteQuay, a desktop app for their pull-request work. An Epic is
             ByteQuay's local planning group for one larger change: several pieces of work and pull requests the developer tracks together.
 
             1. Understand what the Epic should achieve. Ask short, specific questions, at most three at a time, about its goal and why it

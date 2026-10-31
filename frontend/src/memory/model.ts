@@ -83,7 +83,7 @@ export function sourceHead(source: MemorySourceDto): { head: string; note: strin
   const head = `PR #${part.number} · ${PART_LABEL[part.part]} · @${part.author}${part.maintainer ? ', maintainer' : ''} · ${part.merged ? 'merged' : 'closed without merge'}`;
   const note = part.part === 'CLOSE' ? 'A maintainer explained the close'
     : part.resolved ? 'Applied: thread resolved' : part.outdated ? 'Applied: the code under the thread changed' : '';
-  return { head, note, link: 'Open on GitHub' };
+  return { head, note, link: 'Open pull request' };
 }
 
 export function matches(memory: MemoryDto, kind: MemoryKindFilter, source: MemorySourceFilter, query: string): boolean {

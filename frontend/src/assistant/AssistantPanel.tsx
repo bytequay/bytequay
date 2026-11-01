@@ -11,50 +11,54 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import {
-  AlarmClock, ArrowUpRight, Ban, CalendarCheck, CheckCheck, CircleDot, Flag, History, ListEnd, ListPlus, ListTodo, MessageSquareReply, Play, RotateCw, Send, ShieldCheck,
-  SquarePen, SquarePlus, TriangleAlert, X, type LucideIcon,
+  AlarmClock, ArrowUpRight, Ban, CalendarCheck, CheckCheck, CircleDot, Clock, Flag, History, ListEnd, ListPlus, ListTodo, MessageSquareReply, Play, RotateCw,
+  Send, ShieldCheck, SquarePen, SquarePlus, TriangleAlert, X, type LucideIcon,
 } from 'lucide-react';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import Composer from '../Composer';
 import { renderMarkdown } from '../agents/markdown';
+import { runningTaskRoute } from '../agents/RunningTasks';
 import { IconButton, SourceIcon } from '../cards/Card';
-import { openTarget } from '../home/TodayList';
+import { MyWorkBoard } from '../home/MyWork';
+import TodayList, { openTarget } from '../home/TodayList';
 import { reloadHandled, type AttentionSource } from '../home/attention';
-import { requestPullComment } from '../pulls/PullOverview';
 import { clockTime } from '../home/today';
-import type { AppNotice } from '../notices/contracts';
-import { remoteErrorMessage } from '../remoteError';
+import { useMyWork } from '../home/useMyWork';
+import type { WorkLane } from '../home/work';
+import { requestPullComment } from '../pulls/PullOverview';
+import { APPROVAL_NOTICE, type AppNotice } from '../notices/contracts';
 import { settingsRoute, type SettingsSection } from '../settings/routes';
 import type { AgendaTargetDto, AssistantItemDto, AssistantReceiptDto, AssistantRowDto, AssistantSummaryDto } from '../types';
 import AssistantList from './AssistantList';
+import { ApprovalCard, NoticeCard, ResultCard, RunningCard, RunningFold, StopButton } from './Cards';
 import DraftCard from './DraftCard';
-import { arrivedOpen, createdDrafts, linkRefs, pageRoute, refFromHref, refLabel } from './model';
+import { arrivedOpen, createdDrafts, decisionOrder, linkRefs, pageRoute, refFromHref, refLabel, type AssistantRequest, type AssistantView, type Pill, type WaitingCard } from './model';
+import AssistantPills, { useWaiting } from './Pills';
 import { approvePull, closePull, mergePull, type PullAction } from './pullActions';
 import { useAssistant } from './useAssistant';
-import WaitingStack from './WaitingStack';
 import '../css/assistant.css';
 
 /** How long the Assistant stays closed before it opens on a new conversation. */
 const BREAK_MS = 15 * 60_000;
 
-/**
- * The Assistant over every page, opened with ⌘J: the composer, the conversation on screen, then what waits on the user. Each topic gets
- * its own conversation: New starts one, after a break the Assistant opens on a new one, and the history or the line to continue goes
- * back to an earlier one. It floats, and nothing paints over a native view, so the app leaves a web page before it opens and the editor
- * hides under any dialog.
- */
 function setHash(hash: string) {
   window.location.hash = hash;
 }
 
-export default function AssistantPanel({ open, chatEnabled = true, notices, openCard, onScreen, onClose, onPage = setHash, onOpened }: {
+/**
+ * The Assistant over every page, opened with ⌘J, from Home, or over other apps: the composer and its pills on top, then one view under
+ * them, the conversation until a pill opens another. Each topic gets its own conversation: New starts one, after a break the Assistant
+ * opens on a new one, and the history or the line to continue goes back to an earlier one. It floats, and nothing paints over a native
+ * view, so the app leaves a web page before it opens and the editor hides under any dialog.
+ */
+export default function AssistantPanel({ open, chatEnabled = true, notices, request, onScreen, onClose, onPage = setHash, onOpened }: {
   open: boolean;
   chatEnabled?: boolean;
   notices: AppNotice[];
-  /** The waiting card an alert's Answer asked for; a new object each time. */
-  openCard: { id: string } | null;
+  /** Where to open, such as a pill from Home or an alert's card; a new object each time. */
+  request: AssistantRequest | null;
   /** The ref of what the user is looking at, sent with a message unless they remove it. */
   onScreen: string | null;
   onClose: () => void;
@@ -65,14 +69,17 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
 }) {
   const [conversation, setConversation] = useState<string>(() => crypto.randomUUID());
   const [history, setHistory] = useState(false);
-  const { view, conversations, error, sending, send, stop, retry, refresh } = useAssistant(open, conversation);
+  const [view, setView] = useState<AssistantView>('conversation');
+  const [lane, setLane] = useState<WorkLane | null>(null);
+  const [card, setCard] = useState<string | null>(null);
+  // Messages sent while a reply is written wait here, and go as one once it ends.
+  const [queue, setQueue] = useState<string[]>([]);
+  const [outgoing, setOutgoing] = useState<string | null>(null);
+  const { view: chat, conversations, error, sending, busy, send, stop, retry, refresh } = useAssistant(open || queue.length > 0, conversation);
   const [draft, setDraft] = useState('');
   const [hiddenScreen, setHiddenScreen] = useState<string | null>(null);
   const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set());
   const [failure, setFailure] = useState<string | null>(null);
-  const [request, setRequest] = useState(openCard);
-  // While the conversation shows, what waits folds under its pills; a pill opens it until the next message.
-  const [unfolded, setUnfolded] = useState(false);
   const closedAt = useRef(Date.now());
   const replying = useRef(false);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -81,8 +88,8 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
   const returnFocus = useRef<Element | null>(null);
   const openedAt = useRef(0);
   const followed = useRef(new Set<string>());
-  const items = view?.items ?? [];
-  const running = view?.running ?? false;
+  const items = chat?.items ?? [];
+  const running = chat?.running ?? false;
   // A card answered here leaves at once; the notice itself goes on the host's next read.
   const waiting = notices.filter(notice => !answered.has(notice.id));
   const screen = onScreen !== null && onScreen !== hiddenScreen ? onScreen : null;
@@ -99,7 +106,8 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
       input.current?.focus();
       return;
     }
-    setUnfolded(false);
+    setView('conversation');
+    setLane(null);
     setHistory(false);
     setFailure(null);
     closedAt.current = Date.now();
@@ -109,9 +117,16 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
     if (previous instanceof HTMLElement && previous.isConnected && (active === null || active === document.body)) previous.focus();
   }, [open]);
 
-  useEffect(() => setRequest(openCard), [openCard]);
-  const requestDone = useCallback(() => setRequest(null), []);
-  const fold = useCallback((folded: boolean) => setUnfolded(!folded), []);
+  // Runs after the open above, so a message from Home goes to the conversation the Assistant opens on.
+  useLayoutEffect(() => {
+    if (request === null) return;
+    if (request.fresh === true) setConversation(crypto.randomUUID());
+    setHistory(request.history === true);
+    setView(request.view ?? 'conversation');
+    setLane(request.lane ?? null);
+    setCard(request.card ?? null);
+    if (request.message !== undefined && request.message.trim() !== '') setOutgoing(request.message.trim());
+  }, [request]);
 
   useEffect(() => setAnswered(current => {
     const live = current.size === 0 ? current : new Set([...current].filter(id => notices.some(notice => notice.id === id)));
@@ -120,8 +135,8 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
 
   useLayoutEffect(() => {
     const node = scroller.current;
-    if (node) node.scrollTop = node.scrollHeight;
-  }, [open, talkOpen, items.length, running]);
+    if (node !== null && view === 'conversation') node.scrollTop = node.scrollHeight;
+  }, [open, view, talkOpen, items.length, running, queue.length]);
 
   // The Assistant closes first, so nothing opens under it, and focus stays with what opened instead of going back.
   const leave = useCallback((go: () => void) => {
@@ -144,11 +159,11 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
   // An open the assistant made while the user watched goes there once; read later, its receipt only offers Open.
   useEffect(() => {
     if (!open) return;
-    const arrived = arrivedOpen(view?.items ?? [], openedAt.current, followed.current);
+    const arrived = arrivedOpen(chat?.items ?? [], openedAt.current, followed.current);
     if (arrived === null || arrived.receipt === null) return;
     followed.current.add(arrived.id);
     openReceipt(arrived.receipt);
-  }, [open, view, openReceipt]);
+  }, [open, chat, openReceipt]);
 
   // The lists read marks once at start, so a mark the assistant made reaches them when its receipt does.
   const marked = items.filter(item => item.receipt?.outcome === 'DONE' && (item.receipt.operation === 'ACKNOWLEDGE' || item.receipt.operation === 'SNOOZE')).length;
@@ -157,31 +172,60 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
   const making = items.filter(item => item.receipt?.outcome === 'DONE' && item.receipt.operation === 'MAKE_AGENDA').length;
   useEffect(() => { if (making > 0) window.dispatchEvent(new Event('bytequay:agenda-changed')); }, [making]);
 
+  // One reply at a time: a message sent meanwhile waits, and the next one answers everything that waited.
+  const submitText = (text: string) => {
+    if (!chatEnabled || text === '') return;
+    if (busy || sending) {
+      setQueue(current => [...current, text]);
+      setDraft(current => current.trim() === text ? '' : current);
+      return;
+    }
+    void send(text, visible.current, screen).then(sent => {
+      if (!sent) {
+        setDraft(current => current.trim() === '' ? text : current);
+        return;
+      }
+      setHistory(false);
+      setView('conversation');
+      setDraft(current => current.trim() === text ? '' : current);
+      setHiddenScreen(null);
+    });
+  };
+  const submitRef = useRef(submitText);
+  useLayoutEffect(() => { submitRef.current = submitText; });
+
+  useEffect(() => {
+    if (outgoing === null) return;
+    setOutgoing(null);
+    submitRef.current(outgoing);
+  }, [outgoing]);
+
+  useEffect(() => {
+    if (busy || sending || queue.length === 0) return;
+    const text = queue.join('\n\n');
+    setQueue([]);
+    submitRef.current(text);
+  }, [busy, sending, queue]);
+
   if (!open) return null;
 
   const show = (target: AgendaTargetDto) => leave(() => openTarget(target));
   const choose = (id: string) => {
+    // What waited for the old conversation's reply goes back to the composer rather than into the new one.
+    if (queue.length > 0) {
+      setDraft(current => [current.trim(), ...queue].filter(Boolean).join('\n\n'));
+      setQueue([]);
+    }
     setConversation(id);
     setHistory(false);
-    setUnfolded(false);
+    setView('conversation');
     input.current?.focus();
   };
   const startNew = () => choose(crypto.randomUUID());
   const openSettings = (section: SettingsSection) => leave(() => onPage(settingsRoute(section)));
   // A receipt a card's button left after a failed reply does not end that exchange, so Retry stays on the failure.
   const lastExchange = items.findLast(item => item.kind !== 'RECEIPT')?.id;
-  const submit = () => {
-    if (!chatEnabled) return;
-    const text = draft.trim();
-    void send(text, visible.current, screen).then(sent => {
-      if (!sent) return;
-      setHistory(false);
-      setUnfolded(false);
-      setDraft(current => current.trim() === text ? '' : current);
-      setHiddenScreen(null);
-    });
-  };
-  // A refusal in the latest exchange points down at a card's buttons, so the cards stay out.
+  // A refusal in the latest exchange points down at a card's buttons, so the decisions show under the conversation.
   const pointsDown = items.slice(items.findLastIndex(item => item.kind === 'USER')).some(item => item.receipt?.fix === 'BUTTONS');
   const targets: Record<string, AgendaTargetDto> = {};
   for (const item of items) Object.assign(targets, item.targets);
@@ -216,26 +260,87 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
     setFailure(null);
     void action.then(then).catch(() => setFailure(message));
   };
+  const pick = (pill: Pill) => {
+    setHistory(false);
+    setLane(null);
+    // The open pill again goes back to the conversation.
+    setView(pill === view ? 'conversation' : pill);
+  };
 
   // The newest conversation that is not on screen, to continue from a new one with one click.
   const latest = conversations.find(each => each.id !== conversation);
   const talk = history ? <Conversations conversations={conversations} current={conversation} onChoose={choose} />
     // Not while a chosen conversation is still being read, so the line does not flash before it.
-    : !talkOpen ? view !== null && latest !== undefined && <Conversations conversations={[latest]} current={conversation} onChoose={choose} />
+    : !talkOpen && queue.length === 0 ? chat !== null && latest !== undefined && <Conversations conversations={[latest]} current={conversation} onChoose={choose} />
     : (
-    <div ref={scroller} className="assistant-sheet assistant-talk" onClickCapture={openLink} onAuxClickCapture={openLink}>
-      {items.map(item => item.kind === 'RECEIPT'
-        ? <Receipt key={item.id} item={item} onOpen={openReceipt} onSettings={openSettings} />
-        : <Entry key={item.id} item={item} rows={view?.rows ?? {}} drafts={drafts} model={view?.model ?? null} retryable={chatEnabled && !running && item.id === lastExchange}
-          onRetry={retry} onSettings={openSettings} onOpen={show} onComplete={completeTask} onPull={actOnPull} onRefresh={refresh} />)}
-      {running && <p className="assistant-thinking" role="status">Thinking…</p>}
-    </div>
+      <div className="assistant-talk" onClickCapture={openLink} onAuxClickCapture={openLink}>
+        {items.map(item => item.kind === 'RECEIPT'
+          ? <Receipt key={item.id} item={item} onOpen={openReceipt} onSettings={openSettings} />
+          : <Entry key={item.id} item={item} rows={chat?.rows ?? {}} drafts={drafts} model={chat?.model ?? null} retryable={chatEnabled && !running && item.id === lastExchange}
+            onRetry={retry} onSettings={openSettings} onOpen={show} onComplete={completeTask} onPull={actOnPull} onRefresh={refresh} />)}
+        {running && <p className="assistant-thinking" role="status">Thinking<span className="assistant-caret" aria-hidden="true" /></p>}
+        {queue.map((text, index) => (
+          <div key={index} className="assistant-queued">
+            <div className="assistant-queued__bubble">{text}</div>
+            <div className="assistant-queued__note">
+              <Clock size={12} aria-hidden="true" />Answers after the current reply
+              <IconButton label="Take it out of line" onClick={() => {
+                setQueue(current => current.filter((_, at) => at !== index));
+                setDraft(current => current.trim() === '' ? text : current);
+              }}><X size={12} aria-hidden="true" /></IconButton>
+            </div>
+          </div>
+        ))}
+      </div>
     );
+
+  const composer = chatEnabled ? (
+    <Composer inputRef={input} aria-label="Message the Assistant" placeholder="Ask, or tell it what to start" value={draft} maxLength={16 * 1024}
+      onChange={event => setDraft(event.target.value)} busy={sending} onSubmit={() => submitText(draft.trim())}
+      onKeyDown={event => {
+        if (event.key !== 'Tab' || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
+        const pills = event.currentTarget.closest('.assistant-float')?.querySelector<HTMLElement>('.assistant-pill.is-open, .assistant-pill:not(.is-empty)');
+        if (!pills) return;
+        event.preventDefault();
+        pills.focus();
+      }}
+      header={queue.length > 0 && <div className="assistant-waiting-line"><Clock size={12} aria-hidden="true" />{queue.length} waiting · answers after the current reply</div>}
+      notice={(error ?? failure) !== null && <p className="assistant-error" role="alert">{error ?? failure}</p>}
+      submitEnabled={draft.trim() !== '' && !sending} showSubmit={!running || draft.trim() !== ''}
+      submitLabel={busy ? 'Send after the current reply' : 'Send to the Assistant'} submitTitle={busy ? 'Answers after the current reply (Enter)' : 'Send (Enter)'}
+      trailingActions={running && draft.trim() === '' && (
+        <button type="button" className="agt-send is-stop" aria-label="Stop the reply" title="Stop the reply" onClick={stop}>
+          <span className="agt-stop-square" aria-hidden="true" />
+        </button>
+      )}>
+      {screen !== null && (
+        <span className="assistant-chip" title="The item on the current page. Remove to ask without it.">
+          <ScreenIcon screen={screen} />
+          <span className="assistant-chip__name">On screen</span>
+          <span className="assistant-chip__ref">{refLabel(screen)}</span>
+          <button type="button" aria-label="Leave what's on screen out of this message" title="Leave it out"
+            onClick={() => setHiddenScreen(screen)}><X size={11} aria-hidden="true" /></button>
+        </span>
+      )}
+      <span className="assistant-spacer" />
+      {chat?.model && <span className="assistant-model" title={`Answers with ${chat.model}`}>{chat.model}</span>}
+      {talkOpen && <IconButton label="New conversation" title="New conversation (⌘N)" onClick={startNew}><SquarePen size={15} aria-hidden="true" /></IconButton>}
+      {latest !== undefined && (
+        <IconButton label="Conversations" title="History" tone="active" pressed={history} onClick={() => setHistory(shown => !shown)}><History size={15} aria-hidden="true" /></IconButton>
+      )}
+    </Composer>
+  ) : (
+    <div className="assistant-off">
+      <p>Task notices and your conversation are still available.</p>
+      <button type="button" className="assistant-link" onClick={() => openSettings('features')}>Set up Assistant in Settings</button>
+      {running && <button type="button" className="assistant-link" onClick={stop}>Stop the reply</button>}
+    </div>
+  );
 
   return (
     <div className="assistant-panel">
       <button type="button" className="assistant-backdrop" tabIndex={-1} aria-label="Close the Assistant" onClick={onClose} />
-      <section className={`assistant-float${running || sending ? ' is-replying' : ''}`} role="dialog" aria-label="Assistant"
+      <section className={`assistant-float${busy || sending ? ' is-replying' : ''}${view === 'mywork' && !history ? ' is-wide' : ''}`} role="dialog" aria-label="Assistant"
         onKeyDown={event => {
           if (event.defaultPrevented) return;
           if (event.key === 'Escape') {
@@ -248,43 +353,9 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
             startNew();
           }
         }}>
-        {chatEnabled ? <Composer inputRef={input} aria-label="Message the Assistant" placeholder="Ask, or tell it what to start" value={draft} maxLength={16 * 1024}
-          onChange={event => setDraft(event.target.value)} busy={sending} onSubmit={submit}
-          onKeyDown={event => {
-            if (event.key !== 'Tab' || event.altKey || event.ctrlKey || event.metaKey) return;
-            const pill = event.currentTarget.closest('.assistant-float')?.querySelector<HTMLElement>('.assistant-pill.is-selected');
-            if (!pill) return;
-            event.preventDefault();
-            pill.focus();
-          }}
-          notice={(error ?? failure) !== null && <p className="assistant-error" role="alert">{error ?? failure}</p>}
-          submitEnabled={draft.trim() !== '' && !running && !sending} showSubmit={!running} submitLabel="Send to the Assistant" submitTitle="Send (Enter)"
-          trailingActions={running && (
-            <button type="button" className="agt-send is-stop" aria-label="Stop the reply" title="Stop the reply" onClick={stop}>
-              <span className="agt-stop-square" aria-hidden="true" />
-            </button>
-          )}>
-          {screen !== null && (
-            <span className="assistant-chip" title="On screen: tells the assistant what “this one” means">
-              <ScreenIcon screen={screen} />
-              <span className="assistant-chip__name">On screen:</span>
-              <span className="assistant-chip__ref">{refLabel(screen)}</span>
-              <button type="button" aria-label="Leave what's on screen out of this message" title="Leave it out"
-                onClick={() => setHiddenScreen(screen)}><X size={12} aria-hidden="true" /></button>
-            </span>
-          )}
-          <span className="assistant-spacer" />
-          {view?.model && <span className="assistant-model" title={`Answers with ${view.model}`}>{view.model}</span>}
-          {latest !== undefined && (
-            <IconButton label="Conversations" tone="active" pressed={history} onClick={() => setHistory(shown => !shown)}><History size={15} aria-hidden="true" /></IconButton>
-          )}
-          {talkOpen && <IconButton label="New conversation" title="New conversation (⌘N)" onClick={startNew}><SquarePen size={15} aria-hidden="true" /></IconButton>}
-        </Composer> : <div className="assistant-sheet assistant-off">
-          <p>Task notices and your conversation are still available.</p>
-          <button type="button" className="assistant-link" onClick={() => openSettings('features')}>Set up Assistant in Settings</button>
-          {running && <button type="button" className="assistant-link" onClick={stop}>Stop the reply</button>}
-        </div>}
-        <WaitingStack notices={waiting} talk={talk} folded={(talkOpen || history) && !unfolded && !pointsDown} onFold={fold} conversation={conversation} request={request} onRequestDone={requestDone} visible={visible} input={input} onLeave={onClose}
+        <AssistantViews notices={waiting} view={history ? 'conversation' : view} lane={lane} card={card} talk={talk} pointsDown={pointsDown}
+          composer={composer} scroller={scroller} visible={visible} conversation={conversation} onPick={pick} onView={setView} onLane={setLane}
+          onCardShown={() => setCard(null)} onLeave={leave} onPage={onPage}
           onAnswered={id => { setAnswered(current => new Set(current).add(id)); refresh(); }}
           onOpenNotice={id => noticeAction(window.bridge.openAppNotice(id), 'Unable to open this task.', onClose)}
           onClearNotice={id => noticeAction(window.bridge.removeAppNotice(id), 'Unable to clear this notice.')} />
@@ -293,10 +364,125 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
   );
 }
 
+/**
+ * The pills and the view they open, mounted only while the Assistant is open, since it reads running tasks, today's agenda and the
+ * viewer's work: the composer and pills on top, one scroll under them.
+ */
+function AssistantViews({ notices, view, lane, card, talk, pointsDown, composer, scroller, visible, conversation, onPick, onView, onLane, onCardShown, onLeave, onPage,
+  onAnswered, onOpenNotice, onClearNotice }: {
+  notices: AppNotice[];
+  view: AssistantView;
+  lane: WorkLane | null;
+  /** The card an alert's Answer asked for, until it has been shown. */
+  card: string | null;
+  talk: ReactNode;
+  pointsDown: boolean;
+  composer: ReactNode;
+  scroller: React.RefObject<HTMLDivElement | null>;
+  /** The notices drawn on screen, the only ones the user's next message may act on. */
+  visible: React.RefObject<string[]>;
+  conversation: string;
+  onPick: (pill: Pill) => void;
+  onView: (view: AssistantView) => void;
+  onLane: (lane: WorkLane | null) => void;
+  onCardShown: () => void;
+  onLeave: (go: () => void) => void;
+  onPage: (hash: string) => void;
+  onAnswered: (id: string) => void;
+  onOpenNotice: (id: string) => void;
+  onClearNotice: (id: string) => void;
+}) {
+  const waiting = useWaiting(notices);
+  const { work } = useMyWork();
+  const [opened, setOpened] = useState<string | null>(null);
+  const { cards } = waiting;
+  const decisions = decisionOrder(cards);
+  const running = cards.filter(each => each.group === 'running');
+  const finished = cards.filter(each => each.group === 'finished');
+  const showsDecisions = view === 'decision' || view === 'all' || view === 'conversation' && pointsDown;
+  const emptied = view === 'decision' && decisions.length === 0 || view === 'running' && running.length === 0 || view === 'finished' && finished.length === 0
+    || view === 'all' && cards.length === 0;
+
+  // A view that empties, such as Decision after its last answer, hands back to the conversation.
+  useEffect(() => { if (emptied) onView('conversation'); }, [emptied, onView]);
+
+  useLayoutEffect(() => {
+    visible.current = showsDecisions ? decisions.flatMap(each => 'notice' in each ? [each.notice.id] : []) : [];
+  });
+
+  useEffect(() => {
+    if (card === null) return;
+    onCardShown();
+    setOpened(card);
+  }, [card, onCardShown]);
+
+  useEffect(() => {
+    if (opened === null) return;
+    // The card itself, not one of its buttons, so a stray Enter cannot answer it.
+    const node = scroller.current?.querySelector<HTMLElement>(`[data-card="${CSS.escape(opened)}"]`);
+    node?.focus();
+    node?.scrollIntoView({ block: 'nearest' });
+    // The outline holds for 2 s, then fades for 0.4 s (assistant.css).
+    const timer = window.setTimeout(() => setOpened(null), 2400);
+    return () => window.clearTimeout(timer);
+  }, [opened, scroller]);
+
+  const decisionCard = (each: WaitingCard) => {
+    if (!('notice' in each)) return null;
+    const { notice } = each;
+    return notice.id.startsWith(APPROVAL_NOTICE)
+      ? <ApprovalCard key={each.key} notice={notice} focused={opened === notice.id} conversation={conversation} onAnswered={() => onAnswered(notice.id)}
+        onOpen={() => onOpenNotice(notice.id)} onClear={() => onClearNotice(notice.id)} />
+      : <NoticeCard key={each.key} notice={notice} focused={opened === notice.id} onOpen={() => onOpenNotice(notice.id)} onClear={() => onClearNotice(notice.id)} />;
+  };
+  const resultCard = (each: WaitingCard) => 'notice' in each
+    && <ResultCard key={each.key} notice={each.notice} onOpen={() => onOpenNotice(each.notice.id)} onClear={() => onClearNotice(each.notice.id)} />;
+  const runningCard = (each: WaitingCard) => 'task' in each && <RunningCard key={each.key} task={each.task} onOpen={() => onLeave(() => onPage(runningTaskRoute(each.task)))} />;
+  const section = (label: string) => <div className="assistant-section">{label}</div>;
+
+  let body: ReactNode;
+  switch (view) {
+    case 'conversation':
+      body = talk || pointsDown ? <>{talk}{pointsDown && decisions.map(decisionCard)}</> : null;
+      break;
+    case 'decision':
+      body = decisions.map(decisionCard);
+      break;
+    case 'running':
+      body = running.map(runningCard);
+      break;
+    case 'finished':
+      body = finished.map(resultCard);
+      break;
+    case 'all':
+      body = <>
+        {decisions.length > 0 && <>{section('Decision')}{decisions.map(decisionCard)}</>}
+        {running.length > 0 && <>{section('Running')}<RunningFold count={running.length} onOpen={() => onView('running')} /></>}
+        {finished.length > 0 && <>{section('Finished')}{finished.map(resultCard)}</>}
+      </>;
+      break;
+    case 'today':
+      body = <div className="assistant-today"><TodayList today={waiting.today} scope="global" onOpen={target => onLeave(() => openTarget(target))} /></div>;
+      break;
+    case 'mywork':
+      body = <MyWorkBoard items={work} lane={lane} onLane={onLane} onOpen={target => onLeave(() => openTarget(target))} onDecision={() => onView('decision')}
+        onAllWork={() => onLeave(() => onPage('#/work'))} />;
+      break;
+  }
+
+  return <>
+    <div className="assistant-head">
+      {composer}
+      <AssistantPills waiting={waiting} needsYou={work.some(item => item.lane === 'needs')} open={view === 'conversation' ? null : view} onPick={onPick} />
+    </div>
+    {body !== null && <div ref={scroller} className="assistant-body">{body}</div>}
+  </>;
+}
+
 /** Conversations as one-line rows, titled by their first message: the history, or the newest one to continue. */
 function Conversations({ conversations, current, onChoose }: { conversations: AssistantSummaryDto[]; current: string; onChoose: (id: string) => void }) {
   return (
-    <div className="assistant-sheet assistant-list" role="group" aria-label="Conversations">
+    <div className="assistant-list" role="group" aria-label="Conversations">
       {conversations.map(each => (
         <button key={each.id} type="button" className={`assistant-line${each.id === current ? ' is-current' : ''}`} title={each.title}
           aria-current={each.id === current} onClick={() => onChoose(each.id)}>
@@ -332,7 +518,12 @@ function Entry({ item, rows, drafts, model, retryable, onRetry, onSettings, onOp
   onPull: (target: AgendaTargetDto, action: PullAction, head: string | null) => Promise<void>;
   onRefresh: () => void;
 }) {
-  if (item.kind === 'USER') return <div className="agt-user"><div className="agt-user__bubble" title={`Sent at ${clockTime(item.at)}`}>{item.text}</div></div>;
+  if (item.kind === 'USER') {
+    return <>
+      <div className="assistant-time">{clockTime(item.at)}</div>
+      <div className="agt-user"><div className="agt-user__bubble" title={`Sent at ${clockTime(item.at)}`}>{item.text}</div></div>
+    </>;
+  }
   if (item.kind === 'REPLY') return <div className="assistant-reply">{renderMarkdown(linkRefs(item.text, item.targets))}</div>;
   if (item.kind === 'LIST') return <AssistantList item={item} rows={rows} onOpen={onOpen} onComplete={onComplete} onPull={onPull} />;
   if (item.kind === 'DRAFT') return <DraftCard item={item} created={item.draft !== null && drafts.has(item.draft.workItemId)} onCreated={onRefresh} onOpen={onOpen} />;
@@ -342,8 +533,8 @@ function Entry({ item, rows, drafts, model, retryable, onRetry, onSettings, onOp
       <TriangleAlert size={14} aria-hidden="true" />
       <span>{item.text}</span>
       <span className="assistant-spacer" />
-      {item.notReady && <button type="button" className="assistant-action" onClick={() => onSettings('models')}>Open Settings</button>}
-      {retryable && <button type="button" className="assistant-action" onClick={onRetry}><RotateCw size={12} aria-hidden="true" />Retry</button>}
+      {item.notReady && <button type="button" className="assistant-button" onClick={() => onSettings('models')}>Open Settings</button>}
+      {retryable && <button type="button" className="assistant-button" onClick={onRetry}><RotateCw size={12} aria-hidden="true" />Retry</button>}
     </div>
   );
 }
@@ -355,45 +546,28 @@ const ACTED: Record<AssistantReceiptDto['operation'], LucideIcon> = {
 };
 
 /**
- * What an action did, or why it did not, in one line: the user's own words and a detail below it, then Open to where it acted, Settings
- * to the switch that is off, and Stop for the first turn of a task it started. A refusal points down at the card's buttons when they
+ * What an action did, or why it did not, on one line, with the user's own words in its tooltip; then Stop for the first turn of a task
+ * it started, Settings to the switch that is off, and Open to where it acted. A refusal points down at the card's buttons when they
  * are the way to do it.
  */
 function Receipt({ item, onOpen, onSettings }: { item: AssistantItemDto; onOpen: (receipt: AssistantReceiptDto) => void; onSettings: (section: SettingsSection) => void }) {
-  const [stop, setStop] = useState<'idle' | 'stopping' | 'stopped'>('idle');
-  const [error, setError] = useState<string | null>(null);
   const receipt = item.receipt;
   if (receipt === null) return null;
-  const { target, page, turnId, outcome, fix, words } = receipt;
-  const detail = error ?? receipt.detail;
+  const { target, page, turnId, outcome, fix, words, detail } = receipt;
   // A reply to a task at work waits behind its turn, which its detail says.
   const Icon = outcome === 'FAILED' ? TriangleAlert : outcome === 'REFUSED' ? Ban
-    : receipt.operation === 'REPLY_TO_TASK' && receipt.detail !== null ? ListEnd : ACTED[receipt.operation];
-  const below = [words === null ? null : `“${words}”`, detail].filter(each => each !== null).join(' · ');
-  const cancel = (turn: string) => {
-    setStop('stopping');
-    setError(null);
-    window.bridge.cancelAgentTurn(turn).then(() => setStop('stopped')).catch((cause: unknown) => { setStop('idle'); setError(remoteErrorMessage(cause)); });
-  };
+    : receipt.operation === 'REPLY_TO_TASK' && detail !== null ? ListEnd : ACTED[receipt.operation];
+  // Exactly what was taken as the user's: what a task was sent, or what the assistant acted on.
+  const tip = [item.text, words === null ? null : `“${words}”`, detail].filter(each => each !== null).join(' · ');
   return (
-    <div className={`assistant-receipt${outcome === 'DONE' ? '' : ' is-refused'}`}>
+    <div className={`assistant-receipt${outcome === 'DONE' ? '' : ' is-refused'}`} title={tip}>
       <Icon className="assistant-receipt__icon" size={14} aria-hidden="true" />
       <div className="assistant-receipt__text">
-        <div className="assistant-receipt__line" title={item.text}>{item.text}{fix === 'BUTTONS' && <span aria-hidden="true"> ↓</span>}</div>
-        {/* Exactly what was taken as the user's: what a task was sent, or what the assistant acted on. */}
-        {below !== '' && (
-          <div className="assistant-receipt__below" title={below}>
-            {words !== null && <span className="assistant-receipt__words">“{words}”</span>}
-            {words !== null && detail !== null && ' · '}
-            {detail !== null && <span className="assistant-receipt__detail">{detail}</span>}
-          </div>
-        )}
+        <span className="assistant-receipt__lead">{item.text}</span>{detail !== null && ` · ${detail}`}{fix === 'BUTTONS' && <span aria-hidden="true"> ↓</span>}
       </div>
-      {turnId !== null && (stop === 'stopped'
-        ? <span className="assistant-receipt__stopped">Stopped</span>
-        : <button type="button" className="assistant-action" disabled={stop === 'stopping'} onClick={() => cancel(turnId)}>Stop</button>)}
-      {fix === 'SETTINGS' && <button type="button" className="assistant-action" onClick={() => onSettings('features')}>Settings</button>}
-      {outcome === 'DONE' && (target !== null || page !== null) && <button type="button" className="assistant-action" onClick={() => onOpen(receipt)}>Open</button>}
+      {turnId !== null && <StopButton turnId={turnId} />}
+      {fix === 'SETTINGS' && <button type="button" className="assistant-button" onClick={() => onSettings('features')}>Settings</button>}
+      {outcome === 'DONE' && (target !== null || page !== null) && <button type="button" className="assistant-button" onClick={() => onOpen(receipt)}>Open</button>}
     </div>
   );
 }

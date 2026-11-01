@@ -204,11 +204,15 @@ async function assistantOverTicket(): Promise<void> {
 
 async function myWorkOverHome(): Promise<void> {
   await withApp('#/home', async () => {
-    const card = () => [...document.querySelectorAll<HTMLElement>('.mw-card')].find(item => item.textContent?.includes(ticket.title)) ?? null;
-    await until(() => card() !== null, 'My work lists the Jira ticket');
+    const pill = () => [...document.querySelectorAll<HTMLButtonElement>('.mw-line button.mw-pill')].find(item => item.textContent?.startsWith('In progress') === true) ?? null;
+    await until(() => pill() !== null, 'Home’s My work line counts the Jira ticket in progress');
+    pill()?.click();
+    const card = () => [...document.querySelectorAll<HTMLElement>('.assistant-float .mw-card')].find(item => item.textContent?.includes(ticket.title)) ?? null;
+    await until(() => card() !== null, 'The line opens My work in the Assistant, where the ticket is a card');
     card()?.click();
     await until(() => ticketLayer()?.matches(':modal') ?? false, 'The My work card opened the ticket');
-    assert(window.location.hash === '#/home' && onTop(ticketLayer()), 'The ticket is drawn over Home instead of leaving it');
+    assert(document.querySelector('.assistant-float') === null && window.location.hash === '#/home' && onTop(ticketLayer()),
+      'The Assistant closes and the ticket is drawn over Home instead of leaving it');
 
     [...ticketLayer()?.querySelectorAll('button') ?? []].find(button => button.textContent === 'Start development')?.click();
     const assignment = () => document.querySelector<HTMLDialogElement>(`dialog[aria-label="Assign workspace for ${ticket.key}"]`);
@@ -219,7 +223,7 @@ async function myWorkOverHome(): Promise<void> {
 
 async function localWorkAndTasksOverEpic(): Promise<void> {
   await withApp('#/home', async () => {
-    await until(() => document.querySelector('.mw-card') !== null, 'Home is ready');
+    await until(() => document.querySelector('.mw-line button.mw-pill') !== null, 'Home is ready');
     const workspace: WorkspaceDto = { id: 'workspace', name: 'Repository', hostingServer: { provider: 'GITHUB', webBaseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' },
       monitoredOwner: 'owner', monitoredRepo: 'repository', selectedOwner: 'owner', selectedRepo: 'repository',
       topology: 'DIRECT', localRepositoryPath: '/managed/repository', defaultBranch: 'master', upstreamDefaultBranch: null, upstreamOwner: null, upstreamRepo: null,

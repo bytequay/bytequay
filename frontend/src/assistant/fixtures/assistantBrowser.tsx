@@ -24,11 +24,14 @@ import type { RunningTask } from '../../agents/runningTaskModel';
 import type { AppNotice } from '../../notices/contracts';
 import type {
   AgendaDto, AgendaTargetDto, AgentHistoryPageDto, AgentPendingApprovalDto, AssistantItemDto, AssistantListStyle, AssistantReceiptDto, AssistantRowDto, AssistantSummaryDto, AssistantViewDto,
-  Bridge,
+  Bridge, PullRequestDto,
 } from '../../types';
 import { settingsRoute } from '../../settings/routes';
 import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../../workspaces/model';
-import { dayLabel, localDay } from '../model';
+import { MyWorkLine } from '../../home/MyWork';
+import { WORK_LANES, type WorkItem } from '../../home/work';
+import HomeComposer from '../HomeComposer';
+import { dayLabel, localDay, type AssistantRequest } from '../model';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -122,20 +125,12 @@ const step = (sequence: number, argv: string, action: string, name: string | nul
 let history: AgentEventEnvelope[] = [];
 let pages: string[] = [];
 
-const REPLY = Array.from({ length: 60 }, (_, index) => index === 0 ? 'Retried' : `word${index}`).join(' ');
-/** The finished task's history: its turn ended with a reply longer than a card quotes. */
-const REPLIES: Record<string, AgentEventEnvelope[]> = { 'task-2': [{
-  schemaVersion: 2, eventId: 'reply-task-2', sequence: 1, taskId: 'task-2', turnId: 'turn-task-2', occurredAt: '2026-10-16T07:10:00Z',
-  source: { providerThreadId: null, parentProviderThreadId: null, logicalAgentPath: null, providerTurnId: null, providerItemId: 'reply', providerEventId: null },
-  type: 'assistant_message', payload: { messageKind: 'ANSWER', phase: 'FINAL', text: REPLY },
-} as AgentEventEnvelope] };
-
 type Calls = {
   sent: unknown[][]; resolved: unknown[][]; opened: string[]; removed: string[]; stopped: number; closed: number; cancelled: string[]; answered: string[];
   completed: unknown[][]; left: number;
 };
 
-type Mounted = { host: HTMLElement; calls: Calls; render: (open: boolean, openCard?: { id: string }) => void; dispose: () => void };
+type Mounted = { host: HTMLElement; calls: Calls; render: (open: boolean, request?: AssistantRequest) => void; dispose: () => void };
 
 function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, running: RunningTask[] = [], replied: () => AssistantViewDto = () => view,
   completed: () => AssistantViewDto = () => view, scripted: Partial<Bridge> = {}, chatEnabled = true): Mounted {
@@ -167,7 +162,7 @@ function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, 
     markAgendaItem: async () => AGENDA,
     listRunningTasks: async () => running,
     readAgentHistory: async (taskId: string): Promise<AgentHistoryPageDto> => {
-      const events = taskId === RUNNING.id ? history : REPLIES[taskId] ?? [];
+      const events = taskId === RUNNING.id ? history : [];
       return { events, beforeCursor: null, afterCursor: null, latestSequence: events.length };
     },
     readAgentPendingApprovals: async (taskId: string, turnId: string) => taskId === APPROVAL.taskId && turnId === APPROVAL.turnId ? [APPROVAL] : [],
@@ -182,16 +177,23 @@ function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, 
     openAppNotice: async (id: string) => { calls.opened.push(id); },
     removeAppNotice: async (id: string) => { calls.removed.push(id); },
     findStoredPullRequest: async (): Promise<null> => null,
+    // My work reads the viewer's work; this fixture has none.
+    getUserProfile: async () => null,
+    listWorkspaces: async () => [],
+    fetchAttentionPrs: async () => [],
+    onPullRequestsSynced: () => () => {},
+    listJiraAttention: async () => [],
+    fetchAuthoredIssues: async () => [],
     ...scripted,
   } as unknown as Bridge;
   const { host, root, dispose: disposeRoot } = createFixtureRoot();
   let shown = true;
-  const render = (open: boolean, openCard?: { id: string }) => {
+  const render = (open: boolean, request?: AssistantRequest) => {
     shown = open;
     flushSync(() => root.render(
       <div className="browser-workspace">
         <div className="app-surfaces"><main style={{ height: '100vh', padding: 24, color: 'var(--fg-muted)' }}>The page under the Assistant</main></div>
-        <AssistantPanel open={open} chatEnabled={chatEnabled} notices={notices} openCard={openCard ?? null} onScreen="pr:owner/repository#31377"
+        <AssistantPanel open={open} chatEnabled={chatEnabled} notices={notices} request={request ?? null} onScreen="pr:owner/repository#31377"
           onClose={() => { calls.closed++; if (shown) render(false); }} onPage={hash => { pages.push(hash); window.location.hash = hash; }} onOpened={() => { calls.left++; }} />
       </div>,
     ));
@@ -210,8 +212,11 @@ const press = (node: Element, key: string, shiftKey = false) =>
   node.dispatchEvent(new KeyboardEvent('keydown', { key, shiftKey, bubbles: true, cancelable: true }));
 const enter = (input: HTMLElement) => press(input, 'Enter');
 const pills = (host: HTMLElement) => [...host.querySelectorAll<HTMLElement>('.assistant-pill')].map(pill => pill.textContent);
-const selected = (host: HTMLElement) => host.querySelector('.assistant-pill.is-selected')?.textContent;
+const selected = (host: HTMLElement) => host.querySelector('.assistant-pill.is-open')?.textContent;
+const pill = (host: HTMLElement, name: string) => host.querySelector<HTMLButtonElement>(`.assistant-pill[data-pill="${name}"]`);
 const top = (host: HTMLElement) => host.querySelector<HTMLElement>('.assistant-card');
+const cards = (host: HTMLElement) => [...host.querySelectorAll<HTMLElement>('.assistant-card')];
+const buttonIn = (node: ParentNode | null | undefined, text: string) => [...(node?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(button => button.textContent === text);
 
 async function floatsOverThePage(): Promise<void> {
   const view = mount();
@@ -220,22 +225,28 @@ async function floatsOverThePage(): Promise<void> {
     const float = view.host.querySelector<HTMLElement>('.assistant-float');
     assert(float !== null && document.activeElement === float.querySelector('textarea'), 'Opening focuses the composer');
     const box = float.getBoundingClientRect();
-    assert(box.width === 640 && box.top === 72 && Math.round(box.left + box.width / 2) === window.innerWidth / 2, `It floats 640px wide, 72px down, centred: ${JSON.stringify(box)}`);
+    assert(box.width === 640 && box.top === 64 && Math.round(box.left + box.width / 2) === window.innerWidth / 2, `It floats 640px wide, 64px down, centred: ${JSON.stringify(box)}`);
     const page = view.host.querySelector<HTMLElement>('.app-surfaces')?.getBoundingClientRect();
     assert(page !== undefined && page.width === window.innerWidth, `The page keeps its width: ${JSON.stringify(page)}`);
     assert(float.getAttribute('role') === 'dialog', 'It is a dialog, so the editor’s native view hides under it');
-    const light = getComputedStyle(float.querySelector('.agt-compose__streamer') as Element);
-    assert(light.animationName === 'assistant-light' && light.animationDuration === '10s', `The composer's light turns once every 10 s: ${light.animationDuration}`);
-    assert(view.host.querySelector('.assistant-talk') === null, 'The earlier conversation stays folded until the user talks');
-    assert(JSON.stringify(pills(view.host)) === JSON.stringify(['All2', 'Decision1', 'Finished1', 'Today0/2']), `Empty groups hide: ${JSON.stringify(pills(view.host))}`);
-    assert(selected(view.host) === 'All2', 'All is selected first');
-    assert(top(view.host)?.dataset.card === 'approval:a1', 'The approval is the top card');
-    const peeks = [...view.host.querySelectorAll('.assistant-peek')].map(peek => peek.textContent);
-    assert(JSON.stringify(peeks) === '["Retry commit on conflictTurn finished"]', `The next card peeks by its title: ${JSON.stringify(peeks)}`);
-    assert(view.host.querySelector('.assistant-more') === null, 'Two cards need no View all');
-    view.host.querySelector<HTMLButtonElement>('.assistant-pill[data-group="today"]')?.click();
+    assert(getComputedStyle(float.querySelector('.agt-compose__streamer') as Element).display === 'none', 'The composer’s light rests until a reply is written');
+    assert(view.host.querySelector('.assistant-talk') === null && top(view.host) === null && view.host.querySelector('.assistant-body') === null,
+      'A new conversation shows only the composer and its pills');
+    assert(JSON.stringify(pills(view.host)) === JSON.stringify(['All', 'Decision1', 'Running', 'Finished1', 'Today0/2', 'My work']),
+      `Zero counts hide and All has none: ${JSON.stringify(pills(view.host))}`);
+    assert(selected(view.host) === undefined, 'No pill is open on the conversation');
+    pill(view.host, 'running')?.click();
     await settle();
-    assert(view.host.querySelector('.assistant-today .today-row') !== null && top(view.host) === null, 'Today swaps the stack for the agenda');
+    assert(pill(view.host, 'running')?.classList.contains('is-empty') === true && selected(view.host) === undefined, 'An empty pill is dim and opens nothing');
+    pill(view.host, 'today')?.click();
+    await settle();
+    assert(view.host.querySelector('.assistant-today .today-row') !== null && selected(view.host) === 'Today0/2', 'Today opens the agenda under the pills');
+    pill(view.host, 'today')?.click();
+    await settle();
+    assert(view.host.querySelector('.assistant-today') === null && selected(view.host) === undefined, 'The open pill again goes back to the conversation');
+    pill(view.host, 'decision')?.click();
+    await settle();
+    assert(top(view.host)?.dataset.card === 'approval:a1' && cards(view.host).length === 1, 'Decision lists its cards');
     view.host.querySelector<HTMLButtonElement>('.assistant-backdrop')?.click();
     assert(Number(view.calls.closed) === 1 && view.host.querySelector('.assistant-float') === null, 'A click beside it closes it');
   }
@@ -251,18 +262,23 @@ async function showsTheDayOnceTheUserTalks(): Promise<void> {
     const talk = element<HTMLElement>('.assistant-talk', view.host, 'Sending shows the conversation');
     const order = [...talk.querySelectorAll('.agt-user, .assistant-reply, .assistant-receipt')].map(node => node.className);
     assert(JSON.stringify(order) === JSON.stringify(['agt-user', 'assistant-reply', 'assistant-receipt', 'assistant-receipt is-refused']), `The day in order: ${JSON.stringify(order)}`);
+    assert(/^\d{1,2}:\d{2}$/.test(talk.querySelector('.assistant-time')?.textContent ?? ''), 'A message is headed by its time');
     const refusal = talk.querySelector<HTMLElement>('.assistant-receipt.is-refused');
-    assert(refusal?.querySelector('.assistant-receipt__line')?.textContent === 'Use the buttons: this one runs outside the sandbox ↓'
-      && refusal.querySelector('.assistant-receipt__words')?.textContent === '“allow it”' && refusal.querySelector('button') === null,
-      `A refusal shows the words it refused and points down at the card: ${refusal?.textContent}`);
-    assert(top(view.host)?.dataset.card === 'approval:a1', 'A refusal that points down at the buttons keeps the cards out');
+    assert(refusal?.querySelector('.assistant-receipt__text')?.textContent === 'Use the buttons: this one runs outside the sandbox ↓'
+      && refusal.title.includes('“allow it”') && refusal.querySelector('button') === null,
+      `A refusal is one line pointing down at the card, its words in its tooltip: ${refusal?.textContent}`);
+    assert(top(view.host)?.dataset.card === 'approval:a1', 'A refusal that points down at the buttons shows the decisions under the conversation');
     assert(/^Sent at \d{1,2}:\d{2}$/.test(talk.querySelector('.agt-user__bubble')?.getAttribute('title') ?? ''), 'A message keeps its time on hover');
     const links = [...talk.querySelectorAll<HTMLAnchorElement>('.assistant-reply a')].map(link => link.textContent);
     assert(JSON.stringify(links) === JSON.stringify(['#31377', 'task']), `Both refs link, bare or not: ${JSON.stringify(links)}`);
     const receipt = talk.querySelector<HTMLElement>('.assistant-receipt');
-    assert(receipt?.querySelector('.assistant-receipt__detail')?.textContent === 'owner/repository · Claude Code Opus 5.5 · Auto-Draft PR', 'A start says where it runs');
-    assert(receipt?.querySelector('.assistant-receipt__words')?.textContent === '“start the snapshot id one”', 'A receipt shows the exact words it acted on');
-    [...receipt.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Stop')?.click();
+    assert(receipt?.querySelector('.assistant-receipt__text')?.textContent === 'Started “Expose snapshot id in metadata” · owner/repository · Claude Code Opus 5.5 · Auto-Draft PR',
+      `A start says where it runs, on one line: ${receipt?.textContent}`);
+    assert(receipt?.title.includes('“start the snapshot id one”') === true, 'A receipt keeps the exact words it acted on in its tooltip');
+    buttonIn(receipt, 'Stop…')?.click();
+    await settle();
+    assert(view.calls.cancelled.length === 0, 'Stop asks first');
+    buttonIn(document.querySelector('dialog.bq-confirm-dialog'), 'Stop turn')?.click();
     await settle();
     assert(JSON.stringify(view.calls.cancelled) === '["turn-9"]' && receipt.textContent?.includes('Stopped') === true, 'Stop cancels the first turn');
     const opened: unknown[] = [];
@@ -277,37 +293,31 @@ async function showsTheDayOnceTheUserTalks(): Promise<void> {
     assert(view.host.querySelector('.assistant-talk') !== null, 'Opened again soon after, the conversation is still there');
     enter(type(view.host, 'and the task?'));
     await settle();
-    [...view.host.querySelectorAll<HTMLButtonElement>('.assistant-receipt .assistant-action')].find(button => button.textContent === 'Open')?.click();
+    buttonIn(view.host.querySelector('.assistant-receipt'), 'Open')?.click();
     assert(window.location.hash === workspaceAgentTaskRoute('ws1', 't9'), `Open goes to the started task: ${window.location.hash}`);
   }
   finally { view.dispose(); }
 }
 
-async function foldsTheCardsWhileTheUserTalks(): Promise<void> {
+async function opensOneViewAtATime(): Promise<void> {
   const view = mount({ ...VIEW, items: VIEW.items.slice(0, 3) });
-  const decision = () => view.host.querySelector<HTMLButtonElement>('.assistant-pill[data-group="decision"]')?.click();
   try {
     await settle();
     enter(type(view.host, 'What should I look at first?'));
     await settle();
     assert(view.host.querySelector('.assistant-talk') !== null && top(view.host) === null && selected(view.host) === undefined,
-      'Talking folds the cards and leaves no pill selected');
-    assert(JSON.stringify(pills(view.host)) === JSON.stringify(['All2', 'Decision1', 'Finished1', 'Today0/2']), `The pills stay to unfold them: ${JSON.stringify(pills(view.host))}`);
-    decision();
+      'The conversation shows alone, no pill open');
+    pill(view.host, 'decision')?.click();
     await settle();
-    assert(top(view.host)?.dataset.card === 'approval:a1' && selected(view.host) === 'Decision1' && view.host.querySelector('.assistant-talk') !== null,
-      'A pill unfolds its group under the conversation');
-    decision();
+    assert(top(view.host)?.dataset.card === 'approval:a1' && selected(view.host) === 'Decision1' && view.host.querySelector('.assistant-talk') === null,
+      'A pill opens its view in the conversation’s place');
+    enter(type(view.host, 'allow it'));
     await settle();
-    assert(top(view.host) === null, 'The open pill folds it again');
-    enter(type(view.host, 'and then?'));
-    await settle();
-    assert(JSON.stringify(view.calls.sent[1][2]) === '[]', `Folded cards are not on screen: ${JSON.stringify(view.calls.sent[1][2])}`);
-    decision();
-    await settle();
+    assert(JSON.stringify(view.calls.sent[1][2]) === '["approval:a1"]', `The decisions on screen go with the message: ${JSON.stringify(view.calls.sent[1][2])}`);
+    assert(view.host.querySelector('.assistant-talk') !== null && top(view.host) === null, 'Sending goes back to the conversation');
     enter(type(view.host, 'thanks'));
     await settle();
-    assert(top(view.host) === null, 'The next message folds them again');
+    assert(JSON.stringify(view.calls.sent[2][2]) === '[]', `Decisions off screen are not sent: ${JSON.stringify(view.calls.sent[2][2])}`);
   }
   finally { view.dispose(); }
 }
@@ -316,19 +326,26 @@ async function answersWithTheTasksButtons(): Promise<void> {
   const view = mount();
   try {
     await settle();
+    pill(view.host, 'decision')?.click();
+    await settle();
+    const card = element<HTMLElement>('.assistant-card[data-card="approval:a1"]', view.host, 'The approval shows');
+    assert(card.querySelector('.assistant-card__title')?.textContent === 'Metadata cache' && card.querySelector('.assistant-state')?.textContent === 'Allow command',
+      `It names its task and what it waits for: ${card.textContent}`);
     const allow = element<HTMLButtonElement>('.assistant-card button[aria-label="Allow once: Run the focused Maven test"]', view.host, 'The approval shows the task’s own buttons');
     allow.click();
     await settle();
     assert(JSON.stringify(view.calls.resolved) === JSON.stringify([['a1', 'ALLOW', null, null]]), `Allow once reaches the task: ${JSON.stringify(view.calls.resolved)}`);
     assert(JSON.stringify(view.calls.answered) === '["a1"]', 'The answer leaves a receipt in the conversation');
-    assert(view.host.querySelector('.agt-appr') === null, 'An answered card leaves');
-    assert(JSON.stringify(pills(view.host)) === JSON.stringify(['All1', 'Finished1', 'Today0/2']), `Decision goes with its last card: ${JSON.stringify(pills(view.host))}`);
-    const card = top(view.host);
-    assert(card?.textContent?.includes('Retry commit on conflict') === true, 'The next card slides up');
-    view.host.querySelector<HTMLButtonElement>('.assistant-card button[aria-label="Clear “Retry commit on conflict”"]')?.click();
-    [...(card?.querySelectorAll<HTMLButtonElement>('.assistant-button') ?? [])].find(button => button.textContent === 'View response')?.click();
+    assert(view.host.querySelector('.agt-appr') === null && selected(view.host) === undefined, 'An answered card leaves, and the emptied view hands back to the conversation');
+    assert(JSON.stringify(pills(view.host)) === JSON.stringify(['All', 'Decision', 'Running', 'Finished1', 'Today0/2', 'My work']), `Decision empties: ${JSON.stringify(pills(view.host))}`);
+    pill(view.host, 'finished')?.click();
     await settle();
-    assert(JSON.stringify(view.calls.opened) === '["finished:turn-2"]' && JSON.stringify(view.calls.removed) === '["finished:turn-2"]', 'Cards open and clear their notice');
+    const result = top(view.host);
+    assert(result?.textContent?.includes('Retry commit on conflict') === true, 'Finished shows the result');
+    result?.querySelector<HTMLButtonElement>('button[aria-label="Clear “Retry commit on conflict”"]')?.click();
+    buttonIn(result, 'Open')?.click();
+    await settle();
+    assert(JSON.stringify(view.calls.opened) === '["finished:turn-2"]' && JSON.stringify(view.calls.removed) === '["finished:turn-2"]', 'Results open and clear their notice');
     assert(Number(view.calls.closed) === 1, 'Opening a notice closes the Assistant');
   }
   finally { view.dispose(); }
@@ -338,6 +355,8 @@ async function sendsWithWhatIsShown(): Promise<void> {
   const view = mount(VIEW, 1);
   try {
     await settle();
+    pill(view.host, 'decision')?.click();
+    await settle();
     const input = type(view.host, 'allow it');
     enter(input);
     await settle();
@@ -346,14 +365,14 @@ async function sendsWithWhatIsShown(): Promise<void> {
     enter(input);
     await settle();
     const [first, second] = view.calls.sent;
-    assert(JSON.stringify(first.slice(1, 4)) === JSON.stringify(['allow it', ['approval:a1', 'finished:turn-2'], 'pr:owner/repository#31377']),
+    assert(JSON.stringify(first.slice(1, 4)) === JSON.stringify(['allow it', ['approval:a1'], 'pr:owner/repository#31377']),
       `A message carries the cards on screen and what is on screen: ${JSON.stringify(first)}`);
     assert(second[4] === first[4] && second[0] === first[0], 'Sending the same words again reuses the key, in the same conversation');
     assert(String(input.value) === '' && view.host.querySelector('.assistant-error') === null, 'A sent message clears the draft');
     view.host.querySelector<HTMLButtonElement>('.assistant-chip button')?.click();
     await settle();
     assert(view.host.querySelector('.assistant-chip') === null, 'The chip can be left out');
-    view.host.querySelector<HTMLButtonElement>('.assistant-pill[data-group="today"]')?.click();
+    pill(view.host, 'today')?.click();
     enter(type(view.host, 'and the next one?'));
     await settle();
     assert(view.calls.sent[2][3] === null && view.calls.sent[2][4] !== first[4], `A removed chip sends no screen, with a new key: ${JSON.stringify(view.calls.sent[2])}`);
@@ -365,92 +384,76 @@ async function sendsWithWhatIsShown(): Promise<void> {
   finally { view.dispose(); }
 }
 
-async function movesWithTheKeyboard(): Promise<void> {
+async function showsRunningTasksAndAll(): Promise<void> {
   const rows = Array.from({ length: 3 }, (_, index) => ({ ...notice(`finished:turn-${index + 3}`, 'TURN_FINISHED', `task-${index + 3}`, `Finished task ${index + 3}`),
     occurredAt: `2026-10-16T07:0${index}:00Z` }));
   const view = mount(VIEW, 0, [...NOTICES, ...rows], [RUNNING]);
-  // React renders a dispatched key's update after the event, so each press settles before the next.
-  const key = async (node: Element | null, name: string, shiftKey = false) => { if (node !== null) press(node, name, shiftKey); await settle(); };
   try {
     await settle();
-    assert(JSON.stringify(pills(view.host)) === JSON.stringify(['All6', 'Decision1', 'Running1', 'Finished4', 'Today0/2']), `Running tasks get a pill: ${JSON.stringify(pills(view.host))}`);
-    assert(top(view.host)?.textContent?.includes('Expose snapshot id in metadata') === true, 'The newest card leads All');
-    assert(view.host.querySelectorAll('.assistant-peek').length === 2 && view.host.querySelector('.assistant-more')?.textContent === '3 more· View all',
-      `At most three cards show: ${view.host.querySelector('.assistant-more')?.textContent}`);
+    assert(JSON.stringify(pills(view.host)) === JSON.stringify(['All', 'Decision1', 'Running1', 'Finished4', 'Today0/2', 'My work']), `Running tasks count: ${JSON.stringify(pills(view.host))}`);
     const input = element<HTMLTextAreaElement>('.assistant-float textarea', view.host, 'The composer shows');
-    await key(input, 'Tab');
-    assert(document.activeElement?.textContent === 'All6', 'Tab from the composer lands on the selected pill');
-    await key(document.activeElement, 'Tab');
-    assert(String(document.activeElement?.textContent) === 'Decision1' && selected(view.host) === 'Decision1', 'Tab moves to the next pill and selects it');
-    await key(document.activeElement, 'Tab', true);
-    await key(document.activeElement, 'Tab', true);
-    assert(selected(view.host) === 'Today0/2', `Shift+Tab goes back and wraps: ${selected(view.host)}`);
-    await key(document.activeElement, 'Tab');
-    await key(document.activeElement, 'Tab');
-    await key(document.activeElement, 'Tab');
-    await key(document.activeElement, 'Tab');
-    assert(selected(view.host) === 'Finished4' && top(view.host)?.textContent?.includes('Retry commit on conflict') === true, `Finished shows its own cards: ${selected(view.host)}`);
-    await key(document.activeElement, 'ArrowRight');
-    assert(top(view.host)?.querySelector('.assistant-pager')?.textContent === '2/4', `→ pages the cards: ${top(view.host)?.querySelector('.assistant-pager')?.textContent}`);
-    await key(document.activeElement, 'ArrowLeft');
-    await key(document.activeElement, 'ArrowLeft');
-    assert(top(view.host)?.querySelector('.assistant-pager')?.textContent === '4/4', '← wraps to the last card');
-    view.host.querySelector<HTMLButtonElement>('.assistant-more')?.click();
+    press(input, 'Tab');
     await settle();
-    const lines = [...view.host.querySelectorAll<HTMLButtonElement>('.assistant-line')];
-    assert(lines.length === 4 && top(view.host) === null, 'View all lists every card in the group');
-    lines[1].click();
+    assert(document.activeElement === pill(view.host, 'all'), `Tab from the composer lands on the first pill: ${document.activeElement?.textContent}`);
+    pill(view.host, 'all')?.click();
     await settle();
-    assert(top(view.host)?.textContent?.includes('Finished task 5') === true, `A row comes back as the top card: ${top(view.host)?.textContent}`);
-    const pill = view.host.querySelector<HTMLElement>('.assistant-pill.is-selected');
-    pill?.focus();
-    await key(pill ?? input, 'a');
-    assert(document.activeElement === input, 'Typing on a pill goes back to the composer');
-    view.host.querySelector<HTMLButtonElement>('.assistant-pill[data-group="running"]')?.click();
+    const sections = [...view.host.querySelectorAll('.assistant-section')].map(section => section.textContent);
+    assert(JSON.stringify(sections) === '["Decision","Running","Finished"]', `All answers the three questions in order: ${JSON.stringify(sections)}`);
+    const fold = element<HTMLButtonElement>('.assistant-fold', view.host, 'Running folds to one line');
+    assert(fold.textContent === '1 running · all fine' && cards(view.host).length === 5, `All shows one decision, the fold and four results: ${cards(view.host).length}`);
+    fold.click();
     await settle();
+    assert(selected(view.host) === 'Running1', 'The fold opens Running');
     const card = top(view.host);
-    assert(card?.querySelector('.assistant-kind.is-running')?.textContent === 'Reviewing'
-      && card.querySelector('.assistant-task__where')?.textContent === 'owner/repositoryO#31377·feature/snapshot-id',
-    `A running review names its pull request and branch: ${card?.querySelector('.assistant-task__where')?.textContent}`);
-    assert(card?.querySelector('.assistant-step__kind')?.textContent === 'READ' && card.querySelector('.assistant-step__text')?.textContent === 'IcebergMetadata.java'
-      && /^1\ds$/.test(card.querySelector('.assistant-step__time')?.textContent ?? ''), `It shows its newest step and how long it has run: ${card?.querySelector('.assistant-step')?.textContent}`);
+    assert(card?.querySelector('.assistant-card__title')?.textContent === 'Expose snapshot id in metadata'
+      && card.querySelector('.assistant-card__meta')?.textContent === 'owner/repository · #31377', `A running task names where it runs: ${card?.textContent}`);
+    assert(/^IcebergMetadata\.java · 1\ds$/.test(card?.querySelector('.assistant-card__right')?.textContent ?? ''),
+      `It shows its current step and how long it has run: ${card?.querySelector('.assistant-card__right')?.textContent}`);
     history = [...history, step(2, '/bin/zsh -lc "./mvnw -pl :catalog test"', 'OTHER', null)];
     // A return to the app reads the task at once, rather than at its next poll.
     document.dispatchEvent(new Event('visibilitychange'));
     await settle();
-    assert(card?.querySelector('.assistant-step__kind')?.textContent === 'RUN'
-      && card.querySelector('.assistant-step__text.is-in')?.textContent === './mvnw -pl :catalog test'
-      && card.querySelector('.assistant-step__text.is-out')?.textContent === 'IcebergMetadata.java',
-    `A new step rolls in over the last one: ${card?.querySelector('.assistant-step')?.innerHTML}`);
-    [...(top(view.host)?.querySelectorAll<HTMLButtonElement>('.assistant-button') ?? [])].find(button => button.textContent === 'Open task')?.click();
-    assert(window.location.hash === workspaceReviewTaskRoute('ws1', 'r7') && Number(view.calls.closed) === 1, `Open task goes to the running task: ${window.location.hash}`);
+    assert(card?.querySelector('.assistant-card__right')?.textContent?.startsWith('./mvnw -pl :catalog test') === true,
+      `A new step replaces the last one: ${card?.querySelector('.assistant-card__right')?.textContent}`);
+    assert(buttonIn(card, 'Stop…') === undefined, 'A review has no Stop here');
+    buttonIn(card, 'Open')?.click();
+    assert(window.location.hash === workspaceReviewTaskRoute('ws1', 'r7') && Number(view.calls.closed) === 1, `Open goes to the running task: ${window.location.hash}`);
   }
   finally { view.dispose(); }
 }
 
-/** A finished review, just older than the finished task, so it pages in second. */
+/** A finished review, just older than the finished task. */
 const FINISHED_REVIEW: AppNotice = { ...notice('finished:review', 'TURN_FINISHED', 'review-task', 'Review acme/warehouse#42'), reviewId: 'r9',
   repository: 'acme/warehouse', pullRequest: 'acme/warehouse#42', pullRequestTitle: 'Cache table statistics between queries', branch: 'feature/table-stats',
   changes: { update: false, commits: 3, files: 6, additions: 432, deletions: 176 }, occurredAt: '2026-10-16T07:09:00Z' };
+const DRAFTED: AppNotice = { ...notice('finished:draft', 'TURN_FINISHED', 'task-5', 'Update the install guide'), pullRequest: 'owner/repository#58',
+  changes: { update: false, commits: 1, files: 2, additions: 42, deletions: 7 }, occurredAt: '2026-10-16T07:11:00Z' };
+const FAILED: AppNotice = { ...notice('failure:task-6', 'FAILURE', 'task-6', 'Update API docs'), message: '2 checks failing', occurredAt: '2026-10-16T07:08:00Z' };
 
-async function drawsFinishedCardsLikeRunningOnes(): Promise<void> {
-  const view = mount(VIEW, 0, [FINISHED_REVIEW, NOTICES[1]]);
+async function drawsResultsWithTheirEvidence(): Promise<void> {
+  const view = mount(VIEW, 0, [FINISHED_REVIEW, DRAFTED, FAILED]);
   try {
     await settle();
-    view.host.querySelector<HTMLButtonElement>('.assistant-pill[data-group="finished"]')?.click();
+    assert(pill(view.host, 'decision')?.classList.contains('is-empty') === true && pill(view.host, 'finished')?.textContent === 'Finished3',
+      'A failure is a result, not a decision');
+    pill(view.host, 'finished')?.click();
     await settle();
-    const card = () => top(view.host);
-    const quoted = card()?.querySelector('.assistant-task__body')?.textContent ?? '';
-    assert(quoted.startsWith('Retried word1 ') && quoted.endsWith('word49…') && quoted.split(' ').length === 50,
-      `A finished task quotes its reply, at most 50 words: ${quoted}`);
-    press(element('.assistant-card', view.host, 'A card shows'), 'ArrowRight');
-    await settle();
-    assert(card()?.querySelector('.assistant-task__title')?.textContent === 'Cache table statistics between queriesReview finished'
-      && card()?.querySelector('.assistant-kind.is-done') !== null
-      && card()?.querySelector('.assistant-task__where')?.textContent === 'acme/warehouseA#42·feature/table-stats',
-    `A finished review leads with its title, its chip and where it ran: ${card()?.querySelector('.assistant-task')?.textContent}`);
-    assert(card()?.querySelector('.assistant-task__body')?.textContent === '6 files +432−176' && card()?.querySelector('.assistant-lines .is-deleted')?.textContent === '−176',
-      `It counts its lines as one pill: ${card()?.querySelector('.assistant-task__body')?.textContent}`);
+    const [drafted, review, failed] = cards(view.host);
+    assert(drafted.querySelector('.assistant-card__evidence')?.textContent === 'PR #58+42−7' && buttonIn(drafted, 'Review') !== undefined,
+      `A development result shows its pull request and lines, and offers Review: ${drafted.textContent}`);
+    assert(review.querySelector('.assistant-card__title')?.textContent === 'Review · Cache table statistics between queries'
+      && review.querySelector('.assistant-lines .is-deleted')?.textContent === '−176' && buttonIn(review, 'Read') !== undefined,
+    `A review result leads with its pull request's title and offers Read: ${review.textContent}`);
+    assert(failed.querySelector('.assistant-card__fail')?.textContent === 'Failed · 2 checks failing' && buttonIn(failed, 'Open') !== undefined,
+      `A failure says why in one line: ${failed.textContent}`);
+    const opened: unknown[] = [];
+    const listener = (event: Event) => { opened.push((event as CustomEvent).detail); };
+    window.addEventListener('bytequay:zoom-reference', listener);
+    try { buttonIn(drafted, 'Review')?.click(); }
+    finally { window.removeEventListener('bytequay:zoom-reference', listener); }
+    assert(JSON.stringify(opened) === JSON.stringify([{ kind: 'pull', repo: 'owner/repository', number: 58, workspaceId: 'ws1' }]), `Review opens the pull request: ${JSON.stringify(opened)}`);
+    const bold = [...view.host.querySelectorAll('.assistant-card *')].filter(node => Number(getComputedStyle(node).fontWeight) > 400).map(node => node.className);
+    assert(bold.length === 0, `Nothing in a card is bold: ${bold.join(', ')}`);
   }
   finally { view.dispose(); }
 }
@@ -463,10 +466,11 @@ async function opensAtACardFromItsAlert(): Promise<void> {
   try {
     await settle();
     view.render(false);
-    view.render(true, { id: 'approval:a1' });
+    view.render(true, { view: 'decision', card: 'approval:a1' });
     await settle();
     const card = top(view.host);
-    assert(card?.dataset.card === 'approval:a1' && document.activeElement === card, `The asked-for card is on top and focused, not one of its buttons: ${document.activeElement?.outerHTML.slice(0, 80)}`);
+    assert(selected(view.host) === 'Decision1' && card?.dataset.card === 'approval:a1' && document.activeElement === card,
+      `Decision opens with the asked-for card focused, not one of its buttons: ${document.activeElement?.outerHTML.slice(0, 80)}`);
     const accent = document.createElement('span');
     accent.style.color = 'var(--accent)';
     view.host.append(accent);
@@ -481,9 +485,65 @@ async function opensAtACardFromItsAlert(): Promise<void> {
     view.render(false);
     view.render(true);
     await settle();
-    assert(top(view.host)?.dataset.card !== 'approval:a1', 'Opening again with ⌘J does not go back to that card');
+    assert(selected(view.host) === undefined && top(view.host) === null, 'Opening again with ⌘J goes back to the conversation');
   }
   finally { view.dispose(); timers.restore(); }
+}
+
+async function waitsInLineWhileItAnswers(): Promise<void> {
+  let replying = true;
+  const sent = () => view.calls.sent.length;
+  // The reply runs from the first message until the test ends it.
+  const view = mount(VIEW, 0, [], [], undefined, undefined, {
+    listAssistantConversations: async () => [],
+    getAssistantConversation: async (id: string) => sent() === 0 ? { id, model: null, running: false, items: [], rows: {} } : { ...VIEW, id, running: replying },
+  });
+  try {
+    await settle();
+    enter(type(view.host, 'What should I look at first?'));
+    await settle();
+    assert(view.calls.sent.length === 1 && view.host.querySelector('.assistant-thinking') !== null, 'The first message is being answered');
+    const input = type(view.host, 'and start the docs fix with Codex');
+    assert(view.host.querySelector('button[aria-label="Send after the current reply"]') !== null, 'Send stays while it answers');
+    enter(input);
+    await settle();
+    assert(view.calls.sent.length === 1 && String(input.value) === '', 'A message sent meanwhile waits instead of being refused');
+    assert(view.host.querySelector('.assistant-queued__bubble')?.textContent === 'and start the docs fix with Codex'
+      && view.host.querySelector('.assistant-queued__note')?.textContent === 'Answers after the current reply', 'It shows in line, marked as such');
+    assert(view.host.querySelector('.assistant-waiting-line')?.textContent === '1 waiting · answers after the current reply', 'The composer says one waits');
+    replying = false;
+    window.dispatchEvent(new Event('focus'));
+    await settle();
+    await settle();
+    assert(Number(view.calls.sent.length) === 2 && view.calls.sent[1][1] === 'and start the docs fix with Codex' && view.calls.sent[1][0] === view.calls.sent[0][0],
+      `Once the reply ends, what waited goes to the same conversation: ${JSON.stringify(view.calls.sent[1])}`);
+    assert(view.host.querySelector('.assistant-queued') === null, 'Nothing waits any more');
+  }
+  finally { view.dispose(); }
+}
+
+async function opensMyWork(): Promise<void> {
+  const view = mount(VIEW, 0, NOTICES);
+  try {
+    await settle();
+    view.render(false);
+    view.render(true, { view: 'mywork', lane: 'needs' });
+    await settle();
+    const float = element<HTMLElement>('.assistant-float.is-wide', view.host, 'My work widens the box');
+    assert(float.getBoundingClientRect().width === Math.min(1120, window.innerWidth - 48), `It is as wide as the window allows: ${float.getBoundingClientRect().width}`);
+    assert(selected(view.host) === 'My work' && view.host.querySelectorAll('.mw-lane').length === 4, 'The board shows its four lanes under the open pill');
+    assert(view.host.querySelector('.mw-lane.is-focused')?.getAttribute('aria-label') === 'Needs you' && view.host.querySelectorAll('.mw-lane.is-faded').length === 3,
+      'The lane asked for is in focus, the others faded');
+    view.host.querySelector<HTMLButtonElement>('.mw-focus')?.click();
+    await settle();
+    assert(view.host.querySelector('.mw-lane.is-focused, .mw-lane.is-faded') === null, 'Its chip shows every lane again');
+    buttonIn(view.host, 'All my work →')?.click();
+    assert(window.location.hash === '#/work' && Number(view.calls.closed) === 1, `All my work leaves for its page: ${window.location.hash}`);
+  }
+  finally {
+    window.location.hash = '';
+    view.dispose();
+  }
 }
 
 async function showsAListAsRowsCardsOrATimeline(): Promise<void> {
@@ -591,7 +651,7 @@ async function followsAnOpenOnceWhenItArrives(): Promise<void> {
     const actions = [...view.host.querySelectorAll<HTMLElement>('.assistant-receipt')].map(receipt => receipt.textContent);
     assert(actions.filter(text => text?.startsWith('Opened') === true && text.endsWith('Open')).length === 2, `Each open keeps its Open: ${JSON.stringify(actions)}`);
     [...view.host.querySelectorAll<HTMLElement>('.assistant-receipt')].find(receipt => receipt.textContent?.startsWith('Opened Settings') === true)
-      ?.querySelector<HTMLButtonElement>('.assistant-action')?.click();
+      ?.querySelector<HTMLButtonElement>('.assistant-button')?.click();
     assert(window.location.hash === settingsRoute('models') && Number(view.calls.closed) === 2 && Number(view.calls.left) === 2,
       'Open goes to the page and closes the Assistant');
     assert(document.activeElement !== pageButton, 'Focus stays with the page it opened, not where the Assistant was opened from');
@@ -872,11 +932,11 @@ async function asksToSignInWhenTheModelIsNotReady(): Promise<void> {
     enter(type(view.host, 'What should I look at first?'));
     await settle();
     const line = view.host.querySelector<HTMLElement>('.assistant-failure');
-    const buttons = [...(line?.querySelectorAll<HTMLButtonElement>('.assistant-action') ?? [])].map(button => button.textContent);
+    const buttons = [...(line?.querySelectorAll<HTMLButtonElement>('.assistant-button') ?? [])].map(button => button.textContent);
     assert(line?.textContent?.startsWith('Claude sign-in required') === true && JSON.stringify(buttons) === '["Open Settings","Retry"]',
       `The reply says the model needs a sign-in, and offers Settings and Retry: ${line?.textContent}`);
     assert(line.title === 'Claude Sonnet answers through your Claude account. Sign in from Settings → Models.', `It says where to sign in: ${line.title}`);
-    line.querySelector<HTMLButtonElement>('.assistant-action')?.click();
+    line.querySelector<HTMLButtonElement>('.assistant-button')?.click();
     assert(window.location.hash === settingsRoute('models') && Number(view.calls.closed) === 1, `Open Settings goes to Models: ${window.location.hash}`);
   }
   finally {
@@ -918,7 +978,7 @@ async function keepsTheSetUpBoxWholeWithChatOff(): Promise<void> {
     assert(box !== null && link?.textContent === 'Set up Assistant in Settings' && view.host.querySelector('.assistant-talk') !== null,
       'With chat off, the set-up box takes the composer’s place above the conversation');
     const outer = box.getBoundingClientRect();
-    assert(box.scrollHeight <= box.clientHeight && link.getBoundingClientRect().bottom <= outer.bottom - 12,
+    assert(box.scrollHeight <= box.clientHeight && link.getBoundingClientRect().bottom <= outer.bottom - 10,
       `A long conversation leaves the set-up box whole: ${JSON.stringify({ box: outer.height, content: box.scrollHeight, link: link.getBoundingClientRect().bottom })}`);
   }
   finally { view.dispose(); }
@@ -984,9 +1044,9 @@ async function keepsAConversationForEachTopic(): Promise<void> {
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
   return runScenarios([['floats over the page', floatsOverThePage], ['shows the day once the user talks', showsTheDayOnceTheUserTalks],
-    ['folds the cards while the user talks', foldsTheCardsWhileTheUserTalks], ['answers with the task’s buttons', answersWithTheTasksButtons], ['sends with what is shown', sendsWithWhatIsShown],
-    ['moves with the keyboard', movesWithTheKeyboard], ['draws finished cards like running ones', drawsFinishedCardsLikeRunningOnes],
-    ['opens at a card from its alert', opensAtACardFromItsAlert],
+    ['opens one view at a time', opensOneViewAtATime], ['answers with the task’s buttons', answersWithTheTasksButtons], ['sends with what is shown', sendsWithWhatIsShown],
+    ['shows running tasks and All', showsRunningTasksAndAll], ['draws results with their evidence', drawsResultsWithTheirEvidence],
+    ['opens at a card from its alert', opensAtACardFromItsAlert], ['waits in line while it answers', waitsInLineWhileItAnswers], ['opens My work', opensMyWork],
     ['stops a running reply', stopsARunningReply], ['shows a list as rows, cards or a timeline', showsAListAsRowsCardsOrATimeline],
     ['follows an open once when it arrives', followsAnOpenOnceWhenItArrives], ['completes a task from its card', completesATaskFromItsCard],
     ['creates a drafted issue as an Epic', createsADraftedIssueAsAnEpic], ['reads the marks the assistant made', readsTheMarksTheAssistantMade],
@@ -1036,14 +1096,50 @@ export async function showListPreview(style: AssistantListStyle | 'tasks' | 'dra
   await new Promise(resolve => setTimeout(resolve, 150));
 }
 
-/** Draws the Assistant over a page for a screenshot: the day's conversation once the user talks, and an approval on top of a few cards. */
+const soon = (minutes: number) => new Date(Date.now() + minutes * 60_000 + 30_000).toISOString();
+const mine = (number: number, title: string, extra: Partial<PullRequestDto>): PullRequestDto => pr({ id: number, repo: 'acme/warehouse', number, title, author: 'you',
+  state: 'open', updatedAt: ago(60 * 5), ...extra });
+
+/**
+ * Draws a view for a screenshot: `decision` the waiting decisions with their time left, `all` the three questions, `mywork` the board,
+ * and `home` Home's My work line with the composer under it.
+ */
+export async function showViewPreview(name: 'decision' | 'all' | 'mywork' | 'home'): Promise<void> {
+  preview?.dispose();
+  document.body.style.margin = '0';
+  document.body.style.background = 'var(--bg)';
+  const approvals = [{ ...NOTICES[0], expiresAt: soon(3) }, { ...notice('approval:a2', 'APPROVAL', 'task-7', 'Fix flaky login test'), repository: 'acme/gateway', laneId: 'codex',
+    expiresAt: soon(1) }];
+  const prs = [
+    mine(57, 'Add snapshot metrics', { requestedReviewers: ['sam-r'] }),
+    mine(212, 'Route requests by client tags', { repo: 'acme/gateway', reviewDecision: 'CHANGES_REQUESTED' }),
+    mine(44, 'Explain retention settings', { repo: 'acme/docs', ciStatus: 'FAILING', failingChecks: ['docs-build', 'links'] }),
+    mine(59, 'Drop the old cache key', { reviewDecision: 'APPROVED', mergeable: true, mergeableState: 'clean', ciStatus: 'PASSING' }),
+    mine(58, 'Update the install guide', { repo: 'acme/docs', draft: true }),
+  ];
+  const work = { getUserProfile: async () => ({ login: 'you' }), fetchAttentionPrs: async () => prs, fetchAuthoredIssues: async () => [] } as unknown as Partial<Bridge>;
+  const mounted = mount(VIEW, 0, [...approvals, DRAFTED, FINISHED_REVIEW, FAILED], [RUNNING], undefined, undefined, work);
+  preview = mounted;
+  if (name === 'home') {
+    mounted.dispose();
+    const { root, dispose } = createFixtureRoot();
+    const lanes = WORK_LANES.map(lane => lane.id);
+    const items = prs.map((each, index) => ({ key: String(index), lane: lanes[[1, 2, 2, 3, 0][index]] })) as WorkItem[];
+    flushSync(() => root.render(<main className="home-main" style={{ padding: 28, maxWidth: 760 }}><div className="mw-home"><MyWorkLine items={items} onOpen={() => {}} /><HomeComposer work={items} /></div></main>));
+    preview = { dispose };
+  }
+  else mounted.render(true, { view: name });
+  await new Promise(resolve => setTimeout(resolve, 300));
+}
+
+/** Draws the Assistant over a page for a screenshot: the day's conversation once the user talks. */
 export async function showPreview(): Promise<void> {
   preview?.dispose();
   document.body.style.margin = '0';
   document.body.style.background = 'var(--bg)';
   const rows = Array.from({ length: 2 }, (_, index) => ({ ...notice(`finished:turn-${index + 3}`, 'TURN_FINISHED', `task-${index + 3}`, `Finished task ${index + 3}`),
     occurredAt: `2026-10-16T07:0${index}:00Z` }));
-  const mounted = mount(VIEW, 0, [...NOTICES, FINISHED_REVIEW, ...rows], [{ ...RUNNING, startedAt: '2026-10-16T07:05:00Z' }]);
+  const mounted = mount(VIEW, 0, [...NOTICES, FINISHED_REVIEW, DRAFTED, FAILED, ...rows], [{ ...RUNNING, startedAt: '2026-10-16T07:05:00Z' }]);
   preview = mounted;
   // A hidden window paints no frames, so a timer lets the reads and layout settle instead.
   await new Promise(resolve => setTimeout(resolve, 150));

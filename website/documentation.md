@@ -96,7 +96,11 @@ follow. A workspace holds a repository’s tasks, PRs, work items, commits, and
 memory.
 
 - **My work** sorts your issues, tickets, tasks, and PRs into **In progress**,
-  **In review**, **Needs you**, and **Ready to merge**. Incoming comments and
+  **In review**, **Needs you**, and **Ready to merge**. Home shows it as one
+  line of those lanes; click the line, or a lane, to open the board in the
+  Assistant. A task waiting for your approval or answer counts under the
+  Assistant's **Decision** and keeps its lane here with a mark that opens it.
+  Incoming comments and
   review feedback on your open, non-draft PRs move them to **Needs you** until
   you reply or push an update; opening a PR does not clear that feedback.
   Approved PRs stay actionable: **Ready to merge** when merge readiness is
@@ -200,9 +204,12 @@ Bring your day and waiting tasks into one conversation. Turn on **Enable
 Assistant** in **Settings → Agents → Features**; each message uses your model
 allowance.
 
-1. Press **⌘J** and ask what needs you, or about the item on screen.
-2. Browse **Decision**, **Running**, **Finished**, and **Today** cards. Answer
-   approvals and questions right on them.
+1. Press **⌘J**, or type in the composer under My work on Home, and ask what
+   needs you, or about the item on screen.
+2. The pills under the composer open one view each: **All**, **Decision**,
+   **Running**, **Finished**, **Today**, and **My work**. Click the open pill
+   again to go back to the conversation. Answer approvals and questions right
+   on Decision's cards; a failed turn shows under Finished with why.
 3. Ask it to find work or open a page, such as a repository's Tasks. A page
    with a message box, such as a task, opens with the cursor in it. Pull
    request cards can **Approve**, **Merge**, **Comment**, and, on your own PRs,
@@ -214,6 +221,8 @@ allowance.
 6. Start a new topic with **New conversation** or **⌘N**. After 15 minutes
    away, ⌘J opens on a new one. Go back to an earlier one from the clock
    button to keep going.
+7. Keep typing while it answers: a message you send then waits in line and
+   goes when the reply ends.
 
 **⇧⌘J** opens the task that has waited longest. Task alerts also show as macOS
 notifications. An approval or question waits five minutes for your answer: its
@@ -237,8 +246,8 @@ Ask it to work on one of your own pull requests and it uses that PR's
 development task, as the PR's **Development** button does, and sends your
 words there. A task started some other way can't be linked to a PR later.
 
-Every action leaves a receipt with **Open**; **Stop** cancels the first turn of
-a task it started. The Assistant never edits files or runs code itself.
+Every action leaves a receipt with **Open**; **Stop…** asks, then cancels the
+first turn of a task it started. The Assistant never edits files or runs code itself.
 
 <a id="dictation"></a>
 

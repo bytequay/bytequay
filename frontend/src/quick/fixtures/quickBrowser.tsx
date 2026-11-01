@@ -43,6 +43,11 @@ function mount() {
     getAssistantConversation: async (id: string) => ({ id, model: null, running: false, items: [], rows: {} }),
     getAgendaToday: async () => { throw new Error('No agenda in this fixture'); },
     listRunningTasks: async () => [],
+    getUserProfile: async () => null,
+    listWorkspaces: async () => [],
+    fetchAttentionPrs: async () => [],
+    onPullRequestsSynced: () => () => {},
+    listJiraAttention: async () => [],
   } as unknown as Bridge;
   const bridge: QuickAskBridge = {
     close: () => { calls.closed++; },
@@ -61,7 +66,7 @@ async function showsTheAppsAssistant(): Promise<void> {
     await settle();
     const float = element('.quick-ask .assistant-float', view.host, 'The app’s Assistant panel shows');
     assert(float.querySelector('button[aria-label^="Dictate"]') !== null, 'Its composer has the mic');
-    assert(float.querySelector('.assistant-pill[data-group="finished"]') !== null, 'Its pills hold what waits, read from the app’s notices');
+    assert(float.querySelector('.assistant-pill[data-pill="finished"]')?.textContent === 'Finished1', 'Its pills count what waits, read from the app’s notices');
     assert(view.host.querySelector('.assistant-backdrop')?.getBoundingClientRect().width === 0, 'No backdrop dims a page that is not there');
     const height = Math.ceil(view.host.querySelector('.assistant-panel')?.getBoundingClientRect().height ?? 0);
     assert(Math.abs((view.calls.heights.at(-1) ?? 0) - height) <= 1, `The window is the panel's height: ${view.calls.heights.at(-1)} vs ${height}`);

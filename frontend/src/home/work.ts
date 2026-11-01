@@ -37,7 +37,7 @@ export const WORK_LANES: { id: WorkLane; name: string; hint: string }[] = [
   { id: 'progress', name: 'In progress', hint: 'no PR or draft' },
   { id: 'review', name: 'In review', hint: 'waiting on others' },
   { id: 'needs', name: 'Needs you', hint: 'your move' },
-  { id: 'ready', name: 'Ready to merge', hint: '' },
+  { id: 'ready', name: 'Ready to merge', hint: 'approved, no conflicts' },
 ];
 
 /** A pull request a piece of work delivers through. */
@@ -67,6 +67,11 @@ export type WorkItem = {
   lane: WorkLane;
   /** One line on what to do, only when it is the viewer's move. */
   next: string | null;
+  /**
+   * What its task waits for, such as Approval or Question. That counts in the Assistant's Decision only, so the work keeps the lane its
+   * pull requests give it and carries this mark.
+   */
+  decision: string | null;
   /** Every Needs attention and Today key this work stands for: its own, its pull requests' and its tasks'. */
   keys: string[];
   /** How the work ended, such as Done, Closed or Merged; null while it is open. Only All my work lists ended work. */
@@ -126,21 +131,22 @@ export function workPrStatus(pr: WorkPr): { text: string; tone: AttentionTone } 
   if (row.mergeableState === 'dirty') return { text: 'Merge conflicts', tone: 'red' };
   if (row.reviewDecision === 'APPROVED') return { text: 'Approved', tone: 'green' };
   if (hasReviewFeedback(row)) return { text: 'Feedback received', tone: 'amber' };
-  return { text: row.requestedReviewers.length === 0 ? 'Waiting on review' : `Waiting on ${row.requestedReviewers.length}`, tone: 'amber' };
+  const reviewers = row.requestedReviewers;
+  return { text: reviewers.length === 0 ? 'Waiting on review' : reviewers.length === 1 ? `Waiting on ${reviewers[0]}` : `Waiting on ${reviewers.length} reviewers`,
+    tone: 'neutral' };
 }
 
 /** The first lane whose rule holds: ready to merge, needs you, in review, else in progress. */
-export function workLane(prs: WorkPr[], waiting: boolean): WorkLane {
+export function workLane(prs: WorkPr[]): WorkLane {
   const live = prs.filter(pr => pr.state === 'open' || pr.state === 'draft');
   if (live.length > 0 && live.every(readyToMerge)) return 'ready';
-  if (waiting || live.some(pr => pr.row !== null && pr.state === 'open' && needsYou(pr.row))) return 'needs';
+  if (live.some(pr => pr.row !== null && pr.state === 'open' && needsYou(pr.row))) return 'needs';
   return live.some(pr => pr.state === 'open') ? 'review' : 'progress';
 }
 
-function nextAction(lane: WorkLane, prs: WorkPr[], waiting: string | null): string | null {
+function nextAction(lane: WorkLane, prs: WorkPr[]): string | null {
   if (lane === 'ready') return 'Merge · no conflicts';
   if (lane !== 'needs') return null;
-  if (waiting !== null) return waiting;
   const row = prs.find(pr => pr.row !== null && pr.state === 'open' && needsYou(pr.row))?.row;
   if (row === undefined || row === null) return null;
   if (row.reviewDecision === 'CHANGES_REQUESTED') return 'Address the requested changes';
@@ -176,10 +182,9 @@ function workItem(
       || Date.parse(right.task.updatedAt) - Date.parse(left.task.updatedAt));
   const chosen = open[0] ?? null;
   const task = chosen?.task ?? null;
-  const waiting = chosen !== null && chosen.state.label === 'Needs you' ? chosen.state.reason : null;
   const message = task === null ? null : taskLastMessage(task, activity[task.id] ?? null);
   const list = [...prs.values()];
-  const lane = workLane(list, waiting !== null);
+  const lane = workLane(list);
   return {
     ...base,
     updatedAt: [...tasks.map(({ task: linked }) => linked.updatedAt), ...list.flatMap(pr => pr.row === null ? [] : [pr.row.updatedAt])].reduce(later, base.updatedAt),
@@ -191,7 +196,9 @@ function workItem(
     branch: list.length === 0 ? task?.generatedBranch ?? null : null,
     prs: list,
     lane,
-    next: nextAction(lane, list, waiting),
+    next: nextAction(lane, list),
+    decision: chosen === null || chosen.state.label !== 'Needs you' ? null
+      : chosen.state.reason === 'Question for you' ? 'Question' : chosen.state.reason?.startsWith('Approval') ? 'Approval' : 'Blocked',
     keys: [attentionKey(base.target), ...list.flatMap(pr => pr.row === null ? [] : [pullRequestAttentionKey(pr.row)]), ...tasks.map(({ task: linked }) => `task:${linked.id}`)]
       .filter((key): key is string => key !== null).map(key => key.toLowerCase()),
     repos: [...new Set([base.target.repo, ...list.map(pr => pr.repo), ...tasks.map(({ workspace }) => workspace.repository)]

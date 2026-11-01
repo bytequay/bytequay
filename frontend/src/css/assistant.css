@@ -1,58 +1,128 @@
-/* Over every page and the browser rail (1101); pages keep their size, since no native view is showing while it is open. */
-.assistant-panel {
+/* The Assistant's colours, shared by its box and by Home's composer and pills. */
+.assistant-panel,
+.assistant-home {
   --assistant-line: light-dark(#e3e3e6, var(--dark-border));
   /* Dividers inside a sheet: a step lighter than its border. */
   --assistant-line-subtle: light-dark(#efeff0, var(--dark-border-muted));
   --assistant-gold: #d4a72c;
   --assistant-selected: light-dark(#f0f1f3, var(--dark-hover));
+  --assistant-hover: light-dark(#f6f8fa, var(--dark-hover));
+  --assistant-pill: light-dark(#f6f8fa, var(--dark-subtle));
+  --assistant-pill-hover: light-dark(#eceff2, var(--dark-hover));
+  --assistant-focus: 0 0 0 1px light-dark(rgb(9 105 218 / 50%), rgb(128 182 255 / 55%)), 0 0 0 3px light-dark(rgb(9 105 218 / 12%), rgb(128 182 255 / 14%));
+  --assistant-glow: 0 0 0 1px light-dark(rgb(9 105 218 / 45%), rgb(128 182 255 / 50%)), 0 0 0 4px light-dark(rgb(9 105 218 / 10%), rgb(128 182 255 / 12%)),
+    0 6px 24px light-dark(rgb(9 105 218 / 16%), rgb(128 182 255 / 18%));
+}
+
+/* Over every page and the browser rail (1101); pages keep their size, since no native view is showing while it is open. */
+.assistant-panel {
   /* The dark theme's shadows reach further; light-dark() picks only colours, so each theme's shadow is transparent in the other. */
-  --assistant-shadow: 0 0 0 1px light-dark(rgb(31 35 40 / 4%), rgb(0 0 0 / 40%)), 0 12px 32px light-dark(rgb(31 35 40 / 14%), transparent),
-    0 18px 48px light-dark(transparent, rgb(0 0 0 / 50%));
-  --assistant-shadow-low: 0 6px 16px light-dark(rgb(31 35 40 / 8%), transparent), 0 8px 20px light-dark(transparent, rgb(0 0 0 / 35%));
-  /* Cards here sit on the panel's raised sheets and take their colour. */
+  --assistant-shadow: 0 18px 50px light-dark(rgb(31 35 40 / 18%), rgb(0 0 0 / 50%)), 0 2px 8px light-dark(rgb(31 35 40 / 8%), rgb(0 0 0 / 30%));
+  /* Cards here sit on the box and take its colour. */
   --card-surface: var(--surface-elevated);
   position: fixed;
   z-index: 1102;
   inset: 0;
 }
 
-/* The panel draws its icons a little finer than the app does. */
-.assistant-panel svg.lucide { stroke-width: 1.8; }
+/* The Assistant draws its icons a little finer than the app does. */
+:is(.assistant-panel, .assistant-home) svg.lucide { stroke-width: 1.8; }
 
 .assistant-backdrop {
   position: absolute;
   inset: 0;
   padding: 0;
   border: 0;
-  background: light-dark(rgb(31 35 40 / 16%), rgb(10 11 13 / 45%));
+  background: light-dark(rgb(31 35 40 / 26%), rgb(0 0 0 / 45%));
   cursor: default;
 }
 
+/* One box: the composer and its pills on top, then one scroll; My work widens it to fit four lanes. */
 .assistant-float {
   position: absolute;
-  top: 72px;
+  top: 64px;
   left: 50%;
   display: flex;
   width: min(640px, calc(100% - 32px));
-  max-height: calc(100% - 88px);
+  max-height: calc(100% - 96px);
   box-sizing: border-box;
   flex-direction: column;
-  gap: 10px;
-  transform: translateX(-50%);
+  overflow: hidden;
+  border: 1px solid var(--assistant-line);
+  border-radius: 14px;
+  background: var(--surface-elevated);
+  box-shadow: var(--assistant-shadow);
   color: var(--fg-default);
+  font-size: 14px;
+  transform: translateX(-50%);
 }
 
+.assistant-float.is-wide { width: min(1120px, calc(100% - 48px)); }
+
+.assistant-head {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 12px 10px;
+  border-bottom: 1px solid var(--assistant-line-subtle);
+}
+
+.assistant-head:last-child { border-bottom: 0; }
+
+.assistant-body {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  padding: 14px 16px 18px;
+}
+
+.assistant-body > * { flex: none; }
 .assistant-spacer { flex: 1; }
 
+.assistant-section {
+  display: flex;
+  height: 22px;
+  align-items: center;
+  color: light-dark(#656d76, var(--dark-muted));
+  font-size: 11.5px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.assistant-section:not(:first-child) { margin-top: 6px; }
+
+/* Home's composer: the same as the box's, under the My work line. */
+.assistant-home {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 /*
- * The app's composer, larger, with its own light: a blue arc that runs round the border once every 10 s, and faster while a reply is
- * written. It draws on the composer's light ring in place of the travelling glow.
+ * The app's composer in a plain border; focused, a soft blue ring; while a reply is written, a soft blue light and an arc that runs
+ * round the border.
  */
-.assistant-float .agt-compose {
+:is(.assistant-head, .assistant-home) .agt-compose {
   flex: none;
   max-width: none;
+  margin: 0;
   border-color: var(--assistant-line);
-  box-shadow: var(--assistant-shadow);
+  background: var(--surface-elevated);
+  transition: box-shadow 0.15s;
+}
+
+:is(.assistant-head, .assistant-home) .agt-compose:focus-within {
+  border-color: transparent;
+  box-shadow: var(--assistant-focus);
+}
+
+.assistant-float.is-replying .agt-compose {
+  border-color: transparent;
+  box-shadow: var(--assistant-glow);
 }
 
 @property --assistant-light {
@@ -61,13 +131,15 @@
   initial-value: 0deg;
 }
 
-.assistant-float .agt-compose__streamer {
-  background: conic-gradient(from var(--assistant-light), var(--assistant-line) 0deg 240deg, var(--fg-link) 300deg, var(--assistant-line) 345deg);
-  animation: assistant-light 10s linear infinite;
+:is(.assistant-head, .assistant-home) .agt-compose__streamer { display: none; }
+
+.assistant-float.is-replying .agt-compose__streamer {
+  display: block;
+  background: conic-gradient(from var(--assistant-light), transparent 0deg 240deg, var(--fg-link) 300deg, transparent 345deg);
+  animation: assistant-light 4s linear infinite;
 }
 
-.assistant-float .agt-compose__streamer::after { display: none; }
-.assistant-float.is-replying .agt-compose__streamer { animation-duration: 4s; }
+.assistant-float.is-replying .agt-compose__streamer::after { display: none; }
 
 @keyframes assistant-light { to { --assistant-light: 360deg; } }
 
@@ -75,34 +147,43 @@
 .is-app-blurred .assistant-float .agt-compose__streamer { animation-play-state: paused; }
 
 @media (prefers-reduced-motion: reduce) {
-  .assistant-float .agt-compose__streamer { animation: none; }
+  .assistant-float.is-replying .agt-compose__streamer { animation: none; }
 }
 
-.assistant-float .agt-compose__highlights,
-.assistant-float .agt-compose__input {
-  padding: 13px 16px 0;
-  font-size: 15px;
-  line-height: 22px;
+:is(.assistant-head, .assistant-home) :is(.agt-compose__highlights, .agt-compose__input) {
+  padding: 10px 14px 4px;
+  font-size: 14px;
+  line-height: 20px;
 }
 
-.assistant-float .agt-compose__row {
+:is(.assistant-head, .assistant-home) .agt-compose__row {
+  gap: 2px;
+  padding: 4px 8px 8px 10px;
+}
+
+:is(.assistant-head, .assistant-home) .agt-send {
+  width: 28px;
+  height: 28px;
+  margin-left: 4px;
+}
+
+/* With nothing to send yet, the arrow sits dim on a light circle. */
+:is(.assistant-head, .assistant-home) .agt-send:disabled {
+  background: var(--assistant-pill);
+  color: var(--fg-dim);
+}
+
+.assistant-waiting-line {
+  display: flex;
+  align-items: center;
   gap: 6px;
-  padding: 14px 10px 10px 16px;
-}
-
-.assistant-float .agt-send {
-  width: 32px;
-  height: 32px;
-}
-
-/* With nothing to send yet, the arrow keeps its contrast on a light circle. */
-.assistant-float .agt-send:disabled {
-  background: var(--assistant-selected);
-  color: var(--fg-default);
+  padding: 9px 14px 0;
+  color: var(--fg-dim);
+  font-size: 12px;
 }
 
 .assistant-error {
-  margin: 6px 16px 0;
+  margin: 6px 14px 0;
   color: var(--fg-danger);
   font-size: 12px;
 }
@@ -113,10 +194,10 @@
   box-sizing: border-box;
   align-items: center;
   gap: 5px;
-  height: 26px;
-  padding: 0 2px 0 8px;
+  height: 22px;
+  padding: 0 4px 0 8px;
   border: 1px solid var(--assistant-line);
-  border-radius: 12px;
+  border-radius: 11px;
   color: var(--fg-muted);
   font-size: 12px;
 }
@@ -134,60 +215,415 @@
 .assistant-chip button {
   display: grid;
   flex: none;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   place-items: center;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: 4px;
   background: none;
-  color: var(--fg-muted);
+  color: var(--fg-dim);
   cursor: pointer;
 }
 
-.assistant-chip button:hover { background: var(--bg-hover); color: var(--fg-default); }
+.assistant-chip button:hover { background: var(--assistant-selected); color: var(--fg-default); }
 
 .assistant-model {
-  margin-right: 4px;
+  padding: 0 6px;
   color: var(--fg-dim);
-  font-size: 12.5px;
+  font-size: 12px;
 }
 
-/* The day's conversation, the agenda and View all: one card each, scrolling inside when the window is short. */
-.assistant-sheet {
-  min-height: 0;
-  overflow-y: auto;
-  border: 1px solid var(--assistant-line);
+/* The pills: a door to each view, the open one outlined; an empty one dim, and Decision tinted when its soonest card nears its end. */
+.assistant-pills {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.assistant-pill {
+  display: inline-flex;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid transparent;
   border-radius: 12px;
-  background: var(--surface-elevated);
-  box-shadow: var(--assistant-shadow);
+  background: var(--assistant-pill);
+  color: var(--fg-default);
+  font: inherit;
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
 }
 
-/* The conversation: each entry, the user's words, a reply, a list, a receipt or a draft, 14px from the next. */
+.assistant-pill:hover { background: var(--assistant-pill-hover); }
+
+.assistant-pill.is-open {
+  border-color: var(--fg-dim);
+  background: var(--surface-elevated);
+}
+
+.assistant-pill.is-empty {
+  color: var(--fg-dim);
+  cursor: default;
+}
+
+.assistant-pill.is-empty:hover { background: var(--assistant-pill); }
+.assistant-pill.is-urgent { background: var(--bg-warning); }
+.assistant-pill__count { color: var(--fg-dim); }
+.assistant-pill__left { color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+.assistant-pill.is-urgent .assistant-pill__left { color: var(--fg-warning); }
+
+.assistant-pill__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--fg-danger);
+}
+
+.assistant-pill:focus-visible {
+  outline: 2px solid var(--control-strong);
+  outline-offset: 2px;
+}
+
+.assistant-spinner {
+  display: block;
+  width: 12px;
+  height: 12px;
+  box-sizing: border-box;
+  flex: none;
+  border: 1.8px solid var(--assistant-line);
+  border-top-color: var(--fg-link);
+  border-radius: 50%;
+  animation: bq-spin 1s linear infinite;
+}
+
+/* A card: an icon, the title over where it lives, its state or actions on the right, and a decision's command or question under it. */
+.assistant-card {
+  position: relative;
+  display: grid;
+  align-items: start;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  column-gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--assistant-line);
+  border-radius: 10px;
+  background: var(--surface-elevated);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.assistant-card:hover { background: var(--assistant-hover); }
+.assistant-card.is-urgent { border-color: var(--assistant-gold); }
+
+/* Only an alert's Answer focuses a card, and its fading outline below is the cue. */
+.assistant-card:focus-visible { outline: none; }
+
+/* Opened from its alert: a 2px accent outline that holds for 2 s, then fades. */
+.assistant-card.is-opened {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  animation: assistant-opened 400ms ease-in 2s forwards;
+}
+
+@keyframes assistant-opened { to { outline-color: transparent; } }
+
+.assistant-card__icon {
+  display: flex;
+  padding-top: 1px;
+  color: var(--fg-muted);
+}
+
+.assistant-card__icon.is-accent { color: var(--fg-link); }
+.assistant-card__icon.is-accent svg { animation: bq-spin 1.6s linear infinite; }
+.assistant-card__icon.is-warn { color: var(--fg-warning); }
+.assistant-card__icon.is-danger { color: var(--fg-danger); }
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-card__icon.is-accent svg { animation: none; }
+}
+
+.assistant-card__main { min-width: 0; }
+
+.assistant-card__title,
+.assistant-card__meta,
+.assistant-card__line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-card__meta {
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.assistant-card__evidence {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 5px;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.assistant-card__evidence > span:not(.assistant-lines) {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.assistant-card__fail {
+  margin-top: 4px;
+  color: var(--fg-danger);
+  font-size: 12px;
+}
+
+.assistant-card__side,
+.assistant-card__right,
+.assistant-card__hover {
+  display: flex;
+  min-height: 18px;
+  align-items: center;
+  gap: 6px;
+}
+
+.assistant-card__right {
+  color: var(--fg-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* Under the pointer, a running task's actions take its step's place. */
+.assistant-card__hover { display: none; }
+.assistant-card.has-hover:is(:hover, :focus-within) .assistant-card__hover { display: flex; }
+.assistant-card.has-hover:is(:hover, :focus-within) .assistant-card__right { display: none; }
+.assistant-card:not(:hover, :focus-within) .assistant-reveal { visibility: hidden; }
+
+.assistant-card__body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  grid-column: 2 / 4;
+}
+
+.assistant-card__why {
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.assistant-card__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.assistant-card .assistant-error { margin: 0; }
+
+/* Whom the card waits for and what it needs, in a gold outline; the warning colour near its end. */
+.assistant-state {
+  display: inline-flex;
+  height: 20px;
+  box-sizing: border-box;
+  align-items: center;
+  padding: 0 8px;
+  border: 1px solid var(--assistant-gold);
+  border-radius: 10px;
+  color: var(--fg-default);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.assistant-state.is-warn {
+  border-color: transparent;
+  background: var(--bg-warning);
+  color: var(--fg-warning);
+}
+
+.assistant-button {
+  display: inline-flex;
+  height: 24px;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+  border: 1px solid var(--assistant-line);
+  border-radius: 6px;
+  background: var(--surface-elevated);
+  color: var(--fg-default);
+  font: inherit;
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.assistant-button:hover:not(:disabled) { background: var(--assistant-selected); }
+
+.assistant-button:focus-visible {
+  outline: 2px solid var(--control-strong);
+  outline-offset: 2px;
+}
+
+.assistant-dim {
+  color: var(--fg-dim);
+  font-size: 12px;
+}
+
+/* The task's own approval card, in this one's body: the row above already names it, so only its command or question and buttons show. */
+.assistant-card .agt-appr { margin: 0; }
+.assistant-card .agt-appr__head { display: none; }
+.assistant-card :is(.agt-ask__text, .agt-ask__label, .agt-ask__tag) { font-weight: 400; }
+.assistant-card .agt-ask__text { font-size: 13.5px; line-height: 1.5; }
+
+.assistant-card .agt-code {
+  margin: 0;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 18px;
+  word-break: break-all;
+}
+
+.assistant-card .agt-decisions { margin-top: 8px; }
+
+.assistant-card .agt-decisions .agt-decision {
+  height: 26px;
+  padding: 0 11px;
+  border-color: var(--assistant-line);
+  background: var(--surface-elevated);
+  color: var(--fg-default);
+  font-size: 12.5px;
+  font-weight: 400;
+}
+
+.assistant-card .agt-decisions .agt-decision:hover:not(:disabled) { background: var(--assistant-selected); }
+.assistant-card .agt-decisions .agt-decision:disabled { opacity: 0.5; }
+
+/* All, with every task fine: the running ones folded to one line. */
+.assistant-fold {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--assistant-line);
+  border-radius: 10px;
+  background: none;
+  color: var(--fg-default);
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.assistant-fold:hover { background: var(--assistant-hover); }
+
+.assistant-fold__icon {
+  flex: none;
+  color: var(--fg-link);
+  animation: bq-spin 1.6s linear infinite;
+}
+
+/* What a result changed: added lines on green, deleted on red, as one pill. */
+.assistant-lines {
+  display: inline-flex;
+  overflow: hidden;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 18px;
+}
+
+.assistant-lines > span { padding: 0 6px; }
+.assistant-lines > .is-added { background: var(--bg-success); color: var(--fg-success); }
+.assistant-lines > .is-deleted { background: var(--bg-danger); color: var(--fg-danger); }
+
+/* The conversation: the user's words on the right, replies as plain text, receipts and results as one line each. */
 .assistant-talk {
   display: flex;
-  flex: 0 1 auto;
   flex-direction: column;
-  gap: 14px;
-  padding: 14px 14px 16px;
+  gap: 10px;
 }
 
 .assistant-talk > * { flex: none; }
 .assistant-talk .agt-user { margin-top: 0; }
 .assistant-talk .agt-user__bubble { white-space: pre-wrap; }
 
+.assistant-time {
+  padding-top: 4px;
+  color: light-dark(#656d76, var(--dark-muted));
+  font-size: 11.5px;
+}
+
 .assistant-reply {
+  max-width: 92%;
   font-size: 13.5px;
   line-height: 1.5;
   overflow-wrap: anywhere;
+  text-wrap: pretty;
 }
 
 .assistant-thinking {
   margin: 0;
   color: var(--fg-muted);
-  font-size: 13px;
-  line-height: 19px;
+  font-size: 13.5px;
+  line-height: 1.5;
 }
+
+.assistant-caret {
+  display: inline-block;
+  width: 7px;
+  height: 14px;
+  margin-left: 4px;
+  border-radius: 2px;
+  background: var(--fg-link);
+  opacity: 0.6;
+  vertical-align: -2px;
+}
+
+/* A message sent while a reply is written: dashed until its turn comes. */
+.assistant-queued {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+}
+
+.assistant-queued__bubble {
+  max-width: 76%;
+  padding: 9px 13px;
+  border: 1px dashed var(--assistant-line);
+  border-radius: 14px;
+  background: var(--assistant-selected);
+  color: var(--fg-muted);
+  font-size: 13.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.assistant-queued__note {
+  display: flex;
+  height: 20px;
+  align-items: center;
+  gap: 5px;
+  color: var(--fg-dim);
+  font-size: 12px;
+}
+
+.assistant-queued:not(:hover, :focus-within) .card-iconbtn { visibility: hidden; }
 
 /* A reply that failed, such as the model not being signed in: one line, with what fixes it at the right. */
 .assistant-failure {
@@ -213,14 +649,16 @@
   cursor: pointer;
 }
 
-/* With chat off, the composer's place says what still works and links to Settings; a long conversation never squeezes it. */
+/* With chat off, the composer's place says what still works and links to Settings. */
 .assistant-off {
   display: flex;
   flex: none;
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 14px;
-  padding: 13px 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--assistant-line);
+  border-radius: 12px;
   font-size: 13.5px;
   line-height: 20px;
 }
@@ -231,458 +669,77 @@
   color: var(--fg-muted);
 }
 
-/* A receipt: what an action did, or why it did not, then the user's own words and a detail, and where to go from it. */
+/* A receipt: what an action did, or why it did not, on one line, then where to go from it. */
 .assistant-receipt {
   display: flex;
-  align-items: center;
-  gap: 10px;
   min-width: 0;
-  padding: 7px 8px 7px 10px;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px 5px 10px;
   border: 1px solid var(--assistant-line);
   border-radius: 8px;
-  background: var(--bg-hover);
+  background: var(--surface-elevated);
+  color: var(--fg-muted);
+  font-size: 12.5px;
+  line-height: 18px;
 }
 
-.assistant-receipt__icon {
-  flex: none;
-  align-self: flex-start;
-  /* Centred on the first line, which is 19px high. */
-  margin-top: 2.5px;
-  color: var(--fg-link);
-}
+.assistant-receipt:hover { background: var(--assistant-hover); }
+.assistant-receipt__icon { flex: none; color: var(--fg-muted); }
 
-.assistant-receipt__text { flex: 1; min-width: 0; }
-
-.assistant-receipt__line,
-.assistant-receipt__below {
+.assistant-receipt__text {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.assistant-receipt__line { font-size: 13px; line-height: 19px; }
-.assistant-receipt.is-refused .assistant-receipt__line,
-.assistant-receipt.is-refused .assistant-receipt__icon { color: var(--fg-muted); }
+.assistant-receipt__lead { color: var(--fg-default); }
+.assistant-receipt.is-refused .assistant-receipt__lead { color: var(--fg-muted); }
 
-.assistant-receipt__below,
-.assistant-receipt__stopped {
-  color: var(--fg-dim);
-  font-size: 12px;
-  line-height: 16px;
-}
-
-.assistant-receipt__words { color: var(--fg-muted); }
-.assistant-receipt__stopped { flex: none; }
-
-/* The small bordered buttons a receipt or a failed reply offers. */
-.assistant-action {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 4px;
+.assistant-receipt .assistant-button {
   height: 22px;
   padding: 0 8px;
-  border: 1px solid var(--assistant-line);
-  border-radius: 6px;
-  background: var(--assistant-line);
-  color: var(--fg-default);
-  font: inherit;
   font-size: 12px;
-  cursor: pointer;
 }
 
-.assistant-action:hover:not(:disabled) { background: color-mix(in srgb, var(--assistant-line), var(--fg-default) 10%); }
-
-.assistant-action:focus-visible {
-  outline: 2px solid var(--control-strong);
-  outline-offset: 2px;
-}
-
-.assistant-waiting {
-  display: flex;
-  min-height: 0;
-  flex: 0 1 auto;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.assistant-pills {
-  display: flex;
-  flex: none;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.assistant-pill {
-  display: inline-flex;
-  box-sizing: border-box;
-  align-items: center;
-  gap: 7px;
-  height: 30px;
-  padding: 0 12px 0 10px;
+/* Today's agenda, calmer here: reasons as dim words, not coloured pills. */
+.assistant-today {
+  padding: 4px 12px 8px;
   border: 1px solid var(--assistant-line);
-  border-radius: 15px;
-  background: var(--surface-elevated);
-  box-shadow: var(--assistant-shadow-low);
-  color: var(--fg-default);
-  font: inherit;
-  font-size: 12.5px;
-  cursor: pointer;
-}
-
-.assistant-pill[data-group="today"] { margin-left: auto; }
-.assistant-pill svg { color: var(--fg-muted); }
-.assistant-pill__count { color: var(--fg-dim); }
-
-.assistant-pill__left { color: var(--fg-dim); font-variant-numeric: tabular-nums; }
-
-.assistant-pill__left.is-urgent { color: var(--fg-warning); }
-
-.assistant-pill.is-selected {
-  border-color: var(--fg-dim);
-  background: var(--assistant-selected);
-}
-
-.assistant-pill.is-selected .assistant-pill__count { color: var(--fg-default); }
-
-.assistant-pill:focus-visible {
-  outline: 2px solid var(--control-strong);
-  outline-offset: 2px;
-}
-
-.assistant-dot {
-  width: 8px;
-  height: 8px;
-  flex: none;
-  border-radius: 50%;
-  background: var(--assistant-gold);
-}
-
-.assistant-spinner {
-  display: block;
-  width: 12px;
-  height: 12px;
-  box-sizing: border-box;
-  flex: none;
-  border: 1.8px solid var(--assistant-line);
-  border-top-color: var(--fg-link);
-  border-radius: 50%;
-  animation: assistant-spin 1s linear infinite;
-}
-
-@keyframes assistant-spin { to { transform: rotate(360deg); } }
-
-/* The top card, with the next two tucked under it by their titles. */
-.assistant-stack {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-}
-
-.assistant-card {
-  position: relative;
-  z-index: 3;
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px 14px 14px;
-  border: 1px solid var(--assistant-line);
-  border-radius: 12px;
-  background: var(--surface-elevated);
-  box-shadow: var(--assistant-shadow);
-}
-
-/* Only an alert's Answer focuses a card, and its fading outline below is the cue. */
-.assistant-card:focus-visible { outline: none; }
-
-/* Opened from its alert: a 2px accent outline that holds for 2 s, then fades. */
-.assistant-card.is-opened {
-  outline: 2px solid var(--accent);
-  outline-offset: 4px;
-  animation: assistant-opened 400ms ease-in 2s forwards;
-}
-
-@keyframes assistant-opened { to { outline-color: transparent; } }
-
-.assistant-kind {
-  padding: 0 8px;
-  border: 1px solid var(--assistant-gold);
   border-radius: 10px;
-  font-size: 11.5px;
-  line-height: 18px;
-  white-space: nowrap;
 }
 
-.assistant-kind.is-warn {
-  border-color: transparent;
-  background: var(--bg-warning);
-  color: var(--fg-warning);
-}
-
-.assistant-card__time {
-  color: var(--fg-dim);
-  font-size: 12px;
-}
-
-.assistant-pager {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin-left: 6px;
-  color: var(--fg-dim);
-  font-size: 12px;
-}
-
-.assistant-pager > span { min-width: 28px; text-align: center; }
-.assistant-pager .card-iconbtn { width: 22px; height: 22px; }
-
-.assistant-card__title {
-  overflow: hidden;
-  font-size: 13.5px;
-  line-height: 19px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.assistant-card__muted {
-  color: var(--fg-muted);
-  font-size: 12.5px;
-  line-height: 18px;
-  overflow-wrap: anywhere;
-}
-
-.assistant-card__actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* A running task: its kind icon, the title with a live chip after it, then where it runs; its step and actions line up under the title. */
-.assistant-task {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-}
-
-.assistant-task__icon {
-  display: flex;
-  height: 22px;
-  flex: none;
-  align-items: center;
-  color: var(--fg-muted);
-}
-
-.assistant-task__main {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.assistant-task__title {
-  display: flex;
-  height: 22px;
-  min-width: 0;
-  align-items: center;
-  gap: 8px;
-}
-
-.assistant-task > .assistant-card__time { line-height: 22px; }
-
-.assistant-task__where {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 5px;
-  color: var(--fg-muted);
-  font-size: 12.5px;
-  line-height: 18px;
-  white-space: nowrap;
-}
-
-.assistant-task__number { color: var(--fg-default); }
-
-.assistant-task__branch {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.assistant-kind.is-running {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 5px;
-  padding-left: 6px;
-  color: var(--fg-warning);
-}
-
-.assistant-kind.is-running .assistant-spinner {
-  width: 10px;
-  height: 10px;
-  border-width: 1.5px;
-  border-top-color: var(--assistant-gold);
-}
-
-.assistant-kind.is-done {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 4px;
-  padding-left: 6px;
-  border-color: light-dark(#a7e3b6, var(--dark-green-border));
-  color: var(--fg-success);
-}
-
-/* What a review covered: added lines on green, deleted on red, as one pill. */
-.assistant-lines {
-  display: inline-flex;
-  overflow: hidden;
-  margin-left: 4px;
-  border-radius: 6px;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  line-height: 18px;
-  vertical-align: 1px;
-}
-
-.assistant-lines > span { padding: 0 6px; }
-.assistant-lines > .is-added { background: var(--bg-success); color: var(--fg-success); }
-.assistant-lines > .is-deleted { background: var(--bg-danger); color: var(--fg-danger); }
-
-.assistant-step,
-.assistant-task__body,
-.assistant-task__actions { margin-left: 26px; }
-
-.assistant-step {
-  display: flex;
-  height: 30px;
-  box-sizing: border-box;
-  align-items: center;
-  gap: 10px;
-  padding: 0 10px;
-  border-radius: 7px;
-  background: var(--surface-inset);
-  font-family: var(--font-mono);
-  font-size: 12px;
-}
-
-.assistant-step__kind {
-  width: 46px;
-  flex: none;
-  color: var(--fg-dim);
-  font-size: 11px;
-}
-
-/* A new step rolls up into the line as the one before it rolls out above. */
-.assistant-step__roll {
-  position: relative;
-  height: 18px;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.assistant-step__text {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  line-height: 18px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.assistant-step__text.is-out { opacity: 0; }
-
-.assistant-step__time {
-  flex: none;
-  color: var(--fg-dim);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .assistant-step__text.is-in { animation: assistant-step-in 350ms ease; }
-  .assistant-step__text.is-out { animation: assistant-step-out 350ms ease; }
-}
-
-@keyframes assistant-step-in { from { opacity: 0; transform: translateY(100%); } }
-@keyframes assistant-step-out { from { opacity: 1; transform: none; } to { transform: translateY(-100%); } }
-
-.assistant-button {
-  height: 26px;
-  padding: 0 10px;
-  border: 1px solid var(--assistant-line);
-  border-radius: 6px;
-  background: var(--surface-elevated);
-  color: var(--fg-default);
-  font: inherit;
-  font-size: 12.5px;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.assistant-button:hover { background: var(--bg-hover); }
-.assistant-card .assistant-error { margin: 0; }
-
-/* The task's own approval card in this one: the chip above already names it, and its parts take this card's plain look. */
-.assistant-card .agt-appr { margin-top: 0; }
-.assistant-card .agt-appr__head > :is(:first-child, .agt-appr__chip) { display: none; }
-
-.assistant-card .agt-appr__title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.assistant-card :is(.agt-appr__title, .agt-ask__text, .agt-ask__label, .agt-ask__tag) { font-weight: 400; }
-
-.assistant-card .agt-code {
+.assistant-today .today-reason {
+  padding: 0;
   border: 0;
-  padding: 6px 9px;
-  word-break: break-all;
+  color: var(--fg-dim);
 }
 
-.assistant-card .agt-decisions .agt-decision {
-  height: 26px;
-  padding: 0 10px;
-  border-color: var(--assistant-line);
-  background: var(--surface-elevated);
-  color: var(--fg-default);
-  font-weight: 400;
-}
-
-.assistant-card .agt-decisions .agt-decision:hover:not(:disabled) { background: var(--bg-hover); }
-.assistant-card .agt-decisions .agt-decision:disabled { opacity: 0.5; }
-
-.assistant-peek {
-  position: relative;
-  z-index: 2;
+.assistant-list {
   display: flex;
-  box-sizing: border-box;
+  flex-direction: column;
+}
+
+.assistant-line {
+  display: flex;
+  flex: none;
   align-items: center;
-  gap: 8px;
-  height: 44px;
-  margin: -12px 12px 0;
-  padding: 12px 10px 0 12px;
-  border: 1px solid var(--assistant-line);
-  border-top: 0;
-  border-radius: 0 0 12px 12px;
-  background: var(--surface-elevated);
-  box-shadow: var(--assistant-shadow-low);
-  color: var(--fg-muted);
+  gap: 12px;
+  height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--fg-default);
   font: inherit;
-  font-size: 12.5px;
+  font-size: 13.5px;
   text-align: left;
   cursor: pointer;
 }
 
-.assistant-peek.is-2 {
-  z-index: 1;
-  margin-inline: 24px;
-}
+.assistant-line:is(:hover, .is-current) { background: var(--assistant-selected); }
 
 .assistant-line__icon {
   display: flex;
@@ -705,68 +762,6 @@
   color: var(--fg-dim);
   font-size: 12px;
 }
-
-.assistant-more {
-  display: inline-flex;
-  align-items: center;
-  align-self: center;
-  gap: 6px;
-  height: 28px;
-  margin-top: 8px;
-  padding: 0 12px;
-  border: 1px solid var(--assistant-line);
-  border-radius: 14px;
-  background: var(--surface-elevated);
-  box-shadow: var(--assistant-shadow-low);
-  color: var(--fg-default);
-  font: inherit;
-  font-size: 12.5px;
-  cursor: pointer;
-}
-
-.assistant-more__dim { color: var(--fg-dim); }
-
-.assistant-list {
-  display: flex;
-  flex-direction: column;
-  padding: 6px;
-}
-
-.assistant-line {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 12px;
-  height: 36px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 7px;
-  background: none;
-  color: var(--fg-default);
-  font: inherit;
-  font-size: 13.5px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.assistant-line:is(:hover, .is-current) { background: var(--assistant-selected); }
-
-.assistant-list__back {
-  flex: none;
-  height: 30px;
-  margin-top: 4px;
-  border: 0;
-  border-top: 1px solid var(--line-subtle);
-  background: none;
-  color: var(--fg-dim);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.assistant-list__back:hover { color: var(--fg-default); }
-
-.assistant-today { padding: 10px 12px; }
 
 /* A list the assistant showed, drawn from the app's own data: its title and style switch, then rows, cards or days. */
 .assistant-items {

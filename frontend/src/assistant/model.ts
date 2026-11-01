@@ -16,26 +16,50 @@ import type { RunningTask } from '../agents/runningTaskModel';
 import { pullRequestFromRoute, type ZoomedReference } from '../githubReference';
 import { issueAttentionKey } from '../home/attention';
 import { dayText } from '../home/today';
+import type { WorkLane } from '../home/work';
 import { needsAction, type AppNotice } from '../notices/contracts';
 import { SETTINGS_ENTRIES, isWorkspaceSection, settingsRoute } from '../settings/routes';
 import type { AgendaTargetDto, AssistantItemDto, AssistantRowDto } from '../types';
 import { workspaceLocationFromRoute, workspaceRoute, type WorkspaceTab } from '../workspaces/model';
 
-/** The pills over the stack, in the order Tab moves through them. */
-export const GROUPS = ['all', 'decision', 'running', 'finished', 'today'] as const;
-export type Group = typeof GROUPS[number];
+/** The pills under the composer, each a view of the Assistant; the conversation shows while none is open. */
+export const PILLS = ['all', 'decision', 'running', 'finished', 'today', 'mywork'] as const;
+export type Pill = typeof PILLS[number];
+export type AssistantView = Pill | 'conversation';
 
-/** One card in the stack: a task's notice, or a task still running. */
+/** What to open the Assistant on: a view, a lane of My work, an alert's card, or a message to send from Home's composer. */
+export type AssistantRequest = { view?: AssistantView; lane?: WorkLane; card?: string; message?: string; fresh?: boolean; history?: boolean };
+
+const OPEN_EVENT = 'bytequay:assistant-open';
+
+/** Opens the Assistant from anywhere in the window, such as Home's My work line or a card's decision mark. */
+export function openAssistant(request: AssistantRequest): void {
+  window.dispatchEvent(new CustomEvent<AssistantRequest>(OPEN_EVENT, { detail: request }));
+}
+
+export function onOpenAssistant(listener: (request: AssistantRequest) => void): () => void {
+  const handle = (event: Event) => listener((event as CustomEvent<AssistantRequest>).detail);
+  window.addEventListener(OPEN_EVENT, handle);
+  return () => window.removeEventListener(OPEN_EVENT, handle);
+}
+
+/**
+ * Whether a notice waits on the user's decision. A failed turn needs the user too, but as a result that says why, so it is Finished;
+ * the sidebar's Assistant count is this one, so both say the same.
+ */
+export const isDecision = (notice: AppNotice): boolean => needsAction(notice) && notice.kind !== 'FAILURE';
+
+/** One card of a view: a task's notice, or a task still running. */
 export type WaitingCard = { key: string; group: 'decision' | 'finished'; at: number; notice: AppNotice }
   | { key: string; group: 'running'; at: number; task: RunningTask };
 
 /**
- * Newest first, one card for each task and each reviewed pull request: notices that need the user are Decisions, finished turns are
- * Finished, and running tasks are Running. A newer card replaces an older one about the same thing, but only a Decision's own task
- * replaces it, so another task on the pull request never hides a question.
+ * Newest first, one card for each task and each reviewed pull request: notices that wait on the user are Decisions, finished and failed
+ * turns are Finished, and running tasks are Running. A newer card replaces an older one about the same thing, but only a Decision's own
+ * task replaces it, so another task on the pull request never hides a question.
  */
 export function waitingCards(notices: AppNotice[], tasks: RunningTask[]): WaitingCard[] {
-  const cards: WaitingCard[] = notices.map(notice => ({ key: notice.id, group: needsAction(notice) ? 'decision' : 'finished', at: Date.parse(notice.occurredAt), notice }));
+  const cards: WaitingCard[] = notices.map(notice => ({ key: notice.id, group: isDecision(notice) ? 'decision' : 'finished', at: Date.parse(notice.occurredAt), notice }));
   for (const task of tasks) {
     if (task.status === 'RUNNING') cards.push({ key: `running:${task.id}`, group: 'running', at: Date.parse(task.startedAt), task });
   }
@@ -51,17 +75,17 @@ export function waitingCards(notices: AppNotice[], tasks: RunningTask[]): Waitin
   });
 }
 
-const REPLY_WORDS = 50;
+const deadline = (card: WaitingCard): number => 'notice' in card && card.notice.expiresAt !== undefined ? Date.parse(card.notice.expiresAt) : Infinity;
 
-/** A reply as a card quotes it: its first 50 words, on one line. */
-export function replyExcerpt(text: string): string {
-  const words = text.trim().split(/\s+/);
-  return words.length > REPLY_WORDS ? `${words.slice(0, REPLY_WORDS).join(' ')}…` : words.join(' ');
+/** Decisions most urgent first: the soonest to expire, then the longest waiting. */
+export function decisionOrder(cards: WaitingCard[]): WaitingCard[] {
+  return cards.filter(card => card.group === 'decision').sort((left, right) => deadline(left) - deadline(right) || left.at - right.at);
 }
 
-/** The top card and the two peeking behind it, wrapping round so paging never runs out of peeks. */
-export function stackOf<T>(cards: T[], top: number): T[] {
-  return Array.from({ length: Math.min(3, cards.length) }, (_, offset) => cards[(top + offset) % cards.length]);
+/** When the soonest decision stops waiting, for its pill; null when none of them expires. */
+export function soonestDeadline(cards: WaitingCard[]): string | null {
+  const first = decisionOrder(cards)[0];
+  return first !== undefined && 'notice' in first ? first.notice.expiresAt ?? null : null;
 }
 
 /**

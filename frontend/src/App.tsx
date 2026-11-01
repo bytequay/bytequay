@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import AppSidebar, { type AppPage } from './AppSidebar';
 import AssistantPanel from './assistant/AssistantPanel';
+import { isDecision, onOpenAssistant, type AssistantRequest } from './assistant/model';
 import { screenRef } from './assistant/model';
 import BrowserRail from './BrowserRail';
 import FindBar from './FindBar';
@@ -59,7 +60,7 @@ import WorkspacesPage from './workspaces/WorkspacesPage';
 import WorkspaceShell from './workspaces/WorkspaceShell';
 import WorkspaceItemLayer from './workspaces/WorkspaceItemLayer';
 import { LayerCovered } from './Zoom';
-import { needsAction, type AppNotice, type NoticeSnapshot } from './notices/contracts';
+import type { AppNotice, NoticeSnapshot } from './notices/contracts';
 import {
   workspaceIssueRoute,
   workspaceIssueTaskRoute,
@@ -137,8 +138,8 @@ function AppContent() {
   });
   const [assistantOpen, setAssistantOpen] = useState(false);
   const assistantShown = assistantOpen && status === 'ready';
-  // A new object for every Answer, so the panel shows the card again even when the same one was asked for last.
-  const [assistantCard, setAssistantCard] = useState<{ id: string } | null>(null);
+  // A new object for every request, so the Assistant opens there again even when the same one was asked for last.
+  const [assistantRequest, setAssistantRequest] = useState<AssistantRequest | null>(null);
   const [notices, setNotices] = useState<AppNotice[]>([]);
   const [viewedIds, setViewedIds] = useState<string[]>([]);
   const [assistantHasHistory, setAssistantHasHistory] = useState(false);
@@ -289,7 +290,13 @@ function AppContent() {
 
   useEffect(() => window.bridge.onAssistantOpenCard?.(id => {
     setAssistantOpen(true);
-    setAssistantCard({ id });
+    setAssistantRequest({ view: 'decision', card: id });
+  }), []);
+
+  // Home's My work line and composer, and a card's decision mark, open the Assistant where they point.
+  useEffect(() => onOpenAssistant(request => {
+    setAssistantOpen(true);
+    setAssistantRequest(request);
   }), []);
 
   // Where the floating Assistant over other apps opened something; it shows here, in front of any web page.
@@ -748,14 +755,15 @@ function AppContent() {
           workspaceTab={workspaceTab}
           relatedWorkspaceId={relatedWorkspaceId}
           onWorkspaceTab={selectWorkspaceTab}
-          assistant={assistantAccessible ? { open: assistantShown, waiting: notices.filter(needsAction).length,
-            unread: notices.some(notice => !needsAction(notice) && !viewedIds.includes(notice.id)),
+          assistant={assistantAccessible ? { open: assistantShown, waiting: notices.filter(isDecision).length,
+            unread: notices.some(notice => !isDecision(notice) && !viewedIds.includes(notice.id)),
             label: assistantEnabled ? 'Assistant' : 'Task notices', onToggle: () => setAssistantOpen(open => !open) } : undefined}
         />
         <main className="app-content">
           {githubConnected && (page === 'home' || page === 'work') && (
             <HomePage
               allWork={page === 'work'}
+              assistantChat={assistantAvailable}
               onSelectRepo={openPr}
               onOpenWorkspace={openWorkspace}
               onStartIssue={(workspaceId, issueNumber) => navigateTo(workspaceIssueTaskRoute(workspaceId, issueNumber), 'push')}
@@ -862,7 +870,7 @@ function AppContent() {
       </div>
       {browserTab && <InAppBrowser tab={browserTab} fullScreen={fullScreen} railExpanded={railExpanded}
         error={browserError} onError={setBrowserError} onBack={backToApp} />}
-      <AssistantPanel open={assistantShown} chatEnabled={assistantAvailable} notices={notices} openCard={assistantCard} onScreen={onScreen} onClose={() => setAssistantOpen(false)}
+      <AssistantPanel open={assistantShown} chatEnabled={assistantAvailable} notices={notices} request={assistantRequest} onScreen={onScreen} onClose={() => setAssistantOpen(false)}
         onPage={openPage} onOpened={() => setPageComposerFocus(true)} />
     </div>
     </FocusBreakProvider>

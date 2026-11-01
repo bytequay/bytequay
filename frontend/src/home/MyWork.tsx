@@ -11,26 +11,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
-import { ArrowRight, Check, Circle, GitPullRequest, LoaderCircle, X } from 'lucide-react';
-import { plural } from '@bytequay/ui/displayText';
+import { useState } from 'react';
+import {
+  ArrowRight, Check, ChevronRight, CircleDot, ExternalLink, GitPullRequest, GitPullRequestDraft, Hand, Hourglass, Laptop, LoaderCircle, MessageCircleQuestion,
+  SquareKanban, X, type LucideIcon,
+} from 'lucide-react';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import Avatar from '../Avatar';
-import RepoAvatar from '../RepoAvatar';
-import { Card, CardAge } from '../cards/Card';
-import { ProviderIcon } from '../agents/ProviderIcon';
-import { getCached, setCached } from '../dataCache';
-import { pollVisible } from '../ide/pollVisible';
-import type { AgentTaskChangesDto } from '../types';
-import type { WorkItemDto } from '../workitems/contracts';
-import { ISSUE_ATTENTION_REFRESH_MS } from './attention';
+import { CardActions, CardAge, Card } from '../cards/Card';
+import type { AgendaTargetDto } from '../types';
 import { WORK_LANES, WORK_SOURCES, workPrStatus, type WorkItem, type WorkLane, type WorkPr, type WorkSource } from './work';
 import { openTarget } from './TodayList';
 import '../css/my-work.css';
 
-const COLLAPSED_KEY = 'bytequay.myWork.collapsed';
 const FILTERS: ('all' | WorkSource)[] = ['all', 'jira', 'issue', 'local', 'pr'];
-const LOCAL_WORK_SEED = 'home:local-work';
 /** A lane shows this many cards until asked for the rest, so one busy lane does not stretch the board. */
 const LANE_LIMIT = 3;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -41,126 +35,99 @@ const DATES = [
   { days: 30, label: 'Past month' },
   { days: 90, label: 'Past 3 months' },
 ];
+const SOURCE_ICONS: Record<WorkSource, LucideIcon> = { local: Laptop, jira: SquareKanban, pr: GitPullRequest, issue: CircleDot };
+const DECISION_ICONS: Record<string, LucideIcon> = { Approval: Hand, Question: MessageCircleQuestion };
 
-function loadCollapsed(): boolean {
-  try { return window.localStorage.getItem(COLLAPSED_KEY) === 'true'; } catch { return false; }
-}
+const laneItems = (items: WorkItem[]) => WORK_LANES.map(lane => ({ ...lane, items: items.filter(item => item.lane === lane.id) }));
 
-/** Local work items of the listed workspaces, ids joined by commas; read on Home's issue clock, since they change about as often. */
-export function useLocalWork(workspaceIds: string): WorkItemDto[] {
-  const [work, setWork] = useState<WorkItemDto[]>(() => getCached<WorkItemDto[]>(LOCAL_WORK_SEED) ?? []);
-  useEffect(() => {
-    if (workspaceIds === '') {
-      setWork([]);
-      return;
-    }
-    let active = true;
-    // A workspace that cannot be read drops out until the next read rather than failing the others.
-    const stop = pollVisible(() => Promise.allSettled(workspaceIds.split(',').map(id => Promise.resolve().then(() => window.bridge.listWorkItems(id))))
-      .then(results => {
-        if (!active) return;
-        const found = results.flatMap(result => result.status === 'fulfilled' ? result.value : []);
-        setCached(LOCAL_WORK_SEED, found);
-        setWork(shown => JSON.stringify(shown) === JSON.stringify(found) ? shown : found);
-      }), ISSUE_ATTENTION_REFRESH_MS);
-    return () => { active = false; stop(); };
-  }, [workspaceIds]);
-  return work;
-}
-
-/** What the checkouts of tasks still without a pull request hold, read again only when that set of tasks changes. */
-function useBranchChanges(items: WorkItem[]): Record<string, AgentTaskChangesDto> {
-  const [changes, setChanges] = useState<Record<string, AgentTaskChangesDto>>({});
-  const tasks = JSON.stringify(items.flatMap(item => item.branch === null || item.task === null ? [] : [[item.task.workspaceId, item.task.id]])
-    .sort(([leftWorkspace, leftTask], [rightWorkspace, rightTask]) => leftWorkspace.localeCompare(rightWorkspace) || leftTask.localeCompare(rightTask)));
-  useEffect(() => {
-    const listed = JSON.parse(tasks) as [string, string][];
-    if (listed.length === 0) return;
-    const workspaces = [...new Set(listed.map(([workspace]) => workspace))];
-    let active = true;
-    void Promise.allSettled(workspaces.map(id => Promise.resolve().then(() => window.bridge.listAgentTaskChanges(id,
-      [...new Set(listed.filter(([workspace]) => workspace === id).map(([, task]) => task))])))).then(results => {
-      if (active) setChanges(Object.assign({}, ...results.map(result => result.status === 'fulfilled' ? result.value : {})));
-    });
-    return () => { active = false; };
-  }, [tasks]);
-  return changes;
+/**
+ * Home's one line of My work: the four lanes and their counts. The line opens the board in the Assistant, and a lane with work opens it
+ * with that lane in focus.
+ */
+export function MyWorkLine({ items, onOpen }: { items: WorkItem[]; onOpen: (lane: WorkLane | null) => void }) {
+  return (
+    <div className="mw-line" title="Open My work in the Assistant" onClick={() => onOpen(null)}>
+      {laneItems(items).map(lane => lane.items.length === 0
+        ? <span key={lane.id} className="mw-pill is-empty"><span className={`mw-dot is-${lane.id}`} aria-hidden="true" />{lane.name}</span>
+        : (
+          <button key={lane.id} type="button" className="mw-pill" title={`Open My work on ${lane.name}`}
+            onClick={event => { event.stopPropagation(); onOpen(lane.id); }}>
+            <span className={`mw-dot is-${lane.id}`} aria-hidden="true" />{lane.name}<span className="mw-pill__count">{lane.items.length}</span>
+          </button>
+        ))}
+      <span className="mw-spacer" />
+      <button type="button" className="mw-line__open" aria-label="Open My work" onClick={event => { event.stopPropagation(); onOpen(null); }}>
+        <ChevronRight size={14} aria-hidden="true" />
+      </button>
+    </div>
+  );
 }
 
 /**
  * Everything the viewer is working on, as a board of four lanes by where its pull requests stand. A card is a ticket, issue, local
- * work or pull request, with the agent working on it and the pull requests it delivers through.
+ * work or pull request, with the agent working on it and the pull requests it delivers through. A lane in focus keeps the others
+ * faded beside it; where the four lanes do not fit side by side they stack, the focused one first (my-work.css).
  */
-export default function MyWork({ items, todayKeys }: { items: WorkItem[]; todayKeys: ReadonlySet<string> }) {
+export function MyWorkBoard({ items, lane, onLane, onOpen, onDecision, onAllWork }: {
+  items: WorkItem[];
+  lane: WorkLane | null;
+  onLane: (lane: WorkLane | null) => void;
+  /** Opens a card's item or pull request, after what covers the page has closed. */
+  onOpen: (target: AgendaTargetDto) => void;
+  /** Opens a task's decision, which counts in the Assistant's Decision rather than here. */
+  onDecision: () => void;
+  onAllWork: () => void;
+}) {
   const [source, setSource] = useState<'all' | WorkSource>('all');
-  const [collapsed, setCollapsed] = useState(loadCollapsed);
   const [openLanes, setOpenLanes] = useState<ReadonlySet<WorkLane>>(new Set());
-  const shown = items.filter(item => source === 'all' || item.source === source);
-  const lanes = WORK_LANES.map(lane => ({ ...lane, items: shown.filter(item => item.lane === lane.id) }));
-  const changes = useBranchChanges(collapsed ? [] : lanes.flatMap(lane => openLanes.has(lane.id) ? lane.items : lane.items.slice(0, LANE_LIMIT)));
-  const collapse = (next: boolean) => {
-    setCollapsed(next);
-    try { window.localStorage.setItem(COLLAPSED_KEY, String(next)); } catch { /* the choice still holds for this visit */ }
-  };
+  const lanes = laneItems(items.filter(item => source === 'all' || item.source === source));
+  const focused = lanes.find(each => each.id === lane);
 
   return (
-    <section className="mw" aria-label="My work">
-      {/* The Collapse button stays the keyboard control; the bar's empty space and label are a larger mouse target for it. */}
-      <div className={`atn-head${items.length > 0 ? ' mw-head' : ''}`} onClick={event => {
-        if (items.length > 0 && event.target instanceof Element && !event.target.closest('button, a, .atn-filters')) collapse(!collapsed);
-      }}>
-        <span className="atn-head__label">My work</span>
-        {items.length > 0 && <span className="atn-count">{items.length}</span>}
+    <section className="mw mw-boardview" aria-label="My work">
+      <div className="mw-head">
+        <span className="mw-head__label">My work</span>
         <SourceTabs source={source} onSource={setSource} />
-        {items.length > 0 && (
-          <button type="button" className="atn-approved__toggle" aria-expanded={!collapsed} onClick={() => collapse(!collapsed)}>
-            {collapsed ? 'Expand' : 'Collapse'}
+        {focused !== undefined && (
+          <button type="button" className="mw-focus" title="Show all lanes" onClick={() => onLane(null)}>
+            <span className={`mw-dot is-${focused.id}`} aria-hidden="true" />{focused.name}<X size={11} aria-hidden="true" />
           </button>
         )}
-        <a className="mw-all" href="#/work">All my work<ArrowRight size={12} aria-hidden="true" /></a>
+        <span className="mw-spacer" />
+        <button type="button" className="mw-all" onClick={onAllWork}>All my work →</button>
       </div>
-      {items.length === 0 ? <div className="atn-clear">Nothing in progress.</div>
-        : collapsed ? (
-          <div className="mw-pills">
-            {lanes.map(lane => (
-              <button key={lane.id} type="button" className="mw-pill" onClick={() => collapse(false)}>
-                <span className={`mw-dot is-${lane.id}`} aria-hidden="true" />{lane.name}<span className="mw-pill__count">{lane.items.length}</span>
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div className="mw-board">
-            {lanes.map(lane => (
-              <div key={lane.id} className="mw-lane" role="list" aria-label={lane.name}>
-                <div className="mw-lane__head">
-                  <span className={`mw-dot is-${lane.id}`} aria-hidden="true" />
-                  <span className="mw-lane__name">{lane.name}</span>
-                  <span className="mw-lane__count">{lane.items.length}</span>
-                  <span className="mw-lane__hint">{lane.hint}</span>
-                </div>
-                {(openLanes.has(lane.id) ? lane.items : lane.items.slice(0, LANE_LIMIT)).map(item => (
-                  <WorkCard key={item.key} item={item} onToday={item.keys.some(key => todayKeys.has(key))}
-                    commits={item.task === null ? 0 : changes[item.task.id]?.commits ?? 0} />
-                ))}
-                {lane.items.length > LANE_LIMIT && (
-                  <button type="button" className="mw-lane__more" aria-expanded={openLanes.has(lane.id)} onClick={() => setOpenLanes(previous => {
-                    const next = new Set(previous);
-                    if (!next.delete(lane.id)) next.add(lane.id);
-                    return next;
-                  })}>
-                    {openLanes.has(lane.id) ? 'Show less' : `Show ${lane.items.length - LANE_LIMIT} more`}
-                  </button>
-                )}
+      <div className="mw-board">
+        {lanes.map(each => (
+          <div key={each.id} className={`mw-lane${lane === null ? '' : lane === each.id ? ' is-focused' : ' is-faded'}`} role="list" aria-label={each.name}>
+            <div className="mw-lane__head">
+              <span className={`mw-dot is-${each.id}`} aria-hidden="true" />
+              <span className="mw-lane__name">{each.name}</span>
+              {each.items.length > 0 && <span className="mw-lane__count">{each.items.length}</span>}
+              <span className="mw-lane__hint">{each.hint}</span>
+            </div>
+            {each.items.length > 0 && (
+              <div className="mw-lane__cards">
+                {(openLanes.has(each.id) ? each.items : each.items.slice(0, LANE_LIMIT)).map(item => <WorkCard key={item.key} item={item} onOpen={onOpen} onDecision={onDecision} />)}
               </div>
-            ))}
+            )}
+            {each.items.length > LANE_LIMIT && (
+              <button type="button" className="mw-lane__more" aria-expanded={openLanes.has(each.id)} onClick={() => setOpenLanes(previous => {
+                const next = new Set(previous);
+                if (!next.delete(each.id)) next.add(each.id);
+                return next;
+              })}>
+                {openLanes.has(each.id) ? 'Show less' : `Show ${each.items.length - LANE_LIMIT} more`}
+              </button>
+            )}
           </div>
-        )}
+        ))}
+      </div>
     </section>
   );
 }
 
 /** Every piece of the viewer's work, open or ended, newest first, narrowed by source, repository, agent and when it last moved. */
-export function AllMyWork({ items, todayKeys }: { items: WorkItem[]; todayKeys: ReadonlySet<string> }) {
+export function AllMyWork({ items, onDecision }: { items: WorkItem[]; onDecision: () => void }) {
   const [source, setSource] = useState<'all' | WorkSource>('all');
   const [repo, setRepo] = useState('');
   const [agent, setAgent] = useState('');
@@ -170,7 +137,6 @@ export function AllMyWork({ items, todayKeys }: { items: WorkItem[]; todayKeys: 
   const since = Date.now() - days * DAY_MS;
   const shown = items.filter(item => (source === 'all' || item.source === source) && (repo === '' || item.repos.includes(repo))
     && (agent === '' || item.agents.includes(agent)) && (days === 0 || Date.parse(item.updatedAt) >= since));
-  const changes = useBranchChanges(shown);
 
   return (
     <section className="mw" aria-label="All my work">
@@ -192,10 +158,7 @@ export function AllMyWork({ items, todayKeys }: { items: WorkItem[]; todayKeys: 
       </div>
       {shown.length === 0 ? <div className="atn-clear">{items.length === 0 ? 'No work yet.' : 'No work matches these filters.'}</div> : (
         <div className="mw-list" role="list" aria-label="Work">
-          {shown.map(item => (
-            <WorkCard key={item.key} item={item} onToday={item.keys.some(key => todayKeys.has(key))}
-              commits={item.task === null ? 0 : changes[item.task.id]?.commits ?? 0} />
-          ))}
+          {shown.map(item => <WorkCard key={item.key} item={item} onOpen={openTarget} onDecision={onDecision} />)}
         </div>
       )}
     </section>
@@ -204,10 +167,10 @@ export function AllMyWork({ items, todayKeys }: { items: WorkItem[]; todayKeys: 
 
 function SourceTabs({ source, onSource }: { source: 'all' | WorkSource; onSource: (source: 'all' | WorkSource) => void }) {
   return (
-    <div className="atn-filters" role="tablist" aria-label="Filter my work by source">
+    <div className="mw-tabs" role="tablist" aria-label="Filter my work by source">
       {FILTERS.map(id => (
         <button key={id} type="button" role="tab" aria-selected={source === id}
-          className={`atn-filter${source === id ? ' is-active' : ''}`} onClick={() => onSource(id)}>
+          className={`mw-tab${source === id ? ' is-active' : ''}`} onClick={() => onSource(id)}>
           {id === 'all' ? 'All' : WORK_SOURCES[id].filter}
         </button>
       ))}
@@ -215,61 +178,84 @@ function SourceTabs({ source, onSource }: { source: 'all' | WorkSource; onSource
   );
 }
 
-function WorkCard({ item, onToday, commits }: { item: WorkItem; onToday: boolean; commits: number }) {
-  const source = WORK_SOURCES[item.source];
+/** Where a card's work lives, as its top line names it: the ticket's key, the item's repository and number, or local work's repository. */
+function cardLabel(item: WorkItem): string {
+  if (item.source === 'jira') return item.label;
+  if (item.source === 'local') return [item.repos[0], WORK_SOURCES.local.label].filter(Boolean).join(' · ');
+  return item.target.repo === null || item.target.number === null ? item.label : `${item.target.repo}#${item.target.number}`;
+}
+
+/** The small circle a card's top line starts with: its lane's colour, gold while it waits on a decision, dashed for a draft. */
+function statusClass(item: WorkItem): string {
+  if (item.prs.length > 0 && item.prs.every(pr => pr.state === 'draft')) return 'is-draft';
+  return item.decision !== null && item.lane === 'progress' ? 'is-decision' : `is-${item.lane}`;
+}
+
+function WorkCard({ item, onOpen, onDecision }: { item: WorkItem; onOpen: (target: AgendaTargetDto) => void; onDecision: () => void }) {
+  const Source = SOURCE_ICONS[item.source];
+  const DecisionIcon = item.decision === null ? null : DECISION_ICONS[item.decision] ?? Hourglass;
   const { running } = item;
-  const [owner, repo] = item.repos[0]?.split('/') ?? [];
+  const label = cardLabel(item);
   return (
     <div role="listitem">
-      <Card compact className="mw-card" label={`${[source.label, item.label].filter(Boolean).join(' ')}: ${item.title}`} onOpen={() => openTarget(item.target)}>
+      <Card compact className="mw-card" label={`${label}: ${item.title}`} onOpen={() => onOpen(item.target)}>
         <div className="mw-card__head">
-          <span className={`mw-src is-${item.source}`} aria-hidden="true" />
-          {owner && <RepoAvatar owner={owner} repo={repo ?? ''} size={16} radius={4} />}
-          {item.label !== '' && <span className="mw-card__key">{item.label}</span>}
-          <span className="mw-card__source">{source.label}</span>
-          <span className="mw-spacer" />
-          {onToday && <span className="today-tag">Today</span>}
+          <span className={`mw-status ${statusClass(item)}`} aria-hidden="true" />
+          <Source size={13} className="mw-card__source" aria-label={WORK_SOURCES[item.source].label} />
+          <span className="mw-card__label" title={label}>{label}</span>
+          <CardActions><ExternalLink size={13} className="mw-card__open" aria-label="Open" /></CardActions>
           <CardAge at={item.updatedAt} />
         </div>
         <div className="mw-card__title" title={item.title}>{item.title}</div>
+        {item.prs.map(pr => <PrBox key={`${pr.repo}#${pr.number}`} pr={pr} onOpen={onOpen} />)}
+        {item.prs.length === 0 && item.ended !== null && <div className="mw-card__ended">{item.ended}</div>}
         {running !== null && (
-          <div className="mw-run">
-            <span className="mw-run__avatar" title={running.agent}><ProviderIcon id={running.laneId} size={11} /></span>
-            <span className="mw-run__text"><span className="mw-run__agent">{running.agent}</span> · {running.text}</span>
-            <span className="bq-spinner is-spinning"><LoaderCircle size={12} className="today-spin" aria-label="Running" /></span>
-            <time dateTime={running.since}>{relativeTime(running.since, { suffix: false })}</time>
+          <div className="mw-run" title={`${running.agent} · ${running.text}`}>
+            <LoaderCircle size={13} className="mw-run__spin" aria-label="Running" />
+            <span className="mw-run__text">{running.text} · {relativeTime(running.since, { suffix: false })}</span>
           </div>
         )}
-        {item.prs.length === 0 && (
-          <div className="mw-nopr">{item.ended
-            ?? [item.authored ? 'Opened by you' : 'No PR yet', item.branch, commits === 0 ? null : plural(commits, 'local commit')].filter(Boolean).join(' · ')}</div>
+        {DecisionIcon !== null && (
+          <div>
+            <button type="button" className="mw-mark" title="Open in Decision" onClick={event => { event.stopPropagation(); onDecision(); }}>
+              <DecisionIcon size={12} aria-hidden="true" />{item.decision}
+            </button>
+          </div>
         )}
-        {item.prs.length > 0 && <div className="mw-prs">{item.prs.map(pr => <PrLine key={`${pr.repo}#${pr.number}`} pr={pr} />)}</div>}
-        {item.next !== null && <div className="mw-next"><ArrowRight size={12} aria-hidden="true" /><span>{item.next}</span></div>}
+        {item.next !== null && (
+          <div className="mw-next">
+            <ArrowRight size={13} aria-hidden="true" />
+            <span className="mw-next__text">{item.next}</span>
+            {/* ponytail: opens where the step is done; a one-click Merge here needs the head commit on My work's rows to bind it to. */}
+            <CardActions>
+              <button type="button" className="mw-next__act" onClick={event => { event.stopPropagation(); onOpen(item.target); }}>Open</button>
+            </CardActions>
+          </div>
+        )}
       </Card>
     </div>
   );
 }
 
-function PrLine({ pr }: { pr: WorkPr }) {
+/** One pull request a card delivers through: its number, its reviewers and checks, and where it stands, in its colour. */
+function PrBox({ pr, onOpen }: { pr: WorkPr; onOpen: (target: AgendaTargetDto) => void }) {
   const status = workPrStatus(pr);
   const ci = pr.state === 'open' ? pr.row?.ciStatus ?? null : null;
+  const Icon = pr.state === 'draft' ? GitPullRequestDraft : GitPullRequest;
   return (
     <button type="button" className="mw-pr" title={pr.title}
-      onClick={event => { event.stopPropagation(); openTarget({ kind: 'PULL', repo: pr.repo, number: pr.number, workspaceId: null, id: null, connectionId: null, cloudId: null }); }}>
+      onClick={event => { event.stopPropagation(); onOpen({ kind: 'PULL', repo: pr.repo, number: pr.number, workspaceId: null, id: null, connectionId: null, cloudId: null }); }}>
       <span className="mw-pr__line">
-        <GitPullRequest size={13} className={`mw-pr__icon is-${pr.state}`} aria-hidden="true" />
-        <span className="mw-pr__name">{pr.repo.slice(pr.repo.indexOf('/') + 1)} #{pr.number}</span>
-        <span className="mw-spacer" />
-        {ci === 'PASSING' && <Check size={13} className="mw-ci is-passing" aria-label="CI passing" />}
-        {ci === 'FAILING' && <X size={13} className="mw-ci is-failing" aria-label="CI failing" />}
-        {ci === 'PENDING' && <Circle size={8} fill="currentColor" strokeWidth={0} className="mw-ci is-pending" aria-label="CI pending" />}
-        {/* ponytail: the list payload names only reviewers still requested, so every ring is pending; per-reviewer verdicts need review states on the row. */}
+        <Icon size={13} className="mw-pr__icon" aria-hidden="true" />
+        <span className="mw-pr__name">{pr.repo} #{pr.number}</span>
+        {/* ponytail: the list payload names only reviewers still requested; per-reviewer verdicts need review states on the row. */}
         {pr.state === 'open' && (pr.row?.requestedReviewers ?? []).map(login => (
-          <span key={login} className="mw-reviewer" title={`${login} · review pending`}><Avatar login={login} size={15} /></span>
+          <span key={login} className="mw-reviewer" title={`${login} · review pending`}><Avatar login={login} size={16} /></span>
         ))}
+        {ci === 'PASSING' && <Check size={13} className="mw-ci is-passing" aria-label="Checks passing" />}
+        {ci === 'FAILING' && <X size={13} className="mw-ci is-failing" aria-label="Checks failing" />}
       </span>
-      <span className={`mw-pr__state is-${status.tone}`}>{status.text}</span>
+      <span className={`mw-pr__state is-${pr.state === 'draft' ? 'draft' : status.tone}`}>{status.text}</span>
     </button>
   );
 }

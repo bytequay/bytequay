@@ -92,7 +92,7 @@ export function run(): { name: string; error?: string }[] {
       assert(!host.querySelector('.has-keywords') && input.value === draft && mirror.textContent === `${draft}\n`, 'Editing clears the highlight and keeps the actual draft');
 
       const longDraft = Array.from({ length: 30 }, (_, index) => `${index} @backport ${'long-word-'.repeat(12)}`).join('\n') + '\n';
-      for (const surface of ['', 'assistant-float', 'artifacts-host']) {
+      for (const surface of ['', 'assistant-head', 'artifacts-host']) {
         host.className = surface;
         for (const width of [280, 680]) {
           host.style.width = `${width}px`;

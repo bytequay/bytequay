@@ -19,7 +19,7 @@ import { pr } from '../pulls/fixtures/pullRequest';
 import { laneLabel } from '../settings/model';
 import type { JiraTaskSource } from '../jira/contracts';
 import type { AuthoredIssueDto, PullRequestDto } from '../types';
-import { issueAttentionItem, pullRequestItem, type AttentionItem } from './attention';
+import { QUESTION_TOOL, issueAttentionItem, pullRequestItem, type AttentionItem } from './attention';
 import { isOwnWork, myWorkItems, workPrStatus } from './work';
 
 const workspace = { id: 'ws1', name: 'Repository', repository: 'owner/repository' };
@@ -100,6 +100,22 @@ describe('My work', () => {
   it('moves linked local work when its PR receives feedback', () => {
     const task = { ...previewTask('ws1', 'task-1'), pullRequest: { number: 7, title: 'Change 7', state: 'open', draft: false } };
     expect(lanes([mine(7, { latestActivity: feedback() })], [task])).toEqual([['', 'needs', 'Respond to review feedback']]);
+  });
+
+  it('keeps a task that waits on a decision in its pull request’s lane, with a mark instead of a next step', () => {
+    const waiting = (id: string, number: number | null, scope: string[]) => {
+      const task = { ...previewTask('ws1', id), ...(number === null ? {} : { pullRequest: { number, title: `Change ${number}`, state: 'open', draft: false } }) };
+      const pendingApproval = { approvalId: `a-${id}`, occurredAt: '2026-08-15T00:00:00Z', title: 'Run', detail: 'mvn test', approvalKind: 'COMMAND', scope };
+      return { task, activity: { lastMessage: null, pendingApproval, latestTurn: null } };
+    };
+    const local = waiting('task-1', null, []);
+    const reviewed = waiting('task-2', 7, [QUESTION_TOOL]);
+    const items = myWorkItems({ candidates: [mine(7, { requestedReviewers: ['ana'] })], tasks: [local, reviewed].map(({ task }) => ({ task, workspace })),
+      activity: { 'task-1': local.activity, 'task-2': reviewed.activity }, work: [], viewerLogin: 'me' });
+    expect(items.map(item => [item.title, item.lane, item.decision, item.next]).sort()).toEqual([
+      [local.task.title, 'progress', 'Approval', null],
+      [reviewed.task.title, 'review', 'Question', null],
+    ].sort());
   });
 
   it('lists a ticket with the task and pull request delivering it once, and leaves others’ pull requests out', () => {

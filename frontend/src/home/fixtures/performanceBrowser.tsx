@@ -13,13 +13,10 @@
  */
 import { flushSync } from 'react-dom';
 import YearInCodeHeatmap from '../../YearInCodeHeatmap';
-import { previewTask } from '../../agents/fixtures/previewBridge';
 import { setCached } from '../../dataCache';
 import { assert, element, runScenarios, settle, until } from '../../fixtures/harness';
 import { createFixtureRoot } from '../../fixtures/reactFixture';
 import type { Bridge, ContributionCalendarDto, UserCommitDto } from '../../types';
-import MyWork from '../MyWork';
-import { myWorkItems, type WorkItem } from '../work';
 
 const date = '2026-10-20';
 const calendar: ContributionCalendarDto = { totalContributions: 2, weeks: [{ days: [
@@ -67,44 +64,8 @@ async function contributionRequests() {
   finally { dispose(); }
 }
 
-async function visibleCheckoutReads() {
-  window.localStorage.clear();
-  window.localStorage.setItem('bytequay.myWork.collapsed', 'true');
-  const calls: { workspace: string; tasks: string[] }[] = [];
-  window.bridge = { listAgentTaskChanges: async (workspace, tasks) => {
-    calls.push({ workspace, tasks }); return Object.fromEntries(tasks.map(id => [id, { commits: 2, uncommitted: false }]));
-  } } as Partial<Bridge> as Bridge;
-  const items = Array.from({ length: 6 }, (_, index): WorkItem => {
-    const task = previewTask('workspace', `task-${index}`);
-    const [item] = myWorkItems({ candidates: [], activity: {}, work: [], viewerLogin: null,
-      tasks: [{ task, workspace: { id: 'workspace', name: 'Workspace', repository: 'owner/repo' } }] });
-    return { ...item, key: task.id, source: index < 4 ? 'local' : 'issue', title: `Work ${index}`, updatedAt: date,
-      running: null, branch: task.generatedBranch, prs: [], lane: 'progress', next: null, keys: [] };
-  });
-  const { host, root, dispose } = createFixtureRoot();
-  const button = (text: string) => [...host.querySelectorAll('button')].find(value => value.textContent?.trim() === text);
-  try {
-    flushSync(() => root.render(<MyWork items={items} todayKeys={new Set()} />)); await settle();
-    assert(Number(calls.length) === 0, 'Collapsed My work never scans checkouts');
-    button('Expand')?.click();
-    await until(() => calls.length === 1, 'Expanding reads the visible lane');
-    assert(calls[0].tasks.join(',') === 'task-0,task-1,task-2', 'Hidden lane overflow is not scanned');
-    assert(host.textContent?.includes('2 local commits') === true, 'Visible cards receive their checkout counts');
-    button('Show 3 more')?.click();
-    await until(() => calls.length === 2, 'Showing more refreshes the expanded lane');
-    assert(calls[1].tasks.length === 6, 'Expanded rows are included');
-    button('Issues')?.click();
-    await until(() => calls.length === 3, 'Filtering changes the checkout read');
-    assert(calls[2].tasks.join(',') === 'task-4,task-5', 'Filtered-out tasks are not scanned');
-    button('Collapse')?.click(); await settle();
-    assert(calls.length === 3, 'Collapsing does not start another checkout read');
-  }
-  finally { dispose(); }
-}
-
 export async function run() {
   return runScenarios([
     ['loads and caches selected contribution days', contributionRequests],
-    ['scans only visible task checkouts', visibleCheckoutReads],
   ]);
 }

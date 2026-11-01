@@ -36,7 +36,7 @@ function work(extra: Partial<WorkItem>): WorkItem {
   return {
     key: extra.title ?? '', source: 'local', label: '', title: '', updatedAt: '2026-11-02T00:00:00Z',
     target: { kind: 'WORK', workspaceId: 'ws1', repo: null, number: null, id: 'w1', connectionId: null, cloudId: null },
-    task: null, running: null, branch: null, prs: [], lane: 'progress', next: null, keys: [], ended: null, repos: [], agents: [], ...extra,
+    task: null, running: null, branch: null, prs: [], lane: 'progress', next: null, decision: null, keys: [], ended: null, repos: [], agents: [], ...extra,
   };
 }
 

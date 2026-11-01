@@ -18,7 +18,7 @@ import type { AgendaTargetDto, AssistantItemDto, AssistantReceiptDto, AssistantR
 import { workspaceAgentTaskRoute, workspaceIssueRoute, workspacePullRequestRoute, workspaceReviewTaskRoute, workspaceRoute } from '../workspaces/model';
 import { settingsRoute } from '../settings/routes';
 import {
-  arrivedOpen, createdDrafts, dayLabel, linkRefs, localDay, pageRoute, refFromHref, refLabel, replyExcerpt, rowState, rowTitle, screenRef, stackOf, timelineDays,
+  arrivedOpen, createdDrafts, dayLabel, decisionOrder, linkRefs, localDay, pageRoute, refFromHref, refLabel, rowState, rowTitle, screenRef, soonestDeadline, timelineDays,
   waitingCards,
 } from './model';
 
@@ -82,10 +82,10 @@ describe('waitingCards', () => {
     expiresAt: null, pullRequestNumber: null, branch: null,
   });
 
-  it('puts what needs the user under Decision, finished turns under Finished and running tasks under Running, newest first', () => {
+  it('puts what waits on the user under Decision, finished and failed turns under Finished and running tasks under Running, newest first', () => {
     const cards = waitingCards([notice('approval:a', 'APPROVAL', 49), notice('done', 'TURN_FINISHED', 31), notice('failed', 'FAILURE', 58)],
       [task('t1', 'RUNNING', 50), task('t2', 'COMPLETED', 59)]);
-    expect(cards.map(card => [card.key, card.group])).toEqual([['failed', 'decision'], ['running:t1', 'running'], ['approval:a', 'decision'], ['done', 'finished']]);
+    expect(cards.map(card => [card.key, card.group])).toEqual([['failed', 'finished'], ['running:t1', 'running'], ['approval:a', 'decision'], ['done', 'finished']]);
   });
 
   it('keeps only the newest card for a task or a reviewed pull request, but never hides another task’s question', () => {
@@ -99,12 +99,18 @@ describe('waitingCards', () => {
   });
 });
 
-describe('stackOf', () => {
-  it('shows the top card and at most two behind it, wrapping round', () => {
-    expect(stackOf(['a', 'b', 'c', 'd'], 0)).toEqual(['a', 'b', 'c']);
-    expect(stackOf(['a', 'b', 'c', 'd'], 3)).toEqual(['d', 'a', 'b']);
-    expect(stackOf(['a', 'b'], 1)).toEqual(['b', 'a']);
-    expect(stackOf([], 0)).toEqual([]);
+describe('decisionOrder', () => {
+  const notice = (id: string, minute: number, expiresAt?: string): AppNotice => ({
+    id, kind: 'APPROVAL', taskId: id, workspaceId: 'ws', turnId: null, reviewId: null, title: id, pullRequest: null, pullRequestTitle: null, changes: null,
+    message: '', repository: 'owner/repository', laneId: 'claude', occurredAt: `2026-10-17T09:${String(minute).padStart(2, '0')}:00Z`,
+    ...(expiresAt === undefined ? {} : { expiresAt }),
+  });
+
+  it('puts the decision that expires soonest first, then the longest waiting, and names when the first one ends', () => {
+    const cards = waitingCards([notice('later', 30, '2026-10-17T09:36:00Z'), notice('sooner', 31, '2026-10-17T09:34:00Z'), notice('open', 10), notice('newer', 20)], []);
+    expect(decisionOrder(cards).map(card => card.key)).toEqual(['sooner', 'later', 'open', 'newer']);
+    expect(soonestDeadline(cards)).toBe('2026-10-17T09:34:00Z');
+    expect(soonestDeadline(waitingCards([notice('open', 10)], []))).toBeNull();
   });
 });
 
@@ -194,14 +200,5 @@ describe('createdDrafts', () => {
       receipt: { operation, outcome: 'DONE', detail: null, target: work === null ? null : { ...target, kind: 'WORK', id: work }, page: null, turnId: null, fix: null, words: null },
     });
     expect([...createdDrafts([receipt('c1', 'CREATE_EPIC', 'w1'), receipt('c2', 'CREATE_WORK_ITEM', 'w2'), receipt('c3', 'CREATE_EPIC', null)])]).toEqual(['w1']);
-  });
-});
-
-describe('replyExcerpt', () => {
-  it('quotes a reply on one line, cut at 50 words', () => {
-    expect(replyExcerpt('  Fixed the\n\nrounding   bug. ')).toBe('Fixed the rounding bug.');
-    const long = Array.from({ length: 60 }, (_, index) => `w${index}`).join(' ');
-    expect(replyExcerpt(long)).toBe(`${Array.from({ length: 50 }, (_, index) => `w${index}`).join(' ')}…`);
-    expect(replyExcerpt(long.split(' ').slice(0, 50).join(' '))).not.toContain('…');
   });
 });

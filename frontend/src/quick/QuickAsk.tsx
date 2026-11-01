@@ -80,6 +80,6 @@ export default function QuickAsk({ bridge = window.quickAskBridge }: { bridge?: 
   }, [bridge]);
 
   return <div className="quick-ask" ref={root}>
-    <AssistantPanel open={open} chatEnabled={enabled} notices={notices} openCard={null} onScreen={null} onClose={bridge.close} />
+    <AssistantPanel open={open} chatEnabled={enabled} notices={notices} request={null} onScreen={null} onClose={bridge.close} />
   </div>;
 }

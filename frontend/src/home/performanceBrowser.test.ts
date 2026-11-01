@@ -14,10 +14,10 @@
 import { expect, it } from 'vitest';
 import { deadline, runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
 
-it('limits Home checkout reads to visible cards and resolves contribution popovers without duplicate reads', async () => {
+it('resolves contribution popovers without duplicate reads', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({
     prefix: 'bytequay-home-performance-', entry: 'src/home/fixtures/performanceBrowser.tsx', global: 'HomePerformanceTests',
   });
-  expect(results).toHaveLength(2);
+  expect(results).toHaveLength(1);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
 }, deadline(30_000));

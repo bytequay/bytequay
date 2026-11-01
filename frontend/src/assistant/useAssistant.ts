@@ -27,6 +27,8 @@ export type Assistant = {
   /** Why the last thing the user asked for failed; background reads stay quiet. */
   error: string | null;
   sending: boolean;
+  /** A reply is being written, in this conversation or another; the one reply slot takes no new message until it ends. */
+  busy: boolean;
   /** Resolves whether the message was taken, so the composer keeps a draft that was not. */
   send: (text: string, visible: string[], onScreen: string | null) => Promise<boolean>;
   stop: () => void;
@@ -105,6 +107,7 @@ export function useAssistant(open: boolean, conversation: string): Assistant {
 
   // What was read for the conversation before a switch stays off screen until the new one arrives.
   return {
-    view: view?.id === conversation ? view : null, conversations, error: error?.conversation === conversation ? error.message : null, sending, send, stop, retry, refresh,
+    view: view?.id === conversation ? view : null, conversations, error: error?.conversation === conversation ? error.message : null, sending, busy: running, send, stop,
+    retry, refresh,
   };
 }

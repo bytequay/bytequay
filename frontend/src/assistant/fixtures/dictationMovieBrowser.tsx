@@ -119,6 +119,9 @@ window.bridge = new Proxy({
   getBackportChains: async () => [],
   listRunningTasks: async () => [],
   readAgentPendingApprovals: async () => [],
+  // My work in the Assistant lists the watched repositories and what asks for attention; the movie has none.
+  listWorkspaces: async () => [],
+  fetchAttentionPrs: async () => [],
 }, {
   // The sidebar and task page read more than the movie needs; the rest answers empty.
   get: (target, name: string) => (target as Record<string, unknown>)[name] ?? (name.startsWith('on') ? () => () => {} : async () => null),
@@ -143,7 +146,7 @@ function render() {
           </main>
         </div>
       </div>
-      <AssistantPanel open={open} notices={[]} openCard={null} onScreen={null} onClose={() => { open = false; render(); }} />
+      <AssistantPanel open={open} notices={[]} request={null} onScreen={null} onClose={() => { open = false; render(); }} />
       {pointer && <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"
         style={{ position: 'fixed', left: pointer.x, top: pointer.y, zIndex: 99999, pointerEvents: 'none', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,.5))' }}>
         <path d="M3 2l14 9-6.5 1.3L7 19z" fill="white" stroke="black" strokeWidth="1.2" strokeLinejoin="round" />

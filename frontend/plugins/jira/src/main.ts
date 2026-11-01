@@ -65,10 +65,10 @@ export function registerJiraIpc({ ipc, backend }: JiraMainHost): void {
     backend(`${jiraIssuePath(location)}/transitions`, jsonInit('POST', { transitionId, fields, expectedUpdatedAt })));
   ipc.handle('jira:issue:sprint', (_event, location: JiraLocation, sprintId: number | null, boardId: number, expectedUpdatedAt: string) =>
     backend(`${jiraIssuePath(location)}/sprint`, jsonInit('POST', { sprintId, boardId, expectedUpdatedAt })));
-  ipc.handle('jira:issue:comment', (_event, location: JiraLocation, body: string, operationId: string, parentId?: string) =>
-    backend(`${jiraIssuePath(location)}/comments`, jsonInit('POST', { body, operationId, parentId: parentId ?? null })));
-  ipc.handle('jira:comment:edit', (_event, location: JiraLocation, commentId: string, body: string, expectedUpdated: string) =>
-    backend(`${jiraIssuePath(location)}/comments/${encodeURIComponent(commentId)}`, jsonInit('PUT', { body, expectedUpdated })));
+  ipc.handle('jira:issue:comment', (_event, location: JiraLocation, body: string, operationId: string, parentId: string | undefined, mentions: Record<string, string>) =>
+    backend(`${jiraIssuePath(location)}/comments`, jsonInit('POST', { body, mentions, operationId, parentId: parentId ?? null })));
+  ipc.handle('jira:comment:edit', (_event, location: JiraLocation, commentId: string, body: string, expectedUpdated: string, mentions: Record<string, string>) =>
+    backend(`${jiraIssuePath(location)}/comments/${encodeURIComponent(commentId)}`, jsonInit('PUT', { body, mentions, expectedUpdated })));
   ipc.handle('jira:issue:epic', (_event, location: JiraLocation, isEpic: boolean) =>
     backend(`${jiraIssuePath(location)}/epic`, jsonInit('PUT', { isEpic })));
   ipc.handle('jira:issue:workspace', (_event, location: JiraLocation, workspaceId: string) =>

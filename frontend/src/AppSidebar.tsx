@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import UsageMeter from './usage/UsageMeter';
 import { JiraIcon } from '@bytequay/jira/renderer';
-import RepoAvatar from './RepoAvatar';
+import RepoAvatar, { HostMark, shortWorkspaceName } from './RepoAvatar';
 import type { PullRequestDto, WorkspaceDto } from './types';
 import { PullRequestStateIcon } from './pulls/PullRequestStateIcon';
 import { useResizablePane } from './useResizablePane';
@@ -380,8 +380,9 @@ export default function AppSidebar({
             title={workspace.localRepositoryPath}
             onClick={() => onWorkspaceTab('home')}
           >
+            <HostMark className="app-sidebar__label" gitlab={workspace.hostingServer.provider === 'GITLAB'} />
             <RepoAvatar github={workspace.hostingServer.provider !== 'GITLAB'} owner={workspace.monitoredOwner} repo={workspace.monitoredRepo} size={18} />
-            <span className="app-sidebar__ws-name app-sidebar__label" title={workspace.name}>{workspace.name}</span>
+            <span className="app-sidebar__ws-name app-sidebar__label" title={workspace.name}>{shortWorkspaceName(workspace.name)}</span>
           </button>
           <nav className="app-sidebar__nav" aria-label="Workspace navigation">
             {WORKSPACE_TABS.map(workspaceItem)}

@@ -87,7 +87,7 @@ import DevelopmentLearningPanel from './DevelopmentLearningPanel';
 import { IssueAttachment } from './IssueAttachment';
 import { LinkedWorkCard, LinkedWorkRequest, useLinkedWorkspaceWork } from './LinkedWorkspaceWork';
 import ProviderSignInDialog from './ProviderSignInDialog';
-import type { ReviewCardFocus, ReviewRequestTarget } from './ReviewRequestCard';
+import type { ReviewCardFocus, ReviewRequestTarget } from './InstructionCard';
 import SubagentsPanel from './SubagentsPanel';
 import TaskPaneDivider, { useTaskPane } from './TaskPaneDivider';
 import TaskHeader from './TaskHeader';

@@ -422,7 +422,10 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       let concurrent = 0;
       let maximum = 0;
       let exposed = false;
-      const observer = new MutationObserver(() => { exposed ||= host.textContent?.includes('Internal generated review prompt') === true; });
+      // The sent prompt belongs only in its card's folded prompt panel, never as a plain message.
+      const observer = new MutationObserver(() => {
+        exposed ||= [...host.querySelectorAll('.agt-user__bubble')].some(bubble => bubble.textContent?.includes('Internal generated review prompt'));
+      });
       observer.observe(host, { childList: true, subtree: true, characterData: true });
       try {
         await mount(completed, () => saved, async () => saved, {
@@ -451,10 +454,11 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
         assert(reads === initialReads + 1 && concurrent === 1, 'Stream notifications must share one pending review read');
         saved = { ...completed, messages: [question] };
         release();
-        for (let attempt = 0; attempt < 30 && !host.textContent?.includes(question.body); attempt++) await settle();
-        const card = host.querySelector('[data-history-anchor="question-turn"] .agt-review-request');
-        assert(card?.textContent?.includes(question.body) === true, 'Show the complete compact card without waiting for turn details');
-        assert(maximum === 1 && !exposed, 'Review reads must stay sequential and the raw prompt must never reach the DOM');
+        const card = () => host.querySelector('[data-history-anchor="question-turn"] .agt-instruction');
+        for (let attempt = 0; attempt < 30 && card() === null; attempt++) await settle();
+        assert(card()?.textContent?.includes('Ask about review') === true && card()?.querySelector('.agt-instruction__prompt > pre')?.textContent === prompt,
+          'Show the compact card over its prompt without waiting for turn details');
+        assert(maximum === 1 && !exposed, 'Review reads must stay sequential and the raw prompt must never show as a message');
       }
       finally { release(); releaseTurn(); observer.disconnect(); }
     });

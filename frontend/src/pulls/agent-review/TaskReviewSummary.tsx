@@ -14,7 +14,7 @@
 import { shortSha } from '@bytequay/ui/displayText';
 import { useCallback, useEffect, useState } from 'react';
 import { Eye } from 'lucide-react';
-import type { ReviewCardFocus } from '../../agents/ReviewRequestCard';
+import type { ReviewCardFocus } from '../../agents/InstructionCard';
 import type { AgentTaskDto } from '../../types';
 import { workspaceReviewTaskRoute } from '../../workspaces/model';
 import { remoteErrorMessage } from '../../remoteError';

@@ -13,7 +13,7 @@
  */
 import type { Bridge } from '../types';
 import { alreadySent } from './contracts';
-import type { ReviewRequest } from './ReviewRequestCard';
+import type { ReviewRequest } from './InstructionCard';
 
 type FixBridge = Pick<Bridge, 'getAgentTask' | 'startAgentTurn' | 'queueAgentInput'>;
 
@@ -72,6 +72,5 @@ export function commentFixPrompt(comment: FixableComment): string {
 export function commentFixRequest(message: string): ReviewRequest | null {
   const header = /^# Review comment fix request\n\nAuthor: ([^\n]+)\nLocation: ([^\n]+)\nLink: ([^\n]+)\n\n/.exec(message);
   if (header === null || !message.startsWith(commentFixInstructions, header[0].length)) return null;
-  const body = message.slice(header[0].length + commentFixInstructions.length).replace(/^> ?/gm, '');
-  return { action: 'Fix comment', topic: `${header[1]} · ${header[2]}`, body, detail: header[3] };
+  return { action: 'Fix comment', topic: `${header[1]} · ${header[2]}` };
 }

@@ -112,6 +112,30 @@ class TestJiraMapping
     }
 
     @Test
+    void postsBareWebAddressesAsSmartLinksThatStayEditable()
+            throws Exception
+    {
+        JsonNode body = mapper.valueToTree(JiraMapping.document("See https://example.com/owner/repo/pull/7. Not ftp://example.com or https://"));
+        assertThat(body).isEqualTo(mapper.readTree("""
+                {"version":1,"type":"doc","content":[{"type":"paragraph","content":[
+                  {"type":"text","text":"See "},
+                  {"type":"inlineCard","attrs":{"url":"https://example.com/owner/repo/pull/7"}},
+                  {"type":"text","text":". Not ftp://example.com or https://"}]}]}
+                """));
+
+        ObjectNode comment = (ObjectNode) mapper.readTree("""
+                {"id":"5","author":{"accountId":"me"},"body":{"type":"doc","version":1,"content":[{"type":"paragraph","content":[
+                  {"type":"inlineCard","attrs":{"url":"https://example.com/owner/repo/pull/7"}},{"type":"text","text":" fixes it"}]}]}}
+                """);
+        assertThat(JiraMapping.editableText(comment)).contains("https://example.com/owner/repo/pull/7 fixes it");
+        JsonNode saved = mapper.valueToTree(JiraMapping.document(JiraMapping.editableText(comment).orElseThrow()));
+        assertThat(saved).isEqualTo(comment.path("body"));
+        // Saving "…/pull/7fixes" back would grow the link, so that comment is edited in Jira.
+        ((ObjectNode) comment.at("/body/content/0/content/1")).put("text", "fixes it");
+        assertThat(JiraMapping.editableText(comment)).isEmpty();
+    }
+
+    @Test
     void keepsWhitespaceOutsideEmphasisMarkers()
             throws Exception
     {

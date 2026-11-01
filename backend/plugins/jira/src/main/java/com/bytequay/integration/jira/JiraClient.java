@@ -57,9 +57,9 @@ public interface JiraClient
 
     JiraDtos.Detail move(String connectionId, String cloudId, String issueId, Instant expected, Optional<Long> sprintId);
 
-    JiraDtos.Detail comment(String connectionId, String cloudId, String issueId, String body, String operationId, Optional<String> parentId);
+    JiraDtos.Detail comment(String connectionId, String cloudId, String issueId, String body, Map<String, String> mentions, String operationId, Optional<String> parentId);
 
-    JiraDtos.Detail editComment(String connectionId, String cloudId, String issueId, String commentId, String body, String expectedUpdated);
+    JiraDtos.Detail editComment(String connectionId, String cloudId, String issueId, String commentId, String body, Map<String, String> mentions, String expectedUpdated);
 
     List<JiraIssue> cachedIssues();
 

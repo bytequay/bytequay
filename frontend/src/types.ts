@@ -463,6 +463,21 @@ export type AgentIssueSourceDto = IssueTaskSourceRequest & {
 };
 
 /** An open issue the viewer opened, in any repository. */
+/** Something the viewer finished, as Home's Done section lists it; repo and number go together. */
+export type DoneItemDto = {
+  kind: 'MERGED' | 'MERGED_BY_YOU' | 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEWED' | 'ISSUE_CLOSED' | 'TASK_DONE' | 'WORK_DONE';
+  title: string;
+  repo: string | null;
+  number: number | null;
+  workspaceId: string | null;
+  /** The task or work item id. */
+  id: string | null;
+  at: string;
+};
+
+/** Newest first; complete is false when part of GitHub could not be read. */
+export type DoneActivityDto = { items: DoneItemDto[]; complete: boolean };
+
 export type AuthoredIssueDto = {
   repo: string;
   number: number;
@@ -1691,6 +1706,8 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   findStoredPullRequest: (repo: string, number: number, route?: PullRequestRoute) => Promise<PullRequestDto | null>;
   /** Open issues the viewer opened anywhere on GitHub and that changed in the last thirty days. */
   fetchAuthoredIssues: () => Promise<AuthoredIssueDto[]>;
+  /** What the viewer finished between two local days, inclusive, as yyyy-MM-dd. */
+  fetchDone: (from: string, to: string) => Promise<DoneActivityDto>;
   lookupPullRequest: (repo: string, number: number, route?: PullRequestRoute) => Promise<PullRequestDto>;
   /** The description a detail read cached, without reaching the provider or marking the PR viewed; null until one did. */
   findStoredPullRequestDescription: (repo: string, number: number, route?: PullRequestRoute) => Promise<{ body: string | null }>;

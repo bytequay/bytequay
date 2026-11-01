@@ -20,7 +20,7 @@ import { revealPassage } from '../../agents/discussions/DiscussableAnswer';
 import { useTaskDiscussions } from '../../agents/discussions/useTaskDiscussions';
 import { reviewThreadBridge } from '../PrivateThread';
 import SubagentsPanel from '../../agents/SubagentsPanel';
-import type { ReviewRequestTarget } from '../../agents/ReviewRequestCard';
+import type { ReviewRequestTarget } from '../../agents/InstructionCard';
 import { AgentConversation, ConversationComposer, ConversationQueue, PlanCard, useConversationHistory, type ApprovalDecider, type ConversationHistory, type ConversationQueuedInput } from '../../agents/AgentConversation';
 import { currentPlan, projectAgents, projectTranscript, withApprovalAuthority } from '../../agents/transcript';
 import type { AgentEventEnvelope } from '../../agents/events';

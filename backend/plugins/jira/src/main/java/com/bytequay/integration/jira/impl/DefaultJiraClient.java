@@ -479,9 +479,10 @@ public class DefaultJiraClient
     }
 
     @Override
-    public JiraDtos.Detail comment(String connectionId, String cloudId, String issueId, String body, String operationId, Optional<String> parentId)
+    public JiraDtos.Detail comment(String connectionId, String cloudId, String issueId, String body, Map<String, String> mentions, String operationId, Optional<String> parentId)
     {
         checkArgument(body != null && !body.isBlank() && body.length() <= 32000, "Comment must contain 1–32000 characters");
+        checkMentions(mentions);
         checkArgument(operationId != null && operationId.matches("[A-Za-z0-9_-]{16,128}"), "Invalid comment operation id");
         checkArgument(parentId.map(id -> id.matches("[0-9]+")).orElse(true), "Invalid parent comment id");
         return JiraIssueLocks.withLock(cloudId, issueId, () -> {
@@ -499,7 +500,7 @@ public class DefaultJiraClient
             connections.site(connectionId, cloudId);
             // Persist before sending: a timeout or process exit must never cause an automatic duplicate comment.
             cache.write(key, new CommentAttempt(body, false));
-            ImmutableMap.Builder<String, Object> request = ImmutableMap.<String, Object>builder().put("body", JiraMapping.document(body));
+            ImmutableMap.Builder<String, Object> request = ImmutableMap.<String, Object>builder().put("body", JiraMapping.document(body, mentions));
             // Jira's published schema has no reply field; its own replies carry the parentId it returns on reads.
             parentId.ifPresent(id -> request.put("parentId", id));
             JsonNode created;
@@ -528,9 +529,10 @@ public class DefaultJiraClient
     }
 
     @Override
-    public JiraDtos.Detail editComment(String connectionId, String cloudId, String issueId, String commentId, String body, String expectedUpdated)
+    public JiraDtos.Detail editComment(String connectionId, String cloudId, String issueId, String commentId, String body, Map<String, String> mentions, String expectedUpdated)
     {
         checkArgument(body != null && !body.isBlank() && body.length() <= 32000, "Comment must contain 1–32000 characters");
+        checkMentions(mentions);
         checkArgument(commentId != null && commentId.matches("[0-9]+"), "Invalid comment id");
         checkArgument(expectedUpdated != null, "expectedUpdated is required");
         return JiraIssueLocks.withLock(cloudId, issueId, () -> {
@@ -545,11 +547,18 @@ public class DefaultJiraClient
             if (JiraMapping.editableText(current).isEmpty()) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "This comment has formatting ByteQuay cannot edit. Edit it in Jira.");
             }
-            write(connectionId, cloudId, path, "PUT", ImmutableMap.of("body", JiraMapping.document(body, JiraMapping.mentions(current))));
+            write(connectionId, cloudId, path, "PUT", ImmutableMap.of("body",
+                    JiraMapping.document(body, ImmutableMap.<String, String>builder().putAll(JiraMapping.mentions(current)).putAll(mentions).buildKeepingLast())));
             JiraDtos.Detail detail = afterWrite(connectionId, cloudId, issueId, RecentReason.COMMENTED);
             context.wroteOnJira(detail.issue(), commentId, body);
             return detail;
         });
+    }
+
+    /** People picked in the composer, as their `@Name` text and Jira account id. */
+    private static void checkMentions(Map<String, String> mentions)
+    {
+        mentions.forEach((name, accountId) -> checkArgument(name.matches("@[^\\r\\n]{1,255}") && accountId.matches("[A-Za-z0-9:_-]{1,128}"), "Invalid mention"));
     }
 
     /** Read ticket snapshots directly: a board refresh or the saved-scope limit must not hide assigned work. */

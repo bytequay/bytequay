@@ -19,7 +19,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type Componen
 import { findConversationReview, followAgentReview } from '../agents/agentConversations';
 import { useTaskCardState } from '../agents/attention';
 import DevelopmentLearningPanel from '../agents/DevelopmentLearningPanel';
-import type { ReviewCardFocus } from '../agents/ReviewRequestCard';
+import type { ReviewCardFocus } from '../agents/InstructionCard';
 import TaskPaneDivider, { useTaskPane } from '../agents/TaskPaneDivider';
 import TaskHeader from '../agents/TaskHeader';
 import { ConfirmDialog } from '../ConfirmDialog';

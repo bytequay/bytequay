@@ -1877,6 +1877,32 @@ class TestAgentReviewService
     }
 
     @Test
+    void aQueuedQuestionThatStartsBetweenStepsDelaysTheNextStep()
+    {
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        ReviewRun run = fixture.store.listRuns(reviewId).getLast();
+        fixture.store.updateRun(sealInvestigation(run.withSummary(summary(), NOW).withInvestigation(investigation(), NOW)));
+        when(fixture.turns.get(TURN_ONE)).thenReturn(settledTurn(TURN_ONE, TurnState.COMPLETED, Optional.empty()));
+        TurnId question = TurnId.random();
+        when(fixture.turnStore.findActive(TASK_ID)).thenReturn(Optional.of(AgentTurn.accepted(question, TASK_ID, "ask", SETTINGS, NOW)));
+        doThrow(new AgentConflictException("Task already has an active turn: " + question)).doAnswer(invocation -> fixture.acceptTurn(invocation.getArgument(0)))
+                .when(fixture.turns).start(any(StartAgentTurnCommand.class));
+
+        fixture.service.reconcile(reviewId);
+
+        ReviewRun waiting = fixture.store.findRun(run.id()).orElseThrow();
+        assertThat(waiting.state()).isEqualTo(ReviewRun.State.RUNNING);
+        assertThat(waiting.currentStep().map(ReviewStep::kind)).contains(ReviewStep.Kind.VALIDATE);
+        assertThat(waiting.turnIds()).containsExactly(TURN_ONE.toString());
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().followUpPaused()).isFalse();
+
+        when(fixture.turnStore.findActive(TASK_ID)).thenReturn(Optional.empty());
+        fixture.service.reconcile(reviewId);
+
+        assertThat(fixture.store.findRun(run.id()).orElseThrow().turnIds()).containsExactly(TURN_ONE.toString(), TURN_TWO.toString());
+    }
+
+    @Test
     void aPersistedValidationAssignmentDispatchesExactlyOnce()
     {
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();

@@ -244,14 +244,14 @@ public class JiraService
         return client.move(connectionId, cloudId, issueId, expected, sprintId);
     }
 
-    public JiraDtos.Detail comment(String connectionId, String cloudId, String issueId, String body, String operationId, Optional<String> parentId)
+    public JiraDtos.Detail comment(String connectionId, String cloudId, String issueId, String body, Map<String, String> mentions, String operationId, Optional<String> parentId)
     {
-        return client.comment(connectionId, cloudId, issueId, body, operationId, parentId);
+        return client.comment(connectionId, cloudId, issueId, body, mentions, operationId, parentId);
     }
 
-    public JiraDtos.Detail editComment(String connectionId, String cloudId, String issueId, String commentId, String body, String expectedUpdated)
+    public JiraDtos.Detail editComment(String connectionId, String cloudId, String issueId, String commentId, String body, Map<String, String> mentions, String expectedUpdated)
     {
-        return client.editComment(connectionId, cloudId, issueId, commentId, body, expectedUpdated);
+        return client.editComment(connectionId, cloudId, issueId, commentId, body, mentions, expectedUpdated);
     }
 
     public List<JiraIssue> cachedIssues()

@@ -79,7 +79,7 @@ it('discloses complete review requests with keyboard and pointer without overflo
   expect(results.every(result => result.open)).toBe(true);
 }, deadline(30_000));
 
-it('keeps development follow-ups compact with their authorization scope and no sent prompt', async () => {
+it('folds development follow-ups to one row over their sent prompt', async () => {
   const results = await fixture.run<{ width: number; kind: string; snapshot: boolean; existing: boolean }[]>({
     body: `
       const results = [];
@@ -100,7 +100,7 @@ it('keeps development follow-ups compact with their authorization scope and no s
     [false, true].flatMap(snapshot => (kind === 'CREATE_DRAFT_PR' ? [false, true] : [false]).map(existing => ({ width, kind, snapshot, existing }))))));
 }, deadline(30_000));
 
-it('keeps current and historical review prompts out of the request card', async () => {
+it('folds current and historical review prompts behind the request row', async () => {
   const results = await fixture.run<{ width: number; snapshot: boolean }[]>({
     body: `
       const results = [];
@@ -116,7 +116,7 @@ it('keeps current and historical review prompts out of the request card', async 
   expect(results).toEqual([760, 320].flatMap(width => [false, true].map(snapshot => ({ width, snapshot }))));
 }, deadline(30_000));
 
-it('keeps current and historical CI requests compact without the sent prompt while preserving user steering', async () => {
+it('folds current and historical CI requests over their sent prompt while preserving user steering', async () => {
   const results = await fixture.run<{ width: number; snapshot: boolean }[]>({
     body: `
       const results = [];
@@ -132,7 +132,7 @@ it('keeps current and historical CI requests compact without the sent prompt whi
   expect(results).toEqual([760, 320].flatMap(width => [false, true].map(snapshot => ({ width, snapshot }))));
 }, deadline(30_000));
 
-it('keeps private code and learning discussions compact without their sent prompts', async () => {
+it('folds private code and learning discussions over their thread and sent prompt', async () => {
   const results = await fixture.run<{ width: number; learning: boolean; snapshot: boolean }[]>({
     body: `
       const results = [];

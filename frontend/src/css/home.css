@@ -1208,3 +1208,5 @@
 /* ── Inbox ──────────────────────────────────────────────────────────
    App notifications merged with attention-worthy PR rows. Expandable
    cards; icon tile color keys the row flavour (V3 semantic hues). */
+
+.host-mark { flex: none; color: var(--text-2); }

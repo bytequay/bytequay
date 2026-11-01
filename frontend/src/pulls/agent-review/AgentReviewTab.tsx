@@ -17,7 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, typ
 import { flushSync } from 'react-dom';
 import AddRepoModal from '../../AddRepoModal';
 import { ConfirmDialog } from '../../ConfirmDialog';
-import type { ReviewCardFocus, ReviewRequestTarget } from '../../agents/ReviewRequestCard';
+import type { ReviewCardFocus, ReviewRequestTarget } from '../../agents/InstructionCard';
 import {
   agentTaskReducer,
   createDraftSubmissionTracker,

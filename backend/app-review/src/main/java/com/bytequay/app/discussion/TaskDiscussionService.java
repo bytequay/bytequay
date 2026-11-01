@@ -292,7 +292,6 @@ public class TaskDiscussionService
      *         task does not own the pull request, the task is already answering, its history is too long
      *         to ask about, or it holds {@link #MAXIMUM_COMMENT_THREADS_PER_TASK} threads
      * @throws IllegalArgumentException when the key is not in that pull request's cached detail
-     * @throws com.bytequay.agent.spi.AgentUnavailableException when the task has no answered turn yet
      */
     public TaskDiscussionView askComment(AskCommentCommand command)
     {
@@ -572,7 +571,9 @@ public class TaskDiscussionService
     /**
      * Renders the task's conversation as the starting context a discussion inherits: through
      * {@code upTo}, the completed turn a passage discussion quotes, or through the latest root final
-     * answer when empty. That answer is the last thing in it.
+     * answer when empty. That answer is the last thing in it. A comment thread needs no earlier
+     * answer, since it is about the comment and the code: a task assigned an existing pull request
+     * starts with none, and its history is then empty.
      *
      * <p>Only the reader's messages and the root thread's final answers are kept. Streaming deltas,
      * tool calls, tool output, plans and activity are excluded: they are the overwhelming majority of
@@ -583,14 +584,14 @@ public class TaskDiscussionService
      * deleted after its retention period while the thread outlives it. A comment thread renders it again
      * for every run without a session, which asking allows only while the worktree, and so the log, lives.
      *
-     * @throws AgentUnavailableException when that turn, or the task, has no recorded final answer, which
-     *         is the only honest response to a premise this task's history cannot support
+     * @throws AgentUnavailableException when that turn has no recorded final answer, which is the only
+     *         honest response to a premise this task's history cannot support
      */
     private Seeded seed(TaskId taskId, Optional<TurnId> upTo)
     {
         StringBuilder seed = new StringBuilder("--- conversation so far ---\n");
-        int latestLength = 0;
-        String latestAnswer = null;
+        int latestLength = seed.length();
+        String latestAnswer = "";
         long afterSequence = 0;
         while (true) {
             List<AgentEventEnvelope> page = logStore.readAfter(taskId, afterSequence, EVENT_PAGE_SIZE);
@@ -620,9 +621,6 @@ public class TaskDiscussionService
         }
         if (upTo.isPresent()) {
             throw new AgentUnavailableException("That turn has no recorded answer to discuss");
-        }
-        if (latestAnswer == null) {
-            throw new AgentUnavailableException("Waiting for the agent's first answer");
         }
         seed.setLength(latestLength);
         return new Seeded(seed.toString().stripTrailing(), latestAnswer);

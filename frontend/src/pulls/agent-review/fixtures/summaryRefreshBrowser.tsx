@@ -15,7 +15,7 @@ import { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createFixtureRoot } from '../../../fixtures/reactFixture';
 import type { Bridge } from '../../../types';
-import type { ReviewCardFocus } from '../../../agents/ReviewRequestCard';
+import type { ReviewCardFocus } from '../../../agents/InstructionCard';
 import { element as fixtureElement, assert, changeInput, settle } from '../../../fixtures/harness';
 import AgentReviewTab from '../AgentReviewTab';
 import type { AgentReviewDto } from '../contracts';

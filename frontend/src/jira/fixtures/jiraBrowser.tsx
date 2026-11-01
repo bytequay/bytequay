@@ -129,7 +129,7 @@ export async function mountPreview(offline = false, openIssue = true, body = jir
     setJiraEpic: async (_location, isEpic) => { record('epic', isEpic); assert(!isEpic || issue.workspace !== null, 'Epic requires a saved workspace'); issue = { ...issue, isEpic }; return { ...detail, issue }; },
     updateJiraIssue: async (_location, fields, expectedUpdatedAt) => { record('fields', fields, expectedUpdatedAt); issue = { ...issue, labels: fields.labels as string[] }; return { ...detail, issue }; },
     transitionJiraIssue: async (_location, id, fields, expectedUpdatedAt) => { record('transition', id, fields, expectedUpdatedAt); const transition = detail.transitions.find(value => value.id === id); assert(transition !== undefined, 'Known transition required'); issue = { ...issue, status: transition.to }; return { ...detail, issue }; },
-    commentJiraIssue: async (_location, body, operationId, parentId) => { record('comment', body, operationId, parentId); if (commentFails) { commentFails = false; throw new Error('Connection lost; draft retained'); } detail = { ...detail, comments: [...detail.comments, { id: `posted-${detail.comments.length}`, parentId: parentId ?? null, body, author: { accountId: 'me', displayName: 'Alex Chen', avatarUrl: null }, created: issue.updatedAt, updated: issue.updatedAt, mine: true, editableText: body }] }; return { ...detail, issue }; },
+    commentJiraIssue: async (_location, body, operationId, parentId, mentions) => { record('comment', body, operationId, parentId, mentions); if (commentFails) { commentFails = false; throw new Error('Connection lost; draft retained'); } detail = { ...detail, comments: [...detail.comments, { id: `posted-${detail.comments.length}`, parentId: parentId ?? null, body, author: { accountId: 'me', displayName: 'Alex Chen', avatarUrl: null }, created: issue.updatedAt, updated: issue.updatedAt, mine: true, editableText: body }] }; return { ...detail, issue }; },
     editJiraComment: async (_location, commentId, body, expectedUpdated) => { record('edit', commentId, body, expectedUpdated); detail = { ...detail, comments: detail.comments.map(value => value.id === commentId ? { ...value, body, editableText: body, updated: issue.updatedAt } : value) }; return { ...detail, issue }; },
     moveJiraIssue: async (_location, sprintId, boardId, expectedUpdatedAt) => { record('sprint', sprintId, boardId, expectedUpdatedAt); return { ...detail, issue }; },
     createLocalJiraChild: async (_location, id, title, description) => {
@@ -233,7 +233,7 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       await mountPreview(); commentFails = false;
       const person = (accountId: string, displayName: string): JiraUser => ({ accountId, displayName, avatarUrl: null });
       detail = { ...detail, comments: [
-        { id: 'c0', parentId: null, author: person('sam', 'Sam Rivera'), body: 'Can you check the scale?', created: '2026-09-12T08:00:00Z', updated: '2026-09-12T08:00:00Z', mine: false, editableText: null },
+        { id: 'c0', parentId: null, author: person('reviewer', 'Sam Rivera'), body: 'Can you check the scale?', created: '2026-09-12T08:00:00Z', updated: '2026-09-12T08:00:00Z', mine: false, editableText: null },
         { id: 'c1', parentId: 'c0', author: person('me', 'Alex Chen'), body: 'On it.', created: '2026-09-12T09:00:00Z', updated: '2026-09-12T09:00:00Z', mine: true, editableText: 'On it.' },
         { id: 'c2', parentId: null, author: person('me', 'Alex Chen'), body: 'See [the PR](https://github.com/owner/repository/pull/1).', created: '2026-09-13T09:00:00Z', updated: '2026-09-13T09:00:00Z', mine: true, editableText: null },
       ] };
@@ -243,8 +243,16 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       button('Reply to Alex Chen', own).click(); await settle();
       const thread = document.querySelector<HTMLElement>('.jira-comment-replies'); const replyBox = thread?.querySelector<HTMLTextAreaElement>('textarea');
       assert(thread !== null && replyBox != null && replyBox.placeholder === 'Reply to Alex Chen…' && document.activeElement === replyBox, 'Reply opens focused at the end of its thread');
-      changeInput(replyBox, 'Thanks, confirmed.'); await settle(); button('Reply', thread).click(); await until(() => calls.some(call => call.name === 'comment'));
-      const posted = calls.find(call => call.name === 'comment'); assert(posted?.args[0] === 'Thanks, confirmed.' && posted.args[2] === 'c0', 'A reply to a reply is sent under the thread root');
+      changeInput(replyBox, 'Thanks @riv'); await settle();
+      const mentions = element('[aria-label="Mention someone"]', thread, 'Typing after @ suggests people');
+      const suggested = [...mentions.querySelectorAll('.jira-people__name')].map(name => name.textContent).join('|');
+      assert(suggested === 'Sam Rivera', `Suggestions match a word of the name by prefix: ${suggested}`);
+      press(replyBox, 'Enter'); await settle();
+      assert(replyBox.value === 'Thanks @Sam Rivera ' && thread.querySelector('[aria-label="Mention someone"]') === null, 'Enter inserts the picked name and closes the list');
+      changeInput(replyBox, 'Thanks @Sam Rivera, confirmed.'); await settle(); button('Reply', thread).click(); await until(() => calls.some(call => call.name === 'comment'));
+      const posted = calls.find(call => call.name === 'comment');
+      assert(posted?.args[0] === 'Thanks @Sam Rivera, confirmed.' && posted.args[2] === 'c0', 'A reply to a reply is sent under the thread root');
+      assert(JSON.stringify(posted.args[3]) === JSON.stringify({ '@Sam Rivera': 'reviewer' }), 'The picked name is sent as a Jira mention');
       await until(() => thread.querySelectorAll('.jira-comment').length === 2 && thread.querySelector('textarea') === null, 'Reply lands in its thread and closes the composer');
       button('Edit comment', own).click(); await settle();
       const editor = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Edit comment"]'); assert(editor?.value === 'On it.', 'Edit starts from the comment text');

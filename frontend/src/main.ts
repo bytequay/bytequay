@@ -1639,6 +1639,8 @@ function registerIpc(): void {
     backendJson(`${workspaceId ? workspaceUrl(workspaceId, '/pull-requests') : `${backendBase()}/prs`}?${new URLSearchParams({ page: String(page), size: String(pageSize) })}`));
   ipcMain.handle('prs:attention', () => backendJson(`${backendBase()}/prs/attention`));
   ipcMain.handle('issues:authored', () => backendJson(`${backendBase()}/issues/authored`));
+  ipcMain.handle('done:list', (_event, from: unknown, to: unknown) =>
+    backendJson(`${backendBase()}/api/done?${new URLSearchParams({ from: String(from), to: String(to) })}`));
   ipcMain.handle('prs:stored', (_event, repo: string, number: number, route?: PullRequestRoute) =>
     backendJson(prUrl('/prs/stored', repo, number, {}, route)));
   ipcMain.handle('prs:lookup', (_event, repo: string, number: number, route?: PullRequestRoute) =>

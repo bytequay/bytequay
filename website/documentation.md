@@ -186,6 +186,12 @@ uses a model session; it never writes to GitHub or starts a task on its own.
 - **Start task** starts suggested work with your saved automation.
 - On the last working day, **This week** looks back at what merged and slipped.
 
+**Done** on Home lists what you finished that day, with or without Today:
+pull requests merged or reviewed, issues closed, and tasks and work items done.
+Use the arrows or click a day on the contribution graph to see another day.
+The copy button takes the day as stand-up notes; today's notes add your work in
+progress from My work.
+
 <a id="assistant"></a>
 
 ## Use the Assistant

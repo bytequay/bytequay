@@ -341,7 +341,7 @@ describe('generated development request presentation', () => {
     expect(taskHtml({ ...baseTurn, state: 'COMPLETED' })).not.toContain('ByteQuay · Auto commit');
   });
 
-  it('shows the create-PR action and branches without the sent prompt', () => {
+  it('shows the create-PR action and branches over the sent prompt', () => {
     const ordinary: AgentTurnDto = { ...baseTurn, taskId: 'c587a121' };
     const branch = 'contributor/bytequay/find-and-refactor-minor-issue-c587a121';
     const route = { action: 'Open draft pull request', head: branch, base: 'master' };
@@ -376,9 +376,9 @@ describe('generated development request presentation', () => {
       onToggle={() => {}} onToggleActivity={() => {}} />);
     expect(html).toContain('Open draft pull request');
     expect(html).toContain(`title="${route.head} → master">${route.head} → master</span>`);
-    expect(html).not.toContain('agt-review-request__prompt');
-    expect(html).not.toContain("Exact clean HEAD to publish: e5083dc3.");
-    expect(html).toContain('→ master');
+    expect(html).toContain('class="agt-instruction__content" hidden=""');
+    expect(html).toContain("Exact clean HEAD to publish: e5083dc3.");
+    expect(html).toContain('lucide-git-pull-request');
     expect(html).not.toContain('agt-user__bubble');
     expect(html).not.toContain('gh pr create');
   });
@@ -394,24 +394,17 @@ describe('generated development request presentation', () => {
     for (const kind of ['REFINE_SUMMARY', 'AUTO_COMMIT', 'CREATE_DRAFT_PR'] as const) {
       const generated = { ...baseTurn, developmentOrigin: { kind, parentUserTurnId: 'source-turn' } };
       const markup = html(generated);
-      if (kind === 'REFINE_SUMMARY') {
-        // One line says what it does, so there is no head to expand.
-        expect(markup).toContain('agt-review-request__summary');
-        expect(markup).not.toContain('agt-review-request__bar');
-      }
-      else {
-        expect(markup).toContain('agt-review-request__preview');
-        expect(markup).toContain('aria-expanded="false"');
-        expect(markup).toContain('class="agt-review-request__content" hidden=""');
-      }
-      expect(markup).not.toContain('agt-review-request__prompt');
-      expect(markup).not.toContain(`<div class="agt-review-request__body">${promptHtml}</div>`);
+      // Refining needs no action: its one line says what it does.
+      expect(markup.includes('agt-instruction__action')).toBe(kind !== 'REFINE_SUMMARY');
+      expect(markup).toContain('aria-expanded="false"');
+      expect(markup).toContain('class="agt-instruction__content" hidden=""');
+      expect(markup).toContain(`<pre>${promptHtml}</pre>`);
       expect(markup).not.toContain('agt-user__bubble');
       for (const delivery of ['STEER', 'QUEUED'] as const) {
         const ordinary = html(generated, [{ ...user, delivery }]);
         expect(ordinary).toContain('agt-user__bubble');
         expect(ordinary).toContain(promptHtml);
-        expect(ordinary).not.toContain('agt-review-request');
+        expect(ordinary).not.toContain('agt-instruction');
       }
       const steered = html(generated, [user, { ...user, id: 'steered', delivery: 'STEER' }]);
       expect(steered).toContain(`<div class="agt-user__bubble"><div>${promptHtml}</div>`);
@@ -419,7 +412,7 @@ describe('generated development request presentation', () => {
     for (const durable of [baseTurn, undefined]) {
       const ordinary = html(durable);
       expect(ordinary).toContain(`<div class="agt-user__bubble"><div>${promptHtml}</div>`);
-      expect(ordinary).not.toContain('agt-review-request');
+      expect(ordinary).not.toContain('agt-instruction');
     }
   });
 
@@ -443,7 +436,7 @@ describe('generated development request presentation', () => {
       activityChoice={{}} previews={{}} agentLabels={{}} onToggle={() => {}} onToggleActivity={() => {}} />)).toContain(steer);
     const generated = { ...baseTurn, developmentOrigin: { kind: 'REFINE_SUMMARY' as const, parentUserTurnId: 'source-turn' } };
     expect(html(generated, true)).toContain('Refresh the change intention');
-    expect(html(generated, true)).not.toContain('Refining summary');
+    expect(html(generated, true)).toContain('<pre>ByteQuay · Refining summary');
     // Without a load in flight, a missing record leaves the message as sent.
     expect(html(undefined, false)).toContain('Refining summary');
     // A CI repair is recognized only by its durable settings, so its prompt waits the same way.
@@ -488,7 +481,7 @@ describe('generated development request presentation', () => {
       onToggle={() => {}} onToggleActivity={() => {}} />);
     const card = (markup: string) => {
       expect(markup).not.toContain('agt-user__bubble');
-      expect(markup).not.toContain('list_local_review_comments');
+      expect(markup).toContain('class="agt-instruction__content" hidden=""');
       expect(markup).toContain(reply);
     };
     // The read already has the reply, not yet its turn.

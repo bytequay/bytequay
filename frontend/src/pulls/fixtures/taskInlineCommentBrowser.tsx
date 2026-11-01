@@ -330,11 +330,11 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
       assert(timelineCard?.textContent?.includes('Resolved') === true && timelineCard.textContent?.includes('The implementation is simpler now.') === true,
         'The PR timeline must show the same resolved user/agent discussion');
       assertViewerAvatar(timelineCard);
-      for (let attempt = 0; attempt < 20 && ![...host.querySelectorAll('.agt-review-request__open')].some(candidate => candidate.textContent?.includes('Reply to review')); attempt++) await settle();
-      const replyRequest = [...host.querySelectorAll<HTMLButtonElement>('.agt-review-request__open')]
+      for (let attempt = 0; attempt < 20 && ![...host.querySelectorAll('.agt-instruction__open')].some(candidate => candidate.textContent?.includes('Reply to review')); attempt++) await settle();
+      const replyRequest = [...host.querySelectorAll<HTMLButtonElement>('.agt-instruction__open')]
         .find(candidate => candidate.textContent?.includes('Reply to review'));
       assert(replyRequest !== undefined, 'A transcript reply must keep its private discussion card');
-      const replyCard = replyRequest.closest<HTMLElement>('.agt-review-request');
+      const replyCard = replyRequest.closest<HTMLElement>('.agt-instruction');
       replyRequest.click(); await settle();
       const inlineThread = replyCard?.querySelector<HTMLElement>(`[data-local-review-thread="${request.id}"]`);
       assert(host.querySelector('.agt-panel[aria-label="Summary"]') === null && host.querySelector('.pr-timeline [data-local-review-thread]') !== null
@@ -349,7 +349,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
       assert(![...host.querySelectorAll('button')].some(element => element.textContent === 'Start review')
         && host.querySelector('[data-learning-card="purpose"]')?.textContent?.includes('Simplify optional value handling.') === true && !host.querySelector('.agr-strip__tabs'),
         'The development PR must show the current intention without manual startup or Activity subtabs');
-      const earlierRequest = [...host.querySelectorAll<HTMLButtonElement>('.agt-review-request__open')]
+      const earlierRequest = [...host.querySelectorAll<HTMLButtonElement>('.agt-instruction__open')]
         .find(candidate => candidate.textContent?.includes('Earlier limitations'));
       assert(earlierRequest !== undefined, 'Earlier learning discussions must retain their transcript navigation');
       host.querySelector<HTMLButtonElement>('[aria-label="Show or hide the side panel"]')?.click(); await settle();
@@ -359,7 +359,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
       assert(earlierCard?.open === true && earlierCard.closest<HTMLDetailsElement>('.agr-learning-history')?.open === true,
         'A question about an earlier summary must open its old report section and resolved discussion');
       assert(earlierCard.contains(document.activeElement), 'Earlier-summary navigation must focus the exact discussion inside the side panel');
-      const removedRequest = [...host.querySelectorAll<HTMLButtonElement>('.agt-review-request__open')]
+      const removedRequest = [...host.querySelectorAll<HTMLButtonElement>('.agt-instruction__open')]
         .find(candidate => candidate.textContent?.includes('Supporting evidence & tests'));
       const removedCard = host.querySelector<HTMLDetailsElement>('.agt-panel .agr-learning-history [data-local-review-thread="removed-learning-thread"]');
       assert(removedRequest !== undefined && removedCard !== null && removedCard.textContent?.includes('Why was the offline build unavailable?') === true,

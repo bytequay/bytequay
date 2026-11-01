@@ -35,6 +35,8 @@ import {
   type Handled,
 } from './attention';
 import ContributionCard from './ContributionCard';
+import DoneList from './DoneList';
+import { isoDay } from '../recent/model';
 import MyWork, { AllMyWork, useLocalWork } from './MyWork';
 import { isOwnWork, myWorkItems } from './work';
 import TodayList, { useWideWindow } from './TodayList';
@@ -127,6 +129,8 @@ function HomePage({
   const onToday = useMemo(() => todayKeys(today.agenda), [today.agenda]);
   const [issueItems, setIssueItems] = useState<AttentionItem[]>(() => getCached<AttentionItem[]>(SEED.issues) ?? []);
   const [authoredIssues, setAuthoredIssues] = useState<AuthoredIssueDto[]>(() => getCached<AuthoredIssueDto[]>(SEED.authoredIssues) ?? []);
+  // The day Done shows; unset follows today, so a Home left open past midnight moves on with the clock.
+  const [doneDay, setDoneDay] = useState<string | null>(null);
 
   useEffect(() => {
     void load();
@@ -362,6 +366,7 @@ function HomePage({
   }
 
   const todayList = <TodayList today={today} scope="global" facts={candidates} />;
+  const doneList = <DoneList day={doneDay ?? isoDay(new Date())} onDay={setDoneDay} work={work} />;
 
   if (allWork) {
     return (
@@ -387,8 +392,9 @@ function HomePage({
         </div>
       )}
       {/* ── Contribution card: graph + bio ── */}
-      <ContributionCard profile={profile} />
+      <ContributionCard profile={profile} onSelectDay={setDoneDay} />
       {!wide && todayList}
+      {!wide && doneList}
 
       {jira.error && <div className="ws-error" role="alert">{jira.error}</div>}
       <MyWork items={work} todayKeys={onToday} />
@@ -446,7 +452,7 @@ function HomePage({
               <button type="button" className="card-iconbtn" aria-label="Close activity" title="Close" onClick={closeDrawer}><X size={14} aria-hidden="true" /></button>
             </div>
           )}
-          {wide && <>{todayList}<hr className="home-side__divider" /></>}
+          {wide && <>{todayList}<hr className="home-side__divider" />{doneList}<hr className="home-side__divider" /></>}
           <section className="home-side-section">
             <h3 className="home-side-section__title">From people you follow</h3>
             {followingEvents.length === 0 ? (

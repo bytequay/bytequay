@@ -20,6 +20,7 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
+import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
@@ -100,19 +101,21 @@ public final class DevelopmentCiOwnership
 
     public void requireSourceAdmission(AgentTask task)
     {
-        if (!task.interactive() || task.taskWorktree().isEmpty()) {
+        // A task working in another task's checkout is admitted under that owner's branch rules.
+        AgentTask owner = task.taskWorktree().map(TaskWorktree::taskId).filter(id -> !id.equals(task.id())).flatMap(tasks::find).orElse(task);
+        if (!owner.interactive() || owner.taskWorktree().isEmpty()) {
             return;
         }
-        var worktree = task.taskWorktree().orElseThrow();
-        Optional<String> assignedBranch = assignment(task)
+        var worktree = owner.taskWorktree().orElseThrow();
+        Optional<String> assignedBranch = assignment(owner)
                 .flatMap(pr -> pullRequests.findIdByRepoAndNumber(pr.repo(), pr.number()).flatMap(pullRequests::findById))
                 .flatMap(pr -> Optional.ofNullable(pr.headRef()));
         // The task's own runs only watch CI; a user's turn stops their repairs before it reaches this check.
-        if (store.listByParentTaskId(task.id().toString()).stream().anyMatch(DevelopmentCiOwnership::writing)) {
+        if (store.listByParentTaskId(owner.id().toString()).stream().anyMatch(DevelopmentCiOwnership::writing)) {
             throw new AgentConflictException("CI Autofix is still repairing this task branch; wait for it or stop it first");
         }
         store.findByActiveBranch(worktree.physicalRepository().owner() + "/" + worktree.physicalRepository().name(), assignedBranch.orElse(worktree.generatedBranch()))
-                .filter(run -> run.scope().parentTaskId().filter(task.id().toString()::equals).isEmpty())
+                .filter(run -> run.scope().parentTaskId().filter(owner.id().toString()::equals).isEmpty())
                 .ifPresent(run -> {
                     throw new AgentConflictException("CI Autofix owns this task branch; stop its run before starting source work");
                 });

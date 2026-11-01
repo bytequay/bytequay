@@ -161,6 +161,23 @@ class TestDevelopmentCiOwnership
     }
 
     @Test
+    void taskInAnotherTasksWorktreeIsAdmittedUnderItsOwnersRules()
+    {
+        AgentTask source = task(FORK);
+        assign(source);
+        AgentTask reviewer = created(TaskId.random(), false, "Review", TitleSource.USER, AgentLaneId.CLAUDE_CLI, source.taskWorktree().orElseThrow(),
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
+        when(tasks.find(source.id())).thenReturn(Optional.of(source));
+        CiAutofixRun run = assignedRun(Optional.of(source.id().toString()));
+        when(store.listByParentTaskId(source.id().toString())).thenReturn(ImmutableList.of(run));
+
+        ownership.requireSourceAdmission(reviewer);
+
+        when(store.listByParentTaskId(source.id().toString())).thenReturn(ImmutableList.of(run.linkUserTurn(TurnId.random().toString(), NOW)));
+        assertThatThrownBy(() -> ownership.requireSourceAdmission(reviewer)).isInstanceOf(AgentConflictException.class).hasMessageContaining("still repairing");
+    }
+
+    @Test
     void authorityFollowsTheOpenParentUntilRevoked()
     {
         AgentTask parent = task(FORK);

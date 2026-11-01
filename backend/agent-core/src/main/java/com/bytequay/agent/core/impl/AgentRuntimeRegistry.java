@@ -100,7 +100,6 @@ public final class AgentRuntimeRegistry
             }
         }
         branchAdmission.accept(task);
-        task.taskWorktree().filter(worktree -> !task.ownsWorktree()).map(TaskWorktree::taskId).flatMap(taskStore::find).ifPresent(branchAdmission);
     }
 
     void requireNoWorktreeBorrowers(AgentTask task)

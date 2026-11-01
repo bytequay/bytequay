@@ -59,6 +59,7 @@ import java.util.concurrent.Executors;
 
 import static com.bytequay.app.git.GitTestSupport.configureUser;
 import static com.bytequay.app.git.GitTestSupport.git;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.bothProviders;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -310,7 +311,7 @@ class TestWorkspaceProvisioningService
         GitCommandRunner git = routedGit(ImmutableMap.of(ORIGIN_URL, origin.bare(), CUSTOM_URL, temporary.resolve("missing-custom.git")), temporary.resolve("git-commands.log"));
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         InMemoryRemoteSourceStore remoteSources = new InMemoryRemoteSourceStore();
-        WorkspaceRelationships relationships = new WorkspaceRelationships(store, new InMemoryAppSettingsStore(), new ObjectMapper());
+        WorkspaceRelationships relationships = new WorkspaceRelationships(store, new InMemoryAppSettingsStore(), new ObjectMapper(), bothProviders());
         Workspace workspace = store.create(workspace("broken-custom", false));
         store.create(new Workspace("oss", "oss", 900, RepoRef.of("other", "project"), Optional.empty(), Optional.empty(), 900, RepoRef.of("other", "project"),
                 Topology.DIRECT, "main", CUSTOM_URL, Optional.empty(), Optional.empty(), "/managed/oss", Optional.empty(), Optional.empty(), 0, NOW, NOW,
@@ -401,7 +402,7 @@ class TestWorkspaceProvisioningService
         WorkspacePaths paths = new WorkspacePaths(temporary.resolve("workspaces").toString());
         InMemoryRemoteSourceStore remoteSources = new InMemoryRemoteSourceStore();
         WorkspaceProvisioningService service = new WorkspaceProvisioningService(store, new ManagedWorkspaceGit(paths, authenticated, credentials, remoteSources),
-                new WorkspaceRelationships(store, new InMemoryAppSettingsStore(), new ObjectMapper()), remoteSources, hosting, Clock.fixed(NOW, ZoneOffset.UTC));
+                new WorkspaceRelationships(store, new InMemoryAppSettingsStore(), new ObjectMapper(), bothProviders()), remoteSources, hosting, Clock.fixed(NOW, ZoneOffset.UTC));
 
         assertThat(service.synchronizeCode(workspace.id()).successful()).isTrue();
         assertThat(service.synchronizeCode(workspace.id()).successful()).isTrue();
@@ -430,7 +431,8 @@ class TestWorkspaceProvisioningService
 
     private WorkspaceProvisioningService service(WorkspaceStore store, GitCommandRunner git, HostingConnectionService hosting)
     {
-        return service(store, git, hosting, new InMemoryRemoteSourceStore(), new WorkspaceRelationships(store, new InMemoryAppSettingsStore(), new ObjectMapper()));
+        return service(store, git, hosting, new InMemoryRemoteSourceStore(),
+                new WorkspaceRelationships(store, new InMemoryAppSettingsStore(), new ObjectMapper(), bothProviders()));
     }
 
     private WorkspaceProvisioningService service(WorkspaceStore store, GitCommandRunner git, HostingConnectionService hosting, InMemoryRemoteSourceStore remoteSources,

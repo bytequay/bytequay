@@ -15,6 +15,7 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingVersion;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -27,6 +28,7 @@ import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
 
 import java.net.URI;
+import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -49,6 +51,10 @@ public class HostingInstanceEntity
     @Column(name = "api_base_url", nullable = false)
     private String apiBaseUrl;
 
+    /** The release last read from the server, as major.minor.patch. */
+    @Column(name = "server_version")
+    private String serverVersion;
+
     protected HostingInstanceEntity() {}
 
     public HostingInstanceEntity(HostingProvider provider, URI webBaseUrl, URI apiBaseUrl)
@@ -56,6 +62,16 @@ public class HostingInstanceEntity
         this.provider = requireNonNull(provider, "provider is null");
         this.webBaseUrl = requireNonNull(webBaseUrl, "webBaseUrl is null").toASCIIString();
         this.apiBaseUrl = requireNonNull(apiBaseUrl, "apiBaseUrl is null").toASCIIString();
+    }
+
+    public Optional<HostingVersion> serverVersion()
+    {
+        return HostingVersion.parse(serverVersion);
+    }
+
+    public void setServerVersion(Optional<HostingVersion> version)
+    {
+        serverVersion = requireNonNull(version, "version is null").map(HostingVersion::toString).orElse(null);
     }
 
     public HostingInstance toDomain()

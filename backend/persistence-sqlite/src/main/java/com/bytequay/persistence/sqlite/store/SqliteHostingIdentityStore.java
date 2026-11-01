@@ -18,6 +18,7 @@ import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.HostingUrls;
+import com.bytequay.core.hosting.HostingVersion;
 import com.bytequay.core.hosting.RemoteHostingAccount;
 import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.bytequay.core.store.HostingIdentityStore;
@@ -65,6 +66,21 @@ public class SqliteHostingIdentityStore
         HostingInstance instance = entity.toDomain();
         checkArgument(instance.apiBaseUrl().equals(server.apiBaseUrl()), "An existing instance cannot change its API endpoint");
         return instance;
+    }
+
+    @Override
+    public Optional<HostingVersion> findVersion(HostingServer server)
+    {
+        requireNonNull(server, "server is null");
+        return instances.findByProviderAndWebBaseUrl(server.provider(), server.webBaseUrl().toASCIIString()).flatMap(HostingInstanceEntity::serverVersion);
+    }
+
+    @Override
+    @Transactional
+    public void updateVersion(long instanceId, Optional<HostingVersion> version)
+    {
+        HostingInstanceEntity entity = instances.findById(instanceId).orElseThrow(() -> new IllegalArgumentException("hosting instance not found: " + instanceId));
+        entity.setServerVersion(version);
     }
 
     @Override

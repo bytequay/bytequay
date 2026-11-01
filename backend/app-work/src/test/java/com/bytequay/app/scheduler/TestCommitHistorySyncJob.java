@@ -21,6 +21,7 @@ import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.domain.CommitRefreshStatus;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingCapabilities;
 import com.bytequay.core.hosting.HostingServer;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
@@ -148,6 +149,7 @@ class TestCommitHistorySyncJob
                 codeAvailable ? NOW : null,
                 NOW,
                 0,
-                HostingServer.GITHUB_COM);
+                HostingServer.GITHUB_COM,
+                HostingCapabilities.ALL);
     }
 }

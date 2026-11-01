@@ -69,6 +69,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.IntStream;
 
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.capabilities;
 import static com.bytequay.core.domain.CommitRefreshStatus.State.FAILED;
 import static com.bytequay.core.domain.CommitRefreshStatus.State.IDLE;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
@@ -516,7 +517,7 @@ class TestCommitHistoryRefresh
     private static WorkspaceSummary summary(HostingServer server)
     {
         return new WorkspaceSummary(WORKSPACE_ID, "Example workspace", 101, SELECTED.owner(), SELECTED.repo(), null, null, null,
-                101, SELECTED.owner(), SELECTED.repo(), Topology.DIRECT, "main", null, REPOSITORY.toString(), null, null, 0, server);
+                101, SELECTED.owner(), SELECTED.repo(), Topology.DIRECT, "main", null, REPOSITORY.toString(), null, null, 0, server, capabilities(server.provider()));
     }
 
     private void successfulEmptyBranch(String branch)

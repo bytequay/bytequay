@@ -17,7 +17,6 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.hosting.HostingCapabilities;
 import com.bytequay.core.hosting.HostingServer;
-import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;
 
@@ -42,14 +41,21 @@ public record WorkspaceSummary(
         Instant lastCodeSyncAt,
         Instant lastMetadataSyncAt,
         int displayOrder,
-        HostingServer hostingServer)
+        HostingServer hostingServer,
+        HostingCapabilities capabilities)
 {
     public WorkspaceSummary
     {
         requireNonNull(hostingServer, "hostingServer is null");
+        requireNonNull(capabilities, "capabilities is null");
     }
 
-    public static WorkspaceSummary of(Workspace workspace)
+    /**
+     * The workspace as the app shows it.
+     *
+     * @param capabilities what the app supports through the implementation chosen for the workspace's server
+     */
+    public static WorkspaceSummary of(Workspace workspace, HostingCapabilities capabilities)
     {
         return new WorkspaceSummary(
                 workspace.id(),
@@ -70,12 +76,7 @@ public record WorkspaceSummary(
                 workspace.lastCodeSyncAt().orElse(null),
                 workspace.lastMetadataSyncAt().orElse(null),
                 workspace.displayOrder(),
-                workspace.server());
-    }
-
-    @JsonProperty
-    public HostingCapabilities capabilities()
-    {
-        return hostingServer.provider().capabilities();
+                workspace.server(),
+                capabilities);
     }
 }

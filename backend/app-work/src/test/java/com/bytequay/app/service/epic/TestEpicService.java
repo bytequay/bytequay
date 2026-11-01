@@ -35,6 +35,7 @@ import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.IssueClient;
 import com.bytequay.core.store.IssueDevelopmentStore;
 import com.bytequay.core.store.RepositoryIssueStore;
@@ -107,6 +108,7 @@ class TestEpicService
     {
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
         when(workspace.provider()).thenReturn(HostingProvider.GITHUB);
+        when(workspace.server()).thenReturn(HostingServer.GITHUB_COM);
         when(workspace.issueHost()).thenReturn("github.com");
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
         when(markers.findEpic("github.com", 1)).thenReturn(Optional.of(new IssueEpic("github.com", 1, "org/repo", 7, true, NOW)));
@@ -157,6 +159,7 @@ class TestEpicService
         String host = "gitlab.example.test/gitlab";
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
         when(workspace.provider()).thenReturn(HostingProvider.GITLAB);
+        when(workspace.server()).thenReturn(new HostingServer(HostingProvider.GITLAB, URI.create("https://" + host), URI.create("https://" + host + "/api/v4")));
         when(workspace.issueHost()).thenReturn(host);
         when(workspaces.findById("gitlab-workspace")).thenReturn(Optional.of(workspace));
         when(markers.findEpic(host, 1)).thenReturn(Optional.of(new IssueEpic(host, 1, "group/project", 5, true, NOW)));

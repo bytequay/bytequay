@@ -15,6 +15,7 @@ package com.bytequay.app.service.hosting;
 
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingAccount;
+import com.bytequay.core.hosting.HostingAccounts;
 import com.bytequay.core.hosting.HostingCredential;
 import com.bytequay.core.hosting.HostingCredential.Source;
 import com.bytequay.core.hosting.HostingFailure;
@@ -25,6 +26,7 @@ import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.HostingTarget;
+import com.bytequay.core.hosting.HostingVersion;
 import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.hosting.RemoteHostingAccount;
@@ -91,23 +93,27 @@ public class HostingConnectionService
         checkText(token, "token");
         // Verify before retaining an instance so a mistyped API address is not stored.
         HostingAccess access = new HostingAccess(server, token);
-        var accounts = integration(server.provider()).accounts();
-        RemoteHostingAccount remote = accounts.verify(access);
-        Optional<HostingPermissions> permissions = accounts.checkPermissions(access);
+        HostingAccounts reader = integrations.of(server).accounts();
+        RemoteHostingAccount remote = reader.verify(access);
+        Optional<HostingVersion> version = reader.serverVersion(access);
+        HostingIntegration integration = integrations.of(server.provider(), version);
+        Optional<HostingPermissions> permissions = integration.accounts().checkPermissions(access);
         permissions.filter(report -> report.status() == MISSING).ifPresent(report -> {
             throw new HostingFailure(FORBIDDEN, report.detail());
         });
         HostingInstance instance = identities.upsertInstance(server);
+        identities.updateVersion(instance.id(), version);
         HostingAccount account = identities.upsertAccount(instance.id(), remote);
         credentials.save(account.id(), token, source);
-        return new HostingConnection(account, instance, true, permissions);
+        return new HostingConnection(account, instance, true, permissions, integration.capabilities());
     }
 
     public List<HostingConnection> connections()
     {
         return identities.listInstances().stream()
                 .flatMap(instance -> identities.listAccounts(instance.id()).stream()
-                        .map(account -> new HostingConnection(account, instance, credentials.find(account.id()).isPresent(), Optional.empty())))
+                        .map(account -> new HostingConnection(account, instance, credentials.find(account.id()).isPresent(), Optional.empty(),
+                                integrations.of(server(instance)).capabilities())))
                 .collect(toImmutableList());
     }
 
@@ -115,12 +121,15 @@ public class HostingConnectionService
     {
         HostingReadSession session = readSession(accountId);
         HostingAccess access = session.access();
-        var accounts = integration(access.server().provider()).accounts();
-        RemoteHostingAccount remote = accounts.verify(access);
+        HostingAccounts reader = integrations.of(access.server()).accounts();
+        RemoteHostingAccount remote = reader.verify(access);
         if (!remote.remoteId().equals(account(session).remoteUserId())) {
             throw new HostingFailure(AUTHENTICATION_REQUIRED, "The credential belongs to a different account. Reconnect this hosting account to continue");
         }
-        return accounts.checkPermissions(access)
+        // A check also notices a server upgraded or downgraded since it was connected.
+        Optional<HostingVersion> version = reader.serverVersion(access);
+        identities.updateVersion(access.instanceId().orElseThrow(), version);
+        return integrations.of(access.server().provider(), version).accounts().checkPermissions(access)
                 .orElseThrow(() -> new HostingFailure(UNAVAILABLE, "Permission checks are unavailable for this hosting provider"));
     }
 
@@ -138,7 +147,7 @@ public class HostingConnectionService
 
     public RepositoryVisibility visibility(HostingReadSession session, String fullPath)
     {
-        return integration(session.access().server().provider()).repositories().visibility(session.access(), fullPath);
+        return integrations.of(session.access().server()).repositories().visibility(session.access(), fullPath);
     }
 
     public HostingRepository resolveRepository(long accountId, String fullPath)
@@ -150,7 +159,7 @@ public class HostingConnectionService
     {
         checkArgument(limit > 0 && limit <= 30, "limit must be between 1 and 30");
         HostingAccess access = readSession(accountId).access();
-        return integration(access.server().provider()).repositories().search(access, query.strip(), limit).stream()
+        return integrations.of(access.server()).repositories().search(access, query.strip(), limit).stream()
                 .map(repository -> identities.upsertRepository(access.instanceId().orElseThrow(), repository))
                 .collect(toImmutableList());
     }
@@ -171,8 +180,11 @@ public class HostingConnectionService
         requireNonNull(server, "server is null");
         checkText(scope, "scope");
         checkText(token, "token");
-        RemoteHostingAccount remote = integration(server.provider()).accounts().verify(new HostingAccess(server, token));
+        HostingAccess access = new HostingAccess(server, token);
+        HostingAccounts reader = integrations.of(server).accounts();
+        RemoteHostingAccount remote = reader.verify(access);
         HostingInstance instance = identities.upsertInstance(server);
+        identities.updateVersion(instance.id(), reader.serverVersion(access));
         HostingAccount account = identities.upsertAccount(instance.id(), remote);
         return new HostingReadSession(account.id(), scope, new HostingAccess(instance, token));
     }
@@ -198,14 +210,14 @@ public class HostingConnectionService
     public HostingRepository resolveRepository(HostingReadSession session, String fullPath)
     {
         HostingAccess access = session.access();
-        RemoteHostingRepository remote = integration(access.server().provider()).repositories().findByPath(access, fullPath);
+        RemoteHostingRepository remote = integrations.of(access.server()).repositories().findByPath(access, fullPath);
         return identities.upsertRepository(access.instanceId().orElseThrow(), remote);
     }
 
     public HostingRepository resolveRepositoryById(HostingReadSession session, String remoteId)
     {
         HostingAccess access = session.access();
-        RemoteHostingRepository remote = integration(access.server().provider()).repositories().findById(access, remoteId);
+        RemoteHostingRepository remote = integrations.of(access.server()).repositories().findById(access, remoteId);
         checkArgument(remote.remoteId().equals(remoteId), "Hosting repository identity changed");
         return identities.upsertRepository(access.instanceId().orElseThrow(), remote);
     }
@@ -251,11 +263,11 @@ public class HostingConnectionService
         if (credential.source() == Source.TOKEN) {
             return new HostingAccess(instance, credential.secret());
         }
-        HostingServer server = new HostingServer(instance.provider(), instance.webBaseUrl(), instance.apiBaseUrl());
+        HostingServer server = server(instance);
         String token = cli(instance.provider()).readToken(server);
         HostingAccess access = new HostingAccess(instance, token);
         if (!token.equals(verifiedCliTokens.get(accountId))) {
-            RemoteHostingAccount remote = integration(instance.provider()).accounts().verify(access);
+            RemoteHostingAccount remote = integrations.of(server).accounts().verify(access);
             if (!remote.remoteId().equals(account.remoteUserId())) {
                 throw new HostingFailure(AUTHENTICATION_REQUIRED, "The CLI is signed in to a different account. Reconnect this hosting account to continue");
             }
@@ -281,8 +293,8 @@ public class HostingConnectionService
                 .orElseThrow(() -> new HostingFailure(AUTHENTICATION_REQUIRED, "Browser sign-in is unavailable for this hosting provider. Connect with a token instead"));
     }
 
-    private HostingIntegration integration(HostingProvider provider)
+    private static HostingServer server(HostingInstance instance)
     {
-        return integrations.of(provider);
+        return new HostingServer(instance.provider(), instance.webBaseUrl(), instance.apiBaseUrl());
     }
 }

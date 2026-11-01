@@ -25,6 +25,7 @@ import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.app.web.agent.AgentRequestFilter;
 import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequest;
@@ -32,6 +33,7 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingAccount;
+import com.bytequay.core.hosting.HostingCapabilities;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingPermissions;
@@ -91,6 +93,7 @@ class TestHostingController
     private static final URI WEB = URI.create("https://gitlab.company.test/team");
     private static final URI API = URI.create("https://gitlab.company.test/team/api/v4");
     private static final HostingInstance INSTANCE = new HostingInstance(3, GITLAB, WEB, API);
+    private static final HostingCapabilities GITLAB_CAPABILITIES = new HostingCapabilities(false, false, true, true, false, true);
     private static final HostingAccount ACCOUNT = new HostingAccount(7, 3, "500", "alice");
     private static final String CONNECT_BODY = """
             {"provider":"GITLAB",
@@ -185,7 +188,7 @@ class TestHostingController
             throws Exception
     {
         var permissions = new HostingPermissions(HostingPermissions.Status.VERIFIED, ImmutableList.of("api"), "API permission granted");
-        when(connections.connect(GITLAB, WEB, API, TOKEN)).thenReturn(new HostingConnection(ACCOUNT, INSTANCE, true, Optional.of(permissions)));
+        when(connections.connect(GITLAB, WEB, API, TOKEN)).thenReturn(new HostingConnection(ACCOUNT, INSTANCE, true, Optional.of(permissions), GITLAB_CAPABILITIES));
 
         String body = mvc(connections).perform(post("/api/hosting/accounts").header(SESSION_HEADER, SESSION)
                         .contentType(MediaType.APPLICATION_JSON).content(CONNECT_BODY))
@@ -213,7 +216,7 @@ class TestHostingController
             throws Exception
     {
         var permissions = new HostingPermissions(HostingPermissions.Status.UNAVAILABLE, ImmutableList.of(), "Permissions could not be verified. Check again.");
-        when(connections.connectCli(GITLAB, WEB, API)).thenReturn(new HostingConnection(ACCOUNT, INSTANCE, true, Optional.of(permissions)));
+        when(connections.connectCli(GITLAB, WEB, API)).thenReturn(new HostingConnection(ACCOUNT, INSTANCE, true, Optional.of(permissions), GITLAB_CAPABILITIES));
 
         mvc(connections).perform(post("/api/hosting/cli/login").header(SESSION_HEADER, SESSION)
                         .contentType(MediaType.APPLICATION_JSON).content("""
@@ -233,7 +236,7 @@ class TestHostingController
     void listsRetainedDisconnectedAccountsWithoutCredentials()
             throws Exception
     {
-        when(connections.connections()).thenReturn(ImmutableList.of(new HostingConnection(ACCOUNT, INSTANCE, false, Optional.empty())));
+        when(connections.connections()).thenReturn(ImmutableList.of(new HostingConnection(ACCOUNT, INSTANCE, false, Optional.empty(), GITLAB_CAPABILITIES)));
 
         String body = mvc(connections).perform(get("/api/hosting/accounts").header(SESSION_HEADER, SESSION))
                 .andExpect(status().isOk())
@@ -495,6 +498,7 @@ class TestHostingController
                 Workspace.Topology.DIRECT, "main", WEB + "/group/subgroup/project.git", Optional.empty(), Optional.empty(), "/tmp/managed/repository",
                 Optional.empty(), Optional.empty(), 0, now, now, server);
         when(workspaces.watch(7, 11, Optional.of("Project"))).thenReturn(workspace);
+        when(repositories.summary(workspace)).thenReturn(WorkspaceSummary.of(workspace, GITLAB_CAPABILITIES));
 
         mvc(connections).perform(post("/api/hosting/accounts/7/workspaces").header(SESSION_HEADER, SESSION).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"repositoryId\":11,\"name\":\"Project\"}"))

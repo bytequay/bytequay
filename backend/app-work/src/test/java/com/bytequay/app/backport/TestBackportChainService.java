@@ -767,7 +767,8 @@ class TestBackportChainService
     private BackportChainService service()
     {
         return new BackportChainService(chains, workspaces, tasks, turns, related, relationships, repositories, remotes, models,
-                integrations(pullRequests(GITHUB, prs, mock(PullRequestWriter.class))), hosting, landed, previews, executions, executionStore, delivery, ciStore, ci,
+                integrations(pullRequests(GITHUB, prs, mock(PullRequestWriter.class)), pullRequests(GITLAB, mock(PullRequestContentReader.class),
+                        mock(PullRequestWriter.class))), hosting, landed, previews, executions, executionStore, delivery, ciStore, ci,
                 Clock.fixed(NOW, ZoneOffset.UTC), git, drafts);
     }
 

@@ -192,7 +192,7 @@ public class TeamActivityService
         if (members.isEmpty()) {
             return;
         }
-        TeamActivityReader reader = integrations.of(account.server().provider()).team();
+        TeamActivityReader reader = integrations.of(account.server()).team();
         List<String> repositories = repositories(directory.circles(), account.server());
         Map<Long, String> identities = new LinkedHashMap<>();
         members.forEach(member -> identities.put(member.remoteId(), member.login()));
@@ -387,7 +387,7 @@ public class TeamActivityService
     private List<String> repositories(List<TeamCircle> circles, HostingServer server)
     {
         Set<String> watched = new LinkedHashSet<>();
-        workspaces.findAll().stream().filter(workspace -> workspace.server().equals(server) && workspace.provider().capabilities().teamActivity())
+        workspaces.findAll().stream().filter(workspace -> workspace.server().equals(server) && integrations.of(server).capabilities().teamActivity())
                 .forEach(workspace -> watched.add(workspace.monitoredRepository().fullName().toLowerCase(Locale.ROOT)));
         return watched.stream().filter(repository -> circles.stream().anyMatch(circle -> circle.repositories().isEmpty()
                 || circle.repositories().stream().anyMatch(repository::equalsIgnoreCase))).collect(toImmutableList());

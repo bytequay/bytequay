@@ -25,6 +25,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.bothProviders;
 import static com.bytequay.app.workspace.WorkspaceRelationships.Kind.DEPENDENCY;
 import static com.bytequay.app.workspace.WorkspaceRelationships.Kind.FORK;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
@@ -36,7 +37,7 @@ class TestWorkspaceRelationships
 {
     private final InMemoryWorkspaceStore workspaces = new InMemoryWorkspaceStore();
     private final InMemoryAppSettingsStore settings = new InMemoryAppSettingsStore();
-    private final WorkspaceRelationships relationships = new WorkspaceRelationships(workspaces, settings, new ObjectMapper());
+    private final WorkspaceRelationships relationships = new WorkspaceRelationships(workspaces, settings, new ObjectMapper(), bothProviders());
 
     @Test
     void persistsLinksOnTheNamingWorkspaceAndRechecksAvailabilityAndRouting()
@@ -62,7 +63,7 @@ class TestWorkspaceRelationships
         assertThatThrownBy(() -> relationships.save("p3", new WorkspaceRelationships.Relationship(alias.id(), FORK, "", false)))
                 .hasMessageContaining("upstream settings");
         relationships.save("p2", new WorkspaceRelationships.Relationship("p3", DEPENDENCY, "Version in pom.xml", false));
-        assertThat(new WorkspaceRelationships(workspaces, settings, new ObjectMapper()).list("p2")).singleElement()
+        assertThat(new WorkspaceRelationships(workspaces, settings, new ObjectMapper(), bothProviders()).list("p2")).singleElement()
                 .satisfies(link -> assertThat(link.guidance()).isEqualTo("Version in pom.xml"));
         assertThat(workspaces.findById("p2")).contains(p2);
         workspaces.setWatched("p3", false);

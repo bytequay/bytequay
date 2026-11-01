@@ -27,6 +27,7 @@ import com.bytequay.core.hosting.HostingRepositories;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.HostingTarget;
+import com.bytequay.core.hosting.HostingVersion;
 import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.hosting.PullRequestReader;
 import com.bytequay.core.hosting.RemoteHostingAccount;
@@ -48,6 +49,7 @@ import java.util.Optional;
 
 import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.connections;
 import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.since;
 import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.targeting;
 import static com.bytequay.core.domain.PrRawDetail.UNKNOWN_COUNT;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
@@ -92,6 +94,26 @@ class TestHostingConnectionService
         when(identities.findAccount(20)).thenReturn(Optional.of(account));
         when(identities.findInstance(10)).thenReturn(Optional.of(instance));
         when(credentials.find(20)).thenReturn(Optional.of(new HostingCredential(20, "first-secret", Source.TOKEN)));
+    }
+
+    @Test
+    void connectSavesTheServersReleaseAndChecksPermissionsThroughItsImplementation()
+    {
+        HostingAccounts legacyAccounts = mock(HostingAccounts.class);
+        HostingPermissions legacyReport = new HostingPermissions(HostingPermissions.Status.UNAVAILABLE, ImmutableList.of(), "This release cannot report token permissions.");
+        when(legacyAccounts.checkPermissions(any())).thenReturn(Optional.of(legacyReport));
+        service = new HostingConnectionService(identities, credentials, integrations(since(connections(GITLAB, accounts, repositories, requests), HostingVersion.of(16, 11)),
+                connections(GITLAB, legacyAccounts, repositories, requests)), ImmutableList.of(cli));
+        when(identities.upsertInstance(new HostingServer(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl()))).thenReturn(instance);
+        when(accounts.verify(any())).thenReturn(new RemoteHostingAccount("remote-user-id", "alice"));
+        when(accounts.serverVersion(any())).thenReturn(HostingVersion.parse("14.10.5"));
+        when(identities.upsertAccount(eq(10L), any())).thenReturn(account);
+
+        HostingConnection result = service.connect(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl(), "new-secret");
+
+        assertThat(result.permissions()).contains(legacyReport);
+        verify(identities).updateVersion(10, HostingVersion.parse("14.10.5"));
+        verify(accounts, never()).checkPermissions(any());
     }
 
     @Test

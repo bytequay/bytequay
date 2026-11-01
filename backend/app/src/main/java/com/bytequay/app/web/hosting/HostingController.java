@@ -107,7 +107,7 @@ public class HostingController
     {
         var workspace = workspaces.watch(accountId, request.repositoryId(), Optional.ofNullable(request.name()));
         repositories.requestSync(workspace.id());
-        return WorkspaceSummary.of(workspace);
+        return repositories.summary(workspace);
     }
 
     @GetMapping("/accounts/{accountId}/repositories/{repositoryId}/requests")

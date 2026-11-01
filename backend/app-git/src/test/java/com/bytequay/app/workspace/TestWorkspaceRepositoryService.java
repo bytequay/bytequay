@@ -56,6 +56,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.bothProviders;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.capabilities;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -178,8 +180,8 @@ class TestWorkspaceRepositoryService
         service.unwatch(workspace.id());
 
         assertThat(service.listWorkspaces()).isEmpty();
-        assertThat(service.listRetiredWorkspaces()).containsExactly(WorkspaceSummary.of(workspace));
-        assertThat(service.getWorkspace(workspace.id())).isEqualTo(WorkspaceSummary.of(workspace));
+        assertThat(service.listRetiredWorkspaces()).containsExactly(WorkspaceSummary.of(workspace, capabilities(workspace.provider())));
+        assertThat(service.getWorkspace(workspace.id())).isEqualTo(WorkspaceSummary.of(workspace, capabilities(workspace.provider())));
         assertThat(store.findAllRetained()).containsExactly(workspace);
         assertThat(service.previewWatch(100, Optional.empty()).existingWorkspaceId()).isEmpty();
         assertThat(Files.readString(taskWorktree.resolve("unfinished.txt"))).isEqualTo("local work");
@@ -202,23 +204,23 @@ class TestWorkspaceRepositoryService
         RemoteSourceStore remotes = remoteSources();
         List<Runnable> queued = new ArrayList<>();
         WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remotes, gitHub, credentials, connections,
-                Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/tmp/bytequay-workspaces"), provisioning, metadata, refresh, queued::add);
+                Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/tmp/bytequay-workspaces"), provisioning, metadata, refresh, bothProviders(), queued::add);
         Workspace retired = watch(service, 100);
         Workspace watched = watch(service, 200);
         service.unwatch(retired.id());
         queued.clear();
         reset(remotes, gitHub, credentials, provisioning, metadata, refresh);
 
-        assertThat(service.listRetiredWorkspaces()).containsExactly(WorkspaceSummary.of(retired));
-        assertThat(service.listWorkspaces()).containsExactly(WorkspaceSummary.of(watched));
-        assertThat(service.getWorkspace(retired.id())).isEqualTo(WorkspaceSummary.of(retired));
+        assertThat(service.listRetiredWorkspaces()).containsExactly(WorkspaceSummary.of(retired, capabilities(retired.provider())));
+        assertThat(service.listWorkspaces()).containsExactly(WorkspaceSummary.of(watched, capabilities(watched.provider())));
+        assertThat(service.getWorkspace(retired.id())).isEqualTo(WorkspaceSummary.of(retired, capabilities(retired.provider())));
         assertThat(store.isWatched(retired.id())).isFalse();
         assertThat(queued).isEmpty();
         verifyNoInteractions(remotes, gitHub, credentials, provisioning, metadata, refresh);
 
         store.delete(retired.id());
         assertThat(service.listRetiredWorkspaces()).isEmpty();
-        assertThat(service.listWorkspaces()).containsExactly(WorkspaceSummary.of(watched));
+        assertThat(service.listWorkspaces()).containsExactly(WorkspaceSummary.of(watched, capabilities(watched.provider())));
     }
 
     @Test
@@ -248,7 +250,7 @@ class TestWorkspaceRepositoryService
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         List<Runnable> queued = new ArrayList<>();
         WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remoteSources(), gitHub, credentials, connections,
-                Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/tmp/bytequay-workspaces"), provisioning, metadata, refresh, queued::add);
+                Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/tmp/bytequay-workspaces"), provisioning, metadata, refresh, bothProviders(), queued::add);
         Workspace workspace = watch(service, 100);
         service.unwatch(workspace.id());
 
@@ -330,6 +332,7 @@ class TestWorkspaceRepositoryService
                 provisioning,
                 metadata,
                 mock(PullRequestRefreshService.class),
+                bothProviders(),
                 Runnable::run);
         Instant staleCode = NOW.minusSeconds(301);
         Instant staleMetadata = NOW.minusSeconds(8 * 24 * 60 * 60);
@@ -357,7 +360,7 @@ class TestWorkspaceRepositoryService
         AtomicBoolean reject = new AtomicBoolean(rejectInitially);
         WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remoteSources(), gitHub, credentials, connections,
                 Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/tmp/bytequay-workspaces"), provisioning, metadata,
-                mock(PullRequestRefreshService.class), task -> {
+                mock(PullRequestRefreshService.class), bothProviders(), task -> {
                     if (reject.get()) {
                         throw new RejectedExecutionException("executor unavailable");
                     }
@@ -396,6 +399,7 @@ class TestWorkspaceRepositoryService
                 provisioning,
                 metadata,
                 mock(PullRequestRefreshService.class),
+                bothProviders(),
                 Runnable::run);
         Workspace pending = watch(service, 100);
         Workspace syncing = store.save(watch(service, 200)
@@ -440,6 +444,7 @@ class TestWorkspaceRepositoryService
                 provisioning,
                 mock(WorkspaceMetadataService.class),
                 pullRequestRefresh,
+                bothProviders(),
                 Runnable::run);
 
         Workspace watched = watch(service, 100);
@@ -458,7 +463,7 @@ class TestWorkspaceRepositoryService
         doAnswer(invocation -> held.add(((ReentrantLock) WorkspaceOperationLocks.get(invocation.getArgument(0))).isHeldByCurrentThread()))
                 .when(pullRequestRefresh).refreshWorkspace(anyString());
         WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remoteSources(), gitHub, credentials, connections,
-                Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/tmp/bytequay-workspaces"), provisioning, metadata, pullRequestRefresh, Runnable::run);
+                Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/tmp/bytequay-workspaces"), provisioning, metadata, pullRequestRefresh, bothProviders(), Runnable::run);
 
         service.requestSync(watch(service, 100).id());
 
@@ -505,6 +510,7 @@ class TestWorkspaceRepositoryService
                 provisioning,
                 mock(WorkspaceMetadataService.class),
                 mock(PullRequestRefreshService.class),
+                bothProviders(),
                 Runnable::run);
     }
 

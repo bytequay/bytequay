@@ -18,6 +18,7 @@ import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.HostingVersion;
 import com.bytequay.core.hosting.RemoteHostingAccount;
 import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.bytequay.persistence.sqlite.repository.HostingAccountJpaRepository;
@@ -46,6 +47,22 @@ class TestSqliteHostingIdentityStore
 
     @Autowired
     private EntityManager entityManager;
+
+    @Test
+    void keepsTheReleaseLastReadFromEachServer()
+    {
+        HostingInstance instance = gitlab("https://git.example.com");
+        HostingServer server = new HostingServer(HostingProvider.GITLAB, URI.create("https://GIT.example.com/"), URI.create("https://git.example.com/api/v4"));
+        assertThat(store.findVersion(server)).isEmpty();
+
+        store.updateVersion(instance.id(), HostingVersion.parse("14.10.5"));
+        assertThat(store.findVersion(server)).contains(new HostingVersion(14, 10, 5));
+
+        store.updateVersion(instance.id(), Optional.empty());
+        assertThat(store.findVersion(server)).isEmpty();
+        assertThat(store.findVersion(new HostingServer(HostingProvider.GITLAB, URI.create("https://other.example.com"), URI.create("https://other.example.com/api/v4"))))
+                .isEmpty();
+    }
 
     @Test
     void selectsTheSameInstanceAndRejectsSilentEndpointChanges()

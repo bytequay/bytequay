@@ -47,6 +47,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.OptionalLong;
 
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.capabilities;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -218,7 +219,8 @@ class TestCommitHistoryService
         ready(new WorkspaceSummary(summary.id(), summary.name(), summary.selectedRepositoryId(), summary.selectedOwner(), summary.selectedRepo(), null, null, null,
                 summary.monitoredRepositoryId(), summary.monitoredOwner(), summary.monitoredRepo(), summary.topology(), summary.defaultBranch(), null,
                 summary.localRepositoryPath(), summary.lastCodeSyncAt(), summary.lastMetadataSyncAt(), summary.displayOrder(),
-                new HostingServer(HostingProvider.GITLAB, URI.create("https://gitlab.example.test/team"), URI.create("https://gitlab.example.test/team/api/v4"))));
+                new HostingServer(HostingProvider.GITLAB, URI.create("https://gitlab.example.test/team"), URI.create("https://gitlab.example.test/team/api/v4")),
+                capabilities(HostingProvider.GITLAB)));
         Commit commit = commit("abc123", Optional.empty());
         when(git.log(REPOSITORY, "origin/main", 50)).thenReturn(ImmutableList.of(commit));
         Instant checkedAt = Instant.parse("2026-08-22T02:00:00Z");
@@ -303,7 +305,8 @@ class TestCommitHistoryService
                 Instant.parse("2026-08-22T00:00:00Z"),
                 Instant.parse("2026-08-22T00:00:00Z"),
                 0,
-                HostingServer.GITHUB_COM);
+                HostingServer.GITHUB_COM,
+                capabilities(HostingProvider.GITHUB));
     }
 
     private static Commit commit(String sha, Optional<Integer> pullRequestNumber)

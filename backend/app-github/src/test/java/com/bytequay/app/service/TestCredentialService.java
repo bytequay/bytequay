@@ -24,6 +24,7 @@ import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingAccount;
+import com.bytequay.core.hosting.HostingCapabilities;
 import com.bytequay.core.hosting.HostingCredential.Source;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
@@ -57,7 +58,8 @@ import static org.mockito.Mockito.when;
 class TestCredentialService
 {
     private static final HostingInstance GITHUB = new HostingInstance(1, HostingProvider.GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
-    private static final HostingConnection CONNECTION = new HostingConnection(new HostingAccount(7, 1, "583231", "octocat"), GITHUB, true, Optional.empty());
+    private static final HostingConnection CONNECTION = new HostingConnection(new HostingAccount(7, 1, "583231", "octocat"), GITHUB, true, Optional.empty(),
+            HostingCapabilities.ALL);
 
     @Test
     void resolvesTheTokenThroughTheMainGitHubAccount()

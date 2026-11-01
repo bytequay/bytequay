@@ -17,6 +17,7 @@ import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.HostingVersion;
 import com.bytequay.core.hosting.RemoteHostingAccount;
 import com.bytequay.core.hosting.RemoteHostingRepository;
 
@@ -31,6 +32,11 @@ public interface HostingIdentityStore
     Optional<HostingInstance> findInstance(long id);
 
     List<HostingInstance> listInstances();
+
+    /** The release last read from this server; empty until an account on it is verified, or for a provider that reports none. */
+    Optional<HostingVersion> findVersion(HostingServer server);
+
+    void updateVersion(long instanceId, Optional<HostingVersion> version);
 
     HostingAccount upsertAccount(long instanceId, RemoteHostingAccount remote);
 

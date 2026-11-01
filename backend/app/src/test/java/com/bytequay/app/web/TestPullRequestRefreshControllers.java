@@ -36,6 +36,7 @@ import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestDetailRefresh;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingCapabilities;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
@@ -639,7 +640,7 @@ class TestPullRequestRefreshControllers
     {
         return new WorkspaceSummary(id, "owner/repo", repositoryId, "owner", "repo", null, null, null,
                 repositoryId, "owner", "repo", Topology.DIRECT, "main", null,
-                "/tmp/bytequay-workspaces/" + id + "/repository", NOW, NOW, 0, HostingServer.GITHUB_COM);
+                "/tmp/bytequay-workspaces/" + id + "/repository", NOW, NOW, 0, HostingServer.GITHUB_COM, HostingCapabilities.ALL);
     }
 
     private static PullRequestDetail detail()

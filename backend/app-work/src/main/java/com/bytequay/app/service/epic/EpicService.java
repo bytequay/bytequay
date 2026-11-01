@@ -269,8 +269,8 @@ public class EpicService
     private Read subIssues(String workspaceId, String epicId)
     {
         var workspace = workspaces.findById(workspaceId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Workspace not found"));
-        if (!workspace.provider().capabilities().issueChildren()) {
-            throw new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED, "Fetching issue children is not supported for this workspace's hosting provider yet");
+        if (!integrations.of(workspace.server()).capabilities().issueChildren()) {
+            throw new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED, "This workspace's hosting server cannot list an issue's child items");
         }
         IssueEpic marker = markers.findEpic(workspace.issueHost(), EpicSources.issueId(epicId))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Epic not found"));

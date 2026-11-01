@@ -19,9 +19,11 @@ import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingPermissions;
 import com.bytequay.core.hosting.HostingRepositories;
 import com.bytequay.core.hosting.HostingUrls;
+import com.bytequay.core.hosting.HostingVersion;
 import com.bytequay.core.hosting.RemoteHostingAccount;
 import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.bytequay.core.hosting.RepositoryVisibility;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 
@@ -64,6 +66,13 @@ public final class GitLabConnectionClient
     public Optional<HostingPermissions> checkPermissions(HostingAccess access)
     {
         return Optional.of(new GitLabPermissionReader(http).check(access));
+    }
+
+    /** Every GitLab release names itself at /version to any signed-in token. */
+    @Override
+    public Optional<HostingVersion> serverVersion(HostingAccess access)
+    {
+        return HostingVersion.parse(http.get(access, "version", Optional.empty(), Version.class).body().orElseThrow().version());
     }
 
     @Override
@@ -128,4 +137,7 @@ public final class GitLabConnectionClient
             throw new HostingFailure(INVALID_RESPONSE, "GitLab returned invalid repository coordinates");
         }
     }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record Version(String version) {}
 }

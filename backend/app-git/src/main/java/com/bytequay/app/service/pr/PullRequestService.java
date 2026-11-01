@@ -60,9 +60,11 @@ import com.bytequay.core.hosting.DiscoveryQuery;
 import com.bytequay.core.hosting.DiscoveryQuery.Kind;
 import com.bytequay.core.hosting.DiscoveryQuery.State;
 import com.bytequay.core.hosting.DiscussionProbe;
+import com.bytequay.core.hosting.HostingCapabilities;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.PullRequestCardSummary;
 import com.bytequay.core.hosting.PullRequestDiscovery;
@@ -1136,7 +1138,7 @@ public class PullRequestService
 
     private PullRequestDiscovery discovery(HostingReadSession session)
     {
-        return integrations.of(session.access().server().provider()).discovery();
+        return integrations.of(session.access().server()).discovery();
     }
 
     /**
@@ -1146,9 +1148,10 @@ public class PullRequestService
     private Set<PullRequestRef> polled(BiFunction<PullRequestDiscovery, String, Set<PullRequestRef>> reported)
     {
         ImmutableSet.Builder<PullRequestRef> refs = ImmutableSet.builder();
-        credentialService.cachedLogin().ifPresent(login -> refs.addAll(reported.apply(integrations.of(GITHUB_SERVER.provider()).discovery(), login)));
+        credentialService.cachedLogin().ifPresent(login -> refs.addAll(reported.apply(integrations.of(GITHUB_SERVER).discovery(), login)));
         connections.connections().stream().filter(HostingConnection::connected)
-                .forEach(connection -> refs.addAll(reported.apply(integrations.of(connection.instance().provider()).discovery(), connection.account().login())));
+                .forEach(connection -> refs.addAll(reported.apply(integrations.of(new HostingServer(connection.instance().provider(), connection.instance().webBaseUrl(),
+                        connection.instance().apiBaseUrl())).discovery(), connection.account().login())));
         return refs.build();
     }
 
@@ -1664,6 +1667,12 @@ public class PullRequestService
     public Posted createReviewComment(String repo, int number, InlineReviewComment comment)
     {
         return actions.createReviewComment(prepareRead(repo, number), comment);
+    }
+
+    /** What the app supports through the implementation chosen for the request's server. */
+    public HostingCapabilities capabilities(PullRequestRead route)
+    {
+        return integrations.of(route.target()).capabilities();
     }
 
     public Posted createReviewComment(PullRequestRead route, InlineReviewComment comment)

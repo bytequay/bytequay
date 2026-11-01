@@ -17,25 +17,24 @@ import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingCapabilities;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingPermissions;
-import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
-public record HostingConnection(HostingAccount account, HostingInstance instance, boolean connected, Optional<HostingPermissions> permissions)
+/**
+ * One connected account on its server.
+ *
+ * @param capabilities what the app supports for this account's server, for a request opened through the account
+ */
+public record HostingConnection(HostingAccount account, HostingInstance instance, boolean connected, Optional<HostingPermissions> permissions,
+        HostingCapabilities capabilities)
 {
     public HostingConnection
     {
         requireNonNull(account, "account is null");
         requireNonNull(instance, "instance is null");
         requireNonNull(permissions, "permissions is null");
-    }
-
-    /** What the app supports for this account's provider, for a request opened through the account. */
-    @JsonProperty
-    public HostingCapabilities capabilities()
-    {
-        return instance.provider().capabilities();
+        requireNonNull(capabilities, "capabilities is null");
     }
 }

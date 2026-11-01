@@ -24,7 +24,9 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.hosting.HostingIntegration;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingTarget;
+import com.bytequay.core.hosting.HostingVersion;
 import com.bytequay.core.hosting.PullRequestCi;
+import com.bytequay.core.store.HostingIdentityStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.springframework.beans.factory.ObjectProvider;
@@ -61,16 +63,16 @@ final class ScriptedPullRequestCi
     private Optional<Supplier<CiDeliveryChecks>> deliveryChecks = Optional.empty();
 
     /** The registry with this scripted CI in place of each provider's own. */
-    static HostingIntegrations integrations(ObjectProvider<HostingIntegration> integrations, ScriptedPullRequestCi ci)
+    static HostingIntegrations integrations(ObjectProvider<HostingIntegration> integrations, HostingIdentityStore identities, ScriptedPullRequestCi ci)
     {
-        return new HostingIntegrations(integrations)
+        return new HostingIntegrations(integrations, identities)
         {
             @Override
-            public HostingIntegration of(HostingProvider provider)
+            public HostingIntegration of(HostingProvider provider, Optional<HostingVersion> version)
             {
-                HostingIntegration real = super.of(provider);
-                return new HostingIntegration(real.provider(), real.accounts(), real.repositories(), real.pullRequests(), real.contents(), real.writer(), real.issues(),
-                        real.metadata(), real.discovery(), ci, real.team());
+                HostingIntegration real = super.of(provider, version);
+                return new HostingIntegration(real.provider(), real.since(), real.capabilities(), real.accounts(), real.repositories(), real.pullRequests(),
+                        real.contents(), real.writer(), real.issues(), real.metadata(), real.discovery(), ci, real.team());
             }
         };
     }

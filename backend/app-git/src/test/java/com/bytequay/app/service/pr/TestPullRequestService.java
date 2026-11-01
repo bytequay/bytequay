@@ -150,6 +150,7 @@ import java.util.concurrent.locks.LockSupport;
 import java.util.function.Consumer;
 import java.util.stream.IntStream;
 
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.capabilities;
 import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
 import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.pullRequests;
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
@@ -325,8 +326,8 @@ class TestPullRequestService
     void mentionsFromEveryConnectedDiscoveryAccountCount()
     {
         HostingInstance gitlab = new HostingInstance(2, GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"));
-        when(connections.connections()).thenReturn(ImmutableList.of(new HostingConnection(new HostingAccount(11, 2, "200", "alice"), gitlab, true, Optional.empty()),
-                new HostingConnection(new HostingAccount(13, 2, "400", "gone"), gitlab, false, Optional.empty())));
+        when(connections.connections()).thenReturn(ImmutableList.of(connection(new HostingAccount(11, 2, "200", "alice"), gitlab, true),
+                connection(new HostingAccount(13, 2, "400", "gone"), gitlab, false)));
         PullRequestDiscovery gitlabDiscovery = mock(PullRequestDiscovery.class);
         when(gitlabDiscovery.mentions("alice")).thenReturn(ImmutableSet.of(PullRequestRef.of("group", "project", 4)));
         integrations = integrations(pullRequests(GITHUB, contents, new GitHubPullRequestWriter(gitHub, writes, actions), discovery),
@@ -1426,8 +1427,8 @@ class TestPullRequestService
         HostingReadSession githubSession = new HostingReadSession(12, "other-account", new HostingAccess(github, "other-token"));
         HostingAccount account = new HostingAccount(11, 2, "200", "me");
         // The desktop sign-in is also a connected account; it discovers once.
-        when(connections.connections()).thenReturn(ImmutableList.of(new HostingConnection(new HostingAccount(10, 1, "100", "me"), github, true, Optional.empty()),
-                new HostingConnection(account, gitlab, true, Optional.empty()), new HostingConnection(new HostingAccount(12, 1, "300", "other"), github, true, Optional.empty())));
+        when(connections.connections()).thenReturn(ImmutableList.of(connection(new HostingAccount(10, 1, "100", "me"), github, true),
+                connection(account, gitlab, true), connection(new HostingAccount(12, 1, "300", "other"), github, true)));
         when(connections.readSession(11)).thenReturn(gitlabSession);
         when(connections.account(gitlabSession)).thenReturn(account);
         when(connections.readSession(12)).thenReturn(githubSession);
@@ -1468,9 +1469,9 @@ class TestPullRequestService
     {
         HostingInstance gitlab = new HostingInstance(2, GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"));
         HostingInstance github = new HostingInstance(1, GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
-        when(connections.connections()).thenReturn(ImmutableList.of(new HostingConnection(new HostingAccount(11, 2, "200", "me"), gitlab, true, Optional.empty()),
-                new HostingConnection(new HostingAccount(12, 1, "300", "other"), github, true, Optional.empty()),
-                new HostingConnection(new HostingAccount(13, 1, "400", "gone"), github, false, Optional.empty())));
+        when(connections.connections()).thenReturn(ImmutableList.of(connection(new HostingAccount(11, 2, "200", "me"), gitlab, true),
+                connection(new HostingAccount(12, 1, "300", "other"), github, true),
+                connection(new HostingAccount(13, 1, "400", "gone"), github, false)));
         when(requests.readingAccounts(ImmutableSet.of(1L, 2L, 3L)))
                 .thenReturn(ImmutableMap.of(1L, ImmutableSet.of(12L, 11L), 2L, ImmutableSet.of(12L), 3L, ImmutableSet.of(9L, 13L)));
         when(store.findHostingIdentity(1L)).thenReturn(Optional.of(new HostingPullRequest(101, 30, 1)));
@@ -2363,7 +2364,7 @@ class TestPullRequestService
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         HostingInstance github = new HostingInstance(1, GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
-        when(connections.connections()).thenReturn(ImmutableList.of(new HostingConnection(new HostingAccount(12, 1, "300", "other"), github, true, Optional.empty())));
+        when(connections.connections()).thenReturn(ImmutableList.of(connection(new HostingAccount(12, 1, "300", "other"), github, true)));
         when(notifications.reviewRequests("me")).thenReturn(ImmutableSet.of());
         when(notifications.reviewRequests("other")).thenReturn(ImmutableSet.of(ref));
         FetchedPullRequest pullRequest = pullRequest(99, "open", Instant.parse("2026-08-21T00:00:00Z"), null);
@@ -4000,6 +4001,11 @@ class TestPullRequestService
     private static PullRequest storedPullRequest(String state, Instant updatedAt, Instant closedAt)
     {
         return storedPullRequest(pullRequest(state, updatedAt, closedAt));
+    }
+
+    private static HostingConnection connection(HostingAccount account, HostingInstance instance, boolean connected)
+    {
+        return new HostingConnection(account, instance, connected, Optional.empty(), capabilities(instance.provider()));
     }
 
     private static PullRequest storedPullRequest(FetchedPullRequest fetched)

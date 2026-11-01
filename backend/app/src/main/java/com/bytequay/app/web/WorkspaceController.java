@@ -109,7 +109,7 @@ public class WorkspaceController
     @PostMapping
     public WorkspaceSummary watch(@RequestBody WatchRequest request)
     {
-        return WorkspaceSummary.of(workspaces.watch(new WatchRepositoryCommand(
+        return workspaces.summary(workspaces.watch(new WatchRepositoryCommand(
                 request.selectedRepositoryId(),
                 request.topology(),
                 request.previewFingerprint(),
@@ -246,13 +246,13 @@ public class WorkspaceController
     @PostMapping("/{workspaceId}/sync")
     public WorkspaceSummary sync(@PathVariable String workspaceId)
     {
-        return WorkspaceSummary.of(workspaces.requestSync(workspaceId));
+        return workspaces.summary(workspaces.requestSync(workspaceId));
     }
 
     @DeleteMapping("/{workspaceId}/upstream")
     public WorkspaceSummary unlinkUpstream(@PathVariable String workspaceId)
     {
-        return WorkspaceSummary.of(workspaces.unlinkUpstream(workspaceId));
+        return workspaces.summary(workspaces.unlinkUpstream(workspaceId));
     }
 
     @DeleteMapping("/{workspaceId}")
@@ -271,7 +271,7 @@ public class WorkspaceController
     @PatchMapping("/{workspaceId}")
     public WorkspaceSummary rename(@PathVariable String workspaceId, @RequestBody RenameRequest request)
     {
-        return WorkspaceSummary.of(workspaces.rename(workspaceId, request.name()));
+        return workspaces.summary(workspaces.rename(workspaceId, request.name()));
     }
 
     @GetMapping("/{workspaceId}/settings")

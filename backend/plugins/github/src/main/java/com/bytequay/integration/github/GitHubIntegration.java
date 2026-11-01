@@ -13,6 +13,7 @@
  */
 package com.bytequay.integration.github;
 
+import com.bytequay.core.hosting.HostingCapabilities;
 import com.bytequay.core.hosting.HostingIntegration;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.IssueClient;
@@ -27,6 +28,7 @@ import com.bytequay.integration.github.impl.GitHubPullRequestReader;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.net.http.HttpClient;
+import java.util.Optional;
 
 public final class GitHubIntegration
 {
@@ -37,7 +39,8 @@ public final class GitHubIntegration
             RepositoryMetadataReader metadata, PullRequestDiscovery discovery, PullRequestCi ci, TeamActivityReader team)
     {
         GitHubConnectionClient connections = new GitHubConnectionClient(http, mapper);
-        return new HostingIntegration(HostingProvider.GITHUB, connections, connections, new GitHubPullRequestReader(http, mapper), contents, writer, issues, metadata,
+        return new HostingIntegration(HostingProvider.GITHUB, Optional.empty(), HostingCapabilities.ALL, connections, connections, new GitHubPullRequestReader(http, mapper),
+                contents, writer, issues, metadata,
                 discovery, ci, team);
     }
 }

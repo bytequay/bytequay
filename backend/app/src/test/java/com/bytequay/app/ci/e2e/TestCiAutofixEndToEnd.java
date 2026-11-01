@@ -990,9 +990,9 @@ class TestCiAutofixEndToEnd
 
         @Bean
         @Primary
-        HostingIntegrations e2eHostingIntegrations(ObjectProvider<HostingIntegration> integrations, ScriptedPullRequestCi ci)
+        HostingIntegrations e2eHostingIntegrations(ObjectProvider<HostingIntegration> integrations, HostingIdentityStore identities, ScriptedPullRequestCi ci)
         {
-            return ScriptedPullRequestCi.integrations(integrations, ci);
+            return ScriptedPullRequestCi.integrations(integrations, identities, ci);
         }
 
         @Bean

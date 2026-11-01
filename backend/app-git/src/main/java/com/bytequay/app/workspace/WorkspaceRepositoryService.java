@@ -17,6 +17,7 @@ import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
+import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.core.domain.RemoteSource;
@@ -81,6 +82,7 @@ public class WorkspaceRepositoryService
     private final WorkspaceProvisioningService provisioning;
     private final WorkspaceMetadataService metadata;
     private final PullRequestRefreshService pullRequestRefresh;
+    private final HostingIntegrations integrations;
     private final Executor executor;
     private final Set<String> codeRefreshes = ConcurrentHashMap.newKeySet();
     private final Set<String> metadataRefreshes = ConcurrentHashMap.newKeySet();
@@ -96,6 +98,7 @@ public class WorkspaceRepositoryService
             WorkspaceProvisioningService provisioning,
             WorkspaceMetadataService metadata,
             PullRequestRefreshService pullRequestRefresh,
+            HostingIntegrations integrations,
             @Qualifier(IO_EXECUTOR) Executor executor)
     {
         this.store = requireNonNull(store, "store is null");
@@ -108,6 +111,7 @@ public class WorkspaceRepositoryService
         this.provisioning = requireNonNull(provisioning, "provisioning is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.pullRequestRefresh = requireNonNull(pullRequestRefresh, "pullRequestRefresh is null");
+        this.integrations = requireNonNull(integrations, "integrations is null");
         this.executor = requireNonNull(executor, "executor is null");
     }
 
@@ -216,7 +220,7 @@ public class WorkspaceRepositoryService
      */
     public List<WorkspaceSummary> listWorkspaces()
     {
-        return store.findAll().stream().map(WorkspaceSummary::of).collect(toImmutableList());
+        return store.findAll().stream().map(this::summary).collect(toImmutableList());
     }
 
     /**
@@ -229,7 +233,7 @@ public class WorkspaceRepositoryService
         Set<String> watchedIds = store.findAll().stream().map(Workspace::id).collect(toImmutableSet());
         return store.findAllRetained().stream()
                 .filter(workspace -> !watchedIds.contains(workspace.id()))
-                .map(WorkspaceSummary::of)
+                .map(this::summary)
                 .collect(toImmutableList());
     }
 
@@ -248,7 +252,13 @@ public class WorkspaceRepositoryService
      */
     public WorkspaceSummary getWorkspace(String workspaceId)
     {
-        return WorkspaceSummary.of(requireWorkspace(store, workspaceId));
+        return summary(requireWorkspace(store, workspaceId));
+    }
+
+    /** The workspace with what the app supports through the implementation chosen for its server. */
+    public WorkspaceSummary summary(Workspace workspace)
+    {
+        return WorkspaceSummary.of(workspace, integrations.of(workspace.server()).capabilities());
     }
 
     /**
@@ -352,7 +362,7 @@ public class WorkspaceRepositoryService
     /** Monitors {@code upstream}, or the selected repository when empty, and binds the workspace again to the repositories it now reads. */
     private Workspace routeUpstream(String workspaceId, Optional<UserRepo> upstream)
     {
-        Workspace workspace = requireFeature(store, workspaceId, HostingCapabilities::forkWorkflows);
+        Workspace workspace = requireFeature(store, integrations, workspaceId, HostingCapabilities::forkWorkflows);
         if (workspace.upstreamRepositoryId().equals(upstream.map(UserRepo::id))) {
             return workspace;
         }

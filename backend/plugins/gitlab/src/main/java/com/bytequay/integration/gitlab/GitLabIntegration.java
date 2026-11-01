@@ -13,6 +13,7 @@
  */
 package com.bytequay.integration.gitlab;
 
+import com.bytequay.core.hosting.HostingCapabilities;
 import com.bytequay.core.hosting.HostingIntegration;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.integration.gitlab.impl.GitLabConnectionClient;
@@ -26,16 +27,19 @@ import com.bytequay.integration.gitlab.impl.GitLabTeamActivityReader;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.net.http.HttpClient;
+import java.util.Optional;
 
 public final class GitLabIntegration
 {
+    private static final HostingCapabilities CAPABILITIES = new HostingCapabilities(false, false, true, true, false, true);
+
     private GitLabIntegration() {}
 
     public static HostingIntegration create(HttpClient http, ObjectMapper mapper)
     {
         GitLabConnectionClient connections = new GitLabConnectionClient(http, mapper);
         GitLabIssueClient issues = new GitLabIssueClient(http, mapper);
-        return new HostingIntegration(HostingProvider.GITLAB, connections, connections, new GitLabPullRequestReader(http, mapper),
+        return new HostingIntegration(HostingProvider.GITLAB, Optional.empty(), CAPABILITIES, connections, connections, new GitLabPullRequestReader(http, mapper),
                 new GitLabPullRequestContentReader(http, mapper), new GitLabPullRequestWriter(http, mapper), issues, issues, new GitLabPullRequestDiscovery(http, mapper),
                 new GitLabPullRequestCi(http, mapper), new GitLabTeamActivityReader(http, mapper));
     }

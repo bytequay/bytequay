@@ -725,7 +725,7 @@ public class BackportChainService
             return selector;
         }
         var matches = workspaces.findAllRetained().stream()
-                .filter(workspace -> workspace.provider().capabilities().forkWorkflows())
+                .filter(workspace -> integrations.of(workspace.server()).capabilities().forkWorkflows())
                 .filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(selector) && workspaces.isWatched(workspace.id()))
                 .collect(toImmutableList());
         checkArgument(matches.size() == 1, "Choose an available destination workspace ID or an unambiguous owner/repository: %s", selector);
@@ -735,7 +735,7 @@ public class BackportChainService
     private Route route(String workspaceId)
     {
         checkState(workspaces.isWatched(workspaceId), "A route workspace is unavailable");
-        return Route.of(WorkspaceException.requireFeature(workspaces, workspaceId, HostingCapabilities::forkWorkflows));
+        return Route.of(WorkspaceException.requireFeature(workspaces, integrations, workspaceId, HostingCapabilities::forkWorkflows));
     }
 
     private BackportChain owned(String workspaceId, String id)

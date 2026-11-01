@@ -34,6 +34,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
 
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.bothProviders;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -59,7 +60,7 @@ class TestWorkspaceRepositoryIdentity
         workspaces = mock(WorkspaceStore.class);
         service = new WorkspaceRepositoryService(workspaces, remoteSources, gitHub, mock(CredentialService.class), mock(HostingConnectionService.class),
                 Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/managed"), mock(WorkspaceProvisioningService.class), mock(WorkspaceMetadataService.class),
-                mock(PullRequestRefreshService.class), Runnable::run);
+                mock(PullRequestRefreshService.class), bothProviders(), Runnable::run);
         when(workspaces.findById("target")).thenReturn(Optional.of(directWorkspace("target", 404, RepoRef.of("target", "project"))));
     }
 

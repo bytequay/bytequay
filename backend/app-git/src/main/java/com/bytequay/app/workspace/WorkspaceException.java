@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.workspace;
 
+import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingCapabilities;
 import com.bytequay.core.store.WorkspaceStore;
@@ -43,10 +44,10 @@ public final class WorkspaceException
         return workspaces.findById(workspaceId).orElseThrow(() -> notFound(workspaceId));
     }
 
-    public static Workspace requireFeature(WorkspaceStore workspaces, String workspaceId, Predicate<HostingCapabilities> feature)
+    public static Workspace requireFeature(WorkspaceStore workspaces, HostingIntegrations integrations, String workspaceId, Predicate<HostingCapabilities> feature)
     {
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
-        if (!feature.test(workspace.provider().capabilities())) {
+        if (!feature.test(integrations.of(workspace.server()).capabilities())) {
             throw unavailable();
         }
         return workspace;

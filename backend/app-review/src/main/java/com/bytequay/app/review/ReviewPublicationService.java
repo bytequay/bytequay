@@ -674,9 +674,9 @@ public class ReviewPublicationService
     }
 
     /** A provider without multi-line comments receives a range anchored on its last line. */
-    private static InlineReviewComment comment(ReviewDraftItem item, PullRequestRead route)
+    private InlineReviewComment comment(ReviewDraftItem item, PullRequestRead route)
     {
-        OptionalInt startLine = route.target().provider().capabilities().multiLineComments() ? item.startLine() : OptionalInt.empty();
+        OptionalInt startLine = pullRequests.capabilities(route).multiLineComments() ? item.startLine() : OptionalInt.empty();
         return new InlineReviewComment(
                 item.path(),
                 item.body(),

@@ -13,11 +13,20 @@
  */
 package com.bytequay.core.hosting;
 
+import java.util.Optional;
+
 import static java.util.Objects.requireNonNull;
 
-/** One provider's implementations of every remote hosting port. */
+/**
+ * One provider's implementations of every remote hosting port, for the servers of that provider from {@code since} on.
+ *
+ * @param since the oldest server release these implementations need; empty serves any release, including one not yet known
+ * @param capabilities what ByteQuay supports through these implementations beyond the shared ports
+ */
 public record HostingIntegration(
         HostingProvider provider,
+        Optional<HostingVersion> since,
+        HostingCapabilities capabilities,
         HostingAccounts accounts,
         HostingRepositories repositories,
         PullRequestReader pullRequests,
@@ -32,6 +41,8 @@ public record HostingIntegration(
     public HostingIntegration
     {
         requireNonNull(provider, "provider is null");
+        requireNonNull(since, "since is null");
+        requireNonNull(capabilities, "capabilities is null");
         requireNonNull(accounts, "accounts is null");
         requireNonNull(repositories, "repositories is null");
         requireNonNull(pullRequests, "pullRequests is null");

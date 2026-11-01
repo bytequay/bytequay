@@ -24,6 +24,7 @@ import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestDetail.CiStatus;
 import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingCapabilities;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
@@ -117,6 +118,7 @@ class TestReviewPublicationService
         pullRequests = mock(PullRequestService.class);
         service = new ReviewPublicationService(drafts, reviews.service, pullRequests, Clock.fixed(NOW, ZoneOffset.UTC));
         when(pullRequests.prepareRead(anyString(), eq(REPO), eq(NUMBER))).thenReturn(ROUTE);
+        when(pullRequests.capabilities(any())).thenReturn(HostingCapabilities.ALL);
     }
 
     @Test
@@ -683,6 +685,7 @@ class TestReviewPublicationService
         when(pullRequests.findHeadSha(route)).thenReturn(Optional.of(REVIEWED_HEAD));
         when(pullRequests.getPullRequestDetail(route)).thenReturn(detail());
         when(pullRequests.submitReview(eq(route), eq(PR_ID), eq("COMMENT"), eq(""), any(), anyString())).thenReturn(posted());
+        when(pullRequests.capabilities(route)).thenReturn(new HostingCapabilities(false, false, true, true, false, true));
 
         service.submit(route, draft.version(), "", "COMMENT", REVIEWED_HEAD);
 

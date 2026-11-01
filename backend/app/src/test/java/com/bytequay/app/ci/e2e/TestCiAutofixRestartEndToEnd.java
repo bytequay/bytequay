@@ -318,7 +318,8 @@ class TestCiAutofixRestartEndToEnd
             context.registerBean(
                     "restartHostingIntegrations",
                     HostingIntegrations.class,
-                    () -> ScriptedPullRequestCi.integrations(context.getBeanProvider(HostingIntegration.class), context.getBean(ScriptedPullRequestCi.class)),
+                    () -> ScriptedPullRequestCi.integrations(context.getBeanProvider(HostingIntegration.class), context.getBean(HostingIdentityStore.class),
+                            context.getBean(ScriptedPullRequestCi.class)),
                     bean -> bean.setPrimary(true));
             context.registerBean(
                     "restartWorkspaceHostingService",

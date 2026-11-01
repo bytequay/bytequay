@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.workspace;
 
+import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
@@ -54,9 +55,11 @@ public class WorkspaceRelationships
     private final WorkspaceStore workspaces;
     private final AppSettingsStore settings;
     private final ObjectMapper mapper;
+    private final HostingIntegrations integrations;
 
-    public WorkspaceRelationships(WorkspaceStore workspaces, AppSettingsStore settings, ObjectMapper mapper)
+    public WorkspaceRelationships(WorkspaceStore workspaces, AppSettingsStore settings, ObjectMapper mapper, HostingIntegrations integrations)
     {
+        this.integrations = requireNonNull(integrations, "integrations is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.settings = requireNonNull(settings, "settings is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
@@ -114,7 +117,7 @@ public class WorkspaceRelationships
 
     public List<BackportWorkspace> backportWorkspaces()
     {
-        return workspaces.findAllRetained().stream().filter(WorkspaceRelationships::forkWorkflows).filter(workspace -> workspaces.isWatched(workspace.id()))
+        return workspaces.findAllRetained().stream().filter(this::forkWorkflows).filter(workspace -> workspaces.isWatched(workspace.id()))
                 .map(workspace -> new BackportWorkspace(workspace.id(), workspace.name(), workspace.monitoredRepository().fullName(),
                         list(workspace.id()).stream().filter(link -> link.kind() == Kind.FORK).collect(toImmutableList())))
                 .collect(toImmutableList());
@@ -123,8 +126,8 @@ public class WorkspaceRelationships
     public List<Relationship> save(String workspaceId, Relationship relationship)
     {
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            Workspace source = requireFeature(workspaces, workspaceId, HostingCapabilities::forkWorkflows);
-            Workspace destination = requireFeature(workspaces, relationship.workspaceId(), HostingCapabilities::forkWorkflows);
+            Workspace source = requireFeature(workspaces, integrations, workspaceId, HostingCapabilities::forkWorkflows);
+            Workspace destination = requireFeature(workspaces, integrations, relationship.workspaceId(), HostingCapabilities::forkWorkflows);
             checkArgument(workspaces.isWatched(destination.id()), "Choose a watched workspace");
             requireDifferent(source, destination);
             List<Relationship> existing = list(workspaceId);
@@ -239,9 +242,9 @@ public class WorkspaceRelationships
     /** Agent conversations may read any other watched project; a link only adds guidance and the right to start work there. */
     public Workspace requireReadable(String workspaceId, String destinationId)
     {
-        Workspace destination = requireFeature(workspaces, destinationId, HostingCapabilities::forkWorkflows);
+        Workspace destination = requireFeature(workspaces, integrations, destinationId, HostingCapabilities::forkWorkflows);
         checkArgument(workspaces.isWatched(destinationId), "Related workspace is unavailable");
-        requireDifferent(requireFeature(workspaces, workspaceId, HostingCapabilities::forkWorkflows), destination);
+        requireDifferent(requireFeature(workspaces, integrations, workspaceId, HostingCapabilities::forkWorkflows), destination);
         return destination;
     }
 
@@ -250,7 +253,7 @@ public class WorkspaceRelationships
     {
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
         Set<String> related = related(workspaceId).stream().map(Related::workspaceId).collect(toImmutableSet());
-        return workspaces.findAllRetained().stream().filter(WorkspaceRelationships::forkWorkflows)
+        return workspaces.findAllRetained().stream().filter(this::forkWorkflows)
                 .filter(other -> workspaces.isWatched(other.id()) && !related.contains(other.id()) && other.monitoredRepositoryId() != workspace.monitoredRepositoryId()
                         && !matches(other, workspace.monitoredRepository()))
                 .collect(toImmutableList());
@@ -266,7 +269,7 @@ public class WorkspaceRelationships
     public void requireTransferAllowed(Optional<RepoRef> source, RepoRef target)
     {
         // ponytail: scan local settings; index repository pairs if large workspace catalogs make admission slow.
-        for (Workspace workspace : workspaces.findAllRetained().stream().filter(WorkspaceRelationships::forkWorkflows).collect(toImmutableList())) {
+        for (Workspace workspace : workspaces.findAllRetained().stream().filter(this::forkWorkflows).collect(toImmutableList())) {
             if (source.isPresent() && !matches(workspace, source.orElseThrow()) && !matches(workspace, target)) {
                 continue;
             }
@@ -324,13 +327,13 @@ public class WorkspaceRelationships
     private Map<String, List<Relationship>> watchedLinks()
     {
         // ponytail: reads every watched workspace's links per call; cache them if workspace catalogs grow large.
-        return workspaces.findAllRetained().stream().filter(WorkspaceRelationships::forkWorkflows).filter(workspace -> workspaces.isWatched(workspace.id()))
+        return workspaces.findAllRetained().stream().filter(this::forkWorkflows).filter(workspace -> workspaces.isWatched(workspace.id()))
                 .collect(toImmutableMap(Workspace::id, workspace -> list(workspace.id())));
     }
 
-    private static boolean forkWorkflows(Workspace workspace)
+    private boolean forkWorkflows(Workspace workspace)
     {
-        return workspace.provider().capabilities().forkWorkflows();
+        return integrations.of(workspace.server()).capabilities().forkWorkflows();
     }
 
     private static boolean matches(Workspace workspace, RepoRef repository)

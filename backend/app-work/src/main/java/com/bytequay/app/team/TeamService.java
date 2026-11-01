@@ -147,7 +147,7 @@ public class TeamService
 
     private TeamMember resolveMember(TeamAccount owner, TeamMemberInput selected)
     {
-        HostingPerson person = integrations.of(owner.server().provider()).team().person(owner.session().access(), selected.login());
+        HostingPerson person = integrations.of(owner.server()).team().person(owner.session().access(), selected.login());
         if (person.id() != selected.remoteId()) {
             // The login leads the message so the dialog can mark which selected person to remove.
             throw new ResponseStatusException(HttpStatus.CONFLICT, selected.login() + " couldn't be verified: the cached contributor no longer matches their account");

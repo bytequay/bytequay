@@ -24,4 +24,10 @@ public interface HostingAccounts
     {
         return Optional.empty();
     }
+
+    /** The server's release, which picks the implementations ByteQuay uses for it; empty when the provider has one for every release. */
+    default Optional<HostingVersion> serverVersion(HostingAccess access)
+    {
+        return Optional.empty();
+    }
 }

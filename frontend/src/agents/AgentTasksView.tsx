@@ -51,7 +51,7 @@ import { ATTENTION_SEED, issueAttentionKey } from '../home/attention';
 import type { TaskAttention } from './attention';
 import { taskArchived, taskBusy } from './taskStatus';
 import { TaskItemCard, TaskItemRow, TaskTypeIcon, viewerInitials, type TaskItemHandlers } from './TaskListCards';
-import { TASK_TYPES, cherryPickItem, ciFixItem, developmentItem, groupTaskList, reviewItem, type TaskListItem, type TaskType } from './taskList';
+import { TASK_TYPES, cherryPickItem, ciFixItem, developmentItem, groupTaskList, latestCiRuns, reviewItem, type TaskListItem, type TaskType } from './taskList';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 
 export type DraftImage = { id: string; name: string; url: string };
@@ -755,7 +755,7 @@ export default function AgentTasksView({
     return [
       ...work.reviews.map(reviewItem),
       ...work.executions.map(cherryPickItem),
-      ...work.runs.filter((run) => !owned.has(run.id)).map(ciFixItem),
+      ...latestCiRuns(work.runs.filter((run) => !owned.has(run.id))).map(ciFixItem),
     ];
   }, [work]);
   const openItem = useCallback((item: TaskListItem) => {

@@ -169,6 +169,16 @@ export function cherryPickItem(execution: CherryPickExecution): TaskListItem {
   };
 }
 
+/** A development task's CI repair serves every push, so the task keeps one card: its newest run. Other runs each keep theirs. */
+export function latestCiRuns(runs: CiAutofixRunDto[]): CiAutofixRunDto[] {
+  const newest = new Map<string, CiAutofixRunDto>();
+  for (const run of runs) {
+    const kept = run.parentTaskId === null ? undefined : newest.get(run.parentTaskId);
+    if (run.parentTaskId !== null && (kept === undefined || Date.parse(run.createdAt) > Date.parse(kept.createdAt))) newest.set(run.parentTaskId, run);
+  }
+  return runs.filter((run) => run.parentTaskId === null || newest.get(run.parentTaskId) === run);
+}
+
 export function ciFixItem(run: CiAutofixRunDto): TaskListItem {
   const state: TaskCardState = run.status === 'ACTIVE' ? { label: 'Running', tone: 'blue', spinning: true, reason: null }
     : run.status === 'PAUSED' ? { label: 'Needs you', tone: 'orange', spinning: false, reason: run.pauseReason ? `Paused: ${words(run.pauseReason)}` : 'Paused' }

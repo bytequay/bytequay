@@ -19,7 +19,7 @@ import { lifecycle } from '../commits/fixtures/lifecycle';
 import { CI_RUN } from './fixtures/ciAutofix';
 import { previewTask } from './fixtures/previewBridge';
 import { viewerInitials } from './TaskListCards';
-import { cherryPickItem, ciFixItem, developmentItem, groupTaskList, reviewItem, type TaskListItem } from './taskList';
+import { cherryPickItem, ciFixItem, developmentItem, groupTaskList, latestCiRuns, reviewItem, type TaskListItem } from './taskList';
 
 function item(key: string, at: string, label: TaskListItem['state']['label'] = 'Idle'): TaskListItem {
   return {
@@ -153,6 +153,13 @@ describe('task list items', () => {
     expect(ciFixItem({ ...CI_RUN, status: 'FINISHED', finishReason: 'GREEN' }).state.label).toBe('Completed');
     expect(ciFixItem({ ...CI_RUN, status: 'FINISHED', finishReason: 'MAX_ATTEMPTS' }).state.label).toBe('Failed');
     expect(ciFixItem({ ...CI_RUN, status: 'FINISHED', finishReason: 'CANCELLED' }).state.label).toBe('Finished');
+  });
+
+  it('keeps one CI card per development task, its newest run', () => {
+    const older = { ...CI_RUN, id: 'older', status: 'FINISHED' as const, finishReason: 'STALE_HEAD', createdAt: '2026-01-01T12:00:00Z' };
+    const newer = { ...CI_RUN, id: 'newer', status: 'ACTIVE' as const, createdAt: '2026-01-01T13:00:00Z' };
+    const standalone = { ...CI_RUN, id: 'standalone', parentTaskId: null, createdAt: '2026-01-01T11:00:00Z' };
+    expect(latestCiRuns([older, newer, standalone]).map((run) => run.id)).toEqual(['newer', 'standalone']);
   });
 
   it('gives the viewer initials from their name, else their login', () => {

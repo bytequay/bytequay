@@ -1140,12 +1140,14 @@ export function AgentTaskBody({
     : state.turn?.developmentOrigin?.kind === 'REFINE_SUMMARY' ? 'Refining summary…' : null;
   const ciWaiting = pendingApprovals?.some(approval => approval.taskId !== state.task?.id) ?? false;
   const pillTone = ciWaiting || currentCi?.status === 'PAUSED' || currentCi?.activity === 'FIXING' ? 'amber' : 'blue';
+  // A paused run says why on hover, such as a pipeline the provider stopped before any job.
+  const ciPausedWhy = currentCi?.status === 'PAUSED' ? currentCi.summary ?? undefined : undefined;
   const autoMerge = state.task?.autoMerge;
   const automationPill = status === 'idle' && automationActive
-    ? <AutomationPill tone={pillTone} label={currentCi != null ? ciWaiting ? 'Needs approval' : ciActivity(currentCi) : 'Automation active'}
+    ? <AutomationPill tone={pillTone} label={currentCi != null ? ciWaiting ? 'Needs approval' : ciActivity(currentCi) : 'Automation active'} title={ciPausedWhy}
       stopLabel="Stop automation" stopTitle="Stop automation · your draft is kept" stopDisabled={state.sending || ciSubmissionBlocked} onStop={onStopServer} />
     : !terminal && !automationActive && currentCi != null && status !== 'recovery'
-      ? <AutomationPill tone={pillTone} label={ciWaiting ? 'Needs approval' : ciActivity(currentCi)}
+      ? <AutomationPill tone={pillTone} label={ciWaiting ? 'Needs approval' : ciActivity(currentCi)} title={ciPausedWhy}
         stopLabel="Stop CI Autofix" stopTitle={ciStopping ? 'Stopping…' : 'Stop CI Autofix'} stopDisabled={ciStopping} onStop={onStopCi} />
       : !terminal && (autoMerge?.state === 'READY' || autoMerge?.state === 'MERGING')
         ? <AutomationPill tone="blue" label={mergeLabel(autoMerge, now)} stopLabel="Stop auto-merge"

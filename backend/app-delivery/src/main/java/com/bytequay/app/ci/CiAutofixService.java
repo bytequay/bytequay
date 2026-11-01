@@ -822,7 +822,7 @@ public class CiAutofixService
         }
         if (run.attempts().isEmpty()) {
             if (snapshot.actionableFailures().isEmpty()) {
-                return snapshot.green() ? finishGreenOrCheckFixups(run, now) : run;
+                return snapshot.green() ? finishGreenOrCheckFixups(run, now) : waitForCi(run, snapshot, now);
             }
             return prepareFixAttempt(run, requireOpenTask(run), snapshot);
         }
@@ -830,7 +830,7 @@ public class CiAutofixService
         CiAutofixAttempt attempt = run.attempts().getLast();
         if (attempt.agentTurnId().isEmpty()) {
             if (snapshot.actionableFailures().isEmpty()) {
-                return snapshot.green() ? observeCi(run, attempt, CiResult.PASSED, snapshot, now) : run;
+                return snapshot.green() ? observeCi(run, attempt, CiResult.PASSED, snapshot, now) : waitForCi(run, snapshot, now);
             }
             return startAttemptTurn(run, requireOpenTask(run), snapshot);
         }
@@ -851,8 +851,17 @@ public class CiAutofixService
         return switch (result) {
             case FAILED -> startNextAttemptOrFinish(run, snapshot, now);
             case PASSED -> finishGreenOrCheckFixups(run, now);
-            case PENDING, UNKNOWN -> run;
+            case PENDING -> run;
+            case UNKNOWN -> waitForCi(run, snapshot, now);
         };
+    }
+
+    /** A run that failed before any job, such as on an invalid workflow file or an account the provider refuses, never gets a result to wait for. */
+    private CiAutofixRun waitForCi(CiAutofixRun run, CiHeadSnapshot snapshot, Instant now)
+    {
+        return failedWithoutJob(snapshot)
+                .map(failed -> pause(run, PauseReason.ERROR, summary(failed.name() + " failed before any job CI Autofix can repair", failed.url()), now))
+                .orElse(run);
     }
 
     private CiAutofixRun recordTimelineEvent(CiAutofixRun run, CiAutofixAttempt attempt, Instant now)
@@ -1501,6 +1510,17 @@ public class CiAutofixService
             return CiResult.PASSED;
         }
         return snapshot.pending() ? CiResult.PENDING : CiResult.UNKNOWN;
+    }
+
+    private static Optional<CiRun> failedWithoutJob(CiHeadSnapshot snapshot)
+    {
+        if (snapshot.pending()) {
+            return Optional.empty();
+        }
+        return snapshot.runs().stream()
+                .filter(workflow -> workflow.conclusion().filter(value -> value.equals("failure") || value.equals("startup_failure")).isPresent())
+                .filter(workflow -> workflow.jobs().stream().noneMatch(CiJob::actionableFailure))
+                .findFirst();
     }
 
     private static Optional<CiRun> failedWorkflow(CiHeadSnapshot snapshot)

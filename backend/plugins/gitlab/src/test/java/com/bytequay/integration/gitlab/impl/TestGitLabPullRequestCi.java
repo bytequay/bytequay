@@ -266,6 +266,50 @@ class TestGitLabPullRequestCi
     }
 
     @Test
+    void pipelineStoppedByItsConfigurationIsARepairableJob(@TempDir Path directory)
+            throws IOException
+    {
+        mergeRequest(42, pipeline(42, "failed"));
+        jobs(42);
+        responses.put("GET " + API + "42/pipelines/9", configFailure(9, HEAD));
+
+        CiHeadSnapshot snapshot = ci.inspect(target(), 7);
+
+        assertThat(snapshot.actionableFailures()).singleElement().satisfies(job -> {
+            assertThat(job.id()).isEqualTo(9);
+            assertThat(job.name()).isEqualTo("CI configuration");
+        });
+        Path destination = directory.resolve("job.log");
+        assertThat(ci.downloadLog(target(), 7, 9, destination)).isEmpty();
+        assertThat(Files.readString(destination)).isEqualTo("##[error]jobs:test config contains unknown keys: scrpt");
+        assertThat(ci.failureNotes(target(), 7, 9)).isEmpty();
+        assertThat(received).doesNotContain("GET " + API + "42/jobs/9", "POST /gitlab/api/graphql");
+    }
+
+    @Test
+    void pipelineStoppedOutsideItsConfigurationCarriesGitLabsReason()
+    {
+        mergeRequest(42, pipeline(42, "failed"));
+        jobs(42);
+        responses.put("GET " + API + "42/pipelines/9", pipeline(42, "failed"));
+        responses.put("POST /gitlab/api/graphql", """
+                {"data":{"project":{"mergeRequest":{"headPipeline":{"id":"gid://gitlab/Ci::Pipeline/9",
+                "failureReason":"The pipeline failed due to the user not being verified."}}}}}
+                """);
+
+        CiRun run = ci.inspect(target(), 7).runs().getFirst();
+
+        assertThat(run.name()).isEqualTo("Pipeline #9: The pipeline failed due to the user not being verified.");
+        assertThat(run.conclusion()).hasValue("failure");
+        assertThat(run.jobs()).isEmpty();
+
+        // The reason only adds context: without it the run keeps its plain name.
+        responses.remove("POST /gitlab/api/graphql");
+
+        assertThat(ci.inspect(target(), 7).runs().getFirst().name()).isEqualTo("Pipeline #9");
+    }
+
+    @Test
     void failedJobsOnBranchReadsTheLatestFinishedPushPipeline()
     {
         String latest = "GET " + API + "42/pipelines?ref=release%2F1.0&source=push&scope=finished&order_by=id&sort=desc&per_page=1";
@@ -276,6 +320,12 @@ class TestGitLabPullRequestCi
                 job(1, "build", "failed", false), job(2, "build", "success", false), job(3, "test", "failed", false), job(4, "lint", "failed", true)) + "]");
 
         assertThat(ci.failedJobsOnBranch(target(), 42, "release/1.0")).containsExactly("test");
+
+        // A base branch whose configuration is broken too fails the same named job.
+        responses.put("GET " + API + "42/pipelines/5/jobs?include_retried=true&per_page=100&page=1", "[]");
+        responses.put("GET " + API + "42/pipelines/5", configFailure(5, BASE));
+
+        assertThat(ci.failedJobsOnBranch(target(), 42, "release/1.0")).containsExactly("CI configuration");
 
         responses.put(latest, "[]");
 
@@ -402,6 +452,12 @@ class TestGitLabPullRequestCi
     {
         return "{\"id\":9,\"project_id\":%d,\"sha\":\"%s\",\"status\":\"%s\",\"web_url\":\"https://gitlab.example.com/group/project/-/pipelines/9\"}"
                 .formatted(project, HEAD, status);
+    }
+
+    private static String configFailure(long id, String sha)
+    {
+        return ("{\"id\":%d,\"project_id\":42,\"sha\":\"%s\",\"status\":\"failed\",\"web_url\":\"https://gitlab.example.com/group/project/-/pipelines/%d\","
+                + "\"yaml_errors\":\"jobs:test config contains unknown keys: scrpt\"}").formatted(id, sha, id);
     }
 
     private void jobs(long project, String... jobs)

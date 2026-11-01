@@ -1363,6 +1363,51 @@ class TestCiAutofixService
     }
 
     @Test
+    void runThatFailedBeforeAnyJobPausesWithItsNameAndLink()
+    {
+        when(ci.inspect(any(), anyInt())).thenReturn(pendingSnapshot(HEAD, BASE));
+        CiAutofixRun run = service.start(startCommand("failed-before-any-job"));
+
+        // Another run still going may yet give a result.
+        when(ci.inspect(any(), anyInt())).thenReturn(snapshot(HEAD, BASE, ImmutableList.of(
+                stoppedBeforeAnyJob(HEAD), workflow(100, 1, "Build", HEAD, "in_progress", Optional.empty()))));
+        run = service.advance(run.id());
+        assertThat(run.status()).isEqualTo(Status.ACTIVE);
+
+        when(ci.inspect(any(), anyInt())).thenReturn(snapshot(HEAD, BASE, ImmutableList.of(stoppedBeforeAnyJob(HEAD))));
+        run = service.advance(run.id());
+
+        assertThat(run.status()).isEqualTo(Status.PAUSED);
+        assertThat(run.pauseReason()).contains(PauseReason.ERROR);
+        assertThat(run.summary()).hasValueSatisfying(summary -> assertThat(summary)
+                .contains("user not being verified", "failed before any job", "https://gitlab.example.com/group/project/-/pipelines/300"));
+        assertThat(run.attempts()).isEmpty();
+        verify(turnService, never()).start(any());
+    }
+
+    @Test
+    void fixWhosePipelineFailsBeforeAnyJobPausesInsteadOfWaiting()
+    {
+        CiAutofixRun run = service.start(startCommand("fix-then-failed-before-any-job"));
+        String fixedHead = "c".repeat(40);
+        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
+        run = service.advance(run.id());
+        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(fixedHead, "fingerprint", ImmutableList.of("src/Main.java"), ImmutableList.of("Fix feature")));
+        run = service.advance(run.id());
+        when(gitService.push(any())).thenReturn(CiPushResult.pushed(fixedHead));
+        run = service.advance(run.id());
+        run = service.advance(run.id());
+
+        when(ci.inspect(any(), anyInt())).thenReturn(snapshot(fixedHead, BASE, ImmutableList.of(stoppedBeforeAnyJob(fixedHead))));
+        run = service.advance(run.id());
+        run = service.advance(run.id());
+
+        assertThat(run.status()).isEqualTo(Status.PAUSED);
+        assertThat(run.pauseReason()).contains(PauseReason.ERROR);
+        verify(turnService, times(1)).start(any());
+    }
+
+    @Test
     void stopsAfterThreeRepeatedFixAttempts()
     {
         CiAutofixRun run = service.start(startCommand("attempt-limit"));
@@ -2698,6 +2743,12 @@ class TestCiAutofixService
                 base,
                 "https://github.com/bytequay/sample/pull/2234",
                 workflows);
+    }
+
+    private static CiRun stoppedBeforeAnyJob(String head)
+    {
+        return new CiRun(300, 1300, "Pipeline #300: The pipeline failed due to the user not being verified.", 1, "completed", Optional.of("failure"), head,
+                "https://gitlab.example.com/group/project/-/pipelines/300", ImmutableList.of());
     }
 
     private static CiRun workflow(long id, int attempt, String name, String head, String status, Optional<String> conclusion)

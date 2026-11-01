@@ -82,8 +82,9 @@ export function AutomationSlider({ value, onChange }: {
 }
 
 /** What automation is doing now, as one pill whose square at the end stops it. */
-export function AutomationPill({ label, tone, stopLabel, stopTitle, stopDisabled, onStop }: {
+export function AutomationPill({ label, title, tone, stopLabel, stopTitle, stopDisabled, onStop }: {
   label: string;
+  title?: string;
   tone: 'blue' | 'amber';
   stopLabel: string;
   stopTitle: string;
@@ -91,7 +92,7 @@ export function AutomationPill({ label, tone, stopLabel, stopTitle, stopDisabled
   onStop: () => void;
 }) {
   return <span className={`agt-auto-pill is-${tone}`}>
-    <span className="agt-auto-pill__label" role="status"><span className="bq-spinner is-spinning"><LoaderCircle className="agt-auto-pill__spin" size={12} aria-hidden="true" /></span>{label}</span>
+    <span className="agt-auto-pill__label" role="status" title={title}><span className="bq-spinner is-spinning"><LoaderCircle className="agt-auto-pill__spin" size={12} aria-hidden="true" /></span>{label}</span>
     <button type="button" className="agt-auto-pill__stop" aria-label={stopLabel} title={stopTitle} disabled={stopDisabled} onClick={onStop}>
       <span aria-hidden="true" />
     </button>

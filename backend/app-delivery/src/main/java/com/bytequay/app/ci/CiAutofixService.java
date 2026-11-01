@@ -320,10 +320,13 @@ public class CiAutofixService
         validateStartWorkspace(workspace, snapshot);
         expectedPr.ifPresent(value -> requireExpectedPullRequest(snapshot, value));
 
-        WorkspaceCodeSyncResult sync = provisioning.synchronizeCode(command.workspaceId());
-        checkArgument(sync.successful(), "Workspace repository could not be synchronized");
-        workspace = workspaces.requireReadyRepository(command.workspaceId());
-        validateStartWorkspace(workspace, snapshot);
+        // A development run repairs in its task's checkout, which already has the pushed head; any other run checks out a new one.
+        if (development.isEmpty()) {
+            WorkspaceCodeSyncResult sync = provisioning.synchronizeCode(command.workspaceId());
+            checkArgument(sync.successful(), "Workspace repository could not be synchronized");
+            workspace = workspaces.requireReadyRepository(command.workspaceId());
+            validateStartWorkspace(workspace, snapshot);
+        }
         Instant now = Instant.now(clock);
         CiAutofixRun created = CiAutofixRun.create(
                 CiAutofixRunId.random(),
@@ -550,7 +553,7 @@ public class CiAutofixService
         if (run.status() == Status.FINISHED) {
             return run;
         }
-        // The stopped run releases its branch reservation without deleting its checkout or becoming resumable again.
+        // The stopped run releases the branch for good; the repair task and the task's checkout stay.
         CiAutofixRun finished = store.update(run.finish(reason, message, clock.instant()));
         inheritedFailures.remove(finished.id());
         ownership.forgetFinished(finished);
@@ -574,23 +577,12 @@ public class CiAutofixService
     }
 
     /**
-     * Explicitly discards local children after source authority was revoked in agent core and all child writers are verified stopped.
-     * Retains CI run history and all remote results.
+     * Discards the development task's repair tasks once its runs are stopped and their writers verified stopped. Retains CI run
+     * history and all remote results.
      */
     public void deleteDevelopment(TaskId parentTaskId)
     {
         stopDevelopment(parentTaskId);
-        for (CiAutofixRun run : store.listByParentTaskId(parentTaskId.toString())) {
-            Lock lock = advanceLocks.get(run.id());
-            withLock(lock, () -> {
-                run.agentTaskId().map(TaskId::valueOf).ifPresent(completionService::delete);
-                CiAutofixRun current = get(run.id());
-                if (current.status() != Status.FINISHED) {
-                    store.update(current.finish(FinishReason.CANCELLED, "Development task and local CI work were deleted; remote results remain", clock.instant()));
-                }
-                return null;
-            });
-        }
         ownership.repairTasks(parentTaskId).forEach(repair -> completionService.delete(repair.id()));
     }
 

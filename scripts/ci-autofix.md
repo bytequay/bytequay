@@ -4,8 +4,9 @@ The CI Autofix shell attaches to a backend run for a saved ByteQuay workspace,
 prints CI failure summaries and agent events, and waits until the run finishes
 or needs input. It never starts a run: the backend starts one when a
 development task with **Auto-CI fix** pushes its pull request, and when a
-cherry-pick task publishes its pull request. The backend owns the run's task
-worktree; the shell never submits a local path.
+cherry-pick task publishes its pull request. The backend picks the checkout: a
+development task's repairs work in that task's own; the shell never submits a
+local path.
 
 Start ByteQuay in development mode:
 

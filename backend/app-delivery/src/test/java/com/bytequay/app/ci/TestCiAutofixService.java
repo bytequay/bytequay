@@ -2306,6 +2306,8 @@ class TestCiAutofixService
         assertThat(run.status()).isEqualTo(Status.ACTIVE);
         assertThat(run.attempts()).isEmpty();
         verify(turnService, never()).start(any());
+        // The task's checkout already has the head it pushed.
+        verify(provisioning, never()).synchronizeCode(any());
 
         when(taskStore.find(parent.id())).thenReturn(Optional.of(parent.withDevelopmentContinuation(false, NOW)));
         run = service.advance(service.advance(run.id()).id());

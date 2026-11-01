@@ -514,7 +514,10 @@ or Jira ticket can be one; the grouping stays on your Mac.
    files and end with a question card. A card waits five minutes; if it times
    out, an alert opens the conversation so you can reply there.
 2. Choose **Make the page** when offered, or ask for one at any time.
-3. Ask for changes in the same conversation; **Versions** keeps each save.
+3. Use **Index** to jump to a page or section. Scroll down to keep reading the
+   next page; the reader shows your current page and section as you go.
+4. Ask for changes in the same conversation. Each page's version selector keeps
+   earlier saves available without replacing the other pages in the reader.
 
 The agent reads the repository but never changes it.
 

@@ -71,7 +71,7 @@ const backgroundCaptures = [];
 ipcMain.handle('fixture:background', async () => {
   const view = artifactView.view;
   if (!view?.getVisible()) return [];
-  const heading = await view.webContents.executeJavaScript("document.querySelector('h1')?.textContent");
+  const heading = await view.webContents.mainFrame.frames[0]?.executeJavaScript("document.querySelector('h1')?.textContent");
   const image = (await view.webContents.capturePage(undefined, { stayHidden: true })).toDataURL();
   backgroundCaptures.push({ heading, image });
   return [{ ...view.getBounds(), image }];
@@ -176,9 +176,11 @@ const until = async (check, what) => {
 };
 const shown = (host, heading) => until(async () => {
   const contents = webContents.getAllWebContents().find(entry => !entry.isDestroyed() && !entry.isLoading() && entry.getURL().startsWith('bytequay-artifact://' + host + '/'));
-  return contents && artifactView.view.getVisible() && await contents.executeJavaScript("document.querySelector('h1')?.textContent") === heading && contents;
+  const frame = contents?.mainFrame.frames[0];
+  return frame && artifactView.view.getVisible() && await frame.executeJavaScript("document.querySelector('h1')?.textContent") === heading && frame;
 }, heading);
 const inApp = script => window.webContents.executeJavaScript(script);
+const version = id => artifactView.view.webContents.executeJavaScript('(() => { const select = document.querySelector("select"); select.value = ' + JSON.stringify(id) + '; select.dispatchEvent(new Event("change")); })()');
 const artifactPresentations = [];
 const showArtifact = artifactView.show.bind(artifactView);
 artifactView.show = (...args) => { artifactPresentations.push(args); return showArtifact(...args); };
@@ -240,7 +242,7 @@ await capture('offer');
 
 await press('Make the page');
 const making = await until(() => inApp("document.querySelector('.artifacts-panel__placeholder')?.textContent ?? ''"), 'the placeholder');
-const writingVersion = (await text('.artifacts-versions'))[0];
+
 await capture('making');
 conversations.a1.view.pages.push(page('v1', 1, 't3'));
 conversations.a1.view.artifact.title = 'Deletes on read';
@@ -264,9 +266,7 @@ const afterEntrance = await shown('a1', 'Deletes on read');
 const entranceRetainedPage = afterEntrance === first && await first.executeJavaScript('!document.getElementById("answer").hidden');
 await inApp('document.getElementById("companion-entrance").remove(); document.getElementById("entrance-focus-choice").remove()');
 window.webContents.debugger.detach();
-await first.executeJavaScript("location.href = 'https://example.com/'; true");
-await sleep(300);
-const stayed = first.getURL();
+const stayed = first.url;
 const box = JSON.parse(await inApp("JSON.stringify(document.querySelector('.artifacts-page__view').getBoundingClientRect())"));
 const bounds = artifactView.view.getBounds();
 const placed = bounds.x === Math.ceil(box.x) && bounds.y === Math.ceil(box.y) && Math.abs(bounds.width - box.width) <= 1 && Math.abs(bounds.height - box.height) <= 1;
@@ -277,9 +277,13 @@ nativeTheme.themeSource = 'dark';
 const dark = await until(async () => { const value = await colour(); return value === light ? null : value; }, 'dark colours');
 await capture('page-dark');
 nativeTheme.themeSource = 'light';
-const panel = await text('.artifacts-panel__bar');
+const panel = await artifactView.view.webContents.executeJavaScript('[...document.querySelector(".reader-bar").children].map(element => element.textContent).join("")');
 const pageLine = await until(async () => inApp("document.querySelectorAll('.agt-turn')[2]?.querySelector('.artifacts-pageline')?.textContent ?? ''"), 'the page line under its turn');
 
+const refusedNavigations = [];
+artifactView.view.webContents.on('did-fail-load', (_event, _code, description, url) => refusedNavigations.push({ description, url }));
+await first.executeJavaScript("location.href = 'https://example.com/'; true");
+const navigationBlocked = await until(() => refusedNavigations.some(failure => failure.url === 'https://example.com/' && failure.description === 'ERR_BLOCKED_BY_CSP'), 'the page navigation to be blocked');
 await type('Message the agent', 'Make the diagram simpler');
 await send('Send message');
 await send('Stop');
@@ -288,16 +292,16 @@ await capture('working');
 conversations.a1.view.pages.push(page('v2', 2, 't5'));
 done('a1', 't5');
 await shown('a1', 'Deletes on read, simpler');
-const versions = await text('.artifacts-versions button');
-await press('v1');
+const versions = await artifactView.view.webContents.executeJavaScript('[...document.querySelectorAll("select option")].map(option => option.textContent)');
+await version('v1');
 await shown('a1', 'Deletes on read');
 await capture('versions');
 
 await inApp('ArtifactTests.startBreak()');
 await until(() => inApp('!!document.querySelector("[data-focus-break-entrance] .focus-break__background")'), 'a break over the first page');
 const beforeReplacement = backgroundCaptures.length;
-delayedPageId = 'v2';
-await press('v2');
+delayedPageId = 'v2'; artifactView.book.html.delete('v2');
+await inApp('[...document.querySelectorAll(".artifacts-pageline")].find(button => button.textContent.includes("v2")).click()');
 await until(() => releasePageRead, 'the replacement page read to wait');
 const pendingPicture = await until(async () => {
   const picture = backgroundCaptures.slice(beforeReplacement).find(capture => capture.heading === 'Deletes on read');
@@ -312,7 +316,7 @@ const delayedBreakBackground = pendingPicture.image !== loadedPicture.image
   && await inApp('!!document.querySelector("[data-focus-break-entrance]")');
 await inApp('ArtifactTests.stopBreak()');
 await shown('a1', 'Deletes on read, simpler');
-await press('v1');
+await version('v1');
 await shown('a1', 'Deletes on read');
 
 busy = true;
@@ -337,7 +341,7 @@ await click('[aria-label="Back to Artifacts"]');
 await type('Ask about this repository', 'Where are dynamic filters applied?');
 await send('Send');
 const started = await until(async () => { const bubbles = await text('.agt-user__bubble'); return bubbles.length === 1 && bubbles; }, 'the new conversation');
-const results = { rows, turnCount, asked, answered, offered, questionClosed, making: making.replace(/\\d+:\\d\\d/, 'm:ss'), writingVersion, checks, tried, entranceRetainedPage, entranceKeepsNewFocus, stayed, placed,
+const results = { rows, turnCount, asked, answered, offered, questionClosed, making: making.replace(/\\d+:\\d\\d/, 'm:ss'), checks, tried, entranceRetainedPage, entranceKeepsNewFocus, stayed, navigationBlocked, placed,
   light, dark, panel, pageLine, keptVisible, versions, delayedBreakBackground, refused, kept, counted, hiddenOnList, missing, failure, started, calls };`;
 
 it('renders a conversation as a task transcript, asks with the question card, then shows its page versions beside it, locked down', async () => {
@@ -360,6 +364,7 @@ contextBridge.exposeInMainWorld('bridge', {
   answerArtifactQuestion: (id, artifactId, approvalId, allow, answers) => ipcRenderer.invoke('fixture:question', id, artifactId, approvalId, allow, answers),
   stopArtifact: (id, artifactId) => ipcRenderer.invoke('fixture:stop', id, artifactId),
   showArtifact: (target, bounds, allowFocusRestore) => ipcRenderer.invoke('artifacts:show', target, bounds, allowFocusRestore),
+  onArtifactReading: listener => { const receive = (_event, target) => listener(target); ipcRenderer.on('artifacts:reading', receive); return () => ipcRenderer.removeListener('artifacts:reading', receive); },
   captureFocusBreakBackground: () => ipcRenderer.invoke('fixture:background'),
 });`,
       setup: SETUP, body: BODY, timeoutMs: 90_000,
@@ -372,16 +377,16 @@ contextBridge.exposeInMainWorld('bridge', {
       offered: 'Deletes on readHow a scan skips rows named by position deletes.Make the pageNot yet',
       questionClosed: true,
       making: 'Writing the page…m:ss',
-      writingVersion: 'v1 writing…',
       checks: { ran: true, network: true, backend: true, webrtc: true, popup: true, evalBlocked: true, bridge: true },
       tried: true,
       entranceRetainedPage: true,
       entranceKeepsNewFocus: true,
-      stayed: 'bytequay-artifact://a1/w1/',
+      stayed: 'bytequay-artifact://a1/w1/pages/v1/',
+      navigationBlocked: true,
       placed: true,
       light: 'rgb(31, 35, 40)',
       dark: 'rgb(201, 205, 212)',
-      panel: ['Deletes on read8bafef5v1'],
+      panel: 'IndexDeletes on read1 of 1',
       pageLine: 'Deletes on read· v1',
       keptVisible: true,
       versions: ['v1', 'v2'],

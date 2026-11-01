@@ -1,0 +1,32 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ */
+html { overflow-anchor: none; scroll-padding-top: 60px; }
+body { padding: 0; }
+.reader-bar {
+  position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 12px;
+  height: 44px; padding: 0 12px; border-bottom: 1px solid var(--bq-line); background: var(--bq-page);
+}
+#index-toggle { flex: none; }
+#reader-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
+#reader-position { flex: none; font-size: 12px; color: var(--bq-muted); font-variant-numeric: tabular-nums; }
+#reader-index {
+  position: fixed; top: 50px; left: 8px; z-index: 3; width: min(320px, calc(100% - 16px)); max-height: calc(100vh - 62px);
+  overflow: auto; padding: 8px; border: 1px solid var(--bq-border); border-radius: 10px; background: var(--bq-surface);
+  box-shadow: 0 6px 24px #0002;
+}
+#reader-index button { display: block; width: 100%; height: auto; padding: 8px 10px; border: 0; background: transparent; text-align: left; line-height: 1.45; overflow-wrap: anywhere; }
+#reader-index button:hover { background: var(--bq-hover); }
+#reader-index button[aria-current] { background: var(--bq-inset); color: var(--bq-accent); }
+#reader-index .reader-index-page { font-weight: 600; }
+#reader-index .reader-index-heading { padding-left: 22px; color: var(--bq-muted); font-size: 12.5px; }
+#reader-index .is-h3 { padding-left: 34px; }
+.reader-chapter + .reader-chapter { border-top: 1px solid var(--bq-border); }
+.reader-chapter-bar { display: flex; align-items: center; gap: 10px; padding: 12px 20px 0; font-size: 12px; color: var(--bq-muted); }
+.reader-commit { margin-left: auto; color: var(--bq-dim); }
+.reader-chapter-bar select { max-width: 100px; padding: 3px 6px; border: 1px solid var(--bq-border); border-radius: 6px; color: var(--bq-fg); background: var(--bq-surface); font: inherit; }
+.reader-chapter iframe { display: block; width: 100%; border: 0; }

@@ -190,6 +190,7 @@ const bridge: Bridge = {
   answerArtifactQuestion: invoke('artifacts:question'),
   stopArtifact: invoke('artifacts:stop'),
   showArtifact: invoke('artifacts:show'),
+  onArtifactReading: listener => subscribe('artifacts:reading', listener),
   refreshEpicChildren: invoke('epics:children'),
   syncEpicChildren: invoke('epics:sync'),
   dismissEpicChildren: invoke('epics:dismiss'),

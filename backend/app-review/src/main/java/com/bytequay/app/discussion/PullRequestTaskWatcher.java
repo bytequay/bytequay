@@ -32,6 +32,7 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -150,7 +151,16 @@ public class PullRequestTaskWatcher
         if (owned.isEmpty() || !owned.stream().allMatch(pullRequest -> ENDED.contains(state(pullRequest)))) {
             return Optional.empty();
         }
+        // A task started on requests that had already ended is new work on them, such as a backport, not work their end finished.
+        if (owned.stream().allMatch(pullRequest -> endedAt(pullRequest).filter(at -> at.isBefore(task.createdAt())).isPresent())) {
+            return Optional.empty();
+        }
         return Optional.of(owned.getFirst());
+    }
+
+    private static Optional<Instant> endedAt(PullRequest pullRequest)
+    {
+        return Optional.ofNullable(pullRequest.mergedAt()).or(() -> Optional.ofNullable(pullRequest.closedAt()));
     }
 
     private static String state(PullRequest pullRequest)

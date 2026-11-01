@@ -96,6 +96,26 @@ class TestPullRequestEndWatcher
     }
 
     @Test
+    void aTaskStartedOnAnAlreadyMergedPullRequestStaysOpenUntilItsOwnRequestEnds()
+    {
+        AgentTask later = task(true);
+        when(tasks.listLive()).thenReturn(ImmutableList.of(later));
+        when(ownership.pullRequests(later)).thenReturn(ImmutableList.of(pullRequest(14, "merged", CREATED.minusSeconds(60))));
+
+        watcher.pass(false);
+
+        verifyNoInteractions(completions);
+
+        // Once a request it opened ends after it started, the task is done.
+        when(ownership.pullRequests(later)).thenReturn(ImmutableList.of(pullRequest(15, "merged", CREATED.plusSeconds(60)), pullRequest(14, "merged",
+                CREATED.minusSeconds(60))));
+
+        watcher.pass(false);
+
+        verify(completions).complete(new CompleteAgentTaskCommand(later.id(), Optional.of("Completed: pull request #15 was merged")));
+    }
+
+    @Test
     void leavesATaskOpenWhileAnyOfItsPullRequestsIsOpenOrItHasNone()
     {
         AgentTask reopened = task(true);
@@ -214,6 +234,14 @@ class TestPullRequestEndWatcher
                 "a".repeat(40));
         return created(id, interactive, "Task", TitleSource.USER, AgentLaneId.CLAUDE_CLI, worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
                 CREATED);
+    }
+
+    private static PullRequest pullRequest(int number, String state, Instant endedAt)
+    {
+        PullRequest open = pullRequest(number, state);
+        return new PullRequest(open.id(), open.repo(), open.number(), open.title(), open.author(), open.htmlUrl(), open.createdAt(), open.updatedAt(), open.origin(),
+                open.labels(), open.labelColors(), open.draft(), null, null, null, open.requestedReviewers(), null, 1, 1, 0, state, endedAt, endedAt, null, null,
+                open.headPushedAt(), open.headRef(), null, null, null, null);
     }
 
     private static PullRequest pullRequest(int number, String state)

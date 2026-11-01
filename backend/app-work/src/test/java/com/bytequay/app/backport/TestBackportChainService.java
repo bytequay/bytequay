@@ -651,6 +651,46 @@ class TestBackportChainService
     }
 
     @Test
+    void resumeGivesAStepThatHasNotStartedTheDestinationsCurrentAgent()
+    {
+        var service = service();
+        var chain = save(service, "p3");
+        assertThat(current(chain).hops().getFirst().laneId()).isEqualTo("codex");
+        service.stop("p4", chain.id());
+        service.advance(chain.id());
+        assertThat(current(chain).state()).isEqualTo(State.STOPPED);
+        useClaudeForDevelopment();
+
+        service.resume("p4", chain.id());
+
+        var hop = current(chain).hops().getFirst();
+        assertThat(hop.laneId()).isEqualTo("claude");
+        assertThat(hop.model()).contains("sonnet");
+        assertThat(hop.effort()).isEmpty();
+    }
+
+    @Test
+    void resumeKeepsTheAgentOfAStepThatStarted()
+    {
+        var service = service();
+        var chain = ready(service, "p3");
+        assertThat(current(chain).hops().getFirst().executionId()).isPresent();
+        service.stop("p4", chain.id());
+        service.advance(chain.id());
+        useClaudeForDevelopment();
+
+        service.resume("p4", chain.id());
+
+        assertThat(current(chain).hops().getFirst().laneId()).isEqualTo("codex");
+    }
+
+    private void useClaudeForDevelopment()
+    {
+        when(models.agentModel(eq(AgentModelType.DEVELOPMENT), any())).thenReturn(new AgentModelSetting(
+                AgentModelType.DEVELOPMENT, true, "claude", "Claude Code", "sonnet", "Sonnet", Optional.empty()));
+    }
+
+    @Test
     void closedSourceAndUnavailableDestinationBlockWithoutStartingWork()
     {
         var service = service();

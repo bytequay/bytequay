@@ -18,6 +18,7 @@ import com.bytequay.agent.cli.mcp.McpRegistration;
 import com.bytequay.agent.cli.mcp.PermissionBroker;
 import com.bytequay.agent.cli.process.AgentPermissionManager;
 import com.bytequay.agent.cli.process.BuildCacheRoots;
+import com.bytequay.agent.cli.process.CherryPickCommands;
 import com.bytequay.agent.cli.process.GitCliEnvironment;
 import com.bytequay.agent.cli.process.GitWorktreeWriteRoots;
 import com.bytequay.agent.cli.process.ProcessOwner;
@@ -206,11 +207,11 @@ public final class CodexCliDriver
             true,
             true,
             true,
-            ImmutableSet.of(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX),
+            ImmutableSet.copyOf(AgentPermissionPolicy.values()),
             ImmutableSet.of("image/png", "image/jpeg", "image/gif", "text/plain", "text/plain; charset=utf-8"));
     private static final AgentCapabilities DEEPSEEK_CAPABILITIES = new AgentCapabilities(
             false, false, false,
-            ImmutableSet.of(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX),
+            ImmutableSet.copyOf(AgentPermissionPolicy.values()),
             ImmutableSet.of("text/plain", "text/plain; charset=utf-8"));
 
     private final AgentLaneId laneId;
@@ -644,8 +645,8 @@ public final class CodexCliDriver
         AgentPermissionScope scope = new AgentPermissionScope(context.permissionPolicy(), context.access(), review,
                 codeQueries.map(registration -> registration.toolNames().contains(IssueContextBridge.TOOL_NAME)).orElse(false));
         boolean allowGitHubCommands = scope.githubCommands();
-        // CI runs the single-agent profile verified by the native sandbox probe.
-        CodexLaunchProfile.ChildProfile childProfile = ciWritableRoots.isEmpty()
+        // CI runs the single-agent profile verified by the native sandbox probe, and a cherry-pick has one agent to hold to its rule.
+        CodexLaunchProfile.ChildProfile childProfile = ciWritableRoots.isEmpty() && context.permissionPolicy() != AgentPermissionPolicy.CHERRY_PICK
                 ? childProfile(modelProfile.childProfile(), context.restricted(), review, runningVersion)
                 : CodexLaunchProfile.ChildProfile.NONE;
         if (review && codeQueries.stream().noneMatch(registration -> registration.toolNames().contains("review_get_context"))) {
@@ -1016,9 +1017,13 @@ public final class CodexCliDriver
 
             ImmutableMap.Builder<String, Object> configBuilder = ImmutableMap.<String, Object>builder()
                     .putAll(CodexLaunchProfile.threadConfig(launchOptions, codeQueries.isPresent()));
+            if (permissionScope.policy() == AgentPermissionPolicy.CHERRY_PICK) {
+                // A cherry-pick may only run commands and edit its worktree, as on every lane.
+                configBuilder.put("web_search", "disabled");
+            }
             // Codex prewarms before turn/start; a different effort prevents reuse of that prepared request's context.
             context.effort().ifPresent(effort -> configBuilder.put("model_reasoning_effort", effort));
-            Map<String, Object> config = configBuilder.buildOrThrow();
+            Map<String, Object> config = configBuilder.buildKeepingLast();
             String method = existing.isPresent() ? "thread/resume" : "thread/start";
             existing.ifPresent(previous -> {
                 // Root tools cannot be added to a thread after it starts. A thread that has them may resume without
@@ -1038,7 +1043,7 @@ public final class CodexCliDriver
                         worktree.toString(),
                         modelProfile.id(),
                         approvalPolicy,
-                        "auto_review",
+                        approvalsReviewer(),
                         config,
                         sandbox,
                         developerInstructions);
@@ -1048,7 +1053,7 @@ public final class CodexCliDriver
                         worktree.toString(),
                         modelProfile.id(),
                         approvalPolicy,
-                        "auto_review",
+                        approvalsReviewer(),
                         config,
                         sandbox,
                         developerInstructions,
@@ -1224,7 +1229,7 @@ public final class CodexCliDriver
             Optional<String> effort = command.effort().or(context::effort);
             CodexProtocol.TurnStartParams params = new CodexProtocol.TurnStartParams(
                     reference.providerValue(), input, Optional.of(modelProfile.id()), effort,
-                    command.serviceTier().orElse("default"), approvalPolicy(), "auto_review",
+                    command.serviceTier().orElse("default"), approvalPolicy(), approvalsReviewer(),
                     worktree.toString(), sandboxPolicy(worktree),
                     instructionUpdate.map(update -> ImmutableMap.of(INSTRUCTIONS_CONTEXT,
                             new CodexProtocol.AdditionalContextEntry(INSTRUCTIONS_UPDATE + update, "application"))).orElse(ImmutableMap.of()));
@@ -1257,9 +1262,19 @@ public final class CodexCliDriver
             return running;
         }
 
+        /** A cherry-pick asks before every command Codex does not know to be read-only, so ByteQuay's cherry-pick rule decides each one. */
         private String approvalPolicy()
         {
-            return context.restricted() ? "never" : "on-request";
+            if (context.restricted()) {
+                return "never";
+            }
+            return permissionScope.policy() == AgentPermissionPolicy.CHERRY_PICK ? "untrusted" : "on-request";
+        }
+
+        /** Codex's own reviewer may approve a request; a cherry-pick sends every request to ByteQuay instead. */
+        private String approvalsReviewer()
+        {
+            return permissionScope.policy() == AgentPermissionPolicy.CHERRY_PICK ? "user" : "auto_review";
         }
 
         private Map<String, Object> sandboxPolicy(Path worktree)
@@ -1267,11 +1282,20 @@ public final class CodexCliDriver
             if (context.restricted()) {
                 return ImmutableMap.of("type", "readOnly", "networkAccess", false);
             }
+            List<String> writableRoots;
+            if (!ciWritableRoots.isEmpty()) {
+                writableRoots = ciWritableRoots;
+            }
+            else if (permissionScope.policy() == AgentPermissionPolicy.CHERRY_PICK) {
+                // The fixup commit is recorded in the linked worktree's Git metadata; no build cache is writable.
+                writableRoots = GitWorktreeWriteRoots.writableRoots(worktree);
+            }
+            else {
+                writableRoots = attendedWritableRoots(worktree);
+            }
             return ImmutableMap.of(
                     "type", "workspaceWrite",
-                    "writableRoots", ciWritableRoots.isEmpty()
-                            ? attendedWritableRoots(worktree)
-                            : ciWritableRoots,
+                    "writableRoots", writableRoots,
                     "networkAccess", permissionScope.buildNetwork(),
                     "excludeTmpdirEnvVar", permissionScope.unattended(),
                     "excludeSlashTmp", permissionScope.unattended());
@@ -1394,6 +1418,11 @@ public final class CodexCliDriver
                 }
                 if (running == null) {
                     return;
+                }
+                if (notification instanceof CodexProtocol.ItemStartedNotification started
+                        && started.params().item() instanceof CodexProtocol.FileChangeItem change) {
+                    // A file-change approval names only its item, so the cherry-pick rule reads the paths announced here.
+                    running.observeFileChange(change, context.worktree());
                 }
                 if (rootThread
                         && notification instanceof CodexProtocol.ItemCompletedNotification completed
@@ -2088,6 +2117,11 @@ public final class CodexCliDriver
                     return CompletableFuture.failedFuture(failure);
                 }
             }
+            if (permissionScope.policy() == AgentPermissionPolicy.CHERRY_PICK) {
+                // Extra sandbox permissions and network are never part of a cherry-pick.
+                return cherryPickDecision(approval, approval.params().additionalPermissions().isEmpty() && approval.params().networkApprovalContext().isEmpty()
+                        && CherryPickCommands.allows(rawCommand), expectedTurn);
+            }
             StringBuilder requested = new StringBuilder(rawCommand);
             approval.params().reason().filter(value -> !value.isBlank())
                     .ifPresent(value -> requested.append("\nReason: ").append(value));
@@ -2101,6 +2135,13 @@ public final class CodexCliDriver
         {
             if (approval.params().grantRoot().filter(String::isBlank).isPresent()) {
                 return CompletableFuture.failedFuture(new AgentUnavailableException("Codex file approval has a blank write root"));
+            }
+            if (permissionScope.policy() == AgentPermissionPolicy.CHERRY_PICK) {
+                // Only an edit whose announced paths all stay in the worktree; another write root is never granted.
+                return cherryPickDecision(approval, approval.params().grantRoot().isEmpty() && expectedTurn.fileChange(approval.params().itemId())
+                        .filter(paths -> !paths.isEmpty() && paths.stream()
+                                .allMatch(path -> AgentPermissionManager.allowsFileWrite(path, context.worktree(), environment, permissionScope)))
+                        .isPresent(), expectedTurn);
             }
             if (approval.params().grantRoot().isPresent()) {
                 try {
@@ -2126,8 +2167,23 @@ public final class CodexCliDriver
                     ImmutableList.of(ALLOW_ONCE, DENY), approval.params().itemId(), approval.params().startedAtMs(), expectedTurn);
         }
 
+        /** A cherry-pick runs unattended under the rule every lane shares, so its requests are answered without a card. */
+        private CompletionStage<?> cherryPickDecision(CodexProtocol.ServerRequest request, boolean allowed, CodexRunningTurn expectedTurn)
+        {
+            try {
+                return CompletableFuture.completedFuture(approvalResponse(request,
+                        allowed ? ProviderApprovalDecision.allow(Optional.empty()) : ProviderApprovalDecision.deny(), expectedTurn));
+            }
+            catch (AgentUnavailableException failure) {
+                return CompletableFuture.failedFuture(failure);
+            }
+        }
+
         private CompletionStage<?> askPermissions(CodexProtocol.PermissionsApprovalRequest approval, CodexRunningTurn expectedTurn)
         {
+            if (permissionScope.policy() == AgentPermissionPolicy.CHERRY_PICK) {
+                return cherryPickDecision(approval, false, expectedTurn);
+            }
             if (!approval.params().permissions().isObject()) {
                 return CompletableFuture.failedFuture(new AgentUnavailableException("Codex requested permissions have an unsupported shape"));
             }
@@ -2414,6 +2470,7 @@ public final class CodexCliDriver
         private volatile boolean finalAnswerSeen;
         private volatile Optional<String> interruptionReason = Optional.empty();
         private volatile Optional<CodexProtocol.Turn> failedCompletion = Optional.empty();
+        private final Map<String, List<Path>> fileChanges = new ConcurrentHashMap<>();
 
         private CodexRunningTurn(
                 CodexAppServerClient client,
@@ -2549,6 +2606,25 @@ public final class CodexCliDriver
             else if (!finalAnswerSeen && !text.isBlank()) {
                 finalResponse = Optional.of(text);
             }
+        }
+
+        /** Every path a file change writes, move targets included; a path that cannot be read leaves the change unknown. */
+        private void observeFileChange(CodexProtocol.FileChangeItem change, Path worktree)
+        {
+            try {
+                fileChanges.put(change.id(), change.changes().stream()
+                        .flatMap(update -> Stream.concat(Stream.of(update.path()), update.kind().movePath().stream()))
+                        .map(worktree::resolve)
+                        .collect(toImmutableList()));
+            }
+            catch (InvalidPathException unreadable) {
+                fileChanges.remove(change.id());
+            }
+        }
+
+        private Optional<List<Path>> fileChange(String itemId)
+        {
+            return Optional.ofNullable(fileChanges.get(itemId));
         }
 
         private void complete(CodexProtocol.Turn turn)

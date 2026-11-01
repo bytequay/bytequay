@@ -430,7 +430,16 @@ public class BackportChainService
             var chain = owned(workspaceId, id);
             checkArgument(chain.state() == State.BLOCKED || chain.state() == State.STOPPED, "This chain is not paused");
             validate(chain);
-            return chains.save(chain.withState(State.ACTIVE, Optional.empty(), clock.instant()));
+            var resumed = chain;
+            for (int index = 0; index < chain.hops().size(); index++) {
+                Hop hop = chain.hops().get(index);
+                if (hop.executionId().isEmpty() && !hop.completed()) {
+                    // A step that has not started takes the destination's current agent, so changing it and resuming takes effect.
+                    var model = models.agentModel(AgentModelType.DEVELOPMENT, Optional.of(hop.route().workspaceId()));
+                    resumed = resumed.withHop(index, hop.withAgent(model.configId(), Optional.of(model.model()), model.effort()), clock.instant());
+                }
+            }
+            return chains.save(resumed.withState(State.ACTIVE, Optional.empty(), clock.instant()));
         });
     }
 

@@ -2035,6 +2035,14 @@ function registerIpc(): void {
       workspaceUrl(workspaceId, `/data`),
       jsonInit('DELETE', { confirmed, repositoryName }),
     ));
+  ipcMain.handle('workspaces:old-folders', () => backendJson(`${backendBase()}/api/workspaces/old-folders`));
+  // The page names a folder only by ID; the backend checks again that no workspace owns it and gives its path.
+  ipcMain.handle('workspaces:old-folders:trash', async (_event, folderId: unknown) => {
+    if (typeof folderId !== 'string' || !/^[A-Za-z0-9-]+$/.test(folderId)) throw new Error('Unknown workspace folder');
+    const { path: folder } = await backendJson<{ path: unknown }>(`${backendBase()}/api/workspaces/old-folders/${folderId}/path`);
+    if (typeof folder !== 'string' || !path.isAbsolute(folder) || path.basename(folder) !== folderId) throw new Error('Unknown workspace folder');
+    await shell.trashItem(folder);
+  });
   const accountUrl = (accountId: unknown, path: string) => `${backendBase()}/api/teams/${teamAccountId(accountId)}${path}`;
   const circleUrl = (accountId: unknown, id: unknown, path = '') => accountUrl(accountId, `/circles/${encodeURIComponent(teamId(id))}${path}`);
   // Activity links must stay on their account's server. Every directory the renderer knows passes through here first.

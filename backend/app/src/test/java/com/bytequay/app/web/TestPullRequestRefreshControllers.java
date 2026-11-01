@@ -21,6 +21,7 @@ import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestRoute;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.workspace.OldWorkspaceFolderService;
 import com.bytequay.app.workspace.WorkspaceCommitsSettingsService;
 import com.bytequay.app.workspace.WorkspaceDeletionService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
@@ -524,7 +525,7 @@ class TestPullRequestRefreshControllers
         WorkspaceIssueService issues = mock(WorkspaceIssueService.class);
         WorkspaceController controller = new WorkspaceController(
                 mock(WorkspaceRepositoryService.class),
-                mock(WorkspaceDeletionService.class),
+                mock(WorkspaceDeletionService.class), mock(OldWorkspaceFolderService.class),
                 pullRequests(),
                 mock(PullRequestRefreshService.class),
                 mock(WorkspaceMetadataService.class),
@@ -546,7 +547,7 @@ class TestPullRequestRefreshControllers
         WorkspaceRepositoryService workspaces = mock(WorkspaceRepositoryService.class);
         WorkspaceDeletionService deletion = mock(WorkspaceDeletionService.class);
         WorkspaceController controller = new WorkspaceController(
-                workspaces, deletion, pullRequests(), mock(PullRequestRefreshService.class),
+                workspaces, deletion, mock(OldWorkspaceFolderService.class), pullRequests(), mock(PullRequestRefreshService.class),
                 mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class),
                 mock(ModelSettingsService.class), mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class),
                 mock(WorkspaceRelationships.class), new WriteVersion());
@@ -576,7 +577,7 @@ class TestPullRequestRefreshControllers
         WorkspaceDeletionService deletion = mock(WorkspaceDeletionService.class);
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         WorkspaceController controller = new WorkspaceController(
-                workspaces, deletion, pullRequests(), refresh,
+                workspaces, deletion, mock(OldWorkspaceFolderService.class), pullRequests(), refresh,
                 mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class),
                 mock(ModelSettingsService.class), mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class),
                 mock(WorkspaceRelationships.class), new WriteVersion());
@@ -607,7 +608,7 @@ class TestPullRequestRefreshControllers
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         WorkspaceController controller = new WorkspaceController(
                 workspaces,
-                mock(WorkspaceDeletionService.class),
+                mock(WorkspaceDeletionService.class), mock(OldWorkspaceFolderService.class),
                 pullRequests,
                 refresh,
                 mock(WorkspaceMetadataService.class),

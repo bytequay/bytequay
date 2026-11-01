@@ -1367,6 +1367,16 @@ export type AppPreferencesDto = {
   theme: AppThemeDto;
 };
 
+/** A workspace folder no workspace in the current database owns. */
+export type OldWorkspaceFolderDto = {
+  id: string;
+  path: string;
+  repository: string | null;
+  sizeBytes: number;
+  modifiedAt: string;
+  checkouts: number;
+};
+
 export type QuietHoursDto = {
   enabled: boolean;
   startMinute: number;
@@ -1877,6 +1887,8 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   unlinkWorkspaceUpstream: (workspaceId: string) => Promise<WorkspaceDto>;
   removeWorkspace: (workspaceId: string) => Promise<void>;
   deleteWorkspace: (workspaceId: string, confirmed: boolean, repositoryName: string) => Promise<void>;
+  listOldWorkspaceFolders: () => Promise<OldWorkspaceFolderDto[]>;
+  trashOldWorkspaceFolder: (folderId: string) => Promise<void>;
   getRepositoryAvatar: (owner: string, refresh?: boolean) => Promise<string | null>;
   getUserProfile: () => Promise<UserProfileDto>;
   getGitHubUserProfile: (login: string) => Promise<UserProfileDto>;

@@ -20,6 +20,7 @@ import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.workspace.OldWorkspaceFolderService;
 import com.bytequay.app.workspace.WorkspaceCommitsSettingsService;
 import com.bytequay.app.workspace.WorkspaceCommitsTarget;
 import com.bytequay.app.workspace.WorkspaceDeletionService;
@@ -70,7 +71,7 @@ class TestWorkspaceCommitsSettingsController
         WorkspaceRepositoryService workspaces = mock(WorkspaceRepositoryService.class);
         WorkspaceDeletionService deletion = mock(WorkspaceDeletionService.class);
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
-        WorkspaceController controller = new WorkspaceController(workspaces, deletion, mock(PullRequestService.class), refresh,
+        WorkspaceController controller = new WorkspaceController(workspaces, deletion, mock(OldWorkspaceFolderService.class), mock(PullRequestService.class), refresh,
                 mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class),
                 models, settings, mock(IssueDevelopmentService.class),
                 mock(WorkspaceRelationships.class), new WriteVersion());
@@ -115,7 +116,7 @@ class TestWorkspaceCommitsSettingsController
                 RepoRef.of("apache", "iceberg"), OptionalLong.empty(), RepoRef.of("apache", "iceberg"), "origin", "origin", "main", ImmutableList.of()));
         when(workspaces.requireLocalRepository("oss")).thenReturn(new WorkspaceRepositoryContext("oss", directory, 1,
                 RepoRef.of("oss", "oss"), OptionalLong.empty(), RepoRef.of("oss", "oss"), "origin", "origin", "main", ImmutableList.of()));
-        var controller = new WorkspaceController(workspaces, mock(WorkspaceDeletionService.class), mock(PullRequestService.class),
+        var controller = new WorkspaceController(workspaces, mock(WorkspaceDeletionService.class), mock(OldWorkspaceFolderService.class), mock(PullRequestService.class),
                 mock(PullRequestRefreshService.class), mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class),
                 mock(ModelSettingsService.class),
                 mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class), relationships, new WriteVersion());

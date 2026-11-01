@@ -62,7 +62,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
     label: 'General',
     slug: 'general',
     rows: ['Setup guide', 'Focus breaks', 'Break reminders', 'Break companion', 'Chubby orange cat', 'Dancing husky', 'Focus time', 'Break time', 'Background refresh', 'Quiet hours',
-      'Keep detailed task runtime', 'Keep what you touched', 'Clear history', 'Recent'],
+      'Keep detailed task runtime', 'Keep what you touched', 'Clear history', 'Recent', 'Old workspace folders'],
   },
   { section: 'appearance', group: 'Personal', label: 'Appearance', slug: 'appearance', rows: ['Theme'] },
   { section: 'browser', group: 'Personal', label: 'Browser', slug: 'browser', rows: ['Full screen behavior', 'Zoom'] },

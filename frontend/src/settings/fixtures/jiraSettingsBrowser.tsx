@@ -80,6 +80,7 @@ export async function mountPreview(values: JiraConnection[] = [connected, { ...c
     getAppPreferences: async () => ({ ...preferences }),
     saveAppPreferences: async value => { preferences = value; return { ...preferences }; },
     getQuietHours: async () => ({ ...quietHours }),
+    listOldWorkspaceFolders: async () => [],
     saveQuietHours: async (value: QuietHoursDto) => { quietWrites.push(value); quietHours = await nextQuietSave(value); return { ...quietHours }; },
     getGoogleStatus: async () => ({ accounts: [], profile: '', installed: false, operation: '', error: null, snapshot: null }),
     getGitHubAccount: async () => ({ configured: false, source: 'PERSONAL_ACCESS_TOKEN' as const }),

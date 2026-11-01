@@ -33,7 +33,7 @@ declare global { interface Window {
 } }
 
 function mount(saved: FocusBreakPreferences | null = null, capture: () => Promise<FocusBreakBackground[]> = async () => []) {
-  Object.defineProperty(window, 'bridge', { configurable: true, value: { ...window.bridge, captureFocusBreakBackground: capture } });
+  Object.defineProperty(window, 'bridge', { configurable: true, value: { ...window.bridge, captureFocusBreakBackground: capture, listOldWorkspaceFolders: async () => [] } });
   if (saved === null) localStorage.removeItem(FOCUS_PREFERENCES_KEY);
   else localStorage.setItem(FOCUS_PREFERENCES_KEY, JSON.stringify(saved));
   const view = createFixtureRoot();

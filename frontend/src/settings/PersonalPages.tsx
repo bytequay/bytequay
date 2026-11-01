@@ -16,6 +16,7 @@ import { OPEN_SETUP } from '../onboarding/setup';
 import { readBrowserDisplayMode, saveBrowserDisplayMode, type BrowserDisplayMode } from '../browserPreferences';
 import type { AppPreferencesDto, AppThemeDto, QuietHoursDto } from '../types';
 import { FocusBreakSettings } from '../focus/FocusBreakSettings';
+import { OldWorkspaceFolders } from './OldWorkspaceFolders';
 import { Segmented, SelectPill, SettingsCard, SettingsRow, TimePill, Toggle } from './primitives';
 
 const RETENTION_DAYS = [3, 7, 14, 30, 90];
@@ -116,6 +117,8 @@ export function GeneralPage({ preferences, quietHours, quietHoursBusy, version, 
           )}
         </SettingsRow>
       </SettingsCard>
+
+      <OldWorkspaceFolders />
       <div className="setw-version">ByteQuay {version}</div>
     </div>
   );

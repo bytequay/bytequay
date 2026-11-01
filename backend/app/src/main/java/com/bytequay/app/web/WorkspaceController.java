@@ -20,6 +20,8 @@ import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.workspace.OldWorkspaceFolder;
+import com.bytequay.app.workspace.OldWorkspaceFolderService;
 import com.bytequay.app.workspace.WatchRepositoryCommand;
 import com.bytequay.app.workspace.WatchRepositoryPreview;
 import com.bytequay.app.workspace.WorkspaceCommitsSettingsService;
@@ -70,6 +72,7 @@ public class WorkspaceController
 {
     private final WorkspaceRepositoryService workspaces;
     private final WorkspaceDeletionService deletion;
+    private final OldWorkspaceFolderService oldFolders;
     private final PullRequestService pullRequests;
     private final PullRequestRefreshService pullRequestRefresh;
     private final WorkspaceMetadataService metadata;
@@ -83,6 +86,7 @@ public class WorkspaceController
     public WorkspaceController(
             WorkspaceRepositoryService workspaces,
             WorkspaceDeletionService deletion,
+            OldWorkspaceFolderService oldFolders,
             PullRequestService pullRequests,
             PullRequestRefreshService pullRequestRefresh,
             WorkspaceMetadataService metadata,
@@ -95,6 +99,7 @@ public class WorkspaceController
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.deletion = requireNonNull(deletion, "deletion is null");
+        this.oldFolders = requireNonNull(oldFolders, "oldFolders is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.pullRequestRefresh = requireNonNull(pullRequestRefresh, "pullRequestRefresh is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
@@ -133,6 +138,18 @@ public class WorkspaceController
     public List<WorkspaceSummary> retired()
     {
         return workspaces.listRetiredWorkspaces();
+    }
+
+    @GetMapping("/old-folders")
+    public List<OldWorkspaceFolder> oldFolders()
+    {
+        return oldFolders.list();
+    }
+
+    @GetMapping("/old-folders/{folderId}/path")
+    public Map<String, String> oldFolderPath(@PathVariable String folderId)
+    {
+        return ImmutableMap.of("path", oldFolders.path(folderId).toString());
     }
 
     @GetMapping("/{workspaceId}")

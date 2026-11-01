@@ -211,6 +211,8 @@ const bridge: Bridge = {
   unlinkWorkspaceUpstream: invoke('workspaces:unlink-upstream'),
   removeWorkspace: invoke('workspaces:remove'),
   deleteWorkspace: invoke('workspaces:delete'),
+  listOldWorkspaceFolders: invoke('workspaces:old-folders'),
+  trashOldWorkspaceFolder: invoke('workspaces:old-folders:trash'),
   getRepositoryAvatar: invoke('repos:avatar'),
   getUserProfile: invoke('repos:profile'),
   getGitHubUserProfile: invoke('repos:user-profile'),

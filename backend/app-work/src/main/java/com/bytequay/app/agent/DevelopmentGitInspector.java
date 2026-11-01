@@ -31,6 +31,7 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 import com.google.common.io.MoreFiles;
@@ -54,6 +55,14 @@ import static java.util.Objects.requireNonNull;
 /** Git evidence and checked source synchronization for the live development coordinator. */
 public class DevelopmentGitInspector
 {
+    private static final ImmutableMap<String, String> OPEN_OPERATIONS = ImmutableMap.of(
+            "CHERRY_PICK_HEAD", "cherry-pick",
+            "MERGE_HEAD", "merge",
+            "REVERT_HEAD", "revert",
+            "rebase-merge", "rebase",
+            "rebase-apply", "rebase",
+            "BISECT_LOG", "bisect");
+
     private final WorktreeService worktrees;
     private final WorkspaceStore workspaces;
     private final GitCommandRunner git;
@@ -80,6 +89,15 @@ public class DevelopmentGitInspector
         this.hosting = requireNonNull(hosting, "hosting is null");
         this.assignments = requireNonNull(assignments, "assignments is null");
         this.cachedPullRequests = requireNonNull(cachedPullRequests, "cachedPullRequests is null");
+    }
+
+    /** The Git operation left open in the task's worktree, named for the user, such as "cherry-pick"; a generic name once its marker is gone. */
+    public String openOperation(TaskWorktree worktree)
+    {
+        return git.openMarkers(worktree.canonicalWorktree(), OPEN_OPERATIONS.keySet().asList()).stream()
+                .findFirst()
+                .map(OPEN_OPERATIONS::get)
+                .orElse("Git operation");
     }
 
     /** Captures only local Git and persisted workspace routing; no fetch or provider read occurs. */
@@ -174,7 +192,9 @@ public class DevelopmentGitInspector
             return worktree;
         }
         WorktreeSnapshot before = verify(worktree, route);
-        checkState(!before.gitOperationInProgress(), "Finish the current Git operation before renaming the branch");
+        if (before.gitOperationInProgress()) {
+            throw new IllegalStateException("Finish the " + openOperation(worktree) + " before renaming the branch");
+        }
         DevelopmentPublicationFacts published = inspectPublication(worktree, route);
         if (published.remoteHeadSha().isPresent() || !published.matchingPullRequests().isEmpty()
                 || !output(worktree, "for-each-ref", "--format=%(upstream)", "refs/heads/" + worktree.generatedBranch()).isBlank()) {

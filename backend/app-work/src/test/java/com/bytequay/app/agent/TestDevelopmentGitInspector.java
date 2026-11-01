@@ -171,6 +171,20 @@ class TestDevelopmentGitInspector
     }
 
     @Test
+    void namesTheGitOperationLeftOpen()
+            throws IOException
+    {
+        assertThat(inspector.openOperation(worktree)).isEqualTo("Git operation");
+
+        // A rebase that drops an emptied cherry-pick can leave its marker behind.
+        Path marker = worktree.canonicalWorktree().resolve(run(worktree.canonicalWorktree(), "rev-parse", "--git-path", "CHERRY_PICK_HEAD"));
+        Files.writeString(marker, baseSha + "\n");
+
+        assertThat(inspector.openOperation(worktree)).isEqualTo("cherry-pick");
+        assertThat(inspector.capture(task).local().gitOperationInProgress()).isTrue();
+    }
+
+    @Test
     void nameOnlyChangeKeepsCodeFingerprintAndLaterGitAndCleanupUseTheNewBranch()
             throws IOException
     {

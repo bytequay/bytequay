@@ -359,7 +359,9 @@ public class DevelopmentFollowupCoordinator
     private DevelopmentLocalFacts inspectLocal(DevelopmentBaseline baseline)
     {
         DevelopmentLocalFacts local = git.inspectLocal(baseline.worktree(), baseline.route());
-        checkState(!local.gitOperationInProgress(), "A Git operation still needs attention");
+        if (local.gitOperationInProgress()) {
+            throw new IllegalStateException("A " + git.openOperation(baseline.worktree()) + " is still open in this task's worktree; ask the agent to finish or stop it");
+        }
         return local;
     }
 

@@ -194,7 +194,7 @@ final class ReviewPrompts
                     + "Rank the complete supported pool, select at most " + ReviewValidation.MAX_SELECTED
                     + " new automatic findings with selectedFindingIds and selectionExplanation, "
                     + "then seal review_finish for the assigned investigationStep. Unselected support is not rejection. "
-                    + "At most " + ReviewTools.MAX_SELECTED_QUESTIONS + " of the selected findings may be questions. "
+                    + "At most " + ReviewToolDefinitions.MAX_SELECTED_QUESTIONS + " of the selected findings may be questions. "
                     + "Use NEEDS_EVIDENCE with a specific missing proposition, next check, and resolving criterion if another inspection is necessary. "
                     + "Use UNRESOLVED when missing evidence prevents settling a candidate; zero findings is valid. "
                     + "Unavailable tests alone are warnings, not omissions, and do not prevent a complete review. "

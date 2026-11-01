@@ -588,7 +588,7 @@ contract is violated. It is rejected, naming where, when the code, a commit
 message or the PR text answers it. An unverified claim never becomes a question.
 
 Those are rules for the agent. One limit is enforced: `review_finish` refuses a
-selection that holds more than two questions (`ReviewTools.MAX_SELECTED_QUESTIONS`)
+selection that holds more than two questions (`ReviewToolDefinitions.MAX_SELECTED_QUESTIONS`)
 and names the count, so the reviewer revises a question that shows a consequence
 into a defect or a suggestion, or leaves it unselected, where it stays supported in
 the details. A question is known by its title alone. The limit covers one run's

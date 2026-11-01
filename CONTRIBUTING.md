@@ -470,7 +470,7 @@ code.
 
 ## Database
 
-- Runtime database: `~/Library/Application Support/ByteQuay/bytequay-1.0.db`
+- Runtime database: `~/Library/Application Support/ByteQuay/bytequay-055.db`
 - Managed clones and task worktrees: `~/.bytequay/workspaces`, outside
   Application Support because a space in a checkout's path breaks project
   tests that turn file paths into URLs. On its first start, a backend moves

@@ -26,7 +26,7 @@ class Database(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.folder = Path(directory.name).resolve()
-        self.database = self.folder / "bytequay-1.0.db"
+        self.database = self.folder / "bytequay-055.db"
         connection = sqlite3.connect(self.database)
         connection.executescript("""
             CREATE TABLE repository_memory (id TEXT, kind TEXT, delivered INTEGER, cited INTEGER, created_at TEXT, title TEXT, text TEXT);

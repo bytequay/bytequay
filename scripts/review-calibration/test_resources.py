@@ -174,10 +174,10 @@ class TestPage(Kept):
         (baseline / "r").mkdir(parents=True)
         (baseline / "r" / "codegraph.db").write_text("x")
         copy.mkdir()
-        (copy / "bytequay-1.0.db").write_text("x")
-        for path in (baseline, baseline / "r", copy, copy / "bytequay-1.0.db"):
+        (copy / "bytequay-055.db").write_text("x")
+        for path in (baseline, baseline / "r", copy, copy / "bytequay-055.db"):
             os.utime(path, (time.time() - 2 * 86400,) * 2)
-        for name, value in (("APP_DATA", self.data), ("DATABASE", self.data / "bytequay-1.0.db")):
+        for name, value in (("APP_DATA", self.data), ("DATABASE", self.data / "bytequay-055.db")):
             patched = mock.patch.object(monitor, name, value)
             patched.start()
             self.addCleanup(patched.stop)

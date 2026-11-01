@@ -880,7 +880,7 @@ Both files hold names, counts and times and nothing else: no command
 arguments, no paths and no message text.
 
 For the turn table `activity.py` also reads ByteQuay's own database,
-`bytequay-1.0.db` beside the runtime folder or `--database PATH`. `records.py`
+`bytequay-055.db` beside the runtime folder or `--database PATH`. `records.py`
 opens it read-only and takes, for each turn, its model, effort, provider,
 repository name, tokens, cost, tool calls, how it ended and the name of the
 setup it ran with, and no title, prompt or other text. A database from before

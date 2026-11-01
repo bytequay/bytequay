@@ -79,7 +79,7 @@ it('refreshes before serving, using only bundled Python even with no system Pyth
   expect(children).toHaveLength(1);
   expect(mocks.spawn.mock.calls[0]).toEqual(['/installed/resources/lab/python/bin/python3',
     ['-B', '-s', '/installed/resources/lab/app/desktop.py', '--folder', '/users/test/Library/Application Support/ByteQuay Lab',
-      '--runtime', '/users/test/Library/Application Support/ByteQuay/agent-runtime', '--database', '/users/test/Library/Application Support/ByteQuay/bytequay-1.0.db'],
+      '--runtime', '/users/test/Library/Application Support/ByteQuay/agent-runtime', '--database', '/users/test/Library/Application Support/ByteQuay/bytequay-055.db'],
     expect.objectContaining({ detached: true, env: expect.objectContaining({ PATH: '/no/tools', BYTEQUAY_LAB_PARENT_PID: String(process.pid) }) })]);
   expect(mocks.spawn.mock.calls[0][2].env).not.toHaveProperty('PYTHONPATH');
   expect(mocks.spawn.mock.calls[0][2].env).not.toHaveProperty('BYTEQUAY_DESKTOP_SESSION_TOKEN');

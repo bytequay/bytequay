@@ -54,10 +54,10 @@ class TestHealthPage(unittest.TestCase):
         self.assertTrue((self.folder / app_logs.FILE).is_file())
         rows = page.dataframe[0].value
         self.assertIn("Agent statistics", rows["component"].tolist())
-        self.assertFalse((self.folder / "bytequay-1.0.db").exists())
+        self.assertFalse((self.folder / "bytequay-055.db").exists())
 
     def test_analyze_now_reads_new_logs_on_each_click_and_updates_the_visible_findings(self):
-        database(self.folder / "bytequay-1.0.db")
+        database(self.folder / "bytequay-055.db")
         source = self.folder / "logs" / "backend.log"
         source.parent.mkdir()
         now = datetime.now(timezone.utc).timestamp()

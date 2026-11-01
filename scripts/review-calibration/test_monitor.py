@@ -265,8 +265,8 @@ class TestSpace(Folder):
             ("workspaces", "w", "worktrees", "open-tree"): monitor.OPEN, ("workspaces", "w", "worktrees", "rebase-tree"): monitor.APP,
             ("workspaces", "w", "worktrees", "gone-tree"): monitor.REMOVED, ("workspaces", "w", "lock"): monitor.APP,
             ("repos",): monitor.RETIRED, ("new-flow-worktrees",): monitor.RETIRED, ("database-backup-20260921T172146",): monitor.COPIES,
-            ("backup-before-local-run-20260916T181723",): monitor.COPIES, ("bytequay.db",): monitor.COPIES, ("bytequay-1.0.db",): monitor.APP,
-            ("Cache",): monitor.APP,
+            ("backup-before-local-run-20260916T181723",): monitor.COPIES, ("bytequay.db",): monitor.COPIES, ("bytequay-1.0.db",): monitor.COPIES,
+            ("bytequay-1.0.db-wal",): monitor.COPIES, ("bytequay-055.db",): monitor.APP, ("Cache",): monitor.APP,
         }
         self.assertEqual({names: monitor.owner(names, self.KNOWN) for names in cases}, cases)
         # With no database, nothing is said about whose task data is whose; what the path alone tells still holds.

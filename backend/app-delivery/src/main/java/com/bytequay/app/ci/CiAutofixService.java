@@ -742,7 +742,7 @@ public class CiAutofixService
             ensureAgentTask(run);
         }
         if (run.status() == Status.PAUSED) {
-            return run;
+            return resumeWhenGreen(run, now);
         }
         Optional<CiAutofixRun> reconciledGreen = reconcileCompletedGreenTask(run, now);
         if (reconciledGreen.isPresent()) {
@@ -828,6 +828,28 @@ public class CiAutofixService
         }
 
         return advanceCiResult(run, attempt, snapshot, now);
+    }
+
+    /**
+     * A pause stops repairs, not watching: once GitHub Actions passes at the run's head, say after a rerun someone else started, and
+     * none of the run's own work is left unpublished, it resumes and finishes as usual. A run paused by its final checks already saw
+     * this head pass, so it keeps waiting for the user.
+     */
+    private CiAutofixRun resumeWhenGreen(CiAutofixRun run, Instant now)
+    {
+        if (run.finalFixupCheck().isPresent() || run.currentRebaseId().isPresent() || run.pushJournal().isPresent() || run.agentTaskId().isEmpty()
+                || taskService.get(TaskId.valueOf(run.agentTaskId().orElseThrow())).state() != TaskState.OPEN) {
+            return run;
+        }
+        CiHeadSnapshot snapshot = gitHub.inspect(run.scope().pullRequest());
+        if (!snapshot.headSha().equals(run.expectedRemoteHead()) || !snapshot.green()) {
+            return run;
+        }
+        WorktreeSnapshot worktree = inspectWorktree(requireOpenTask(run), run);
+        if (worktree.uncommitted() || worktree.gitOperationInProgress() || !worktree.head().equals(run.expectedRemoteHead())) {
+            return run;
+        }
+        return store.update(run.resume(now));
     }
 
     private CiAutofixRun advanceCiResult(CiAutofixRun run, CiAutofixAttempt attempt, CiHeadSnapshot snapshot, Instant now)

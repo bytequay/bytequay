@@ -1279,6 +1279,31 @@ class TestCiAutofixService
     }
 
     @Test
+    void pausedRunFinishesOnceActionsPassAtItsHeadWithNothingUnpublished()
+    {
+        CiAutofixRun run = service.start(startCommand("paused-then-green"));
+        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
+        run = service.advance(run.id());
+        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.noChange());
+        run = service.advance(run.id());
+        assertThat(run.status()).isEqualTo(Status.PAUSED);
+
+        when(gitHub.inspect(any())).thenReturn(greenSnapshot(HEAD, BASE));
+        doReturn(worktree(true, HEAD)).when(worktreeService).inspect(any());
+        assertThat(service.advance(run.id()).status()).isEqualTo(Status.PAUSED);
+
+        doReturn(worktree(false, HEAD)).when(worktreeService).inspect(any());
+        when(gitService.checkFixupPositions(any())).thenReturn(FixupPositionCheck.valid(HEAD));
+        doReturn(completion(HEAD)).when(completionService).complete(any());
+        run = service.advance(run.id());
+        assertThat(run.status()).isEqualTo(Status.ACTIVE);
+        run = service.advance(service.advance(service.advance(run.id()).id()).id());
+
+        assertThat(run.finishReason()).contains(FinishReason.GREEN);
+        verify(turnService, times(1)).start(any());
+    }
+
+    @Test
     void waitsForTheFailedWorkflowRunToFinishBeforeRerunning()
     {
         CiAutofixRun run = service.start(startCommand("rerun-while-running"));

@@ -256,7 +256,7 @@ public final class GitLabPullRequestContentReader
             GitLabNote root = discussion.notes().getFirst();
             if (discussion.individualNote() || root.system()) {
                 for (GitLabNote note : discussion.notes()) {
-                    events.add(new PrTimelineEvent(note.id(), note.system() ? "system_note" : "commented", note.author().username(), instant(note.createdAt()), note.body(),
+                    events.add(new PrTimelineEvent(note.id(), note.system() ? "system_note" : "commented", note.author().username(), instant(note.createdAt()), note.timelineBody(),
                             PrTimelinePayload.builder().actorAvatarUrl(note.author().avatarUrl()).htmlUrl(url + "#note_" + note.id())
                                     .reactions(reactions.getOrDefault(note.id(), ImmutableList.of())).build(), Optional.empty()));
                 }

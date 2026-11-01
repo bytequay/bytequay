@@ -289,7 +289,7 @@ public final class GitLabIssueClient
         if (note.id() == null && note.summary() != null) {
             return new PrTimelineEvent(null, "system", null, null, String.join("\n", note.summary()), PrTimelinePayload.empty(), Optional.empty());
         }
-        return new PrTimelineEvent(note.id(), note.system() ? "system" : "commented", note.author().username(), Instant.parse(note.createdAt()), note.body(),
+        return new PrTimelineEvent(note.id(), note.system() ? "system" : "commented", note.author().username(), Instant.parse(note.createdAt()), note.timelineBody(),
                 PrTimelinePayload.builder().actorAvatarUrl(note.author().avatarUrl()).htmlUrl(issueUrl + "#note_" + note.id()).build(), Optional.empty());
     }
 

@@ -83,9 +83,10 @@ describe('watched repository workspace UI', () => {
         hostingServer: { provider: 'GITLAB', webBaseUrl: 'https://gitlab.example.com', apiBaseUrl: 'https://gitlab.example.com/api/v4' },
         lastCodeSyncAt: null,
       })} />);
-    expect(html).toContain('aria-label="Merge requests" aria-current="page"');
-    expect(html).not.toContain('aria-label="Pull requests"');
-    expect(html).not.toMatch(/aria-label="Merge requests"[^>]*disabled/);
+    // "Pull request" is ByteQuay's word on every provider, as the request pages say.
+    expect(html).toContain('aria-label="Pull requests" aria-current="page"');
+    expect(html).not.toContain('Merge requests');
+    expect(html).not.toMatch(/aria-label="Pull requests"[^>]*disabled/);
   });
 
   it('shows the same durable ID and state on Home and Workspaces', () => {

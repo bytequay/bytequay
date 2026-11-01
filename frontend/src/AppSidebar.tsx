@@ -229,7 +229,6 @@ export default function AppSidebar({
   };
 
   const workspaceItem = ({ tab, label, icon }: typeof WORKSPACE_TABS[number]) => {
-    if (tab === 'prs' && workspace?.hostingServer.provider === 'GITLAB') label = 'Merge requests';
     const reason = disabledReason(tab);
     return row({
       key: tab,

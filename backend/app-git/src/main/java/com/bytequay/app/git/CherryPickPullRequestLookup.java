@@ -33,7 +33,10 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 
+import static com.bytequay.app.repository.github.GitHubRateLimitException.isRateLimit;
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -75,10 +78,23 @@ public class CherryPickPullRequestLookup
         PullRequestContentReader contents = integrations.of(target).contents();
         List<PullRequestLookupResult.Association> associations = new ArrayList<>();
         Set<String> failedShas = new LinkedHashSet<>();
+        // After a rate limit every further call fails too; the rest count as failed and stay due.
+        AtomicBoolean rateLimited = new AtomicBoolean();
         try (ExecutorService pool = Executors.newFixedThreadPool(CONCURRENCY)) {
             List<PendingLookup> futures = new ArrayList<>(sourceShas.size());
             for (String sha : sourceShas) {
-                Callable<Lookup> task = () -> new Lookup(sha, associate(contents, target, sha, sourceBranch));
+                Callable<Lookup> task = () -> {
+                    checkState(!rateLimited.get(), "skipped after a rate limit");
+                    try {
+                        return new Lookup(sha, associate(contents, target, sha, sourceBranch));
+                    }
+                    catch (RuntimeException failure) {
+                        if (isRateLimit(failure)) {
+                            rateLimited.set(true);
+                        }
+                        throw failure;
+                    }
+                };
                 futures.add(new PendingLookup(sha, pool.submit(task)));
             }
             for (PendingLookup pending : futures) {

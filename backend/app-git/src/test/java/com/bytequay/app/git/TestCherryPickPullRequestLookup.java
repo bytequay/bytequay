@@ -31,13 +31,18 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.IntStream;
 
 import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
 import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.pullRequests;
+import static com.bytequay.core.hosting.HostingFailure.Kind.RATE_LIMITED;
 import static com.bytequay.core.hosting.HostingFailure.Kind.UNAVAILABLE;
 import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atMost;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -118,6 +123,19 @@ class TestCherryPickPullRequestLookup
         assertThat(result.associations()).isEmpty();
         assertThat(result.failedShas()).containsExactly(SHA);
         assertThat(warnings).anyMatch(warning -> warning.contains("could not be checked")).noneMatch(warning -> warning.contains("no single merged pull request"));
+    }
+
+    @Test
+    void stopsAskingAfterARateLimitAndLeavesTheRestFailed()
+    {
+        List<String> shas = IntStream.range(0, 20).mapToObj(index -> "%040x".formatted(index)).toList();
+        when(gitLab.mergedWithCommit(eq(GITLAB_TARGET), anyString())).thenThrow(new HostingFailure(RATE_LIMITED, "GitLab's rate limit was reached"));
+
+        PullRequestLookupResult result = lookup.lookUpResult(GITLAB_TARGET, shas, "main", new ArrayList<>());
+
+        assertThat(result.failedShas()).containsExactlyElementsOf(shas);
+        // Only the lookups already running when the first limit came back reach the provider.
+        verify(gitLab, atMost(8)).mergedWithCommit(eq(GITLAB_TARGET), anyString());
     }
 
     @Test

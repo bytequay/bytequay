@@ -47,7 +47,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -70,6 +72,8 @@ public class CommitHistoryService
     private static final Logger log = LoggerFactory.getLogger(CommitHistoryService.class);
     private static final int MAX_COMMITS = 300;
     private static final Duration AVATAR_REFRESH_INTERVAL = Duration.ofDays(1);
+    /** Each commit costs one provider call; a fresh 300-commit branch fills in over a few refreshes instead of one burst. */
+    private static final int MAX_ASSOCIATION_LOOKUPS = 50;
 
     private final WorkspaceRepositoryService workspaces;
     private final WorkspaceHostingService hosting;
@@ -150,7 +154,8 @@ public class CommitHistoryService
     {
         List<CommitHistoryRef> requested = validatedRefs(workspaceId, refs);
         requireNonNull(workspaceId, "workspaceId is null");
-        return WorkspaceOperationLocks.withLock(workspaceId, () -> {
+        Set<String> avatarUrls = new LinkedHashSet<>();
+        CommitRefreshStatus status = WorkspaceOperationLocks.withLock(workspaceId, () -> {
             workspaces.getWorkspace(workspaceId);
             if (staleBefore.isPresent()) {
                 CommitRefreshStatus current = status(workspaceId);
@@ -158,8 +163,11 @@ public class CommitHistoryService
                     return current;
                 }
             }
-            return refreshLocked(workspaceId, requested);
+            return refreshLocked(workspaceId, requested, avatarUrls);
         });
+        // Images download after the lock, so a clone or task never waits on the avatar host.
+        avatars.cacheAll(avatarUrls);
+        return status;
     }
 
     private List<CommitHistoryRef> validatedRefs(String workspaceId, List<CommitHistoryRef> refs)
@@ -214,11 +222,11 @@ public class CommitHistoryService
                 metadata.error());
     }
 
-    private CommitRefreshStatus refreshLocked(String workspaceId, Collection<CommitHistoryRef> refs)
+    private CommitRefreshStatus refreshLocked(String workspaceId, Collection<CommitHistoryRef> refs, Set<String> avatarUrls)
     {
         Instant attempt = clock.instant();
         try {
-            synchronize(workspaceId, refs);
+            synchronize(workspaceId, refs, avatarUrls);
             CommitRefreshMetadata metadata = new CommitRefreshMetadata(workspaceId, Optional.of(attempt), Optional.of(clock.instant()), Optional.empty());
             store.saveRefreshMetadata(metadata);
             return status(metadata);
@@ -235,14 +243,17 @@ public class CommitHistoryService
         return successStale && attemptStale;
     }
 
-    private void synchronize(String workspaceId, Collection<CommitHistoryRef> requestedRefs)
+    private void synchronize(String workspaceId, Collection<CommitHistoryRef> requestedRefs, Set<String> avatarUrls)
     {
         WorkspaceCodeSyncResult synchronization = provisioning.synchronizeCode(workspaceId);
         checkState(synchronization.successful(), "managed repository synchronization failed");
         validateRemoteSources(requestedRefs, synchronization);
         WorkspaceRepositoryContext context = workspaces.requireReadyRepository(workspaceId);
         List<ResolvedCommitHistoryRef> refs = requestedRefs.stream().map(ref -> CommitHistoryRouting.resolve(context, ref)).toList();
-        store.upsertEnrichment(enrichRefs(context, refs));
+        Set<String> failedLookups = new HashSet<>();
+        store.upsertEnrichment(enrichRefs(context, refs, avatarUrls, failedLookups));
+        // Answered lookups are kept above; the failed ones stay due for the next refresh.
+        checkState(failedLookups.isEmpty(), "commit pull-request synchronization failed");
     }
 
     private static void validateRemoteSources(Collection<CommitHistoryRef> refs, WorkspaceCodeSyncResult synchronization)
@@ -257,7 +268,11 @@ public class CommitHistoryService
                 });
     }
 
-    private Collection<CommitEnrichment> enrichRefs(WorkspaceRepositoryContext context, Collection<ResolvedCommitHistoryRef> refs)
+    private Collection<CommitEnrichment> enrichRefs(
+            WorkspaceRepositoryContext context,
+            Collection<ResolvedCommitHistoryRef> refs,
+            Set<String> avatarUrls,
+            Set<String> failedLookups)
     {
         // Every provider supplies pull-request links; avatars come only from a provider that has them.
         boolean avatars = hasCommitAvatars(context.workspaceId());
@@ -270,7 +285,8 @@ public class CommitHistoryService
                 git.log(context.repository(), ref.gitRef(), MAX_COMMITS);
                 continue;
             }
-            enrich(context, ref, avatars, now).forEach(value -> updates.merge(new EnrichmentKey(value.hostingRepositoryId(), value.sha()), value, CommitHistoryService::merge));
+            enrich(context, ref, avatars, now, avatarUrls, failedLookups)
+                    .forEach(value -> updates.merge(new EnrichmentKey(value.hostingRepositoryId(), value.sha()), value, CommitHistoryService::merge));
         }
         return updates.values();
     }
@@ -280,7 +296,13 @@ public class CommitHistoryService
         return workspaces.getWorkspace(workspaceId).capabilities().commitAvatars();
     }
 
-    private List<CommitEnrichment> enrich(WorkspaceRepositoryContext context, ResolvedCommitHistoryRef ref, boolean avatars, Instant now)
+    private List<CommitEnrichment> enrich(
+            WorkspaceRepositoryContext context,
+            ResolvedCommitHistoryRef ref,
+            boolean avatars,
+            Instant now,
+            Set<String> avatarUrls,
+            Set<String> failedLookups)
     {
         RepoRef repository = ref.repository().orElseThrow();
         List<Commit> commits = git.log(context.repository(), ref.gitRef(), MAX_COMMITS);
@@ -296,6 +318,10 @@ public class CommitHistoryService
             checkState(avatarSnapshot.succeeded(), "commit avatar synchronization failed");
             identities = avatarSnapshot.avatars().stream()
                     .collect(toImmutableMap(CommitAvatar::sha, Function.identity()));
+            identities.values().forEach(identity -> {
+                identity.authorSourceUrl().ifPresent(avatarUrls::add);
+                identity.committerSourceUrl().ifPresent(avatarUrls::add);
+            });
         }
         else {
             identities = ImmutableMap.of();
@@ -304,11 +330,12 @@ public class CommitHistoryService
         List<String> dueAssociations = commits.stream()
                 .filter(commit -> CommitEnrichment.associationDue(commit.committedAt(), Optional.ofNullable(existing.get(commit.sha())), now))
                 .map(Commit::sha)
+                .limit(MAX_ASSOCIATION_LOOKUPS)
                 .toList();
         PullRequestLookupResult associationSnapshot = dueAssociations.isEmpty()
                 ? new PullRequestLookupResult(ImmutableList.of(), ImmutableSet.of())
                 : pullRequests.lookUpResult(target, dueAssociations, ref.providerRef(), new ArrayList<>());
-        checkState(associationSnapshot.failedShas().isEmpty(), "commit pull-request synchronization failed");
+        failedLookups.addAll(associationSnapshot.failedShas());
         Map<String, PullRequestAssociation> associations = associationSnapshot.associations().stream()
                 .collect(toImmutableMap(PullRequestLookupResult.Association::sha, PullRequestLookupResult.Association::pullRequest));
         return commits.stream()
@@ -319,7 +346,7 @@ public class CommitHistoryService
                         Optional.ofNullable(identities.get(commit.sha())),
                         Optional.ofNullable(associations.get(commit.sha())),
                         checkedAvatarShas.contains(commit.sha()),
-                        dueAssociations.contains(commit.sha()),
+                        dueAssociations.contains(commit.sha()) && !failedLookups.contains(commit.sha()),
                         now))
                 .toList();
     }
@@ -358,9 +385,9 @@ public class CommitHistoryService
                 hostingRepositoryId,
                 commit.sha(),
                 identity.flatMap(CommitAvatar::authorLogin),
-                identity.flatMap(CommitAvatar::authorSourceUrl).flatMap(avatars::cache),
+                identity.flatMap(CommitAvatar::authorSourceUrl).map(avatars::key),
                 identity.flatMap(CommitAvatar::committerLogin),
-                identity.flatMap(CommitAvatar::committerSourceUrl).flatMap(avatars::cache),
+                identity.flatMap(CommitAvatar::committerSourceUrl).map(avatars::key),
                 association.map(PullRequestAssociation::number),
                 association.map(PullRequestAssociation::title).filter(value -> !value.isBlank()),
                 association.map(PullRequestAssociation::url).filter(value -> !value.isBlank()),

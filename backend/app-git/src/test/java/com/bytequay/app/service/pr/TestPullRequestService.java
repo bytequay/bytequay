@@ -3540,6 +3540,8 @@ class TestPullRequestService
                     row.requestedReviewers(), row.mergeable(), row.mergeableState(), row.headRef()));
         }).toList();
         when(store.findAttentionCandidates()).thenReturn(rows);
+        when(detailStore.findFreshness(anySet()))
+                .thenReturn(ImmutableMap.of(12L, new PrDetailFreshness(Optional.of(Instant.EPOCH), Optional.empty(), Optional.empty(), Optional.empty())));
         doReturn(null).when(service).refreshPullRequestDetailFromRemote(anyString(), anyInt(), eq(Duration.ofMinutes(10)));
 
         service.warmRecentDetails(limit);
@@ -3551,6 +3553,19 @@ class TestPullRequestService
         assertThat(first.getAllValues()).containsExactlyElementsOf(IntStream.iterate(35, value -> value - 1).limit(limit).boxed().toList());
         assertThat(second.getAllValues()).containsExactlyElementsOf(IntStream.iterate(70, value -> value - 1).limit(limit).boxed().toList());
         verifyNoInteractions(gitHub, actions);
+    }
+
+    @Test
+    void warmsAtMostTenNeverFetchedDetailsPerPass()
+    {
+        service = spy(service);
+        List<PullRequest> rows = IntStream.rangeClosed(1, 30).mapToObj(number -> storedPullRequest(pullRequestNumber(number))).toList();
+        when(store.findAttentionCandidates()).thenReturn(rows);
+        doReturn(null).when(service).refreshPullRequestDetailFromRemote(anyString(), anyInt(), eq(Duration.ofMinutes(10)));
+
+        service.warmRecentDetails(30);
+
+        verify(service, times(10)).refreshPullRequestDetailFromRemote(anyString(), anyInt(), eq(Duration.ofMinutes(10)));
     }
 
     @Test

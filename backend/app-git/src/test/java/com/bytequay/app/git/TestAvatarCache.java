@@ -115,6 +115,20 @@ class TestAvatarCache
     }
 
     @Test
+    void keyIsTheDownloadedKeyWithoutANetworkCall()
+            throws Exception
+    {
+        HttpClient client = mock(HttpClient.class);
+        AvatarCache cache = new AvatarCache(root, client);
+
+        String key = cache.key(URL);
+        verify(client, never()).sendAsync(any(), any());
+
+        response(client, 200, "image/png", new byte[] {1, 2, 3});
+        assertThat(cache.cache(URL)).contains(key);
+    }
+
+    @Test
     void rejectsMalformedKeysAndUnsafeUrls()
     {
         AvatarCache cache = new AvatarCache(root, mock(HttpClient.class));
@@ -123,6 +137,8 @@ class TestAvatarCache
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> cache.cache("http://avatars.example.invalid/example.png"))
                 .isInstanceOf(IllegalArgumentException.class);
+        // A batch skips the rejected URL instead of failing the sync that queued it.
+        cache.cacheAll(ImmutableList.of("http://avatars.example.invalid/example.png"));
     }
 
     @Test

@@ -131,6 +131,8 @@ public class PullRequestService
     private static final int CLOSED_RETENTION_DAYS = 30;
     private static final int SEARCH_PAGE_SIZE = 100;
     private static final Duration NOTIFICATION_SETTLE = Duration.ofMinutes(2);
+    /** A first detail fetch costs many calls; a fresh database fills its warm set over several passes instead of one burst. */
+    private static final int MAX_FIRST_WARMS_PER_PASS = 10;
     // Every table the attention list reads, so agent and other unrelated writes leave its version alone. A new read needs its table here.
     private static final List<String> ATTENTION_TABLES =
             ImmutableList.of("pull_requests", "pr_view_state", "watched_repo_workspaces", "pr_detail", "pr_timeline", "pr_reviews", "pr_check_runs");
@@ -1155,10 +1157,18 @@ public class PullRequestService
     {
         Map<String, Integer> counts = new HashMap<>();
         checkArgument(limit == 10 || limit == 30, "warm limit must be 10 or 30");
-        attentionCandidates(credentialService.captureHostingRead()).stream()
+        List<PullRequest> recent = attentionCandidates(credentialService.captureHostingRead()).stream()
                 .sorted(Comparator.comparing(PullRequest::updatedAt).reversed().thenComparing(Comparator.comparingInt(PullRequest::number).reversed()))
                 .filter(row -> counts.merge(row.repo().toLowerCase(Locale.ROOT), 1, Integer::sum) <= limit)
-                .forEach(row -> warmDetail(row.repo(), row.number(), Duration.ofMinutes(10)));
+                .toList();
+        Map<Long, PrDetailFreshness> freshness = details.findFreshness(recent.stream().map(PullRequest::id).collect(toImmutableSet()));
+        int firstWarms = 0;
+        for (PullRequest row : recent) {
+            boolean fetched = Optional.ofNullable(freshness.get(row.id())).flatMap(PrDetailFreshness::metadataAt).isPresent();
+            if (fetched || firstWarms++ < MAX_FIRST_WARMS_PER_PASS) {
+                warmDetail(row.repo(), row.number(), Duration.ofMinutes(10));
+            }
+        }
     }
 
     /** Refreshes one pull request's cached detail when it is older than {@code freshness}; a failure keeps the cached copy. */

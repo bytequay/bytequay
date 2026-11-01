@@ -39,10 +39,12 @@ import java.net.URI;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.locks.ReentrantLock;
 
 import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
 import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.metadata;
@@ -207,10 +209,14 @@ class TestWorkspaceMetadataService
         when(pullRequests.fetchAssignableRepositoryUsers("token", DIRECT))
                 .thenReturn(ImmutableList.of(new GitHubRepositoryUser(
                         3, "alice", "https://avatars.example/alice", false)));
-        when(avatarCache.cache("https://avatars.example/alice")).thenReturn(Optional.of("avatar-key"));
+        when(avatarCache.key("https://avatars.example/alice")).thenReturn("avatar-key");
+        List<Boolean> lockedWhileDownloading = new ArrayList<>();
+        doAnswer(invocation -> lockedWhileDownloading.add(((ReentrantLock) WorkspaceOperationLocks.get("direct")).isHeldByCurrentThread()))
+                .when(avatarCache).cacheAll(List.of("https://avatars.example/alice"));
 
         service.synchronize("direct");
 
+        assertThat(lockedWhileDownloading).containsExactly(false);
         assertThat(service.getSnapshot("direct").contributors()).hasSize(1);
         assertThat(service.getSnapshot("direct").pickerUsers())
                 .containsExactly(new RepositoryPickerUser(3, "alice", Optional.of("avatar-key"), false));
@@ -220,7 +226,7 @@ class TestWorkspaceMetadataService
         verify(gitHub).fetchLabels("token", DIRECT);
         verify(gitHub).fetchOverview("token", DIRECT);
         verify(pullRequests).fetchAssignableRepositoryUsers("token", DIRECT);
-        verify(avatarCache).cache("https://avatars.example/alice");
+        verify(avatarCache).cacheAll(List.of("https://avatars.example/alice"));
     }
 
     @Test
@@ -290,7 +296,8 @@ class TestWorkspaceMetadataService
         assertThat(workspaces.get(fork.id()).lastMetadataSyncAt()).contains(NOW);
         verify(gitHub).fetchOverview("token", UPSTREAM);
         verifyNoMoreInteractions(gitHub);
-        verifyNoInteractions(pullRequests, avatarCache);
+        verifyNoInteractions(pullRequests);
+        verify(avatarCache).cacheAll(ImmutableList.of());
     }
 
     @Test
@@ -322,7 +329,8 @@ class TestWorkspaceMetadataService
         assertThat(snapshots.get(fork.selectedRepositoryId())).isEqualTo(forkSnapshot);
         verify(gitHub).fetchContributors("token", UPSTREAM);
         verifyNoMoreInteractions(gitHub);
-        verifyNoInteractions(pullRequests, avatarCache);
+        verifyNoInteractions(pullRequests);
+        verify(avatarCache).cacheAll(ImmutableList.of());
     }
 
     @Test
@@ -348,7 +356,7 @@ class TestWorkspaceMetadataService
         when(pullRequests.fetchAssignableRepositoryUsers("token", DIRECT))
                 .thenReturn(ImmutableList.of(new GitHubRepositoryUser(
                         3, "alice", "https://avatars.example/alice", false)));
-        when(avatarCache.cache("https://avatars.example/alice")).thenReturn(Optional.of("avatar-key"));
+        when(avatarCache.key("https://avatars.example/alice")).thenReturn("avatar-key");
 
         service.synchronize("direct");
 
@@ -361,7 +369,7 @@ class TestWorkspaceMetadataService
     }
 
     @Test
-    void weeklyRefreshKeepsThePreviousAvatarWhenRedownloadFails()
+    void weeklyRefreshStoresTheNewAvatarKeyAndDownloadsItAfterwards()
     {
         Workspace fresh = workspace("direct", 100, DIRECT, Topology.DIRECT)
                 .withMetadataSyncAt(Optional.of(NOW), NOW);
@@ -383,12 +391,13 @@ class TestWorkspaceMetadataService
         when(pullRequests.fetchAssignableRepositoryUsers("token", DIRECT))
                 .thenReturn(ImmutableList.of(new GitHubRepositoryUser(
                         3, "alice", "https://avatars.example/alice", false)));
-        when(avatarCache.cache("https://avatars.example/alice")).thenReturn(Optional.empty());
+        when(avatarCache.key("https://avatars.example/alice")).thenReturn("new-key");
 
         service.synchronize("direct");
 
         assertThat(service.getSnapshot("direct").pickerUsers())
-                .containsExactly(new RepositoryPickerUser(3, "alice", Optional.of("old-key"), false));
+                .containsExactly(new RepositoryPickerUser(3, "alice", Optional.of("new-key"), false));
+        verify(avatarCache).cacheAll(List.of("https://avatars.example/alice"));
         verify(pullRequests).fetchAssignableRepositoryUsers("token", DIRECT);
         verify(gitHub, never()).fetchContributors("token", DIRECT);
         verify(gitHub, never()).fetchLabels("token", DIRECT);

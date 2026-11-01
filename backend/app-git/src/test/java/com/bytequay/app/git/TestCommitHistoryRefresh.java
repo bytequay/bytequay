@@ -22,6 +22,7 @@ import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.app.workspace.WorkspaceHostingService;
+import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
@@ -53,6 +54,7 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -64,6 +66,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.IntStream;
 
 import static com.bytequay.core.domain.CommitRefreshStatus.State.FAILED;
 import static com.bytequay.core.domain.CommitRefreshStatus.State.IDLE;
@@ -73,6 +77,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -148,8 +153,11 @@ class TestCommitHistoryRefresh
                                 Optional.of("https://avatars.example.invalid/percy-r.png"),
                                 Optional.of("ezra-b"),
                                 Optional.of("https://avatars.example.invalid/ezra-b.png"))), true));
-        when(avatars.cache("https://avatars.example.invalid/percy-r.png")).thenReturn(Optional.of(AVATAR_KEY));
-        when(avatars.cache("https://avatars.example.invalid/ezra-b.png")).thenReturn(Optional.of(COMMITTER_AVATAR_KEY));
+        when(avatars.key("https://avatars.example.invalid/percy-r.png")).thenReturn(AVATAR_KEY);
+        when(avatars.key("https://avatars.example.invalid/ezra-b.png")).thenReturn(COMMITTER_AVATAR_KEY);
+        List<Boolean> lockedWhileDownloading = new ArrayList<>();
+        doAnswer(invocation -> lockedWhileDownloading.add(((ReentrantLock) WorkspaceOperationLocks.get(WORKSPACE_ID)).isHeldByCurrentThread()))
+                .when(avatars).cacheAll(ImmutableSet.of("https://avatars.example.invalid/percy-r.png", "https://avatars.example.invalid/ezra-b.png"));
         PullRequestAssociation pullRequest = new PullRequestAssociation(42, "Example pull request", "https://example.invalid/pull/42", "main", "2026-08-22T00:00:00Z");
         when(pullRequests.lookUpResult(eq(TARGET), eq(ImmutableList.of(commit.sha())), eq("main"), anyList()))
                 .thenReturn(new PullRequestLookupResult(ImmutableList.of(new Association(commit.sha(), pullRequest)), ImmutableSet.of()));
@@ -157,6 +165,7 @@ class TestCommitHistoryRefresh
         CommitRefreshStatus refreshed = service.refresh(WORKSPACE_ID, ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
 
         assertThat(refreshed.state()).isEqualTo(IDLE);
+        assertThat(lockedWhileDownloading).containsExactly(false);
         assertThat(service.getRefreshStatus(WORKSPACE_ID).state()).isEqualTo(IDLE);
         assertThat(store.findRefreshMetadata(WORKSPACE_ID).lastSucceededAt()).contains(NOW);
         assertThat(store.values()).singleElement().satisfies(value -> {
@@ -186,7 +195,8 @@ class TestCommitHistoryRefresh
 
         assertThat(status.state()).isEqualTo(IDLE);
         verify(provisioning).synchronizeCode(WORKSPACE_ID);
-        verifyNoInteractions(gitHub, avatars, pullRequests);
+        verifyNoInteractions(gitHub, pullRequests);
+        verify(avatars).cacheAll(ImmutableSet.of());
         assertThat(store.values()).singleElement().satisfies(value -> {
             assertThat(value.avatarCheckedAt()).contains(checkedAt);
             assertThat(value.pullRequestNumber()).contains(42);
@@ -355,7 +365,7 @@ class TestCommitHistoryRefresh
                                 Optional.empty(),
                                 Optional.empty())),
                         true));
-        when(avatars.cache("https://avatars.example.invalid/percy-r.png")).thenReturn(Optional.of(AVATAR_KEY));
+        when(avatars.key("https://avatars.example.invalid/percy-r.png")).thenReturn(AVATAR_KEY);
         CommitRefreshStatus status = service.refresh(WORKSPACE_ID, ImmutableList.of(new CommitHistoryRef(Source.REMOTE, "main", Optional.of("oss"))));
 
         assertThat(status.state()).isEqualTo(IDLE);
@@ -441,7 +451,59 @@ class TestCommitHistoryRefresh
             assertThat(value.avatarCheckedAt()).isEmpty();
             assertThat(value.associationCheckedAt()).contains(NOW);
         });
-        verifyNoInteractions(gitHub, avatars);
+        verifyNoInteractions(gitHub);
+        verify(avatars).cacheAll(ImmutableSet.of());
+    }
+
+    @Test
+    void looksUpAtMostFiftyCommitsPerRefAndLeavesTheRestDue()
+    {
+        List<Commit> commits = IntStream.range(0, 60)
+                .mapToObj(index -> commit("commit-" + index, NOW.minusSeconds(60 + index)))
+                .toList();
+        List<String> newest = commits.subList(0, 50).stream().map(Commit::sha).toList();
+        when(git.log(REPOSITORY, "origin/main", 300)).thenReturn(commits);
+        when(gitHub.fetchCommitAvatarSnapshot("test-token", SELECTED, commits.getFirst().sha(), 60))
+                .thenReturn(new CommitAvatarSnapshot(ImmutableList.of(), true));
+        when(pullRequests.lookUpResult(eq(TARGET), eq(newest), eq("main"), anyList()))
+                .thenReturn(new PullRequestLookupResult(ImmutableList.of(), ImmutableSet.of()));
+
+        CommitRefreshStatus status = service.refresh(WORKSPACE_ID, ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
+
+        assertThat(status.state()).isEqualTo(IDLE);
+        verify(pullRequests).lookUpResult(eq(TARGET), eq(newest), eq("main"), anyList());
+        assertThat(store.findEnrichment(HOSTED, newest).commits())
+                .hasSize(50)
+                .allSatisfy(value -> assertThat(value.associationCheckedAt()).contains(NOW));
+        assertThat(store.findEnrichment(HOSTED, commits.subList(50, 60).stream().map(Commit::sha).toList()).commits())
+                .hasSize(10)
+                .allSatisfy(value -> assertThat(value.associationCheckedAt()).isEmpty());
+    }
+
+    @Test
+    void failedLookupsStayDueWhileAnsweredOnesAreSaved()
+    {
+        Commit answered = commit("answered", NOW.minusSeconds(60));
+        Commit failed = commit("failed", NOW.minusSeconds(120));
+        Instant previousSuccess = NOW.minusSeconds(300);
+        store.saveRefreshMetadata(new CommitRefreshMetadata(WORKSPACE_ID, Optional.of(previousSuccess), Optional.of(previousSuccess), Optional.empty()));
+        when(git.log(REPOSITORY, "origin/main", 300)).thenReturn(ImmutableList.of(answered, failed));
+        when(gitHub.fetchCommitAvatarSnapshot("test-token", SELECTED, answered.sha(), 2))
+                .thenReturn(new CommitAvatarSnapshot(ImmutableList.of(), true));
+        PullRequestAssociation pullRequest = new PullRequestAssociation(42, "Example pull request", "https://example.invalid/pull/42", "main", "2026-08-22T00:00:00Z");
+        when(pullRequests.lookUpResult(eq(TARGET), eq(ImmutableList.of(answered.sha(), failed.sha())), eq("main"), anyList()))
+                .thenReturn(new PullRequestLookupResult(ImmutableList.of(new Association(answered.sha(), pullRequest)), ImmutableSet.of(failed.sha())));
+
+        CommitRefreshStatus status = service.refresh(WORKSPACE_ID, ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
+
+        assertThat(status.state()).isEqualTo(FAILED);
+        assertThat(store.findRefreshMetadata(WORKSPACE_ID).lastSucceededAt()).contains(previousSuccess);
+        assertThat(store.findEnrichment(HOSTED, ImmutableList.of(answered.sha())).commits()).singleElement().satisfies(value -> {
+            assertThat(value.pullRequestNumber()).contains(42);
+            assertThat(value.associationCheckedAt()).contains(NOW);
+        });
+        assertThat(store.findEnrichment(HOSTED, ImmutableList.of(failed.sha())).commits()).singleElement()
+                .satisfies(value -> assertThat(value.associationCheckedAt()).isEmpty());
     }
 
     private static HostingTarget target(long hostingRepositoryId, String remoteId, RepoRef repository)

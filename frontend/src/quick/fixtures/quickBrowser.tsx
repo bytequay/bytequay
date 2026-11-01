@@ -40,7 +40,7 @@ function mount() {
     onVoiceChanged: () => () => {},
     onDictationEvent: () => () => {},
     listAssistantConversations: async () => [],
-    getAssistantConversation: async (id: string) => ({ id, model: null, running: false, items: [], rows: {} }),
+    getAssistantConversation: async (id: string) => ({ id, model: null, running: false, waiting: [], items: [], rows: {} }),
     getAgendaToday: async () => { throw new Error('No agenda in this fixture'); },
     listRunningTasks: async () => [],
     getUserProfile: async () => null,

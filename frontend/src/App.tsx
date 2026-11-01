@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import AppSidebar, { type AppPage } from './AppSidebar';
 import AssistantPanel from './assistant/AssistantPanel';
-import { isDecision, onOpenAssistant, type AssistantRequest } from './assistant/model';
+import { onOpenAssistant, type AssistantRequest } from './assistant/model';
 import { screenRef } from './assistant/model';
 import BrowserRail from './BrowserRail';
 import FindBar from './FindBar';
@@ -140,8 +140,8 @@ function AppContent() {
   const assistantShown = assistantOpen && status === 'ready';
   // A new object for every request, so the Assistant opens there again even when the same one was asked for last.
   const [assistantRequest, setAssistantRequest] = useState<AssistantRequest | null>(null);
+  const assistantRequestDone = useCallback(() => setAssistantRequest(null), []);
   const [notices, setNotices] = useState<AppNotice[]>([]);
-  const [viewedIds, setViewedIds] = useState<string[]>([]);
   const [assistantHasHistory, setAssistantHasHistory] = useState(false);
   const assistantEnabled = setup?.assistantEnabled === true;
   const assistantAvailable = assistantEnabled && availability.development;
@@ -315,7 +315,7 @@ function AppContent() {
 
   useEffect(() => {
     let received = false;
-    const show = (state: NoticeSnapshot) => { setNotices(state.notices); setViewedIds(state.viewedIds); };
+    const show = (state: NoticeSnapshot) => setNotices(state.notices);
     const stop = window.bridge.onAppNotices?.(state => { received = true; show(state); });
     void window.bridge.readAppNotices?.().then(state => { if (!received) show(state); }).catch(() => {});
     return () => { received = true; stop?.(); };
@@ -755,9 +755,6 @@ function AppContent() {
           workspaceTab={workspaceTab}
           relatedWorkspaceId={relatedWorkspaceId}
           onWorkspaceTab={selectWorkspaceTab}
-          assistant={assistantAccessible ? { open: assistantShown, waiting: notices.filter(isDecision).length,
-            unread: notices.some(notice => !isDecision(notice) && !viewedIds.includes(notice.id)),
-            label: assistantEnabled ? 'Assistant' : 'Task notices', onToggle: () => setAssistantOpen(open => !open) } : undefined}
         />
         <main className="app-content">
           {githubConnected && (page === 'home' || page === 'work') && (
@@ -870,7 +867,7 @@ function AppContent() {
       </div>
       {browserTab && <InAppBrowser tab={browserTab} fullScreen={fullScreen} railExpanded={railExpanded}
         error={browserError} onError={setBrowserError} onBack={backToApp} />}
-      <AssistantPanel open={assistantShown} chatEnabled={assistantAvailable} notices={notices} request={assistantRequest} onScreen={onScreen} onClose={() => setAssistantOpen(false)}
+      <AssistantPanel open={assistantShown} chatEnabled={assistantAvailable} notices={notices} request={assistantRequest} onRequestDone={assistantRequestDone} onScreen={onScreen} onClose={() => setAssistantOpen(false)}
         onPage={openPage} onOpened={() => setPageComposerFocus(true)} />
     </div>
     </FocusBreakProvider>

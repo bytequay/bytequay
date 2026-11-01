@@ -221,8 +221,8 @@ allowance.
 6. Start a new topic with **New conversation** or **⌘N**. After 15 minutes
    away, ⌘J opens on a new one. Go back to an earlier one from the clock
    button to keep going.
-7. Keep typing while it answers: a message you send then waits in line and
-   goes when the reply ends.
+7. Keep typing while it answers: a message you send then waits in line, and
+   each is answered in turn.
 
 **⇧⌘J** opens the task that has waited longest. Task alerts also show as macOS
 notifications. An approval or question waits five minutes for your answer: its

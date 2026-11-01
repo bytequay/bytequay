@@ -14,7 +14,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
   BookMarked, Bot, ChevronDown, ChevronLeft, ChevronRight, CircleDot, CircleUser, FileText, FlaskConical, GitBranch, Globe, History, House, KeyRound,
-  Keyboard, LayoutDashboard, LayoutGrid, ListChecks, LoaderCircle, MessageCircle, PanelLeft, Search, Settings, SquareCheck, SquareLibrary,
+  Keyboard, LayoutDashboard, LayoutGrid, ListChecks, LoaderCircle, PanelLeft, Search, Settings, SquareCheck, SquareLibrary,
   Pin, Sparkles, Sun, Tags, ToggleRight, TriangleAlert, Users,
 } from 'lucide-react';
 import UsageMeter from './usage/UsageMeter';
@@ -130,7 +130,6 @@ export default function AppSidebar({
   browserRailVisible,
   onToggleBrowserRail,
   settings,
-  assistant,
 }: {
   page: AppPage;
   onNavigate: (page: AppPage) => void;
@@ -149,8 +148,6 @@ export default function AppSidebar({
   onToggleBrowserRail: () => void;
   /** Present only while settings is open, when the sidebar becomes its category nav. */
   settings?: SettingsNav;
-  /** The Assistant panel's toggle; `waiting` counts the notices that need the user, `unread` marks finished work not seen yet. */
-  assistant?: { open: boolean; waiting: number; unread?: boolean; label?: string; onToggle: () => void };
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [query, setQuery] = useState('');
@@ -175,13 +172,11 @@ export default function AppSidebar({
   );
 
   /** Every sidebar row, whichever shape renders it. */
-  const row = ({ key, label, icon, active, pressed, disabled, busy, working, title, hint, badge, unread, onClick }: {
+  const row = ({ key, label, icon, active, disabled, busy, working, title, hint, badge, onClick }: {
     key: string;
     label: string;
     icon: ReactNode;
     active: boolean;
-    /** A row that opens a panel instead of a page is a toggle. */
-    pressed?: boolean;
     disabled?: boolean;
     busy?: boolean;
     /** Something running behind the row lights its name. */
@@ -190,17 +185,14 @@ export default function AppSidebar({
     /** Dim text after the label, such as a shortcut. */
     hint?: string;
     badge?: { count: number; label: string };
-    /** A dot for something new that needs no action; a badge's count takes its place. */
-    unread?: boolean;
     onClick: () => void;
   }) => (
     <button
       key={key}
       type="button"
-      className={`app-sidebar__item${active || pressed ? ' is-active' : ''}`}
-      aria-label={badge !== undefined ? `${label}, ${badge.label}` : unread ? `${label}, unread` : working ? `${label}, working` : label}
+      className={`app-sidebar__item${active ? ' is-active' : ''}`}
+      aria-label={badge !== undefined ? `${label}, ${badge.label}` : working ? `${label}, working` : label}
       aria-current={active ? 'page' : undefined}
-      aria-pressed={pressed}
       aria-busy={busy}
       title={title ?? label}
       disabled={disabled}
@@ -209,8 +201,7 @@ export default function AppSidebar({
       <span aria-hidden="true">{icon}</span>
       {working ? <WorkingLabel text={label} /> : <span className="app-sidebar__label">{label}</span>}
       {hint !== undefined && <span className="app-sidebar__hint" aria-hidden="true">{hint}</span>}
-      {badge !== undefined ? <span className="app-sidebar__badge" aria-hidden="true">{badge.count}</span>
-        : unread && <span className="app-sidebar__dot" aria-hidden="true" />}
+      {badge !== undefined && <span className="app-sidebar__badge" aria-hidden="true">{badge.count}</span>}
     </button>
   );
 
@@ -352,18 +343,6 @@ export default function AppSidebar({
       {collapsed && historyControls}
       {settingsBody !== null ? settingsBody : <>
       <nav className="app-sidebar__nav" aria-label="Global navigation">
-        {assistant !== undefined && row({
-          key: 'assistant',
-          label: assistant.label ?? 'Assistant',
-          icon: <MessageCircle size={16} strokeWidth={1.7} aria-hidden="true" />,
-          active: false,
-          pressed: assistant.open,
-          title: `${assistant.label ?? 'Assistant'} (⌘J)`,
-          hint: '⌘J',
-          badge: assistant.waiting > 0 ? { count: assistant.waiting, label: `${assistant.waiting} need you` } : undefined,
-          unread: assistant.unread,
-          onClick: assistant.onToggle,
-        })}
         {GLOBAL_NAV_ITEMS.map(navItem)}
         <div className="app-sidebar__rule" />
       </nav>

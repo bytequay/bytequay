@@ -56,12 +56,14 @@ function setHash(hash: string) {
  * opens on a new one, and the history or the line to continue goes back to an earlier one. It floats, and nothing paints over a native
  * view, so the app leaves a web page before it opens and the editor hides under any dialog.
  */
-export default function AssistantPanel({ open, chatEnabled = true, notices, request, onScreen, onClose, onPage = setHash, onOpened }: {
+export default function AssistantPanel({ open, chatEnabled = true, notices, request, onRequestDone, onScreen, onClose, onPage = setHash, onOpened }: {
   open: boolean;
   chatEnabled?: boolean;
   notices: AppNotice[];
   /** Where to open, such as a pill from Home or an alert's card; a new object each time. */
   request: AssistantRequest | null;
+  /** The request was taken; its holder lets it go, so a remount never acts on it again. */
+  onRequestDone?: () => void;
   /** The ref of what the user is looking at, sent with a message unless they remove it. */
   onScreen: string | null;
   onClose: () => void;
@@ -75,10 +77,8 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, requ
   const [view, setView] = useState<AssistantView>('conversation');
   const [lane, setLane] = useState<WorkLane | null>(null);
   const [card, setCard] = useState<string | null>(null);
-  // Messages sent while a reply is written wait here, and go as one once it ends.
-  const [queue, setQueue] = useState<string[]>([]);
   const [outgoing, setOutgoing] = useState<string | null>(null);
-  const { view: chat, conversations, error, sending, busy, send, stop, retry, refresh } = useAssistant(open || queue.length > 0, conversation);
+  const { view: chat, conversations, error, sending, busy, send, stop, retry, refresh } = useAssistant(open, conversation);
   const [draft, setDraft] = useState('');
   const [hiddenScreen, setHiddenScreen] = useState<string | null>(null);
   const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set());
@@ -97,6 +97,8 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, requ
   const waiting = notices.filter(notice => !answered.has(notice.id));
   const screen = onScreen !== null && onScreen !== hiddenScreen ? onScreen : null;
   const talkOpen = items.length > 0;
+  // Messages sent while a reply was written wait in line on the backend, each answered in turn.
+  const waitingIds = new Set(chat?.waiting ?? []);
 
   useEffect(() => { replying.current = running; }, [running]);
 
@@ -129,7 +131,8 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, requ
     setLane(request.lane ?? null);
     setCard(request.card ?? null);
     if (request.message !== undefined && request.message.trim() !== '') setOutgoing(request.message.trim());
-  }, [request]);
+    onRequestDone?.();
+  }, [request, onRequestDone]);
 
   useEffect(() => setAnswered(current => {
     const live = current.size === 0 ? current : new Set([...current].filter(id => notices.some(notice => notice.id === id)));
@@ -139,7 +142,7 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, requ
   useLayoutEffect(() => {
     const node = scroller.current;
     if (node !== null && view === 'conversation') node.scrollTop = node.scrollHeight;
-  }, [open, view, talkOpen, items.length, running, queue.length]);
+  }, [open, view, talkOpen, items.length, running]);
 
   // The Assistant closes first, so nothing opens under it, and focus stays with what opened instead of going back.
   const leave = useCallback((go: () => void) => {
@@ -175,14 +178,9 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, requ
   const making = items.filter(item => item.receipt?.outcome === 'DONE' && item.receipt.operation === 'MAKE_AGENDA').length;
   useEffect(() => { if (making > 0) window.dispatchEvent(new Event('bytequay:agenda-changed')); }, [making]);
 
-  // One reply at a time: a message sent meanwhile waits, and the next one answers everything that waited.
+  // Sent at once, even while a reply is written, with the cards and page on screen now; the backend answers it in turn.
   const submitText = (text: string) => {
     if (!chatEnabled || text === '') return;
-    if (busy || sending) {
-      setQueue(current => [...current, text]);
-      setDraft(current => current.trim() === text ? '' : current);
-      return;
-    }
     void send(text, visible.current, screen).then(sent => {
       if (!sent) {
         setDraft(current => current.trim() === '' ? text : current);
@@ -203,22 +201,10 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, requ
     submitRef.current(outgoing);
   }, [outgoing]);
 
-  useEffect(() => {
-    if (busy || sending || queue.length === 0) return;
-    const text = queue.join('\n\n');
-    setQueue([]);
-    submitRef.current(text);
-  }, [busy, sending, queue]);
-
   if (!open) return null;
 
   const show = (target: AgendaTargetDto) => leave(() => openTarget(target));
   const choose = (id: string) => {
-    // What waited for the old conversation's reply goes back to the composer rather than into the new one.
-    if (queue.length > 0) {
-      setDraft(current => [current.trim(), ...queue].filter(Boolean).join('\n\n'));
-      setQueue([]);
-    }
     setConversation(id);
     setHistory(false);
     setView('conversation');
@@ -274,26 +260,14 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, requ
   const latest = conversations.find(each => each.id !== conversation);
   const talk = history ? <Conversations conversations={conversations} current={conversation} onChoose={choose} />
     // Not while a chosen conversation is still being read, so the line does not flash before it.
-    : !talkOpen && queue.length === 0 ? chat !== null && latest !== undefined && <Conversations conversations={[latest]} current={conversation} onChoose={choose} />
+    : !talkOpen ? chat !== null && latest !== undefined && <Conversations conversations={[latest]} current={conversation} onChoose={choose} />
     : (
       <div className="assistant-talk" onClickCapture={openLink} onAuxClickCapture={openLink}>
         {items.map(item => item.kind === 'RECEIPT'
           ? <Receipt key={item.id} item={item} onOpen={openReceipt} onSettings={openSettings} />
-          : <Entry key={item.id} item={item} rows={chat?.rows ?? {}} drafts={drafts} model={chat?.model ?? null} retryable={chatEnabled && !running && item.id === lastExchange}
+          : <Entry key={item.id} item={item} waiting={waitingIds.has(item.id)} rows={chat?.rows ?? {}} drafts={drafts} model={chat?.model ?? null} retryable={chatEnabled && !running && item.id === lastExchange}
             onRetry={retry} onSettings={openSettings} onOpen={show} onComplete={completeTask} onPull={actOnPull} onRefresh={refresh} />)}
         {running && <p className="assistant-thinking" role="status">Thinking<span className="assistant-caret" aria-hidden="true" /></p>}
-        {queue.map((text, index) => (
-          <div key={index} className="assistant-queued">
-            <div className="assistant-queued__bubble">{text}</div>
-            <div className="assistant-queued__note">
-              <Clock size={12} aria-hidden="true" />Answers after the current reply
-              <IconButton label="Take it out of line" onClick={() => {
-                setQueue(current => current.filter((_, at) => at !== index));
-                setDraft(current => current.trim() === '' ? text : current);
-              }}><X size={12} aria-hidden="true" /></IconButton>
-            </div>
-          </div>
-        ))}
       </div>
     );
 
@@ -313,7 +287,7 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, requ
         event.preventDefault();
         pills.focus();
       }}
-      header={queue.length > 0 && <div className="assistant-waiting-line"><Clock size={12} aria-hidden="true" />{queue.length} waiting · answers after the current reply</div>}
+      header={waitingIds.size > 0 && <div className="assistant-waiting-line"><Clock size={12} aria-hidden="true" />{waitingIds.size} waiting · answers after the current reply</div>}
       notice={(error ?? failure) !== null && <p className="assistant-error" role="alert">{error ?? failure}</p>}
       submitEnabled={draft.trim() !== '' && !sending} showSubmit={!running || draft.trim() !== ''}
       submitLabel={busy ? 'Send after the current reply' : 'Send to the Assistant'} submitTitle={busy ? 'Answers after the current reply (Enter)' : 'Send (Enter)'}
@@ -409,8 +383,9 @@ function AssistantViews({ notices, view, lane, card, talk, pointsDown, composer,
   const running = cards.filter(each => each.group === 'running');
   const finished = cards.filter(each => each.group === 'finished');
   const showsDecisions = view === 'decision' || view === 'all' || view === 'conversation' && pointsDown;
-  const emptied = view === 'decision' && decisions.length === 0 || view === 'running' && running.length === 0 || view === 'finished' && finished.length === 0
-    || view === 'all' && cards.length === 0;
+  // Not before the first read of running tasks, or a view opened from Home would close before its cards arrive.
+  const emptied = waiting.ready && (view === 'decision' && decisions.length === 0 || view === 'running' && running.length === 0 || view === 'finished' && finished.length === 0
+    || view === 'all' && cards.length === 0);
 
   // A view that empties, such as Decision after its last answer, hands back to the conversation.
   useEffect(() => { if (emptied) onView('conversation'); }, [emptied, onView]);
@@ -445,7 +420,8 @@ function AssistantViews({ notices, view, lane, card, talk, pointsDown, composer,
       : <NoticeCard key={each.key} notice={notice} focused={opened === notice.id} onOpen={() => onOpenNotice(notice.id)} onClear={() => onClearNotice(notice.id)} />;
   };
   const resultCard = (each: WaitingCard) => 'notice' in each
-    && <ResultCard key={each.key} notice={each.notice} onOpen={() => onOpenNotice(each.notice.id)} onClear={() => onClearNotice(each.notice.id)} />;
+    && <ResultCard key={each.key} notice={each.notice} onShow={target => onLeave(() => openTarget(target))} onOpen={() => onOpenNotice(each.notice.id)}
+      onClear={() => onClearNotice(each.notice.id)} />;
   const runningCard = (each: WaitingCard) => 'task' in each && <RunningCard key={each.key} task={each.task} onOpen={() => onLeave(() => onPage(runningTaskRoute(each.task)))} />;
   const section = (label: string) => <div className="assistant-section">{label}</div>;
 
@@ -512,8 +488,10 @@ function ScreenIcon({ screen }: { screen: string }) {
   return source === undefined ? <ListTodo size={12} aria-hidden="true" /> : <SourceIcon source={source} size={12} />;
 }
 
-function Entry({ item, rows, drafts, model, retryable, onRetry, onSettings, onOpen, onComplete, onPull, onRefresh }: {
+function Entry({ item, waiting, rows, drafts, model, retryable, onRetry, onSettings, onOpen, onComplete, onPull, onRefresh }: {
   item: AssistantItemDto;
+  /** A message still in line behind the reply being written. */
+  waiting: boolean;
   rows: Record<string, AssistantRowDto>;
   /** The work items of the drafts the user already created. */
   drafts: ReadonlySet<string>;
@@ -530,7 +508,8 @@ function Entry({ item, rows, drafts, model, retryable, onRetry, onSettings, onOp
   if (item.kind === 'USER') {
     return <>
       <div className="assistant-time">{clockTime(item.at)}</div>
-      <div className="agt-user"><div className="agt-user__bubble" title={`Sent at ${clockTime(item.at)}`}>{item.text}</div></div>
+      <div className={`agt-user${waiting ? ' is-waiting' : ''}`}><div className="agt-user__bubble" title={`Sent at ${clockTime(item.at)}`}>{item.text}</div></div>
+      {waiting && <div className="assistant-waiting-note"><Clock size={12} aria-hidden="true" />Answers after the current reply</div>}
     </>;
   }
   if (item.kind === 'REPLY') return <div className="assistant-reply">{renderMarkdown(linkRefs(item.text, item.targets))}</div>;

@@ -95,7 +95,7 @@ function running(step: number): AgentTaskState {
 
 const item = (id: string, kind: AssistantItemDto['kind'], text: string, receipt: AssistantItemDto['receipt'] = null): AssistantItemDto =>
   ({ id, conversationId: 'c1', at: new Date().toISOString(), kind, text, targets: {}, notReady: false, receipt, list: null, draft: null });
-let conversation: AssistantViewDto = { id: 'c1', model: 'Claude Sonnet', running: false, items: [], rows: {} };
+let conversation: AssistantViewDto = { id: 'c1', model: 'Claude Sonnet', running: false, waiting: [], items: [], rows: {} };
 const reply = (...items: AssistantItemDto[]) => { conversation = { ...conversation, running: false, items: [...conversation.items, ...items] }; };
 
 let emit: (event: DictationEvent) => void = () => {};
@@ -139,8 +139,7 @@ function render() {
       <div className="app-surfaces">
         <div className="app-shell">
           <AppSidebar page="workspaces" onNavigate={() => {}} canGoBack canGoForward={false} onBack={() => {}} onForward={() => {}} workspace={WORKSPACE}
-            workspaceTab="tasks" onWorkspaceTab={() => {}} browserRailVisible={false} onToggleBrowserRail={() => {}}
-            assistant={{ open, waiting: 0, unread: false, onToggle: () => {} }} />
+            workspaceTab="tasks" onWorkspaceTab={() => {}} browserRailVisible={false} onToggleBrowserRail={() => {}} />
           <main className="app-content">
             <AgentTaskBody key={page} state={page === 'finished' ? finished() : running(step)} models={MODELS} {...TASK_BODY_NOOPS} provider="claude" />
           </main>

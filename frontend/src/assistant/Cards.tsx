@@ -21,13 +21,12 @@ import type { RunningTask } from '../agents/runningTaskModel';
 import { formatDuration } from '../agents/transcript';
 import { IconButton } from '../cards/Card';
 import { ConfirmDialog } from '../ConfirmDialog';
-import { openTarget } from '../home/TodayList';
 import { pollVisible } from '../ide/pollVisible';
 import { APPROVAL_NOTICE, NOTICE_ACTIONS, approvalTimeLeft, noticeLabel, type AppNotice } from '../notices/contracts';
 import { remoteErrorMessage } from '../remoteError';
 import { laneLabel } from '../settings/model';
 import type { AgentEventEnvelope } from '../agents/events';
-import type { AgentPendingApprovalDto } from '../types';
+import type { AgendaTargetDto, AgentPendingApprovalDto } from '../types';
 import { useNow } from '../useNow';
 
 const STEP_POLL_MS = 2000;
@@ -41,7 +40,7 @@ const where = (notice: AppNotice): string => `${notice.repository} · ${laneLabe
  */
 function CardRow({ icon, tone, tip, title, meta, below, right, hover, body, urgent = false, focused = false, id }: {
   icon: LucideIcon;
-  tone?: 'accent' | 'warn' | 'danger' | 'ok';
+  tone?: 'accent' | 'warn' | 'danger';
   tip?: string;
   title: string;
   meta: string;
@@ -182,7 +181,13 @@ const pullOf = (notice: AppNotice): { repo: string; number: number } | null => {
 /**
  * A result, not an event: what is ready and its evidence as short counts, then the next action; a failure says so, and why, in one line.
  */
-export function ResultCard({ notice, onOpen, onClear }: { notice: AppNotice; onOpen: () => void; onClear: () => void }) {
+export function ResultCard({ notice, onShow, onOpen, onClear }: {
+  notice: AppNotice;
+  /** Opens an item, after the Assistant closes. */
+  onShow: (target: AgendaTargetDto) => void;
+  onOpen: () => void;
+  onClear: () => void;
+}) {
   const failed = notice.kind === 'FAILURE';
   const review = notice.reviewId !== null;
   const pull = pullOf(notice);
@@ -190,7 +195,7 @@ export function ResultCard({ notice, onOpen, onClear }: { notice: AppNotice; onO
   // A development result's pull request is where it is reviewed; the rest are read in their task.
   const next = failed ? 'Open' : review ? 'Read' : pull !== null ? 'Review' : notice.kind === 'NEXT_WORK' ? NOTICE_ACTIONS.NEXT_WORK : 'Open';
   const act = () => pull !== null && !failed && !review
-    ? openTarget({ kind: 'PULL', repo: pull.repo, number: pull.number, workspaceId: notice.workspaceId, id: null, connectionId: null, cloudId: null })
+    ? onShow({ kind: 'PULL', repo: pull.repo, number: pull.number, workspaceId: notice.workspaceId, id: null, connectionId: null, cloudId: null })
     : onOpen();
   const evidence = [
     pull !== null && <span key="pr"><GitPullRequest size={13} aria-hidden="true" />{review ? notice.pullRequest : `PR #${pull.number}`}</span>,
@@ -209,8 +214,8 @@ export function ResultCard({ notice, onOpen, onClear }: { notice: AppNotice; onO
       right={<>
         <button type="button" className="assistant-button" onClick={act}>{next}</button>
         <IconButton label={`Open “${heading(notice)}”`} title="Open" onClick={onOpen}><ExternalLink size={14} aria-hidden="true" /></IconButton>
-      </>}
-      hover={<IconButton label={`Clear “${heading(notice)}”`} title="Clear" onClick={onClear}><X size={13} aria-hidden="true" /></IconButton>} />
+        <span className="assistant-reveal"><IconButton label={`Clear “${heading(notice)}”`} title="Clear" onClick={onClear}><X size={13} aria-hidden="true" /></IconButton></span>
+      </>} />
   );
 }
 

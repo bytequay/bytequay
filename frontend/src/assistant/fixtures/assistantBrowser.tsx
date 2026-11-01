@@ -55,7 +55,7 @@ const AGENDA: AgendaDto = {
 };
 
 const VIEW: AssistantViewDto = {
-  id: 'c0', model: 'Claude Sonnet', running: false,
+  id: 'c0', model: 'Claude Sonnet', running: false, waiting: [],
   items: [
     { id: 'u1', conversationId: 'c0', at: '2026-10-16T07:06:00Z', kind: 'USER', text: 'What should I look at first?', targets: {}, notReady: false, receipt: null, list: null, draft: null },
     { id: 'r1', conversationId: 'c0', at: '2026-10-16T07:06:20Z', kind: 'REPLY', targets: { 'pr:owner/repository#31377': PULL, 'task:t1': target('TASK', { id: 't1' }) },
@@ -127,14 +127,14 @@ let pages: string[] = [];
 
 type Calls = {
   sent: unknown[][]; resolved: unknown[][]; opened: string[]; removed: string[]; stopped: number; closed: number; cancelled: string[]; answered: string[];
-  completed: unknown[][]; left: number;
+  completed: unknown[][]; left: number; taken: number;
 };
 
 type Mounted = { host: HTMLElement; calls: Calls; render: (open: boolean, request?: AssistantRequest) => void; dispose: () => void };
 
 function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, running: RunningTask[] = [], replied: () => AssistantViewDto = () => view,
   completed: () => AssistantViewDto = () => view, scripted: Partial<Bridge> = {}, chatEnabled = true): Mounted {
-  const calls: Calls = { sent: [], resolved: [], opened: [], removed: [], stopped: 0, closed: 0, cancelled: [], answered: [], completed: [], left: 0 };
+  const calls: Calls = { sent: [], resolved: [], opened: [], removed: [], stopped: 0, closed: 0, cancelled: [], answered: [], completed: [], left: 0, taken: 0 };
   let failures = failSends;
   history = [step(1, 'sed -n 1,100p IcebergMetadata.java', 'READ', 'IcebergMetadata.java')];
   pages = [];
@@ -144,7 +144,7 @@ function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, 
   let last: string | null = null;
   window.bridge = {
     listAssistantConversations: async () => summaries.map(each => ({ ...each, running: views.get(each.id)?.running ?? false })),
-    getAssistantConversation: async (id: string) => views.get(id) ?? { id, model: null, running: false, items: [], rows: {} },
+    getAssistantConversation: async (id: string) => views.get(id) ?? { id, model: null, running: false, waiting: [], items: [], rows: {} },
     sendAssistantMessage: async (...args: unknown[]) => {
       calls.sent.push(args);
       if (failures-- > 0) throw new Error("Error invoking remote method 'assistant:send': Error: The backend is busy");
@@ -188,12 +188,13 @@ function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, 
   } as unknown as Bridge;
   const { host, root, dispose: disposeRoot } = createFixtureRoot();
   let shown = true;
+  const takeRequest = () => { calls.taken++; };
   const render = (open: boolean, request?: AssistantRequest) => {
     shown = open;
     flushSync(() => root.render(
       <div className="browser-workspace">
         <div className="app-surfaces"><main style={{ height: '100vh', padding: 24, color: 'var(--fg-muted)' }}>The page under the Assistant</main></div>
-        <AssistantPanel open={open} chatEnabled={chatEnabled} notices={notices} request={request ?? null} onScreen="pr:owner/repository#31377"
+        <AssistantPanel open={open} chatEnabled={chatEnabled} notices={notices} request={request ?? null} onRequestDone={takeRequest} onScreen="pr:owner/repository#31377"
           onClose={() => { calls.closed++; if (shown) render(false); }} onPage={hash => { pages.push(hash); window.location.hash = hash; }} onOpened={() => { calls.left++; }} />
       </div>,
     ));
@@ -403,6 +404,14 @@ async function showsRunningTasksAndAll(): Promise<void> {
   try {
     await settle();
     assert(JSON.stringify(pills(view.host)) === JSON.stringify(['All', 'Decision1', 'Running1', 'Finished4', 'Today0/2', 'My work']), `Running tasks count: ${JSON.stringify(pills(view.host))}`);
+    view.render(false);
+    view.render(true, { view: 'running' });
+    await settle();
+    assert(selected(view.host) === 'Running1' && top(view.host)?.querySelector('.assistant-card__title')?.textContent === 'Expose snapshot id in metadata',
+      'Opened on Running from Home, it waits for the first read rather than closing the view');
+    view.render(false);
+    view.render(true);
+    await settle();
     const input = element<HTMLTextAreaElement>('.assistant-float textarea', view.host, 'The composer shows');
     press(input, 'Tab');
     await settle();
@@ -454,6 +463,8 @@ async function drawsResultsWithTheirEvidence(): Promise<void> {
     pill(view.host, 'finished')?.click();
     await settle();
     const [drafted, review, failed] = cards(view.host);
+    const bold = [...view.host.querySelectorAll('.assistant-card *')].filter(node => Number(getComputedStyle(node).fontWeight) > 400).map(node => node.className);
+    assert(bold.length === 0, `Nothing in a card is bold: ${bold.join(', ')}`);
     assert(drafted.querySelector('.assistant-card__evidence')?.textContent === 'PR #58+42−7' && buttonIn(drafted, 'Review') !== undefined,
       `A development result shows its pull request and lines, and offers Review: ${drafted.textContent}`);
     assert(review.querySelector('.assistant-card__title')?.textContent === 'Review · Cache table statistics between queries'
@@ -464,11 +475,12 @@ async function drawsResultsWithTheirEvidence(): Promise<void> {
     const opened: unknown[] = [];
     const listener = (event: Event) => { opened.push((event as CustomEvent).detail); };
     window.addEventListener('bytequay:zoom-reference', listener);
+    assert(!drafted.classList.contains('has-hover') && drafted.querySelector('.assistant-reveal button[aria-label="Clear “Update the install guide”"]') !== null,
+      'Clear shows beside Review under the pointer, never in its place');
     try { buttonIn(drafted, 'Review')?.click(); }
     finally { window.removeEventListener('bytequay:zoom-reference', listener); }
-    assert(JSON.stringify(opened) === JSON.stringify([{ kind: 'pull', repo: 'owner/repository', number: 58, workspaceId: 'ws1' }]), `Review opens the pull request: ${JSON.stringify(opened)}`);
-    const bold = [...view.host.querySelectorAll('.assistant-card *')].filter(node => Number(getComputedStyle(node).fontWeight) > 400).map(node => node.className);
-    assert(bold.length === 0, `Nothing in a card is bold: ${bold.join(', ')}`);
+    assert(JSON.stringify(opened) === JSON.stringify([{ kind: 'pull', repo: 'owner/repository', number: 58, workspaceId: 'ws1' }]) && Number(view.calls.closed) === 1,
+      `Review closes the Assistant and opens the pull request: ${JSON.stringify(opened)}`);
   }
   finally { view.dispose(); }
 }
@@ -508,31 +520,35 @@ async function opensAtACardFromItsAlert(): Promise<void> {
 async function waitsInLineWhileItAnswers(): Promise<void> {
   let replying = true;
   const sent = () => view.calls.sent.length;
-  // The reply runs from the first message until the test ends it.
+  const queued: AssistantItemDto = { id: 'q1', conversationId: 'c0', at: '2026-10-16T07:09:00Z', kind: 'USER', text: 'and start the docs fix with Codex', targets: {},
+    notReady: false, receipt: null, list: null, draft: null };
+  // As the backend keeps them: the first reply runs until the test ends it, and the second message waits in line behind it.
   const view = mount(VIEW, 0, [], [], undefined, undefined, {
     listAssistantConversations: async () => [],
-    getAssistantConversation: async (id: string) => sent() === 0 ? { id, model: null, running: false, items: [], rows: {} } : { ...VIEW, id, running: replying },
+    getAssistantConversation: async (id: string) => sent() === 0 ? { id, model: null, running: false, waiting: [], items: [], rows: {} }
+      : { ...VIEW, id, running: replying, items: sent() > 1 ? [...VIEW.items, queued] : VIEW.items, waiting: sent() > 1 && replying ? [queued.id] : [] },
   });
   try {
     await settle();
     enter(type(view.host, 'What should I look at first?'));
     await settle();
     assert(view.calls.sent.length === 1 && view.host.querySelector('.assistant-thinking') !== null, 'The first message is being answered');
-    const input = type(view.host, 'and start the docs fix with Codex');
+    view.host.querySelector<HTMLButtonElement>('.assistant-chip button')?.click();
+    await settle();
+    const input = type(view.host, queued.text);
     assert(view.host.querySelector('button[aria-label="Send after the current reply"]') !== null, 'Send stays while it answers');
     enter(input);
     await settle();
-    assert(view.calls.sent.length === 1 && String(input.value) === '', 'A message sent meanwhile waits instead of being refused');
-    assert(view.host.querySelector('.assistant-queued__bubble')?.textContent === 'and start the docs fix with Codex'
-      && view.host.querySelector('.assistant-queued__note')?.textContent === 'Answers after the current reply', 'It shows in line, marked as such');
+    const [first, second] = view.calls.sent;
+    assert(Number(view.calls.sent.length) === 2 && second[1] === queued.text && second[0] === first[0] && second[3] === null && String(input.value) === '',
+      `A message sent meanwhile goes at once, to the same conversation, with what was on screen then: ${JSON.stringify(second)}`);
+    assert(view.host.querySelector('.agt-user.is-waiting .agt-user__bubble')?.textContent === queued.text
+      && view.host.querySelector('.assistant-waiting-note')?.textContent === 'Answers after the current reply', 'It shows in line, marked as such');
     assert(view.host.querySelector('.assistant-waiting-line')?.textContent === '1 waiting · answers after the current reply', 'The composer says one waits');
     replying = false;
     window.dispatchEvent(new Event('focus'));
     await settle();
-    await settle();
-    assert(Number(view.calls.sent.length) === 2 && view.calls.sent[1][1] === 'and start the docs fix with Codex' && view.calls.sent[1][0] === view.calls.sent[0][0],
-      `Once the reply ends, what waited goes to the same conversation: ${JSON.stringify(view.calls.sent[1])}`);
-    assert(view.host.querySelector('.assistant-queued') === null, 'Nothing waits any more');
+    assert(view.host.querySelector('.agt-user.is-waiting') === null && view.host.querySelector('.assistant-waiting-line') === null, 'Once answered, nothing waits');
   }
   finally { view.dispose(); }
 }
@@ -544,6 +560,7 @@ async function opensMyWork(): Promise<void> {
     view.render(false);
     view.render(true, { view: 'mywork', lane: 'needs' });
     await settle();
+    assert(view.calls.taken === 1, 'The request is let go once taken, so a remount never acts on it again');
     const float = element<HTMLElement>('.assistant-float.is-wide', view.host, 'My work widens the box');
     assert(float.getBoundingClientRect().width === Math.min(1120, window.innerWidth - 48), `It is as wide as the window allows: ${float.getBoundingClientRect().width}`);
     assert(selected(view.host) === 'My work' && view.host.querySelectorAll('.mw-lane').length === 4, 'The board shows its four lanes under the open pill');
@@ -584,7 +601,8 @@ async function showsAListAsRowsCardsOrATimeline(): Promise<void> {
       && mine.querySelector('[title="2 approvals"]')?.textContent === '2', `A pull request shows its checks and approvals: ${mine.textContent}`);
     assert(mine.querySelector('[title="Review decision: approved"]') !== null, 'And its review decision');
     assert(red.querySelector('[title="Checks failing"]') !== null && red.querySelector('[title="Review decision: changes requested"]') !== null, 'Red checks and changes requested');
-    assert(task.querySelector('[title="Agent: Claude Code"]') !== null && task.querySelector('[title="Waiting for your answer"] .assistant-dot') !== null, 'A task shows its agent and phase');
+    assert(task.querySelector('[title="Agent: Claude Code"]') !== null && task.querySelector('[title="Waiting for your answer"] .assistant-dot')?.getBoundingClientRect().width === 8,
+      'A task shows its agent and phase, its waiting dot drawn');
     assert(ticket.querySelector('.card-key')?.textContent === 'ICE-7' && ticket.querySelector('[title="Status: In progress"]')?.textContent === 'In progress',
       'A ticket shows its key and status');
     assert(work.querySelector('[title="Epic: Iceberg write path"]') !== null && work.querySelector('.pill') === null, 'A work item shows its Epic');
@@ -982,7 +1000,7 @@ async function keepsTheSetUpBoxWholeWithChatOff(): Promise<void> {
   const long = { ...VIEW, items: Array.from({ length: 24 }, (_, index) => ({ ...VIEW.items[0], id: `u${index}` })) };
   const view = mount(long, 0, [], [], undefined, undefined, {
     listAssistantConversations: async () => [{ id: 'c0', title: 'What should I look at first?', updatedAt: '2026-10-16T07:06:00Z', running: false }],
-    getAssistantConversation: async (id: string) => id === 'c0' ? long : { id, model: null, running: false, items: [], rows: {} },
+    getAssistantConversation: async (id: string) => id === 'c0' ? long : { id, model: null, running: false, waiting: [], items: [], rows: {} },
   }, false);
   try {
     await settle();

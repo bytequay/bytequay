@@ -29,9 +29,9 @@ const TITLES: Record<Pill, string> = {
   finished: 'Results you have not seen', today: 'Today’s plan', mywork: 'My work',
 };
 
-/** Running tasks in every repository, as the sidebar lists them. */
-export function useRunningTasks(): RunningTask[] {
-  const [tasks, setTasks] = useState<RunningTask[]>([]);
+/** Running tasks in every repository, as the sidebar lists them; null until the first read answers. */
+function useRunningTasks(): RunningTask[] | null {
+  const [tasks, setTasks] = useState<RunningTask[] | null>(null);
   useEffect(() => pollVisible(async () => {
     try { setTasks(await window.bridge.listRunningTasks()); }
     catch { /* The last list stays through a failed read. */ }
@@ -52,14 +52,15 @@ export function useNotices(): AppNotice[] {
   return notices;
 }
 
-export type Waiting = { cards: WaitingCard[]; today: TodayAgenda; agenda: AgendaDto | null };
+/** `ready` once running tasks were read, so an empty Running means none rather than not read yet. */
+export type Waiting = { cards: WaitingCard[]; today: TodayAgenda; agenda: AgendaDto | null; ready: boolean };
 
 /** What the pills count and open: the waiting cards and today's agenda. */
 export function useWaiting(notices: AppNotice[]): Waiting {
   const today = useTodayAgenda();
   const tasks = useRunningTasks();
   const agenda = today.agenda !== null && today.agenda.state !== 'NONE' && showsToday(today.agenda, 'global') ? today.agenda : null;
-  return { cards: waitingCards(notices, tasks), today, agenda };
+  return { cards: waitingCards(notices, tasks ?? []), today, agenda, ready: tasks !== null };
 }
 
 /**

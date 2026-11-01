@@ -1645,6 +1645,8 @@ export type AssistantViewDto = {
   model: string | null;
   /** Whether a reply in this conversation is being written. */
   running: boolean;
+  /** This conversation's messages still waiting in line for a reply, in the order they will be answered. */
+  waiting: string[];
   items: AssistantItemDto[];
   /** Each ref the conversation's lists name that still resolves; a ref missing here is gone. */
   rows: Record<string, AssistantRowDto>;

@@ -224,6 +224,15 @@
   outline-offset: 2px;
 }
 
+/* A waiting or blocked task's mark in a list the Assistant showed. */
+.assistant-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--assistant-gold);
+}
+
 .assistant-spinner {
   display: block;
   width: 12px;
@@ -529,36 +538,22 @@
 }
 
 /* A message sent while a reply is written: dashed until its turn comes. */
-.assistant-queued {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 5px;
-}
-
-.assistant-queued__bubble {
-  max-width: 76%;
-  padding: 9px 13px;
-  border: 1px dashed var(--assistant-line);
-  border-radius: 14px;
-  background: var(--assistant-selected);
+.assistant-talk .agt-user.is-waiting .agt-user__bubble {
+  outline: 1px dashed var(--assistant-line);
+  outline-offset: -1px;
   color: var(--fg-muted);
-  font-size: 13.5px;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
 }
 
-.assistant-queued__note {
+.assistant-waiting-note {
   display: flex;
   height: 20px;
+  align-self: flex-end;
   align-items: center;
   gap: 5px;
+  margin-top: -5px;
   color: var(--fg-dim);
   font-size: 12px;
 }
-
-.assistant-queued:not(:hover, :focus-within) .card-iconbtn { visibility: hidden; }
 
 /* A reply that failed, such as the model not being signed in: one line, with what fixes it at the right. */
 .assistant-failure {

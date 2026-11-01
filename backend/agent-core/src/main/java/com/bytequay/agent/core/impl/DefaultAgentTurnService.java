@@ -68,6 +68,7 @@ import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentDeliveryUncertainException;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentProviderUnavailableException;
 import com.bytequay.agent.spi.AgentSession;
@@ -1925,7 +1926,9 @@ public final class DefaultAgentTurnService
                 (request, timeout) -> requestApproval(task.id(), turnId, request, timeout),
                 settings.model(),
                 settings.effort(),
-                task.taskWorktree().isPresent() && !task.ownsWorktree() ? SessionAccess.REVIEW_READ_ONLY : SessionAccess.FULL,
+                // A CI repair writes its development task's checkout; branch admission keeps the two from writing at once.
+                task.taskWorktree().isPresent() && !task.ownsWorktree() && settings.permissionPolicy() != AgentPermissionPolicy.CI_AUTOFIX
+                        ? SessionAccess.REVIEW_READ_ONLY : SessionAccess.FULL,
                 codeQueriesBridge(task),
                 managedInstructions.apply(task) + developmentInstructions(settings));
         sendTiming.log(System.Logger.Level.DEBUG,

@@ -234,6 +234,19 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void aCiRepairInTheSharedCheckoutCanWriteIt()
+    {
+        TaskId repairId = TaskId.random();
+        stores.insert(created(repairId, false, "CI Autofix", TitleSource.USER, task.laneId(), task.taskWorktree().orElseThrow(),
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.CI_AUTOFIX), NOW));
+        resources.allocate(repairId);
+
+        service.start(new StartAgentTurnCommand(repairId, "Fix CI", ImmutableList.of(), "ci-repair"));
+
+        assertThat(driver.openedContexts().getLast().access()).isEqualTo(SessionAccess.FULL);
+    }
+
+    @Test
     void aReviewBetweenItsTurnsKeepsTheSharedCheckoutFromTheDeveloper()
     {
         TaskId reviewerId = TaskId.random();

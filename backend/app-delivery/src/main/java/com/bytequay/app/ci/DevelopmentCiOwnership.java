@@ -26,6 +26,7 @@ import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.agent.runtime.ReviewFixTurns;
 import com.bytequay.core.ci.CiAutofixConflictException;
 import com.bytequay.core.ci.CiAutofixRun;
@@ -110,8 +111,10 @@ public final class DevelopmentCiOwnership
         Optional<String> assignedBranch = assignment(owner)
                 .flatMap(pr -> pullRequests.findIdByRepoAndNumber(pr.repo(), pr.number()).flatMap(pullRequests::findById))
                 .flatMap(pr -> Optional.ofNullable(pr.headRef()));
-        // The task's own runs only watch CI; a user's turn stops their repairs before it reaches this check.
-        if (store.listByParentTaskId(owner.id().toString()).stream().anyMatch(DevelopmentCiOwnership::writing)) {
+        // The task's own runs only watch CI; a user's turn stops their repairs before it reaches this check. The repair's own task is
+        // that writer, and one live run per branch leaves no other.
+        boolean ownRepair = !owner.id().equals(task.id()) && task.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX;
+        if (!ownRepair && store.listByParentTaskId(owner.id().toString()).stream().anyMatch(DevelopmentCiOwnership::writing)) {
             throw new AgentConflictException("CI Autofix is still repairing this task branch; wait for it or stop it first");
         }
         store.findByActiveBranch(worktree.physicalRepository().owner() + "/" + worktree.physicalRepository().name(), assignedBranch.orElse(worktree.generatedBranch()))

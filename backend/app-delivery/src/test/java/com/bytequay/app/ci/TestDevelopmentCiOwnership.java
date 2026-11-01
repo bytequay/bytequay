@@ -178,6 +178,22 @@ class TestDevelopmentCiOwnership
     }
 
     @Test
+    void ciRepairInTheDevelopmentCheckoutIsTheWriterItWouldWaitFor()
+    {
+        AgentTask source = task(FORK);
+        assign(source);
+        AgentTask repair = created(TaskId.random(), false, "CI Autofix", TitleSource.USER, AgentLaneId.CLAUDE_CLI, source.taskWorktree().orElseThrow(),
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.CI_AUTOFIX), NOW);
+        when(tasks.find(source.id())).thenReturn(Optional.of(source));
+        CiAutofixRun writing = assignedRun(Optional.of(source.id().toString())).linkUserTurn(TurnId.random().toString(), NOW);
+        when(store.listByParentTaskId(source.id().toString())).thenReturn(ImmutableList.of(writing));
+
+        ownership.requireSourceAdmission(repair);
+
+        assertThatThrownBy(() -> ownership.requireSourceAdmission(source)).isInstanceOf(AgentConflictException.class).hasMessageContaining("still repairing");
+    }
+
+    @Test
     void authorityFollowsTheOpenParentUntilRevoked()
     {
         AgentTask parent = task(FORK);

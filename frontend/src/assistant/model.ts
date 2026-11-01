@@ -27,12 +27,12 @@ export const PILLS = ['all', 'decision', 'running', 'finished', 'today', 'mywork
 export type Pill = typeof PILLS[number];
 export type AssistantView = Pill | 'conversation';
 
-/** What an empty composer suggests asking; Tab types it in. */
+/** What an empty composer suggests asking; Tab or → types it in. */
 export const SUGGESTION = 'What needs my attention first?';
 
-/** Tab in an empty composer, without modifiers: it takes the suggestion it shows. */
+/** Tab or → in an empty composer, without modifiers, as a shell takes its suggestion: it types the one the composer shows. */
 export const takesSuggestion = (event: { key: string; shiftKey: boolean; altKey: boolean; ctrlKey: boolean; metaKey: boolean }, draft: string): boolean =>
-  event.key === 'Tab' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && draft.trim() === '';
+  (event.key === 'Tab' || event.key === 'ArrowRight') && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && draft.trim() === '';
 
 /** What to open the Assistant on: a view, a lane of My work, an alert's card, or a message to send from Home's composer. */
 export type AssistantRequest = { view?: AssistantView; lane?: WorkLane; card?: string; message?: string; fresh?: boolean; history?: boolean };

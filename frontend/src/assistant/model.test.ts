@@ -103,8 +103,11 @@ describe('takesSuggestion', () => {
   const key = (name: string, fields: Partial<{ shiftKey: boolean; altKey: boolean; ctrlKey: boolean; metaKey: boolean }> = {}) =>
     ({ key: name, shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, ...fields });
 
-  it('takes Tab in an empty composer only, without modifiers', () => {
+  it('takes Tab or → in an empty composer only, without modifiers', () => {
     expect(takesSuggestion(key('Tab'), '')).toBe(true);
+    expect(takesSuggestion(key('ArrowRight'), '')).toBe(true);
+    expect(takesSuggestion(key('ArrowRight'), 'what')).toBe(false);
+    expect(takesSuggestion(key('ArrowRight', { metaKey: true }), '')).toBe(false);
     expect(takesSuggestion(key('Tab'), '  \n')).toBe(true);
     expect(takesSuggestion(key('Tab'), 'what is running?')).toBe(false);
     expect(takesSuggestion(key('Tab', { shiftKey: true }), '')).toBe(false);

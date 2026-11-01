@@ -237,6 +237,11 @@ async function floatsOverThePage(): Promise<void> {
     await settle();
     assert(input.value === 'What needs my attention first?' && document.activeElement === input, 'Tab types the suggestion and stays in the composer');
     changeInput(input, '');
+    await settle();
+    press(input, 'ArrowRight');
+    await settle();
+    assert(input.value === 'What needs my attention first?', '→ types it too');
+    changeInput(input, '');
     assert(view.host.querySelector('.assistant-talk') === null && top(view.host) === null && view.host.querySelector('.assistant-body') === null,
       'A new conversation shows only the composer and its pills');
     assert(JSON.stringify(pills(view.host)) === JSON.stringify(['All', 'Decision1', 'Running', 'Finished1', 'Today0/2', 'My work']),

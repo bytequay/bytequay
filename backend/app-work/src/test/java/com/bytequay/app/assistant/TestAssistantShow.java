@@ -92,7 +92,7 @@ class TestAssistantShow
         // The card on screen belongs to task t1, which a message showing it may name.
         when(notices.current()).thenReturn(ImmutableList.of(new AppNotice("approval:a1", AppNotice.Kind.APPROVAL, "t1", "ws1", Optional.of("turn-1"), Optional.empty(),
                 "Retry Iceberg commit on conflict", Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), "Permission needed", "owner/repository", "claude",
-                Optional.empty(), NOW)));
+                Optional.empty(), NOW, Optional.empty())));
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         AssistantActions actions = new AssistantActions(new MemoryAssistantStore(), mock(AssistantSettings.class), mock(AgentApprovalStore.class),
                 mock(AgentApprovalService.class), mock(AgentTaskStore.class), mock(AgentTurnService.class), mock(ItemTaskStarter.class),

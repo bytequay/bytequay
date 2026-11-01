@@ -27,6 +27,7 @@ import com.bytequay.agent.core.store.AgentApprovalStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.QueuedInputStore;
+import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.app.service.epic.EpicNextWork;
 import com.bytequay.app.utils.ContextText;
 import com.bytequay.core.ci.CiAutofixRun;
@@ -112,7 +113,7 @@ public class AppNoticeService
             workspaces.findById(artifact.workspaceId()).ifPresent(workspace -> alerts.add(new AppNotice(ARTIFACT_NOTICE + missed.approvalId(), AppNotice.Kind.QUESTION,
                     artifact.id(), artifact.workspaceId(), Optional.empty(), Optional.empty(), clip(artifact.title(), 160), Optional.empty(), Optional.empty(),
                     Optional.empty(), Optional.empty(), clip("Timed out: " + question(missed.detail()), 280), workspace.monitoredRepository().fullName(),
-                    missed.laneId(), Optional.empty(), missed.at())));
+                    missed.laneId(), Optional.empty(), missed.at(), Optional.empty())));
         }
         return alerts.build();
     }
@@ -159,7 +160,8 @@ public class AppNoticeService
             ApprovalRequest request = approval.orElseThrow();
             boolean question = request.providerRequest().requestedPermissions().contains(QUESTION_TOOL);
             return Optional.of(notice(task, review, overview, latest, "approval:" + request.id(), question ? AppNotice.Kind.QUESTION : AppNotice.Kind.APPROVAL,
-                    question ? question(request.providerRequest().detail()) : request.providerRequest().title(), request.requestedAt()));
+                    question ? question(request.providerRequest().detail()) : request.providerRequest().title(), request.requestedAt(),
+                    Optional.of(request.requestedAt().plus(AgentApprovalHandler.WAIT))));
         }
         Optional<WorktreeMutationClaim> recovery = task.worktreeMutationClaim().filter(claim -> claim.kind() == WorktreeMutationClaim.Kind.RECOVERY
                 || claim.kind() == WorktreeMutationClaim.Kind.TURN && latest.filter(turn -> turn.state().active()).isEmpty());
@@ -177,7 +179,7 @@ public class AppNoticeService
             EpicNextWork.Pick work = pick.orElseThrow();
             return Optional.of(new AppNotice("next:" + task.id() + ":" + work.itemId(), AppNotice.Kind.NEXT_WORK, task.id().toString(), task.workspaceId().orElseThrow(),
                     Optional.empty(), Optional.empty(), clip(work.title(), 160), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), clip(work.message(), 280),
-                    task.repository().toString(), task.laneId().value(), Optional.of(work.itemId()), work.at()));
+                    task.repository().toString(), task.laneId().value(), Optional.of(work.itemId()), work.at(), Optional.empty()));
         }
         if (task.state() == TaskState.OPEN && latest.filter(turn -> turn.state() == TurnState.COMPLETED).isPresent()
                 && report.filter(turn -> turn.state() == TurnState.COMPLETED).flatMap(AgentTurn::developmentResult).filter(result -> !result.readyForDelivery()).isPresent()) {
@@ -251,6 +253,12 @@ public class AppNoticeService
     private AppNotice notice(AgentTask task, Optional<AgentReview> review, Optional<ReviewRunOverview> overview, Optional<AgentTurn> turn,
             String id, AppNotice.Kind kind, String message, Instant occurredAt)
     {
+        return notice(task, review, overview, turn, id, kind, message, occurredAt, Optional.empty());
+    }
+
+    private AppNotice notice(AgentTask task, Optional<AgentReview> review, Optional<ReviewRunOverview> overview, Optional<AgentTurn> turn,
+            String id, AppNotice.Kind kind, String message, Instant occurredAt, Optional<Instant> expiresAt)
+    {
         Optional<AgentReview> numbered = review.filter(value -> value.number().isPresent());
         Optional<String> pullRequest = numbered.map(value -> value.repo() + "#" + value.number().getAsInt());
         Optional<PullRequest> stored = numbered
@@ -263,7 +271,7 @@ public class AppNoticeService
                 run.scope() == ReviewRun.Scope.INCREMENTAL, run.commits(), run.files(), run.additions(), run.deletions()));
         return new AppNotice(id, kind, task.id().toString(), task.workspaceId().orElseThrow(), turn.map(value -> value.id().toString()), review.map(AgentReview::id),
                 clip(task.title(), 160), pullRequest, pullRequestTitle, branch, changes, clip(message, 280), task.repository().toString(), task.laneId().value(),
-                Optional.empty(), occurredAt);
+                Optional.empty(), occurredAt, expiresAt);
     }
 
     private static String clip(String text, int limit)

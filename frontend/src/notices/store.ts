@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import fs from 'node:fs';
-import { needsAction, type AppNotice, type NoticeSnapshot } from './contracts';
+import { APPROVAL_NUDGE_MS, needsAction, type AppNotice, type NoticeSnapshot } from './contracts';
 
 const RECENT_COMPLETION_MS = 24 * 60 * 60 * 1000;
 
@@ -26,10 +26,12 @@ export class NoticeStore {
   private readonly popups = new Set<string>();
   private readonly viewed = new Set<string>();
   private readonly settling = new Map<string, { since: number; popup: boolean }>();
+  private readonly nudged = new Set<string>();
 
   constructor(private readonly storagePath: () => string) {}
 
-  update(incoming: AppNotice[], now = Date.now()): void {
+  /** Returns the approvals whose alert came back because the agent stops waiting within a minute. */
+  update(incoming: AppNotice[], now = Date.now()): string[] {
     this.restore();
     const current = new Set(incoming.map(notice => notice.id));
     for (const [id, notice] of this.notices) {
@@ -38,6 +40,8 @@ export class NoticeStore {
       }
     }
     for (const id of this.settling.keys()) if (!current.has(id)) this.settling.delete(id);
+    for (const id of this.nudged) if (!current.has(id)) this.nudged.delete(id);
+    const nudges: string[] = [];
     for (const notice of incoming) {
       if (this.removed.has(notice.id)) continue;
       const known = this.seen.has(notice.id);
@@ -56,6 +60,11 @@ export class NoticeStore {
         if (!known && this.initialized && (this.settling.get(notice.id)?.popup ?? true)) this.popups.add(notice.id);
         // Notices already waiting at startup are old news: no alert and no unread dot.
         if (!known && !this.initialized) this.viewed.add(notice.id);
+        const left = notice.expiresAt === undefined ? Number.NaN : Date.parse(notice.expiresAt) - now;
+        // Once, even after the alert was closed: in real use, one approval in five expired unanswered.
+        if (left > 0 && left <= APPROVAL_NUDGE_MS && !this.nudged.has(notice.id)) {
+          this.nudged.add(notice.id); this.popups.add(notice.id); this.viewed.delete(notice.id); nudges.push(notice.id);
+        }
       }
       this.remember(notice.id);
     }
@@ -63,6 +72,7 @@ export class NoticeStore {
     const recent = [...this.notices.values()].filter(notice => !needsAction(notice)).sort(newest);
     for (const notice of recent.slice(50)) { this.notices.delete(notice.id); this.popups.delete(notice.id); }
     for (const id of this.viewed) if (!this.notices.has(id)) this.viewed.delete(id);
+    return nudges;
   }
 
   dismiss(id: string): void { this.popups.delete(id); }

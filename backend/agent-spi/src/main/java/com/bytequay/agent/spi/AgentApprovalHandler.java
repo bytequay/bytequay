@@ -26,7 +26,10 @@ import java.util.concurrent.CompletionStage;
 @FunctionalInterface
 public interface AgentApprovalHandler
 {
-    /** How long every driver waits for the user's answer. */
+    /**
+     * How long every driver waits for the user's answer. The app shows each pending
+     * request's deadline from it, so a driver passes this as its timeout.
+     */
     Duration WAIT = Duration.ofMinutes(5);
 
     /**

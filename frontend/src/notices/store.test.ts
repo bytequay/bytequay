@@ -15,7 +15,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { NOTICE_KINDS, parseNotices, type AppNotice } from './contracts';
+import { NOTICE_KINDS, approvalTimeLeft, parseNotices, type AppNotice } from './contracts';
 import { NoticeStore } from './store';
 
 const now = Date.parse('2026-09-27T10:00:00Z');
@@ -176,8 +176,34 @@ it('bounds recent completions, retains actionable requests, and keeps background
   expect(store.snapshot(true).notices).toEqual([waiting]);
 });
 
+it('brings an unanswered approval back once in its last minute, even after it was read and closed', () => {
+  const store = new NoticeStore(() => file); store.update([], now);
+  const approval = { ...notice('approval:one', 'APPROVAL'), expiresAt: new Date(now + 300_000).toISOString() };
+  expect(store.update([approval], now)).toEqual([]);
+  store.markViewed(approval.id);
+  expect(store.update([approval], now + 239_000)).toEqual([]);
+  expect(store.snapshot(true)).toMatchObject({ popupIds: [], viewedIds: [approval.id] });
+  expect(store.update([approval], now + 241_000)).toEqual([approval.id]);
+  expect(store.snapshot(true)).toMatchObject({ popupIds: [approval.id], viewedIds: [] });
+  store.dismiss(approval.id);
+  expect(store.update([approval], now + 250_000)).toEqual([]);
+  expect(store.snapshot(true).popupIds).toEqual([]);
+});
+
+it('says how long an approval has left, and nothing once it expired', () => {
+  const at = new Date(now + 300_000).toISOString();
+  expect(approvalTimeLeft(at, now + 1_000)).toEqual({ text: '5 min', urgent: false });
+  expect(approvalTimeLeft(at, now + 181_000)).toEqual({ text: '2 min', urgent: true });
+  expect(approvalTimeLeft(at, now + 255_000)).toEqual({ text: '45 s', urgent: true });
+  expect(approvalTimeLeft(at, now + 300_000)).toBeNull();
+});
+
 it('rejects malformed data at the desktop boundary', () => {
   expect(parseNotices([notice('one')])).toEqual([notice('one')]);
+  const approval = { ...notice('approval:one', 'APPROVAL'), expiresAt: '2026-09-27T10:05:00Z' };
+  expect(parseNotices([approval])).toEqual([approval]);
+  expect(parseNotices([{ ...notice('one'), expiresAt: null }])).toEqual([notice('one')]);
+  for (const expiresAt of ['', 'soon', 1]) expect(() => parseNotices([{ ...approval, expiresAt }])).toThrow();
   const review = { ...notice('review'), pullRequest: 'owner/repo#42', pullRequestTitle: 'Improve recovery', branch: 'author/recovery',
     changes: { update: false, commits: 2, files: 3, additions: 42, deletions: 12 } };
   expect(parseNotices([review])).toEqual([review]);

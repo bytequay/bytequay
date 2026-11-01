@@ -35,6 +35,7 @@ import com.bytequay.agent.core.store.AgentApprovalStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.QueuedInputStore;
+import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.DevelopmentResultReport;
@@ -243,6 +244,7 @@ class TestAppNoticeService
         assertThat(service.current()).singleElement().satisfies(notice -> {
             assertThat(notice.kind()).isEqualTo(AppNotice.Kind.QUESTION);
             assertThat(notice.message()).isEqualTo("Which branch?");
+            assertThat(notice.expiresAt()).contains(NOW.plus(AgentApprovalHandler.WAIT));
         });
         approval(turn, ImmutableList.of("mvn verify"), "Run the tests");
         assertThat(service.current()).singleElement().extracting(AppNotice::kind).isEqualTo(AppNotice.Kind.APPROVAL);
@@ -257,7 +259,10 @@ class TestAppNoticeService
     {
         AgentTurn done = turn().finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.plusSeconds(10));
         show(task.claimWorktreeMutation(WorktreeMutationClaim.recovery("launch", NOW), NOW), done);
-        assertThat(service.current()).singleElement().extracting(AppNotice::kind).isEqualTo(AppNotice.Kind.RECOVERY);
+        assertThat(service.current()).singleElement().satisfies(notice -> {
+            assertThat(notice.kind()).isEqualTo(AppNotice.Kind.RECOVERY);
+            assertThat(notice.expiresAt()).isEmpty();
+        });
         show(task.claimWorktreeMutation(WorktreeMutationClaim.turn(done.id(), NOW), NOW), done);
         assertThat(service.current()).singleElement().extracting(AppNotice::kind).isEqualTo(AppNotice.Kind.RECOVERY);
         show(task, done);

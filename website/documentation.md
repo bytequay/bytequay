@@ -216,7 +216,8 @@ allowance.
    button to keep going.
 
 **⇧⌘J** opens the task that has waited longest. Task alerts also show as macOS
-notifications.
+notifications. An approval or question waits five minutes for your answer: its
+card shows the time left, and its alert comes back once in the last minute.
 
 **⌥Space** opens the same Assistant from any app, even over a full-screen
 window, with voice, cards and replies. What you open from it shows in

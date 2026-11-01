@@ -1011,6 +1011,8 @@ export type AgentPendingApprovalDto = {
   turnId: string;
   source: AgentEventEnvelope['source'];
   occurredAt: string;
+  /** When the agent stops waiting for an answer. */
+  expiresAt: string;
   title: string;
   detail: string;
   approvalKind: string;

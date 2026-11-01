@@ -319,6 +319,7 @@ export function createPreviewBridge(
       const resolved = new Set(FIXTURE_EVENTS.filter((event) => event.type === 'approval_resolved').map((event) => event.payload.approvalId));
       return FIXTURE_EVENTS.flatMap((event) => event.type !== 'approval_requested' || event.turnId !== turnId || resolved.has(event.payload.approvalId) ? [] : [{
         ...event.payload, taskId, turnId, source: event.source, occurredAt: event.occurredAt,
+        expiresAt: new Date(Date.parse(event.occurredAt) + 300_000).toISOString(),
       }]);
     },
     startAgentTurn: async (request) => {

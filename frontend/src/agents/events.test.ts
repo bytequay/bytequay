@@ -256,9 +256,10 @@ describe('bounded history contract', () => {
   it('reads pending approvals separately and rejects approvals belonging to another turn', () => {
     const event = fixture.events[7];
     if (event.turnId === null) throw new Error('The approval fixture must belong to a turn');
-    const approval = { ...event.payload, taskId, turnId: event.turnId, source: event.source, occurredAt: event.occurredAt };
+    const approval = { ...event.payload, taskId, turnId: event.turnId, source: event.source, occurredAt: event.occurredAt, expiresAt: '2026-08-21T10:05:00Z' };
     expect(parseAgentPendingApprovals([approval], taskId, event.turnId)[0].approvalId).toBe(event.payload.approvalId);
     expect(() => parseAgentPendingApprovals([approval], taskId, 'another-turn')).toThrow('another task or turn');
+    expect(() => parseAgentPendingApprovals([{ ...approval, expiresAt: undefined }], taskId, event.turnId)).toThrow('expiresAt');
     expect(() => parseAgentPendingApprovals([{ ...approval, actionable: 'yes' }], taskId, event.turnId))
       .toThrow('actionable');
   });

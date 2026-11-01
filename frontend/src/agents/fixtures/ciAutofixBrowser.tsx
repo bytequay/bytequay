@@ -193,7 +193,8 @@ async function ciApprovalCard(): Promise<{ name: string; error?: string }> {
   const sourceTurn: AgentTurnDto = { ...await bridge.getAgentTurn(event.turnId), taskId: task.id, state: 'COMPLETED', endedAt: '2026-01-01T12:00:00Z' };
   const approval: AgentPendingApprovalDto = {
     approvalId: 'ci-approval', taskId: 'ci-task', turnId: 'ci-turn', source: event.source,
-    occurredAt: event.occurredAt, title: 'Allow Codex command', detail: 'mvn test', approvalKind: 'COMMAND',
+    occurredAt: event.occurredAt, expiresAt: new Date(Date.parse(event.occurredAt) + 300_000).toISOString(),
+    title: 'Allow Codex command', detail: 'mvn test', approvalKind: 'COMMAND',
     scope: ['run: mvn test'], sandboxed: false, availableDecisions: ['ALLOW_ONCE', 'DENY'], actionable: true,
   };
   let parentTaskId = 'other-task';

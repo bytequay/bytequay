@@ -22,6 +22,8 @@ export type AppNotice = {
   branch?: string;
   /** The Epic work a NEXT_WORK notice suggests starting next, once a pull request of the Epic merged. */
   workItemId?: string;
+  /** When the agent stops waiting for a pending approval or question card. */
+  expiresAt?: string;
 };
 /** Latest review run counts; `update` marks a run that covers only changes since the prior review. */
 export type NoticeChanges = { update: boolean; commits: number; files: number; additions: number; deletions: number };
@@ -51,6 +53,14 @@ export const NOTICE_ACTIONS: Record<NoticeKind, string> = {
 };
 export const noticeLabel = (notice: AppNotice): string => notice.reviewId === null ? NOTICE_LABELS[notice.kind]
   : notice.kind === 'TURN_FINISHED' ? 'Review finished' : notice.kind === 'FAILURE' ? 'Review failed' : NOTICE_LABELS[notice.kind];
+/** An unanswered approval's alert comes back once, this long before the agent stops waiting. */
+export const APPROVAL_NUDGE_MS = 60_000;
+/** An approval's time left as its card, the Decision pill and its alert say it; null once it has expired. */
+export function approvalTimeLeft(expiresAt: string, now: number): { text: string; urgent: boolean } | null {
+  const left = Date.parse(expiresAt) - now;
+  if (!(left > 0)) return null;
+  return { text: left < 60_000 ? `${Math.ceil(left / 1000)} s` : `${Math.ceil(left / 60_000)} min`, urgent: left < 120_000 };
+}
 export function parseNotices(value: unknown): AppNotice[] {
   if (!Array.isArray(value)) throw new Error('Invalid notices');
   const ids = new Set<string>();
@@ -73,10 +83,12 @@ export function parseNotices(value: unknown): AppNotice[] {
     if (workItemId !== null && (typeof workItemId !== 'string' || !workItemId.trim() || workItemId.length > 200)) throw new Error('Invalid notice context');
     const branch = item.branch ?? null;
     if (branch !== null && (typeof branch !== 'string' || !branch.trim() || branch.length > 1000)) throw new Error('Invalid notice context');
+    const expiresAt = item.expiresAt ?? null;
+    if (expiresAt !== null && (typeof expiresAt !== 'string' || !Number.isFinite(Date.parse(expiresAt)))) throw new Error('Invalid notice context');
     return { id: item.id, kind: item.kind, taskId: item.taskId, workspaceId: item.workspaceId, turnId: item.turnId, reviewId: item.reviewId,
       title: item.title, pullRequest: item.pullRequest, pullRequestTitle: item.pullRequestTitle, changes: parseChanges(item.changes),
       message: item.message, repository: item.repository, laneId: item.laneId, occurredAt: item.occurredAt,
-      ...(branch === null ? {} : { branch }), ...(workItemId === null ? {} : { workItemId }) } as AppNotice;
+      ...(branch === null ? {} : { branch }), ...(workItemId === null ? {} : { workItemId }), ...(expiresAt === null ? {} : { expiresAt }) } as AppNotice;
   });
 }
 function parseChanges(raw: unknown): NoticeChanges | null {

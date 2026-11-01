@@ -138,7 +138,7 @@ async function boundedHistory(): Promise<void> {
 async function approvalAuthority(): Promise<void> {
   const question = (approvalId: string, title: string): AgentPendingApprovalDto => ({
     approvalId, taskId: 'artifact', turnId: approvalId === 'old' ? 'turn-1000' : 'turn-1250', source, occurredAt,
-    title, approvalKind: 'OTHER', scope: ['AskUserQuestion'], sandboxed: false, actionable: true,
+    expiresAt: new Date(Date.parse(occurredAt) + 300_000).toISOString(), title, approvalKind: 'OTHER', scope: ['AskUserQuestion'], sandboxed: false, actionable: true,
     availableDecisions: ['ALLOW_ONCE', 'DENY'], detail: JSON.stringify({ questions: [{ question: title, header: 'Path', multiSelect: false,
       options: [{ label: 'Read path', description: 'Follow reads' }, { label: 'Write path', description: 'Follow writes' }] }] }),
   });
@@ -283,6 +283,7 @@ async function resumeFollowing(): Promise<void> {
 async function answerDuringRead(): Promise<void> {
   const approval: AgentPendingApprovalDto = {
     approvalId: 'current', taskId: 'artifact', turnId: 'turn-1', source, occurredAt, title: 'Which path?', approvalKind: 'OTHER',
+    expiresAt: new Date(Date.parse(occurredAt) + 300_000).toISOString(),
     scope: ['AskUserQuestion'], sandboxed: false, actionable: true, availableDecisions: ['ALLOW_ONCE', 'DENY'],
     detail: JSON.stringify({ questions: [{ question: 'Which path?', header: 'Path', multiSelect: false,
       options: [{ label: 'Read path', description: 'Follow reads' }] }] }),

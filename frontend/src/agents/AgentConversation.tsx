@@ -28,6 +28,8 @@ import { findingFixRequest } from '../pulls/local-review/conversation';
 import { commentFixRequest } from './taskFix';
 import { linkIssueNumbers } from '../pulls/MarkdownBody';
 import { remoteErrorMessage } from '../remoteError';
+import { approvalTimeLeft } from '../notices/contracts';
+import { useNow } from '../useNow';
 import { MEMORY_CHANGED } from '../memory/model';
 import type { AgentIssueSourceDto,AgentApprovalDecision,AgentAttachmentDto,AgentPendingApprovalDto,AgentQueuedInputDto,AgentStreamConnectionState,AgentTurnDto,ModelOptionDto,ModelProviderDto } from '../types';
 import { AgentMark } from './AgentMark';
@@ -487,11 +489,23 @@ function pendingApprovalBlock(approval: AgentPendingApprovalDto): ApprovalBlock 
   };
 }
 
+/** Deadlines come from the live pending list: transcript events carry none, and a settled card then shows no countdown. */
+const ApprovalDeadlines = React.createContext<ReadonlyMap<string, string>>(new Map());
+
+function ApprovalTimeLeft({ approvalId }: { approvalId: string }): React.JSX.Element | null {
+  const expiresAt = React.useContext(ApprovalDeadlines).get(approvalId);
+  const now = useNow(expiresAt !== undefined);
+  const left = expiresAt === undefined ? null : approvalTimeLeft(expiresAt, now);
+  if (expiresAt === undefined || left === null) return null;
+  return <span className={`agt-appr__left${left.urgent ? ' is-urgent' : ''}`} title={`The agent stops waiting at ${clock(expiresAt)}`}>{left.text} left</span>;
+}
+
 export function PendingApprovalCard({ approval, onDecide }: {
   approval: AgentPendingApprovalDto;
   onDecide: ApprovalDecider;
 }): React.JSX.Element {
-  return <ApprovalView block={pendingApprovalBlock(approval)} onDecide={onDecide} />;
+  const deadlines = useMemo(() => new Map([[approval.approvalId, approval.expiresAt]]), [approval.approvalId, approval.expiresAt]);
+  return <ApprovalDeadlines.Provider value={deadlines}><ApprovalView block={pendingApprovalBlock(approval)} onDecide={onDecide} /></ApprovalDeadlines.Provider>;
 }
 
 /** A question Claude asked: its own options, answered in place, instead of an allow over raw tool input. */
@@ -515,6 +529,7 @@ function QuestionView({ block, questions, allow, deny, onDecide }: {
         <Glyph icon={MessageSquare} className="is-warn" />
         <span className="agt-appr__chip">Your answer</span>
         <span className="agt-spacer" />
+        <ApprovalTimeLeft approvalId={block.approvalId} />
         <span className="agt-mono agt-right">{agentDisplayName(block.agent)}</span>
       </div>
       {questions.map((question) => (
@@ -604,6 +619,7 @@ function ApprovalView({ block, onDecide }: {
         )}
         <span className="agt-appr__title">{block.title}</span>
         <span className="agt-spacer" />
+        <ApprovalTimeLeft approvalId={block.approvalId} />
         <span className="agt-mono agt-right">{agentDisplayName(block.agent)}</span>
       </div>
       {block.detail !== '' && <pre className="agt-code">{block.detail}</pre>}
@@ -1228,8 +1244,10 @@ export function AgentConversation({
     await window.bridge.undoRememberedMemory(workspaceId, memoryId);
     window.dispatchEvent(new CustomEvent(MEMORY_CHANGED, { detail: workspaceId }));
   }, [workspaceId]);
+  const deadlines = useMemo(() => new Map(pendingApprovals.map(approval => [approval.approvalId, approval.expiresAt])), [pendingApprovals]);
   return (
     <MemoryUndo.Provider value={undo}>
+    <ApprovalDeadlines.Provider value={deadlines}>
     <div className="agt-conversation">
       {scroll.loading && <div className="agt-history-edge" role="status">Loading activity…</div>}
       <div className="agt-transcript" role="log" aria-label={label} tabIndex={0} {...scroll.transcriptProps}>
@@ -1284,6 +1302,7 @@ export function AgentConversation({
       </div>
       <div className="agt-bottom">{children}</div>
     </div>
+    </ApprovalDeadlines.Provider>
     </MemoryUndo.Provider>
   );
 }

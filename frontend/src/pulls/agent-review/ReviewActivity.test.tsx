@@ -146,7 +146,7 @@ describe('the unified review conversation', () => {
   it('shows actionable approvals whose event is outside the history window', () => {
     const html = render({ events: [], pendingApprovals: [{
       approvalId: 'approval-outside-page', taskId: 'task-1', turnId: 'turn-1',
-      source: events[0].source, occurredAt: '2026-09-06T16:03:10Z', title: 'Run verification',
+      source: events[0].source, occurredAt: '2026-09-06T16:03:10Z', expiresAt: '2026-09-06T16:08:10Z', title: 'Run verification',
       detail: 'npm test', approvalKind: 'COMMAND', scope: [], sandboxed: true, availableDecisions: ['ALLOW_ONCE', 'DENY'], actionable: true,
     }] });
     expect(html).toContain('aria-label="Allow once: Run verification"');
@@ -156,11 +156,23 @@ describe('the unified review conversation', () => {
   it('marks a pending command that runs outside the sandbox', () => {
     const pending = (sandboxed: boolean) => render({ events: [], pendingApprovals: [{
       approvalId: 'approval-outside-sandbox', taskId: 'task-1', turnId: 'turn-1',
-      source: events[0].source, occurredAt: '2026-09-06T16:03:10Z', title: 'Allow Codex command',
+      source: events[0].source, occurredAt: '2026-09-06T16:03:10Z', expiresAt: '2026-09-06T16:08:10Z', title: 'Allow Codex command',
       detail: 'mvn test', approvalKind: 'COMMAND', scope: [], sandboxed, availableDecisions: ['ALLOW_ONCE', 'DENY'], actionable: true,
     }] });
     expect(pending(false)).toContain('aria-label="Runs outside the sandbox"');
     expect(pending(true)).not.toContain('Runs outside the sandbox');
+  });
+
+  it('counts down an unanswered approval and turns to the warning colour in its last two minutes', () => {
+    const at = Date.now();
+    const pending = (left: number) => render({ events: [], pendingApprovals: [{
+      approvalId: 'approval-due', taskId: 'task-1', turnId: 'turn-1', source: events[0].source,
+      occurredAt: new Date(at - 60_000).toISOString(), expiresAt: new Date(at + left).toISOString(), title: 'Run verification',
+      detail: 'npm test', approvalKind: 'COMMAND', scope: [], sandboxed: true, availableDecisions: ['ALLOW_ONCE', 'DENY'], actionable: true,
+    }] });
+    expect(pending(170_000)).toMatch(/class="agt-appr__left"[^>]*>3 min left</);
+    expect(pending(90_000)).toMatch(/class="agt-appr__left is-urgent"[^>]*>2 min left</);
+    expect(pending(-1_000)).not.toContain('agt-appr__left');
   });
 
   it('attributes the generated request without attributing the user’s steer to ByteQuay', () => {

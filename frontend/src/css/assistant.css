@@ -334,6 +334,10 @@
 .assistant-pill svg { color: var(--fg-muted); }
 .assistant-pill__count { color: var(--fg-dim); }
 
+.assistant-pill__left { color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+
+.assistant-pill__left.is-urgent { color: var(--fg-warning); }
+
 .assistant-pill.is-selected {
   border-color: var(--fg-dim);
   background: var(--assistant-selected);

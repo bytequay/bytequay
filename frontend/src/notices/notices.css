@@ -8,7 +8,8 @@ body { font: 13px/1.5 var(--font); color: var(--text-1); overflow: hidden; }
 .app-notice.is-turn_finished .app-notice__dot { background: var(--fg-success); }
 .app-notice.is-next_work .app-notice__dot { background: var(--purple); }
 .app-notice.is-failure .app-notice__dot, .app-notice.is-recovery .app-notice__dot { background: var(--red); }
-.app-notice__time { margin-left: auto; color: var(--text-3); white-space: nowrap; }
+.app-notice__time { margin-left: auto; color: var(--text-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.app-notice__time.is-urgent { color: var(--fg-warning); }
 .app-notice__subject { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .app-notice h2 { margin: 0; font-size: 15px; line-height: 1.35; font-weight: 400; text-wrap: pretty; }
 .app-notice__message { margin: 0; font-size: 13px; line-height: 1.45; color: var(--text-2); text-wrap: pretty; }

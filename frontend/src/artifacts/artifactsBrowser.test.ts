@@ -112,7 +112,7 @@ turn('a1', 't2', 'The read path, and how it differs from equality deletes');
 emit('a1', 't2', 'approval_requested', { approvalId: 'q1', approvalKind: 'OTHER', title: 'Allow Claude AskUserQuestion', detail: QUESTION, scope: ['AskUserQuestion'],
   sandboxed: false, actionable: true, availableDecisions: ['ALLOW_ONCE', 'DENY'] });
 conversations.a1.view.questions = ['q1'];
-conversations.a1.view.pendingApprovals = [{ ...conversations.a1.events.at(-1).payload, taskId: 'a1', turnId: 't2', source: root, occurredAt: at(0) }];
+conversations.a1.view.pendingApprovals = [{ ...conversations.a1.events.at(-1).payload, taskId: 'a1', turnId: 't2', source: root, occurredAt: at(0), expiresAt: new Date(Date.parse(at(0)) + 300_000).toISOString() }];
 conversation('a2', 'Snapshots and manifests', 90);
 turn('a2', 't21', 'Explain snapshots');
 answer('a2', 't21', 'Here is the page.');

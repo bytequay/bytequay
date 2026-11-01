@@ -21,6 +21,7 @@ import java.util.Optional;
  *
  * @param branch the reviewed pull request's head, or the development task's own branch
  * @param workItemId the Epic work a {@link Kind#NEXT_WORK} notice suggests starting next
+ * @param expiresAt when the agent stops waiting for a pending approval or question card
  */
 public record AppNotice(
         String id,
@@ -38,7 +39,8 @@ public record AppNotice(
         String repository,
         String laneId,
         Optional<String> workItemId,
-        Instant occurredAt)
+        Instant occurredAt,
+        Optional<Instant> expiresAt)
 {
     public enum Kind
     {

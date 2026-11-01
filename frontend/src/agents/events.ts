@@ -241,6 +241,7 @@ export function parseAgentPendingApprovals(value: unknown, taskId: string, turnI
     if (approval.taskId !== taskId || approval.turnId !== turnId) throw new Error('Approval belongs to another task or turn');
     validateSource(approval.source, index);
     stringValue(approval.occurredAt, 'approval.occurredAt');
+    stringValue(approval.expiresAt, 'approval.expiresAt');
     validatePayload('approval_requested', approval, index);
     return entry as AgentPendingApprovalDto;
   });

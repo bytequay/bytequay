@@ -22,6 +22,7 @@ import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.StoredAgentAttachment;
 import com.bytequay.agent.core.TaskCompletion;
+import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
@@ -86,7 +87,7 @@ public final class AgentHttpModels
                 request.id().toString(), request.taskId().toString(), request.turnId().toString(),
                 new AgentEventSource(source.providerThreadId(), source.parentProviderThreadId(), source.logicalAgentPath(),
                         source.providerTurnId(), source.providerItemId(), Optional.empty()),
-                request.requestedAt(), provider.title(), provider.detail(),
+                request.requestedAt(), request.requestedAt().plus(AgentApprovalHandler.WAIT), provider.title(), provider.detail(),
                 switch (provider.kind()) {
                     case COMMAND, FILE_CHANGE -> provider.kind().name();
                     case TOOL, OTHER -> "OTHER";
@@ -143,7 +144,7 @@ public final class AgentHttpModels
     public record HistoryResponse(List<EventResponse> events, Optional<String> beforeCursor, Optional<String> afterCursor, long latestSequence) {}
 
     public record PendingApprovalResponse(
-            String approvalId, String taskId, String turnId, AgentEventSource source, Instant occurredAt,
+            String approvalId, String taskId, String turnId, AgentEventSource source, Instant occurredAt, Instant expiresAt,
             String title, String detail, String approvalKind, List<String> scope, boolean sandboxed, List<String> availableDecisions, boolean actionable) {}
 
     public record ProviderStatusResponse(

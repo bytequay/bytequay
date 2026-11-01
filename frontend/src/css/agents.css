@@ -1991,6 +1991,17 @@
   white-space: nowrap;
 }
 
+.agt-appr__left {
+  font-size: 11px;
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.agt-appr__left.is-urgent {
+  color: var(--fg-warning);
+}
+
 .agt-code {
   margin: 8px 0 0;
   background: light-dark(#f6f8fa, var(--dark-subtle));

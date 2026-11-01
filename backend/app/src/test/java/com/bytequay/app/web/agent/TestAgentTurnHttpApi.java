@@ -27,6 +27,7 @@ import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.UnsequencedAgentEvent;
+import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
@@ -147,7 +148,7 @@ class TestAgentTurnHttpApi
                         requestedAt),
                 requestedAt);
         try {
-            approvals.request(request, Duration.ofMinutes(1));
+            approvals.request(request, AgentApprovalHandler.WAIT);
             String path = "/agent/tasks/" + ownerTaskId + "/pending-approvals?turnId=" + turnId;
 
             JsonNode pending = get(path).getBody();
@@ -159,6 +160,8 @@ class TestAgentTurnHttpApi
             assertThat(approval.required("turnId").asText()).isEqualTo(turnId);
             assertThat(approval.required("source").required("providerThreadId").asText()).isEqualTo("child-thread");
             assertThat(approval.required("title").asText()).isEqualTo("Run command");
+            assertThat(Duration.between(Instant.parse(approval.required("occurredAt").asText()), Instant.parse(approval.required("expiresAt").asText())))
+                    .isEqualTo(AgentApprovalHandler.WAIT);
             assertThat(approval.required("approvalKind").asText()).isEqualTo("COMMAND");
             assertThat(approval.required("sandboxed").asBoolean()).isTrue();
             assertThat(approval.required("availableDecisions").get(0).asText()).isEqualTo("DENY");

@@ -24,7 +24,7 @@ import TodayList, { openTarget } from '../home/TodayList';
 import { clockTime, doneRatio, showsToday } from '../home/today';
 import { useTodayAgenda } from '../home/useTodayAgenda';
 import { pollVisible } from '../ide/pollVisible';
-import { APPROVAL_NOTICE, NOTICE_ACTIONS, noticeLabel, type AppNotice } from '../notices/contracts';
+import { APPROVAL_NOTICE, NOTICE_ACTIONS, approvalTimeLeft, noticeLabel, type AppNotice } from '../notices/contracts';
 import { remoteErrorMessage } from '../remoteError';
 import { useNow } from '../useNow';
 import RepoAvatar from '../RepoAvatar';
@@ -74,6 +74,10 @@ export default function WaitingStack({ notices, talk, folded, onFold, conversati
   const root = useRef<HTMLDivElement>(null);
 
   const cards = waitingCards(notices, tasks);
+  const soonest = cards.flatMap(card => card.group === 'decision' && 'notice' in card && card.notice.expiresAt !== undefined ? [card.notice.expiresAt] : [])
+    .reduce<string | null>((first, at) => first === null || Date.parse(at) < Date.parse(first) ? at : first, null);
+  const now = useNow(soonest !== null);
+  const left = soonest === null ? null : approvalTimeLeft(soonest, now);
   const agenda = today.agenda !== null && today.agenda.state !== 'NONE' && showsToday(today.agenda, 'global') ? today.agenda : null;
   const ratio = agenda === null ? null : doneRatio(agenda.items);
   const count = (group: Group): number => group === 'all' ? cards.length : group === 'today' ? Number(agenda !== null)
@@ -168,6 +172,7 @@ export default function WaitingStack({ notices, talk, folded, onFold, conversati
             <span>{LABELS[each]}</span>
             {each !== 'today' ? <span className="assistant-pill__count">{count(each)}</span>
               : ratio !== null && ratio.total > 0 && <span className="assistant-pill__count">{ratio.done}/{ratio.total}</span>}
+            {each === 'decision' && left !== null && <span className={`assistant-pill__left${left.urgent ? ' is-urgent' : ''}`}>{left.text}</span>}
           </button>
         ))}
       </div>

@@ -13,7 +13,7 @@
  */
 import { app, ipcMain, Notification, shell, WebContentsView, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import path from 'node:path';
-import { APPROVAL_NOTICE, NOTICE_WIDTH, needsAction, noticeLabel, parseNotices, type AppNotice, type NoticeSnapshot } from './contracts';
+import { APPROVAL_NOTICE, NOTICE_WIDTH, approvalTimeLeft, needsAction, noticeLabel, parseNotices, type AppNotice, type NoticeSnapshot } from './contracts';
 import { NoticeStore } from './store';
 
 /** One trusted app surface above native browser/editor views; its bridge cannot execute task actions. */
@@ -130,7 +130,7 @@ export class NoticeHost {
 
   refresh(): Promise<void> {
     if (this.reading !== null) return this.reading;
-    this.reading = this.read().then(value => { this.store.update(parseNotices(value)); this.publish(); this.announce(); })
+    this.reading = this.read().then(value => { const nudges = this.store.update(parseNotices(value)); this.publish(); this.announce(nudges); })
       .catch(() => { /* A failed local read preserves the last snapshot and never announces task failure. */ })
       .finally(() => { this.reading = null; });
     return this.reading;
@@ -163,9 +163,13 @@ export class NoticeHost {
     this.publish();
   }
 
-  /** A new alert also goes to macOS while the user is in another app; it closes once the in-app alert is answered or closed. */
-  private announce(): void {
+  /**
+   * A new alert also goes to macOS while the user is in another app; it closes once the in-app alert is answered or closed.
+   * An approval's last-minute nudge counts as new, so it goes again even while its first notification is still up.
+   */
+  private announce(nudges: string[] = []): void {
     const { notices, popupIds } = this.store.snapshot(false);
+    for (const id of nudges) { this.announced.get(id)?.close(); this.announced.delete(id); }
     for (const [id, shown] of this.announced) {
       if (!popupIds.includes(id)) { shown?.close(); this.announced.delete(id); }
     }
@@ -179,8 +183,9 @@ export class NoticeHost {
   private notify(notice: AppNotice): Notification | null {
     // Platform support does not imply permission: unsigned macOS builds also pass isSupported() and then fail.
     if (this.nativeDisabled || !Notification.isSupported()) return null;
+    const left = notice.expiresAt === undefined ? null : approvalTimeLeft(notice.expiresAt, Date.now());
     try {
-      const shown = new Notification({ title: `${noticeLabel(notice)} · ${notice.repository}`, body: notice.title });
+      const shown = new Notification({ title: `${noticeLabel(notice)} · ${left === null ? notice.repository : `${left.text} left`}`, body: notice.title });
       shown.on('click', () => {
         // ponytail: a reopened window's page may not listen yet, so then the click only brings ByteQuay back and keeps the alert.
         const window = this.window();

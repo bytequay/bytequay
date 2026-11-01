@@ -120,7 +120,8 @@ async function exercise(surface: 'task' | 'review', verifyCaching: boolean) {
       ...base(1002, 'latest'), type: 'approval_requested', payload: { approvalId: 'approval', approvalKind: 'COMMAND',
         title: 'Verify ordering', detail: 'npm test', scope: [], sandboxed: true, actionable: true, availableDecisions: ['ALLOW_ONCE', 'DENY'] },
     };
-    const approval: AgentPendingApprovalDto = { ...approvalEvent.payload, taskId: TASK_ID, turnId: 'latest', source: SOURCE, occurredAt: AT };
+    const approval: AgentPendingApprovalDto = { ...approvalEvent.payload, taskId: TASK_ID, turnId: 'latest', source: SOURCE, occurredAt: AT,
+      expiresAt: new Date(Date.parse(AT) + 300_000).toISOString() };
     const latest = agentTurn('RUNNING', { id: 'latest', taskId: TASK_ID, startedAt: AT });
     const updatedEvents = [...events, request(1001, 'latest', 'New durable request'), approvalEvent];
     payloadReads = 0;

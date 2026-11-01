@@ -437,6 +437,22 @@ it('also shows a new alert on macOS while the user is in another app, and closes
   host.stop();
 });
 
+it('sends an unanswered approval to macOS again in its last minute, once, with the time it has left', async () => {
+  const { host, read, window } = setup();
+  await host.refresh();
+  vi.spyOn(window, 'isFocused').mockReturnValue(false);
+  const approval = { ...notice, expiresAt: new Date(Date.now() + 150_000).toISOString() };
+  read.mockResolvedValue([approval]); await host.refresh();
+  expect(desktop.notifications).toHaveLength(1);
+  const first = desktop.notifications[0] as Shown;
+  expect(first.options).toEqual({ title: 'Approval needed · 3 min left', body: 'Build' });
+  read.mockResolvedValue([{ ...approval, expiresAt: new Date(Date.now() + 30_000).toISOString() }]); await host.refresh(); await host.refresh();
+  expect(desktop.notifications).toHaveLength(2);
+  expect(first.close).toHaveBeenCalledTimes(1);
+  expect((desktop.notifications[1] as Shown).options.title).toMatch(/^Approval needed · \d+ s left$/);
+  host.stop();
+});
+
 it.each(['refused', 'failed'] as const)('pauses macOS alerts until restart once one is %s, and keeps the in-app alerts', async failure => {
   const { host, read, window } = setup();
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});

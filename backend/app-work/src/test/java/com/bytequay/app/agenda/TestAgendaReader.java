@@ -173,7 +173,7 @@ class TestAgendaReader
         // A completed task keeps its finished notice; reading its findings through the closed tools would only fail on every refresh.
         when(notices.current()).thenReturn(ImmutableList.of(new AppNotice("finished:turn", AppNotice.Kind.TURN_FINISHED, "00000000-0000-0000-0000-000000000001", "workspace",
                 Optional.empty(), Optional.empty(), "Finished task", Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), "The response is ready.",
-                "owner/repository", "lane", Optional.empty(), NOW)));
+                "owner/repository", "lane", Optional.empty(), NOW, Optional.empty())));
 
         AgendaSnapshot snapshot = reader().read(LocalDate.parse("2026-10-16"), SINCE, false, ImmutableList.of(), AgendaCalendar.of("off"));
 

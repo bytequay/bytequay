@@ -14,7 +14,9 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { X } from 'lucide-react';
 import { ago } from '@bytequay/ui/relativeTime';
-import { APPROVAL_NOTICE, NOTICE_ACTIONS as ACTIONS, needsAction, noticeLabel as label, type AppNotice, type NoticeBridge, type NoticeSnapshot } from './contracts';
+import { useNow } from '../useNow';
+import { APPROVAL_NOTICE, APPROVAL_NUDGE_MS, NOTICE_ACTIONS as ACTIONS, approvalTimeLeft, needsAction, noticeLabel as label, type AppNotice, type NoticeBridge,
+  type NoticeSnapshot } from './contracts';
 
 const describe = (notice: AppNotice): string => `${label(notice)}: ${notice.pullRequestTitle ?? notice.title}`;
 const count = (value: number, noun: string): string => `${value} ${noun}${value === 1 ? '' : 's'}`;
@@ -35,11 +37,14 @@ function NoticeCard({ notice, active, onDismiss, onOpen }: { notice: AppNotice; 
   }, [actionable, active, hovered, focused]);
   const heading = notice.pullRequestTitle ?? notice.title;
   const changes = actionable ? null : notice.changes;
+  const now = useNow(notice.expiresAt !== undefined);
+  const left = notice.expiresAt === undefined ? null : approvalTimeLeft(notice.expiresAt, now);
   return <article className={`app-notice is-${notice.kind.toLowerCase()}`} aria-label={describe(notice)}
     onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
     onFocusCapture={() => setFocused(true)} onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}>
     <div className="app-notice__head"><span className="app-notice__dot" aria-hidden="true" /><span>{label(notice)}</span>
-      <time className="app-notice__time" dateTime={notice.occurredAt}>{ago(notice.occurredAt)}</time>
+      {left === null ? <time className="app-notice__time" dateTime={notice.occurredAt}>{ago(notice.occurredAt)}</time>
+        : <span className={`app-notice__time${left.urgent ? ' is-urgent' : ''}`}>{left.text} left</span>}
       <button type="button" className="app-notice__close" aria-label={`Close ${label(notice).toLowerCase()} notification`} onClick={() => onDismiss(true)}><X size={14} /></button>
     </div>
     <div className="app-notice__subject"><h2 title={heading}>{heading}</h2>
@@ -73,7 +78,10 @@ export default function NoticeStack({ bridge = window.noticeBridge }: { bridge?:
     void bridge.read().then(next => { if (!received) update(next); }).catch(() => {});
     return () => { active = false; stop(); };
   }, [bridge]);
-  const alert = state.notices.filter(notice => state.popupIds.includes(notice.id))
+  const popups = state.notices.filter(notice => state.popupIds.includes(notice.id));
+  // An approval's last-minute nudge comes back on top, even when newer alerts arrived after it.
+  const closing = popups.filter(notice => notice.expiresAt !== undefined && Date.parse(notice.expiresAt) - Date.now() <= APPROVAL_NUDGE_MS);
+  const alert = (closing.length > 0 ? closing : popups)
     .reduce<AppNotice | null>((newest, notice) => newest === null || Date.parse(notice.occurredAt) > Date.parse(newest.occurredAt) ? notice : newest, null);
   const shown = alert !== null;
   useLayoutEffect(() => {

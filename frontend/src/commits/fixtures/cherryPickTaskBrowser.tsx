@@ -46,7 +46,7 @@ function execution(stage: CherryPickExecution['lifecycle']['stage'], fixups: boo
 }
 
 const APPROVAL: AgentPendingApprovalDto = {
-  approvalId: 'ci-approval', taskId: 'ci-task', turnId: 'ci-turn', occurredAt: '2026-01-01T12:01:00Z',
+  approvalId: 'ci-approval', taskId: 'ci-task', turnId: 'ci-turn', occurredAt: '2026-01-01T12:01:00Z', expiresAt: '2026-01-01T12:06:00Z',
   source: { providerThreadId: 'thread-1', parentProviderThreadId: null, logicalAgentPath: null,
     providerTurnId: 'ci-turn', providerItemId: 'ci-approval', providerEventId: null },
   title: 'Allow Codex command', detail: 'mvn test', approvalKind: 'COMMAND', scope: ['run: mvn test'],

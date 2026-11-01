@@ -26,6 +26,9 @@ import java.util.concurrent.CompletionStage;
 @FunctionalInterface
 public interface AgentApprovalHandler
 {
+    /** How long every driver waits for the user's answer. */
+    Duration WAIT = Duration.ofMinutes(5);
+
     /**
      * Presents one provider permission request to ByteQuay for an explicit decision.
      *

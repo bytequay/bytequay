@@ -72,7 +72,6 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.SecureRandom;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Base64;
@@ -119,7 +118,6 @@ public final class PermissionBroker
             In Codex, use the unqualified bytequay_call_tool when available; it belongs to the main agent. Exploration
             children use their directly available read tools and report missing capabilities to the main agent.
             """;
-    private static final Duration APPROVAL_TIMEOUT = Duration.ofMinutes(5);
     /** Root-only gate for review sessions; see {@code review-child-gate.sh} for what it refuses and why. */
     private static final String CHILD_GATE_SCRIPT = readChildGateScript();
     /** Every call that starts a child, and every ByteQuay tool call, because a child inherits all of them. */
@@ -268,7 +266,7 @@ public final class PermissionBroker
             // Claude's HTTP first-response deadline otherwise expires after 60 seconds, before the approval card.
             String json = objectMapper.writeValueAsString(new McpConfiguration(ImmutableMap.of(
                     "bytequay",
-                    new McpServer("http", uri.toString(), ImmutableMap.of("Authorization", "Bearer " + token), APPROVAL_TIMEOUT.plusSeconds(30).toMillis(), true))));
+                    new McpServer("http", uri.toString(), ImmutableMap.of("Authorization", "Bearer " + token), AgentApprovalHandler.WAIT.plusSeconds(30).toMillis(), true))));
             writeOwnerOnly(configFile, json);
             if (childGate.isPresent()) {
                 writeOwnerOnly(childGateFile, childGateScript(context));
@@ -949,9 +947,9 @@ public final class PermissionBroker
         ProviderApprovalDecision decision;
         try {
             decision = context.approvals()
-                    .request(approval, APPROVAL_TIMEOUT)
+                    .request(approval, AgentApprovalHandler.WAIT)
                     .toCompletableFuture()
-                    .get(APPROVAL_TIMEOUT.plusSeconds(1).toMillis(), TimeUnit.MILLISECONDS);
+                    .get(AgentApprovalHandler.WAIT.plusSeconds(1).toMillis(), TimeUnit.MILLISECONDS);
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();

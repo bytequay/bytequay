@@ -26,6 +26,7 @@ import com.bytequay.agent.cli.process.ProcessSpec;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.cli.process.ProviderCli;
 import com.bytequay.agent.cli.process.SecretRedactor;
+import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDeliveryUncertainException;
@@ -170,7 +171,6 @@ public final class CodexCliDriver
     private static final Version REVIEW_CHILD_GATE_MINIMUM_RELEASE = Version.parse("0.156.1");
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(10);
-    private static final Duration APPROVAL_TIMEOUT = Duration.ofMinutes(5);
     private static final Duration READINESS_REUSE = Duration.ofMinutes(10);
     private static final Duration DEFAULT_QUIESCENCE_TIMEOUT = Duration.ofMinutes(2);
     private static final Duration QUIESCENCE_POLL = Duration.ofMillis(100);
@@ -2268,7 +2268,7 @@ public final class CodexCliDriver
         /** Asks ByteQuay to decide; the pending decision stays findable so a stopping session can settle it. */
         private CompletableFuture<ProviderApprovalDecision> ask(ProviderApprovalRequest approvalRequest, CodexProtocol.ServerRequest serverRequest)
         {
-            CompletableFuture<ProviderApprovalDecision> decision = context.approvals().request(approvalRequest, APPROVAL_TIMEOUT).toCompletableFuture();
+            CompletableFuture<ProviderApprovalDecision> decision = context.approvals().request(approvalRequest, AgentApprovalHandler.WAIT).toCompletableFuture();
             String requestId = String.valueOf(serverRequest.id());
             pendingApprovals.put(requestId, decision);
             decision.whenComplete((ignored, failure) -> pendingApprovals.remove(requestId, decision));

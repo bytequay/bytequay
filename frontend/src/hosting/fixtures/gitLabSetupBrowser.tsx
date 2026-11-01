@@ -199,10 +199,14 @@ export async function run() {
           assert(`${target.origin}${target.pathname}` === `${webBaseUrl.replace(/\/+$/, '')}/-/user_settings/personal_access_tokens`, 'Token page lost the selected server');
           assert(target.searchParams.get('name') === 'ByteQuay' && target.searchParams.get('scopes') === 'api', 'Token name or scopes differ');
         }
-        assert(opened.length === 2 && connections === 0 && token.value === '', 'Token shortcut must work without a token or a connection');
+        button('Page not found? Open the older token page', view.host).click(); await settle();
+        assert(new URL(opened.at(-1) ?? '').pathname === '/tools/-/profile/personal_access_tokens', 'Older token page lost the selected server');
+        changeInput(server, 'https://gitlab.com/'); await settle();
+        assert(!view.host.textContent?.includes('older token page'), 'GitLab.com has no older token page');
+        assert(opened.length === 3 && connections === 0 && token.value === '', 'Token shortcut must work without a token or a connection');
         for (const invalid of ['', 'not a URL', 'ftp://gitlab.example.com', 'https://user:password@gitlab.example.com', 'https://gitlab.example.com?query=yes', 'https://gitlab.example.com#fragment']) {
           changeInput(server, invalid); await settle(); button('Create access token', view.host).click(); await settle();
-          assert(opened.length === 2 && view.host.querySelector('[role="alert"]')?.textContent, `Invalid server must show an error without opening: ${invalid}`);
+          assert(opened.length === 3 && view.host.querySelector('[role="alert"]')?.textContent, `Invalid server must show an error without opening: ${invalid}`);
         }
         openingFails = true;
         changeInput(server, 'https://gitlab.com'); await settle(); button('Create access token', view.host).click();

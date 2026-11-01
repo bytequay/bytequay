@@ -95,8 +95,10 @@ export function GitLabConnectionForm({ server, onConnecting, onConnected }: {
       autoComplete="off" spellCheck={false} onChange={event => setToken(event.target.value)} /></label>
     <button type="button" className="setw-link" disabled={busy !== null} onClick={() => { void openTokenPage('/-/user_settings/personal_access_tokens'); }}>
       Create access token</button>
-    <button type="button" className="setw-link" disabled={busy !== null} onClick={() => { void openTokenPage('/-/profile/personal_access_tokens'); }}>
-      GitLab before 16.7</button>
+    {/* GitLab.com always runs the newest release, so only a company server can still have the old page. */}
+    {url.trim().replace(/\/+$/, '').toLowerCase() !== 'https://gitlab.com' &&
+      <button type="button" className="setw-link" disabled={busy !== null} onClick={() => { void openTokenPage('/-/profile/personal_access_tokens'); }}>
+        Page not found? Open the older token page</button>}
     <p>The shortcut preselects the required <code>api</code> permission. If your server does not preselect it, select it before generating the token.
       The token is stored encrypted on this Mac.</p>
     {error !== null && <ErrorDetails message={error} className="setw-error" />}

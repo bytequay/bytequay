@@ -27,7 +27,7 @@ import { useNow } from '../useNow';
 import { useResizablePane } from '../useResizablePane';
 import { LayerCovered } from '../Zoom';
 import { workspaceRoute } from '../workspaces/model';
-import type { ArtifactOfferDto, ArtifactPageDto, ArtifactRowDto, ArtifactViewDto } from './contracts';
+import type { ArtifactOfferDto, ArtifactPageDto, ArtifactReaderPage, ArtifactRowDto, ArtifactViewDto } from './contracts';
 import '../css/artifacts.css';
 
 const LIST_POLL_MS = 2_000;
@@ -121,6 +121,9 @@ function Conversation({ workspaceId, artifactId, initial, onBack }: {
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState<PendingMessage | null>(null);
   const [shown, setShown] = useState<string | null>(null);
+  useEffect(() => window.bridge.onArtifactReading(target => {
+    if (target.workspaceId === workspaceId && target.artifactId === artifactId) setShown(target.pageId);
+  }), [workspaceId, artifactId]);
   const [activityChoice, setActivityChoice] = useState<Record<string, boolean>>({});
   const [turnChoice, setTurnChoice] = useState<Record<string, boolean>>({});
   const live = useLive();
@@ -279,8 +282,7 @@ function Conversation({ workspaceId, artifactId, initial, onBack }: {
     {split && <>
       <div className="artifacts-divider" role="separator" aria-orientation="vertical" aria-label="Resize the conversation" title="Drag to resize"
         onMouseDown={event => startResize(event)} />
-      <PagePanel workspaceId={workspaceId} artifactId={artifactId} pages={pages} page={page} making={making} title={offer?.title ?? 'New page'} since={since}
-        onShow={setShown} />
+      <PagePanel workspaceId={workspaceId} artifactId={artifactId} pages={pages} page={page} title={offer?.title ?? 'New page'} since={since} />
     </>}
   </section>;
 }
@@ -326,39 +328,20 @@ function Notice({ text }: { text: string }) {
   </div>;
 }
 
-function PagePanel({ workspaceId, artifactId, pages, page, making, title, since, onShow }: {
-  workspaceId: string; artifactId: string; pages: ArtifactPageDto[]; page: ArtifactPageDto | null; making: boolean; title: string; since: string;
-  onShow: (pageId: string) => void;
+function PagePanel({ workspaceId, artifactId, pages, page, title, since }: {
+  workspaceId: string; artifactId: string; pages: ArtifactPageDto[]; page: ArtifactPageDto | null; title: string; since: string;
 }) {
-  const keys = [...new Set(pages.map(entry => entry.key))];
-  const newestOf = (key: string) => pages.filter(entry => entry.key === key).at(-1);
-  const versions = page === null ? [] : pages.filter(entry => entry.key === page.key);
   return <section className="artifacts-panel" aria-label="Page">
-    <header className="artifacts-bar artifacts-panel__bar">
-      {keys.length > 1
-        ? <div className="artifacts-tabs" aria-label="Pages">
-          {keys.map(key => {
-            const entry = newestOf(key);
-            return entry && <button key={key} type="button" className={`artifacts-tabs__tab${key === page?.key ? ' is-selected' : ''}`} aria-pressed={key === page?.key}
-              onClick={() => onShow(entry.id)}><FileText size={14} aria-hidden="true" />{entry.title}</button>;
-          })}
-        </div>
-        : <span className="artifacts-panel__title"><FileText size={15} aria-hidden="true" /><span>{page?.title ?? title}</span></span>}
-      {page !== null && <span className="artifacts-panel__commit" title={`Written from commit ${page.commit}`}>{page.commit.slice(0, 7)}</span>}
-      <span className="artifacts-spacer" />
-      <div className="artifacts-versions" aria-label="Versions">
-        {versions.map(entry => <button key={entry.id} type="button" className={entry.id === page?.id ? 'is-selected' : ''} aria-pressed={entry.id === page?.id}
-          onClick={() => onShow(entry.id)}>v{entry.version}</button>)}
-        {making && <span className="artifacts-versions__writing" title="Writing the page">
-          <span className="bq-spinner is-spinning"><LoaderCircle size={11} className="artifacts-spin" aria-hidden="true" /></span>v1 writing…
-        </span>}
-      </div>
-    </header>
     {page !== null
-      ? <ArtifactFrame workspaceId={workspaceId} artifactId={artifactId} pageId={page.id} />
-      : <div className="artifacts-panel__placeholder" role="status">
-        <span className="bq-spinner is-spinning"><LoaderCircle size={14} className="artifacts-spin is-accent" aria-hidden="true" /></span>Writing the page…<Elapsed since={since} />
-      </div>}
+      ? <ArtifactFrame workspaceId={workspaceId} artifactId={artifactId} pageId={page.id} pages={pages} />
+      : <>
+        <header className="artifacts-bar artifacts-panel__bar">
+          <span className="artifacts-panel__title"><FileText size={15} aria-hidden="true" /><span>{title}</span></span>
+        </header>
+        <div className="artifacts-panel__placeholder" role="status">
+          <span className="bq-spinner is-spinning"><LoaderCircle size={14} className="artifacts-spin is-accent" aria-hidden="true" /></span>Writing the page…<Elapsed since={since} />
+        </div>
+      </>}
   </section>;
 }
 
@@ -414,7 +397,8 @@ function usePoll(refresh: () => Promise<unknown>, active: boolean, ms: number): 
 }
 
 /** The page itself is a native view main lays over this box; it hides whenever app content covers the box. */
-function ArtifactFrame({ workspaceId, artifactId, pageId }: { workspaceId: string; artifactId: string; pageId: string }) {
+function ArtifactFrame({ workspaceId, artifactId, pageId, pages }: { workspaceId: string; artifactId: string; pageId: string; pages: ArtifactPageDto[] }) {
+  const book = JSON.stringify(pages.map(({ id, key, version, title, commit }) => ({ id, key, version, title, commit })));
   const element = useRef<HTMLDivElement>(null);
   const sent = useRef<string | null>(null);
   const covered = useContext(LayerCovered);
@@ -427,6 +411,7 @@ function ArtifactFrame({ workspaceId, artifactId, pageId }: { workspaceId: strin
   useEffect(() => {
     const frame = element.current;
     if (frame === null) return;
+    const readerPages = JSON.parse(book) as ArtifactReaderPage[];
     let live = true;
     let awaitingPage = true;
     const present = (allowFocusRestore = true) => {
@@ -434,7 +419,7 @@ function ArtifactFrame({ workspaceId, artifactId, pageId }: { workspaceId: strin
       const box = frame.getBoundingClientRect();
       const active = error === null && !covered && box.width > 0 && box.height > 0;
       const visible = active && !obscured;
-      const target = active ? { workspaceId, artifactId, pageId } : null;
+      const target = active ? { workspaceId, artifactId, pageId, pages: readerPages } : null;
       const bounds = visible ? { x: box.x, y: box.y, width: box.width, height: box.height } : null;
       // Every DOM change anywhere in the app lands here; only a real change reaches main.
       const key = JSON.stringify([target, bounds, attempt, allowFocusRestore]);
@@ -466,7 +451,7 @@ function ArtifactFrame({ workspaceId, artifactId, pageId }: { workspaceId: strin
     document.addEventListener('focusin', focus);
     layout();
     return () => { live = false; resize.disconnect(); dialogs.disconnect(); window.removeEventListener('resize', layout); document.removeEventListener('focusin', focus); };
-  }, [artifactId, attempt, covered, error, pageId, workspaceId, invalidateBackground]);
+  }, [artifactId, attempt, book, covered, error, pageId, workspaceId, invalidateBackground]);
 
   useEffect(() => () => { void window.bridge.showArtifact(null, null).catch(() => {}); }, []);
 

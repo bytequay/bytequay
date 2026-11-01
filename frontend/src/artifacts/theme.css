@@ -41,8 +41,10 @@
 /* Base */
 *,*::before,*::after{box-sizing:border-box}
 html{background:var(--bq-page)}
-body{margin:0;padding:36px 36px 64px;font:14px/1.7 var(--bq-sans);color:var(--bq-fg);background:var(--bq-page);-webkit-font-smoothing:antialiased;text-wrap:pretty}
-main{max-width:760px;margin:0 auto}
+body{margin:0;padding:36px 36px 64px;font:14px/1.7 var(--bq-sans);color:var(--bq-fg);background:var(--bq-page);-webkit-font-smoothing:antialiased;text-wrap:pretty;overflow-wrap:anywhere}
+main{min-width:0;max-width:760px;margin:0 auto}
+img,video,svg{max-width:100%}
+img,video{height:auto}
 @media (max-width:520px){body{padding:24px 18px 44px}}
 h1{font-size:26px;line-height:1.2;font-weight:600;letter-spacing:-.015em;margin:0 0 18px}
 h2{font-size:18px;line-height:1.3;font-weight:600;letter-spacing:-.01em;margin:40px 0 12px}
@@ -83,12 +85,12 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 tr.is-dropped td{color:var(--bq-dim);text-decoration:line-through}
 
 /* Cards — .card on its own, or .cards for a two-up comparison */
-.card{background:var(--bq-surface);border:1px solid var(--bq-line);border-radius:12px;padding:18px 20px 16px}
+.card{min-width:0;background:var(--bq-surface);border:1px solid var(--bq-line);border-radius:12px;padding:18px 20px 16px}
 .card.is-accent{border-color:var(--bq-accent)}
 .card.is-quiet{border-style:dashed;border-color:var(--bq-border)}
 .card>:last-child{margin-bottom:0}
 .card pre{margin:12px 0}
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin:0 0 20px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:16px;margin:0 0 20px}
 
 /* In short — <aside class="in-short"><p>…</p></aside> */
 .in-short{margin:0 0 28px;padding:18px 20px;background:var(--bq-surface);border:1px solid var(--bq-line);border-radius:12px;font-size:15px;line-height:1.6}
@@ -120,7 +122,7 @@ figcaption{margin-top:12px;padding:0 2px;font-size:13px;line-height:1.6;color:va
 .label.is-accent,.node .label.is-accent{fill:var(--bq-accent);font-weight:600}
 
 /* Citations — <span class="cite">path:line</span> */
-.cite{font:12px/1.4 var(--bq-mono);color:var(--bq-accent);white-space:nowrap}
+.cite{font:12px/1.4 var(--bq-mono);color:var(--bq-accent);white-space:normal;overflow-wrap:anywhere}
 /* Steps — <ol class="steps"><li><strong>Title.</strong> Body <span class="cite">…</span></li></ol> */
 ol.steps{list-style:none;counter-reset:step;padding:0;margin:0 0 24px}
 ol.steps>li{counter-increment:step;position:relative;padding-left:48px;margin:0 0 26px;color:var(--bq-muted)}

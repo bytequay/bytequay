@@ -41,10 +41,13 @@ read-only agent session on the workspace's Development model in a scratch
 checkout of the default branch, recorded as the same agent events a task
 records. The pages the agent saves are stored in SQLite with their versions and
 shown in a sandboxed `WebContentsView` with its own in-memory partition and no
-preload. Each page is its own origin on the `bytequay-artifact` scheme, served
-from its stored HTML under a content security policy that allows only inline
-scripts and styles and the app theme; navigation and new windows are refused, so
-a page reaches nothing outside itself.
+preload. An app-owned reader on the `bytequay-artifact` scheme stacks the saved
+pages in opaque-origin sandboxed frames. Each page is served from its stored HTML
+under a content security policy that allows only inline scripts and styles and
+the app theme. Pages report their height and headings to the reader for continuous
+scrolling and its index, but cannot access the reader or other pages. Only the
+reader may load a saved version into a frame; page navigation, new windows and
+external access remain refused.
 
 App notices project existing task, turn, approval, and queue state through the
 authenticated `/agent/notices` endpoint. Electron polls this local snapshot and

@@ -35,6 +35,7 @@ import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.PullRequestTaskStore;
+import com.google.common.collect.ImmutableList;
 
 import java.util.HashSet;
 import java.util.List;
@@ -122,6 +123,15 @@ public final class DevelopmentCiOwnership
                 .ifPresent(run -> {
                     throw new AgentConflictException("CI Autofix owns this task branch; stop its run before starting source work");
                 });
+    }
+
+    /** The CI repair tasks that work in the development task's checkout, in any state. */
+    List<AgentTask> repairTasks(TaskId parent)
+    {
+        return tasks.find(parent).flatMap(AgentTask::workspaceId).map(tasks::listByWorkspace).orElseGet(ImmutableList::of).stream()
+                .filter(task -> !task.id().equals(parent) && task.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX
+                        && task.taskWorktree().map(TaskWorktree::taskId).filter(parent::equals).isPresent())
+                .collect(toImmutableList());
     }
 
     /** Revocation is immediate; callers drain admitted actions before stopping provider processes. */

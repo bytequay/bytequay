@@ -46,6 +46,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 
@@ -75,6 +76,7 @@ public final class DefaultAgentCompletionService
     private final Supplier<Duration> retentionPeriod;
     private final Clock clock;
     private final UnaryOperator<AgentTask> idleWorktreePreparation;
+    private final Consumer<TaskId> closeAutomatedBorrowers;
 
     public DefaultAgentCompletionService(
             AgentTaskStore taskStore,
@@ -90,7 +92,8 @@ public final class DefaultAgentCompletionService
             AgentMetricsService metricsService,
             Supplier<Duration> retentionPeriod,
             Clock clock,
-            UnaryOperator<AgentTask> idleWorktreePreparation)
+            UnaryOperator<AgentTask> idleWorktreePreparation,
+            Consumer<TaskId> closeAutomatedBorrowers)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
@@ -107,12 +110,14 @@ public final class DefaultAgentCompletionService
         this.retentionPeriod = requireNonNull(retentionPeriod, "retentionPeriod is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.idleWorktreePreparation = requireNonNull(idleWorktreePreparation, "idleWorktreePreparation is null");
+        this.closeAutomatedBorrowers = requireNonNull(closeAutomatedBorrowers, "closeAutomatedBorrowers is null");
     }
 
     @Override
     public TaskCompletion complete(CompleteAgentTaskCommand command)
     {
         requireNonNull(command, "command is null");
+        closeAutomatedBorrowers(command.taskId());
         runtimeRegistry.retireIdleSessions(command.taskId(), true);
         drainPending(outboxStore, eventService, command.taskId());
         AgentTask task = claimCompletion(command.taskId());
@@ -299,8 +304,9 @@ public final class DefaultAgentCompletionService
     @Override
     public void cleanupWorktree(TaskId taskId)
     {
-        runtimeRegistry.retireIdleSessions(taskId, true);
         requireNonNull(taskId, "taskId is null");
+        closeAutomatedBorrowers(taskId);
+        runtimeRegistry.retireIdleSessions(taskId, true);
         synchronized (runtimeRegistry.taskLock(taskId)) {
             AgentTask task = taskStore.require(taskId);
             if (!task.state().terminal()) {
@@ -330,8 +336,9 @@ public final class DefaultAgentCompletionService
     @Override
     public void cleanup(TaskId taskId)
     {
-        runtimeRegistry.retireIdleSessions(taskId, true);
         requireNonNull(taskId, "taskId is null");
+        closeAutomatedBorrowers(taskId);
+        runtimeRegistry.retireIdleSessions(taskId, true);
         synchronized (runtimeRegistry.taskLock(taskId)) {
             AgentTask task = taskStore.require(taskId);
             if (!task.state().terminal()) {
@@ -415,6 +422,17 @@ public final class DefaultAgentCompletionService
                     throw new AgentConflictException("Task worktree is claimed by " + claim.kind() + "; it cannot be deleted yet");
                 });
         return true;
+    }
+
+    /**
+     * Automation working in a task's checkout, such as its CI repair, closes before the task completes or gives the checkout up, so
+     * it never blocks either. Called outside the task lock: closing completes those tasks, which takes the same lock.
+     */
+    private void closeAutomatedBorrowers(TaskId taskId)
+    {
+        if (taskStore.find(taskId).filter(AgentTask::ownsWorktree).filter(task -> task.worktreeRemovedAt().isEmpty()).isPresent()) {
+            closeAutomatedBorrowers.accept(taskId);
+        }
     }
 
     private void requireNoDevelopmentContinuation(AgentTask task)

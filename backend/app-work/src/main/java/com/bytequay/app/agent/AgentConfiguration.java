@@ -440,6 +440,7 @@ public class AgentConfiguration
             AppSettingsService appSettings,
             ObjectProvider<DevelopmentBranchService> branches,
             ObjectProvider<AgentStartupRecovery> recovery,
+            ObjectProvider<CiAutofixService> ci,
             Clock agentClock)
     {
         return new DefaultAgentCompletionService(
@@ -462,7 +463,8 @@ public class AgentConfiguration
                         recovery.getObject().requireRecoveredRuntimeStopped(task.id());
                     }
                     return branches.getObject().recover(task);
-                });
+                },
+                taskId -> ci.ifAvailable(service -> service.closeDevelopment(taskId)));
     }
 
     @Bean

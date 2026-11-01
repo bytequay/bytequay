@@ -48,6 +48,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.agent.runtime.AgentServingGate;
 import com.bytequay.app.agent.runtime.AgentStartupRecovery;
+import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
@@ -183,7 +184,7 @@ class TestAgentCleanupRecovery
     {
         return new AgentConfiguration().agentCompletionService(tasks, turns, mock(QueuedInputStore.class), unitOfWork, outbox, events, mock(TaskLogStore.class),
                 worktrees, resources, runtime, mock(AgentMetricsService.class), settings, beans.getBeanProvider(DevelopmentBranchService.class),
-                beans.getBeanProvider(AgentStartupRecovery.class), Clock.fixed(now, ZoneOffset.UTC));
+                beans.getBeanProvider(AgentStartupRecovery.class), beans.getBeanProvider(CiAutofixService.class), Clock.fixed(now, ZoneOffset.UTC));
     }
 
     private static AgentProcessLaunch launch(String launchId, TaskId taskId)

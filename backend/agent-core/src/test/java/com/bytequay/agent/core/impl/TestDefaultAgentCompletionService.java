@@ -65,6 +65,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
@@ -102,6 +103,7 @@ class TestDefaultAgentCompletionService
     private AgentRuntimeRegistry runtimeRegistry;
     private TaskId taskId;
     private UnaryOperator<AgentTask> idleWorktreePreparation = task -> task;
+    private Consumer<TaskId> closeAutomatedBorrowers = ignored -> {};
 
     @BeforeEach
     void setUp()
@@ -131,6 +133,31 @@ class TestDefaultAgentCompletionService
         service.delete(reviewerId);
         assertThat(worktrees.deleted).isEmpty();
         assertThat(stores.find(taskId)).contains(owner);
+    }
+
+    @Test
+    void closesAutomationInTheCheckoutBeforeTheOwnerCompletesAndKeepsTheOwnerWhenThatFails()
+    {
+        AgentTask owner = stores.find(taskId).orElseThrow();
+        TaskId repairId = TaskId.random();
+        stores.insert(created(repairId, false, "CI Autofix", TitleSource.USER, owner.laneId(), owner.taskWorktree().orElseThrow(), owner.defaults(), NOW));
+        DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC));
+        closeAutomatedBorrowers = ignored -> {
+            throw new AgentConflictException("CI Autofix is still repairing this task branch");
+        };
+
+        assertThatThrownBy(() -> service.complete(new CompleteAgentTaskCommand(taskId, Optional.empty()))).hasMessageContaining("still repairing");
+        assertThat(stores.find(taskId).orElseThrow().state()).isEqualTo(TaskState.OPEN);
+
+        List<TaskId> closed = new ArrayList<>();
+        closeAutomatedBorrowers = closing -> {
+            closed.add(closing);
+            service.complete(new CompleteAgentTaskCommand(repairId, Optional.empty()));
+        };
+        service.complete(new CompleteAgentTaskCommand(taskId, Optional.empty()));
+
+        assertThat(closed).containsExactly(taskId);
+        assertThat(stores.find(taskId).orElseThrow().state()).isEqualTo(TaskState.COMPLETED);
     }
 
     @Test
@@ -516,7 +543,7 @@ class TestDefaultAgentCompletionService
         StaticTaskLog log = new StaticTaskLog(taskId);
         DefaultAgentCompletionService service = new DefaultAgentCompletionService(refusing, stores, stores, stores, stores,
                 new DefaultAgentEventService(log, stores, stores, clock), log, worktrees, resources, runtimeRegistry, metrics,
-                () -> Duration.ofDays(7), clock, task -> idleWorktreePreparation.apply(task));
+                () -> Duration.ofDays(7), clock, task -> idleWorktreePreparation.apply(task), ignored -> {});
 
         assertThatThrownBy(() -> service.delete(taskId))
                 .isInstanceOf(AgentConflictException.class)
@@ -772,7 +799,8 @@ class TestDefaultAgentCompletionService
                 metrics,
                 () -> Duration.ofDays(7),
                 clock,
-                task -> idleWorktreePreparation.apply(task));
+                task -> idleWorktreePreparation.apply(task),
+                taskId -> closeAutomatedBorrowers.accept(taskId));
     }
 
     private static final class StaticTaskLog

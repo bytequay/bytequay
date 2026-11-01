@@ -4277,7 +4277,8 @@ class TestDefaultAgentTurnService
                 metrics,
                 () -> Duration.ofDays(7),
                 CLOCK,
-                task -> task);
+                task -> task,
+                ignored -> {});
     }
 
     private DefaultAgentApprovalService durableApprovals(AgentRuntimeRegistry runtimeRegistry)

@@ -30,6 +30,7 @@ import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.AgentTurnSettings;
+import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.EventId;
@@ -2080,6 +2081,29 @@ class TestCiAutofixService
         verify(completionService).complete(any());
         verify(completionService).cleanupWorktree(taskId);
         verify(completionService, never()).delete(any());
+        verify(gitService, never()).push(any());
+    }
+
+    @Test
+    void closingTheDevelopmentTaskWaitsForARepairThenStopsItsRunsAndClosesItsRepairTask()
+    {
+        AgentTask parent = developmentParent();
+        CiAutofixRun run = service.startDevelopment(startCommand("owned-close"), openParent(parent), publishedPr(), NOW);
+        assertThat(run.currentTurnId()).isPresent();
+        assertThatThrownBy(() -> service.closeDevelopment(parent.id())).isInstanceOf(AgentConflictException.class).hasMessageContaining("still repairing");
+
+        store.update(store.run.pause(PauseReason.TURN_INTERRUPTED, "Approval request timed out", NOW));
+        when(turnService.stopImpact(taskId)).thenReturn(new AgentRuntimeStopImpact(taskId, "generation", Optional.empty(), false));
+        when(turnService.stopRuntime(taskId, "generation")).thenReturn(activeTask());
+        AgentTask repair = created(TaskId.random(), false, "CI Autofix", TitleSource.USER, AgentLaneId.CLAUDE_CLI, parent.taskWorktree().orElseThrow(),
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.CI_AUTOFIX), NOW);
+        when(taskStore.listByWorkspace("workspace-1")).thenReturn(ImmutableList.of(parent, repair));
+
+        service.closeDevelopment(parent.id());
+
+        assertThat(store.run.finishReason()).contains(FinishReason.CANCELLED);
+        verify(completionService).complete(new CompleteAgentTaskCommand(repair.id(), Optional.of("The development task closed")));
+        verify(completionService).cleanupWorktree(repair.id());
         verify(gitService, never()).push(any());
     }
 

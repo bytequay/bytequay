@@ -478,6 +478,26 @@ public class CiAutofixService
         stopRuns(parentTaskId, run -> true, FinishReason.CANCELLED, "Development task stopped; local and remote results were preserved");
     }
 
+    /**
+     * Ends a development task's CI before the task completes or gives up its checkout: its runs stop and the repair task working in
+     * that checkout closes. A repair still writing is waited for, as the task's own completion would.
+     */
+    public void closeDevelopment(TaskId parentTaskId)
+    {
+        if (store.listByParentTaskId(parentTaskId.toString()).stream().anyMatch(DevelopmentCiOwnership::writing)) {
+            throw new AgentConflictException("CI Autofix is still repairing this task branch; wait for it or stop it first");
+        }
+        stopDevelopment(parentTaskId);
+        for (AgentTask repair : ownership.repairTasks(parentTaskId)) {
+            if (repair.state() == TaskState.OPEN) {
+                completionService.complete(new CompleteAgentTaskCommand(repair.id(), Optional.of("The development task closed")));
+            }
+            if (repair.worktreeRemovedAt().isEmpty()) {
+                completionService.cleanupWorktree(repair.id());
+            }
+        }
+    }
+
     /** Stops repairs still writing the development task's branch, so the user's turn goes first; runs that only watch CI continue. */
     public void stopWriters(TaskId parentTaskId)
     {
@@ -575,6 +595,7 @@ public class CiAutofixService
                 return null;
             });
         }
+        ownership.repairTasks(parentTaskId).forEach(repair -> completionService.delete(repair.id()));
     }
 
     private Optional<AgentTask> findChild(TaskId taskId)

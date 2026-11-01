@@ -17,7 +17,6 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { jiraLocation, jiraRoute } from './contracts';
 import { jiraAttentionItems } from './attention';
 import { JiraIssueActions } from './JiraScreen';
-import { JiraRequestCard } from './JiraSourceAttachment';
 import { jiraIssue } from './fixtures/jira';
 import { parseAgentTask } from '../agents/contracts';
 import { createTaskCreationTracker } from '../agents/model';
@@ -50,12 +49,10 @@ describe('Jira development', () => {
     expect(renderToStaticMarkup(<JiraIssueActions issue={{ ...jiraIssue, status: { id: 'done', name: 'Done', category: 'done' } }} onEpic={() => {}} onStart={() => {}} />)).not.toContain('Use agent to develop');
     expect(renderToStaticMarkup(<JiraIssueActions issue={{ ...jiraIssue, hasChildren: true }} onEpic={() => {}} onStart={() => {}} />)).not.toContain('Use agent to develop');
   });
-  it('strips unknown task source data and displays a compact request', () => {
+  it('strips unknown task source data', () => {
     const taskSource = { ...source, url: jiraIssue.url, initialTurnId: 'turn', instructions: 'Implement the ticket', internalSecret: 'not-for-renderer' };
     const parsed = parseAgentTask({ ...fixture.task, jiraSource: taskSource });
     expect(parsed.jiraSource).not.toHaveProperty('internalSecret');
-    const markup = renderToStaticMarkup(<JiraRequestCard source={{ ...source, url: jiraIssue.url, initialTurnId: 'turn', instructions: 'Implement the ticket' }} />);
-    expect(markup).toContain('Start development'); expect(markup).toContain('ENG-1007'); expect(markup).not.toContain(jiraIssue.body);
   });
 
   it('keeps an ambiguous create request stable and renews identity when the source changes', () => {

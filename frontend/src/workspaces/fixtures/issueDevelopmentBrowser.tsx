@@ -271,16 +271,17 @@ export async function mountIssueConversation(running = false): Promise<{ x: numb
   assert(sourceBox.height <= 44 && composerBox.top - sourceBox.bottom >= 0 && composerBox.top - sourceBox.bottom <= 12,
     'Source must remain compact immediately above input');
   assert(sourceBox.right <= innerWidth && sourceBox.left >= 0 && composerBox.bottom <= innerHeight, 'Dock must fit the viewport');
-  assert(!conversationHost.textContent?.includes('INTERNAL GENERATED'), 'Provider prompt must never appear in the request card');
-  const request = conversationHost.querySelector<HTMLElement>('.agt-issue-request .agt-user__request');
-  assert(request !== null && request.textContent === 'Start developmentupstream/app#7' && conversationHost.textContent?.includes('flow.png') === true,
-    'Compact first request must retain the source and image attachments, including on old backend responses');
+  const request = conversationHost.querySelector<HTMLElement>('.agt-instruction');
+  assert(request !== null && request.querySelector('.agt-instruction__row')?.textContent === 'Start developmentupstream/app#7'
+    && request.textContent?.includes('flow.png') === true,
+  'Compact first request must retain the source and image attachments, including on old backend responses');
+  assert(!conversationHost.innerText.includes('INTERNAL GENERATED') && request.querySelector('.agt-instruction__prompt > pre')?.textContent?.includes('INTERNAL GENERATED') === true,
+    'The provider prompt must stay folded inside the request card');
   assert(request.getBoundingClientRect().height <= 44 && request.getBoundingClientRect().right <= innerWidth,
     'First request must stay a compact row at normal and narrow widths');
-  const reference = request.querySelector<HTMLElement>('.agt-user__request-head');
+  const reference = request.querySelector<HTMLElement>('.agt-instruction__topic');
   assert(reference !== null && reference.clientWidth >= reference.scrollWidth,
     'The issue reference must remain readable at normal and narrow widths');
-  assert(conversationHost.querySelector('.agt-review-request') === null, 'Issue request must not offer prompt disclosure');
   if (running) {
     const plan = conversationHost.querySelector<HTMLElement>('.agt-todos');
     const transcript = conversationHost.querySelector<HTMLElement>('.agt-transcript');
@@ -323,8 +324,7 @@ export async function verifyIssueKeyboard(): Promise<void> {
   document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   await settle();
   assert(document.querySelector('.ref-card') === null && document.activeElement === source, 'Escape must close preview and return focus');
-  assert(!conversationHost.textContent?.includes('INTERNAL GENERATED') && conversationHost.querySelector('.agt-review-request') === null,
-    'Source interaction never exposes provider prompt or adds request disclosure');
+  assert(!conversationHost.innerText.includes('INTERNAL GENERATED'), 'Source interaction never unfolds the provider prompt');
 }
 
 export function unmountIssueConversation(): void {

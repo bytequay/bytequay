@@ -12,7 +12,6 @@
  * limitations under the License.
  */
 
-import type { ReactNode } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { zoomReference } from '../githubReference';
 import type { JiraTaskSource } from './contracts';
@@ -27,10 +26,4 @@ export function JiraSourceAttachment({ source }: { source: Source }) {
     </button>
     <button type="button" className="agt-headbtn" title="View ticket" aria-label={`View ticket ${source.key}`} onClick={open}><ExternalLink size={14} /></button>
   </div>;
-}
-export function JiraRequestCard({ source, attachments }: { source: JiraTaskSource; attachments?: ReactNode }) {
-  return <div className="agt-issue-request"><div className="agt-user__request">
-    <JiraIcon aria-hidden="true" /><span className="agt-user__request-action">Start development</span>
-    <span className="agt-user__request-head" title={source.title}>{source.key}</span>
-  </div>{attachments}</div>;
 }

@@ -13,7 +13,7 @@
  */
 
 import { useEffect, type RefObject } from 'react';
-import type { ReviewCardFocus, ReviewRequestTarget } from './ReviewRequestCard';
+import type { ReviewCardFocus, ReviewRequestTarget } from './InstructionCard';
 
 /** Search only the destination pane: the transcript may contain another copy of this discussion. */
 export function focusReviewCard(container: HTMLElement, target: ReviewRequestTarget): boolean {

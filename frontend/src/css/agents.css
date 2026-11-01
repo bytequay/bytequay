@@ -3901,10 +3901,6 @@ button:is(.agt-type-chip, .agt-type-tile) {
 
 .agt-user__attribution { color: var(--fg-muted); font-size: 11px; font-weight: 600; margin-bottom: 6px; }
 
-/*
- * ByteQuay's create-PR request reads as the action it asks for. In a narrow column the head branch
- * gives way first, then the label; the base branch always stays whole.
- */
 .agt-user__request {
   display: flex;
   align-items: center;
@@ -3921,34 +3917,6 @@ button:is(.agt-type-chip, .agt-type-tile) {
   white-space: nowrap;
 }
 
-.agt-user__request > svg {
-  flex: none;
-  width: 16px;
-  height: 16px;
-  color: var(--fg-dim);
-}
-
-.agt-user__request-action,
-.agt-user__request-head {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.agt-user__request-action {
-  font-weight: 500;
-}
-
-/* A zero basis gives the head only the room left over, so the label shrinks only once it is gone. */
-.agt-user__request-head {
-  flex: 1 1 0;
-  color: var(--fg-muted);
-}
-
-.agt-issue-request { display: flex; flex-direction: column; align-items: flex-end; min-width: 0; max-width: 76%; }
-.agt-issue-request > .agt-user__request { max-width: 100%; }
-.agt-issue-request > .agt-user__files { justify-content: flex-end; margin: 8px 0 0; }
-
 .agt-work-request { display: block; width: min(100%, max(76%, 360px)); max-width: 100%; padding: 14px 16px; white-space: normal; overflow-wrap: anywhere; }
 .agt-work-request__label { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; color: var(--fg-muted); font-size: 11.5px; }
 .agt-work-request__title { display: block; color: var(--fg-default); font-weight: 600; text-decoration: none; }
@@ -3963,44 +3931,45 @@ button:is(.agt-type-chip, .agt-type-tile) {
 
 .agt-local-review { margin: 16px 0; min-width: 0; }
 
-/* Review actions use the same green header as their private destination cards. */
-.agt-review-request {
-  display: block;
-  width: min(100%, max(76%, 360px));
-  max-width: 100%;
-  padding: 0;
-  white-space: normal;
-  border-color: light-dark(#cce4df, var(--dark-teal-border));
+/* An instruction is one quiet full-width row; it unfolds to the exact prompt the agent received. */
+.agt-instruction {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid light-dark(#e4e6ea, var(--dark-border));
+  border-radius: 10px;
+  background: var(--surface-canvas);
 }
 
-.agt-review-request__bar { display: flex; align-items: stretch; background: light-dark(#e8f4f1, var(--dark-subtle)); }
-.agt-review-request__open,
-.agt-review-request__toggle { border: 0; background: none; color: inherit; cursor: pointer; }
-.agt-review-request__open { display: flex; flex: 1; min-width: 0; align-items: center; gap: 8px; padding: 9px 0 9px 14px; text-align: left; font: inherit; }
-.agt-review-request__open > svg { flex: none; width: 16px; height: 16px; color: light-dark(#4d8075, var(--dark-teal)); }
-.agt-review-request__toggle { display: grid; place-items: center; flex: none; padding: 9px 12px; color: light-dark(#4d8075, var(--dark-teal)); }
-.agt-review-request__toggle > svg { width: 16px; height: 16px; }
-.agt-review-request__toggle[aria-expanded="true"] > svg { transform: rotate(180deg); }
-.agt-review-request__open:hover,
-.agt-review-request__toggle:hover { background: light-dark(#d9eee7, var(--dark-green-soft)); }
-.agt-review-request__open:focus-visible,
-.agt-review-request__toggle:focus-visible { outline: 2px solid light-dark(#27845d, var(--dark-green)); outline-offset: -3px; border-radius: 6px; }
-.agt-review-request__heading { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.agt-user:is(.is-review-fix, .is-development-request) .agt-review-request__heading { flex-direction: column; align-items: stretch; gap: 2px; }
-.agt-review-request__heading .agt-user__request-action { flex: none; }
-.agt-review-request__topic { min-width: 0; color: light-dark(#476b61, var(--dark-green)); }
-.agt-review-request__topic,
-.agt-review-request__preview { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.agt-review-request__preview { padding: 7px 14px 9px 38px; color: var(--fg-muted); }
-.agt-review-request__summary { display: flex; align-items: center; gap: 8px; padding: 9px 14px; }
-.agt-review-request__summary > svg { flex: none; width: 16px; height: 16px; color: light-dark(#4d8075, var(--dark-teal)); }
-.agt-review-request__content { padding: 12px 14px; border-top: 1px solid light-dark(#cce4df, var(--dark-teal-border)); overflow-wrap: anywhere; }
-.agt-review-request__body { white-space: pre-wrap; }
-.agt-review-request__body > .agt-md { line-height: 1.6; }
-.agt-review-request__body .agt-md li + li { margin-top: 6px; }
-.agt-review-request__detail { margin-bottom: 8px; color: light-dark(#6e7781, var(--dark-muted)); font-size: 11.5px; }
-.agt-review-request.is-open .agt-review-request__heading { flex-wrap: wrap; gap: 0 8px; }
-.agt-review-request.is-open .agt-review-request__topic { white-space: normal; overflow-wrap: anywhere; }
+.agt-instruction__row { display: flex; align-items: center; height: 36px; }
+.agt-instruction__row:hover { background: light-dark(#f6f7f8, var(--dark-hover)); }
+.agt-instruction__open,
+.agt-instruction__toggle { height: 100%; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+.agt-instruction__open { display: flex; flex: 1; min-width: 0; align-items: center; gap: 8px; padding: 0 0 0 11px; text-align: left; }
+.agt-instruction__toggle { display: grid; place-items: center; flex: none; padding: 0 10px 0 8px; color: var(--fg-dim); }
+.agt-instruction__toggle > svg { width: 14px; height: 14px; transition: transform 0.18s; }
+.agt-instruction__toggle[aria-expanded="true"] > svg { transform: rotate(180deg); }
+.agt-instruction__open:focus-visible,
+.agt-instruction__toggle:focus-visible { outline: 2px solid var(--fg-link); outline-offset: -3px; border-radius: 6px; }
+.agt-instruction__icon { flex: none; width: 14px; height: 14px; color: light-dark(#6b7280, var(--dark-muted)); }
+.agt-instruction__icon.lucide-git-pull-request { width: 15px; height: 15px; color: var(--fg-success); }
+.agt-instruction__action { flex: none; max-width: 70%; font-size: 13px; font-weight: 600; }
+.agt-instruction__action,
+.agt-instruction__topic,
+.agt-instruction__text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.agt-instruction__topic { flex: 1; min-width: 0; color: var(--fg-dim); font: 11.5px var(--mono); }
+.agt-instruction__text { flex: 1; min-width: 0; font-size: 13px; }
+
+.agt-instruction__content { border-top: 1px solid light-dark(#eceef0, var(--dark-border-muted)); background: light-dark(#f8f9fa, var(--dark-subtle)); }
+.agt-instruction__extra { padding: 10px 12px 0; font-size: 13px; overflow-wrap: anywhere; }
+.agt-instruction__extra > .agt-user__files { margin-bottom: 0; }
+.agt-instruction__prompt { position: relative; }
+.agt-instruction__prompt > pre { max-height: 180px; overflow: auto; margin: 0; padding: 10px 36px 12px 12px; color: light-dark(#3d444d, var(--dark-muted)); font: 11.5px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.agt-instruction__prompt > .pr-copy-button { position: absolute; top: 6px; right: 6px; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: light-dark(#f8f9fa, var(--dark-subtle)); color: light-dark(#6b7280, var(--dark-muted)); cursor: pointer; }
+.agt-instruction__prompt > .pr-copy-button:hover { background: light-dark(#e8eaed, var(--dark-hover)); color: var(--fg-default); }
+.agt-instruction__prompt > .pr-copy-button.is-copied { color: var(--fg-success); }
+.agt-instruction__prompt > .pr-copy-button svg { width: 13px; height: 13px; }
+.agt-instruction__prompt .pr-copy-button__message { width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); padding: 0; }
 
 [data-review-card]:focus,
 [data-local-review-thread]:focus,

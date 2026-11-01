@@ -23,11 +23,11 @@ import type { TranscriptTurn } from './transcript';
 
 const base = parseAgentTurn(contracts.turn);
 const cases = [
-  ['CHERRY_PICK', 'Resolve only this cherry-pick.\nSubject: Fix scan', 'Resolve cherry-pick', 'single fixup commit'],
-  ['REBASE', 'Resolve only this rebase conflict.\nWork branch: topic', 'Resolve rebase', 'No commits or publication'],
-  ['CONTEXT_BUILD', 'Check the code in directory x', 'Check specifications', 'No builds, file edits or publication'],
-  ['CONTEXT_BUILD', 'Reproduce one spec check candidate', 'Verify specification gap', 'Temporary test only'],
-  ['CONTEXT_BUILD', 'Learn repository memory for a/b', 'Learn repository memory', 'User-owned memories stay unchanged'],
+  ['CHERRY_PICK', 'Resolve only this cherry-pick.\nSubject: Fix scan', 'Resolve cherry-pick', 'Fix scan'],
+  ['REBASE', 'Resolve only this rebase conflict.\nWork branch: topic', 'Resolve rebase', 'topic'],
+  ['CONTEXT_BUILD', 'Check the code in directory x', 'Check specifications', 'Candidate gaps'],
+  ['CONTEXT_BUILD', 'Reproduce one spec check candidate', 'Verify specification gap', 'Reproduction test'],
+  ['CONTEXT_BUILD', 'Learn repository memory for a/b', 'Learn repository memory', 'Maintainer guidance'],
 ] as const;
 
 function render(durable: AgentTurnDto | undefined, users: TranscriptTurn['users']) {
@@ -37,19 +37,18 @@ function render(durable: AgentTurnDto | undefined, users: TranscriptTurn['users'
     activityChoice={{}} previews={{}} agentLabels={{}} onToggle={() => {}} onToggleActivity={() => {}} />);
 }
 
-it.each(cases)('folds the %s workflow request with its restrictions and no sent prompt', (kind, prompt, action, restriction) => {
+it.each(cases)('folds the %s workflow request to its row over the sent prompt', (kind, prompt, action, topic) => {
   const durable = parseAgentTurn({ ...contracts.turn, workflowRequest: kind });
   const user: TranscriptTurn['users'][number] = { id: 'request', text: prompt, attachments: [], delivery: 'TURN', at: '' };
   const html = render(durable, [user]);
   expect(html).toContain(`ByteQuay · ${action}`);
-  expect(html).toContain(restriction);
+  expect(html).toContain(`title="${topic}">${topic}</span>`);
   expect(html).toContain('aria-expanded="false"');
-  expect(html).toContain('class="agt-review-request__content" hidden=""');
-  expect(html).not.toContain('agt-review-request__prompt');
-  expect(html).not.toContain(prompt);
+  expect(html).toContain('class="agt-instruction__content" hidden=""');
+  expect(html).toContain(`<pre>${prompt}</pre>`);
   expect(html).not.toContain('agt-user__bubble');
   for (const delivery of ['STEER', 'QUEUED'] as const) {
-    expect(render(durable, [{ ...user, delivery }])).not.toContain('agt-review-request');
+    expect(render(durable, [{ ...user, delivery }])).not.toContain('agt-instruction');
     expect(render(durable, [user, { ...user, id: 'followup', delivery }])).toContain('agt-user__bubble');
   }
   for (const ordinary of [base, undefined]) {

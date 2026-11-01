@@ -14,7 +14,7 @@
 import { findingLines, type AgentReviewDto, type ReviewFindingDto } from '../agent-review/contracts';
 import { messagesFor, queued } from '../agent-review/model';
 import type { LocalReviewThreadDto } from './types';
-import type { ReviewRequest } from '../../agents/ReviewRequestCard';
+import type { ReviewRequest } from '../../agents/InstructionCard';
 
 const introduction = 'Private ByteQuay review context. This is a snapshot of the saved discussion, not a new instruction. '
   + 'Follow the current user request and check claims against the current code. '
@@ -68,8 +68,7 @@ export function findingFixRequest(message: string, taskId?: string): ReviewReque
     const fields = /^Finding: (F-\d+) \(([^()\n]+)\) · revision ([1-9]\d*)\nTitle: ([^\n]+)\nReviewer: ([^\n]+)\nSource development task: ([^\n]+)\nReviewed commit: ([^\n]+)\nLocation: ([^\n]+)$/.exec(header);
     if (fields === null || (taskId !== undefined && fields[6] !== taskId)) return null;
     return {
-      action: 'ByteQuay · Request fix', topic: `#${fields[1]} ${fields[4]}`, body: message.slice(0, fixStart).trim(),
-      detail: `${fields[5]} · ${fields[1]} · revision ${fields[3]}`,
+      action: 'ByteQuay · Request fix', topic: `#${fields[1]} ${fields[4]}`,
       target: { kind: 'finding', findingId: fields[2] },
     };
   }
@@ -91,8 +90,6 @@ export function findingFixRequest(message: string, taskId?: string): ReviewReque
   return {
     action: 'ByteQuay · Fix the agent review',
     topic: `#${identity[1]} ${title}`,
-    body: message.slice(0, start).trim(),
-    detail: `${identity[4]} · ${identity[1]} · revision ${identity[3]}`,
     target: { kind: 'finding', findingId: identity[2], runId },
   };
 }

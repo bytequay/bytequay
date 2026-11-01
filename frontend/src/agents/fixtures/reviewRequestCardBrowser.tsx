@@ -14,7 +14,7 @@
 import { flushSync } from 'react-dom';
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ReviewRequestCard, type ReviewCardFocus } from '../ReviewRequestCard';
+import { InstructionCard, type ReviewCardFocus } from '../InstructionCard';
 import AgentReviewTab from '../../pulls/agent-review/AgentReviewTab';
 import { reviewRequests } from '../../pulls/agent-review/model';
 import { reviewFixture } from '../../pulls/agent-review/fixtures/review';
@@ -32,7 +32,6 @@ import { assert, settle, element } from '../../fixtures/harness';
 const question = "Please provide the Maven command that you used. Why did you compile the tests directly rather than building the Snowflake module first?";
 const body = question + '\n\n' + 'Keep this complete question available when I open the card. '.repeat(12)
   + '\n' + 'module/'.repeat(36) + 'SnowflakeCatalogConfig.java';
-const detail = 'Limitations · revision 1 · reviewed head 79e7210';
 
 const host = document.createElement('main');
 host.style.padding = '24px';
@@ -43,31 +42,38 @@ let openedReviews = 0;
 let closedHeight = 0;
 
 function card() {
-  const result = element<HTMLElement>('.agt-review-request', host, 'Review request must render a compact card');
+  const result = element<HTMLElement>('.agt-instruction', host, 'An instruction must render as its card');
   return result;
 }
 function toggle() {
-  const result = element<HTMLButtonElement>('.agt-review-request__toggle', card(), 'Review request must have an independent disclosure button');
+  const result = element<HTMLButtonElement>('.agt-instruction__toggle', card(), 'An instruction must have an independent disclosure button');
   return result;
 }
+/** The prompt the agent received, shown whole and scrolling past the design's height. */
+function shownPrompt(request: HTMLElement, prompt: string) {
+  const content = element<HTMLElement>('.agt-instruction__content', request, 'An instruction must have a prompt panel');
+  const pre = element<HTMLElement>('.agt-instruction__prompt > pre', request, 'The prompt must be shown as sent');
+  assert(!content.hidden && pre.textContent === prompt, 'Opening an instruction must show the exact prompt the agent received');
+  assert(pre.getBoundingClientRect().height <= 181 && request.querySelector('.agt-instruction__prompt .pr-copy-button') !== null,
+    'The prompt must stay within its scrolling panel beside a copy button');
+}
+/** One quiet row while folded: a 36px row inside its border. */
+const ROW = 40;
 
 export async function mount() {
   actions = 0;
   openedReviews = 0;
   flushSync(() => root.render(<div className="agt-user">
-    <ReviewRequestCard key={innerWidth} onOpen={() => { openedReviews++; }} action="Ask about review" topic="Limitations · 79e7210" body={body} detail={detail}>
-      <div className="agt-review-request__body">{body}</div>
+    <InstructionCard key={innerWidth} onOpen={() => { openedReviews++; }} action="Ask about review" topic="Limitations · 79e7210" prompt={body}>
       <div style={{ display: 'flex', gap: 12 }}>
         <button type="button" onClick={() => { actions++; }}>Retry</button>
       </div>
-    </ReviewRequestCard>
+    </InstructionCard>
   </div>));
   await settle();
   closedHeight = card().getBoundingClientRect().height;
-  assert(closedHeight <= 100, `Collapsed request must stay compact even with a long question (${closedHeight}px at ${innerWidth}px)`);
+  assert(closedHeight <= ROW, `Collapsed request must stay one row even with a long question (${closedHeight}px at ${innerWidth}px)`);
   assert(toggle().querySelector('button, a') === null, 'Disclosure must not nest another action');
-  const bar = card().querySelector<HTMLElement>('.agt-review-request__bar');
-  assert(bar !== null && getComputedStyle(bar).backgroundColor === 'rgb(232, 244, 241)', 'The request title bar must use the private-review green background');
   toggle().focus();
   assert(document.activeElement === toggle(), 'Disclosure must be keyboard focusable');
 }
@@ -76,23 +82,23 @@ export async function verify(open: boolean, expectedActions = 0, expectedOpens =
   await settle();
   const request = card();
   assert((toggle().getAttribute('aria-expanded') === 'true') === open, `Expected card to be ${open ? 'expanded' : 'collapsed'}`);
-  assert(request.textContent?.includes(body) === true && request.textContent.includes(detail), 'Complete question and context must survive disclosure');
+  assert(request.textContent?.includes(body) === true, 'The complete prompt must survive disclosure');
   assert(actions === expectedActions && openedReviews === expectedOpens, 'Disclosure and review navigation must remain separate actions');
   assert(document.documentElement.scrollWidth <= innerWidth, 'Request must not overflow the viewport');
   assert(request.scrollWidth <= request.clientWidth + 1, 'Request content must not overflow horizontally');
   assert(request.getBoundingClientRect().right <= innerWidth, 'Request must fit the narrow transcript');
   if (open) {
-    assert(request.querySelector('.agt-review-request__body')?.textContent === body, 'Expanded request must expose the complete original body');
-    assert(request.getBoundingClientRect().height > closedHeight, 'Opening the request must reveal the complete question');
-    const button = request.querySelector('.agt-review-request__content button');
+    shownPrompt(request, body);
+    assert(request.getBoundingClientRect().height > closedHeight, 'Opening the request must reveal the prompt');
+    const button = request.querySelector('.agt-instruction__extra button');
     assert(button !== null && button.getBoundingClientRect().height > 0, 'Local discussion actions must remain visible on expansion');
   }
   return { width: innerWidth, open, height: request.getBoundingClientRect().height };
 }
 
 export function clickToggle() { toggle().click(); }
-export function openReview() { card().querySelector<HTMLButtonElement>('.agt-review-request__open')?.click(); }
-export function retry() { card().querySelector<HTMLButtonElement>('.agt-review-request__content button')?.click(); }
+export function openReview() { card().querySelector<HTMLButtonElement>('.agt-instruction__open')?.click(); }
+export function retry() { card().querySelector<HTMLButtonElement>('.agt-instruction__extra button')?.click(); }
 
 export async function fixRequest(delivery = 'TURN', snapshot = false) {
   const turn = parseAgentTurn(contracts.turn);
@@ -117,19 +123,12 @@ export async function fixRequest(delivery = 'TURN', snapshot = false) {
   const request = card();
   assert(request.innerText.includes(snapshot ? 'Fix the agent review' : 'Request fix') && request.innerText.includes(`#${finding.label}`)
     && request.innerText.includes(finding.title), 'The fix card must name its finding');
-  assert(request.innerText.includes(instruction) && !request.innerText.includes('Private ByteQuay review context'),
-    'Only the user instruction belongs in the compact preview');
-  assert(request.getBoundingClientRect().height <= 130 && request.scrollWidth <= request.clientWidth + 1,
-    'The long fix prompt must stay compact and fit narrow conversations');
-  const topic = request.querySelector<HTMLElement>('.agt-review-request__topic');
-  assert(topic !== null && topic.clientWidth >= 140, 'The finding number and title need their own readable line at narrow widths');
+  assert(!request.innerText.includes(instruction) && request.getBoundingClientRect().height <= ROW && request.scrollWidth <= request.clientWidth + 1,
+    'The long fix prompt must fold to one row that fits narrow conversations');
   if (delivery === 'STEER') assert(host.querySelector('.agt-user__bubble')?.textContent === 'Continue the implementation.',
     'A queued fix steered into a turn must preserve the ordinary opening message');
   toggle().click(); await settle();
-  assert(request.innerText.includes(instruction) && !request.innerText.includes(finding.id) && !request.innerText.includes(finding.evidence[0].excerpt)
-    && !request.innerText.includes('list_local_review_comments'), 'Expanded fix details must show the request without machine context or saved logs');
-  assert(request.querySelector('.agt-review-request__prompt') === null && !request.textContent?.includes(finding.validatedHeadSha),
-    'The fix card must not show the prompt sent to the agent');
+  shownPrompt(request, prompt);
   assert(document.documentElement.scrollWidth <= innerWidth && request.scrollWidth <= request.clientWidth + 1,
     'Expanded fix details must fit narrow conversations');
   toggle().click(); await settle();
@@ -159,28 +158,21 @@ export async function generatedPrompt(kind: 'AUTO_COMMIT' | 'REFINE_SUMMARY' | '
   await settle();
   const request = card();
   assert(host.querySelector('.agt-user__bubble')?.textContent?.includes('Keep my requested behavior.'), 'User steering must stay visible');
-  if (kind === 'REFINE_SUMMARY') {
-    assert(request.querySelector('.agt-review-request__bar') === null && request.innerText.includes('Refresh the change intention')
-      && !request.innerText.includes('/private/worktree'), 'Refining the summary must show only what it does');
-    assert(document.documentElement.scrollWidth <= innerWidth && request.scrollWidth <= request.clientWidth + 1, 'The request must fit narrow conversations');
-    return { width: innerWidth, kind, snapshot, existing };
-  }
-  const content = request.querySelector<HTMLElement>('.agt-review-request__content');
-  const action = kind === 'AUTO_COMMIT' ? 'ByteQuay · Auto commit' : existing ? 'Update pull request #12' : 'Open draft pull request';
-  assert(request.querySelector('.agt-user__request-action')?.textContent === action, 'The trusted origin must determine the action');
-  assert(content !== null && content.hidden && !request.innerText.includes('/private/worktree'), 'Machine instructions must start hidden');
-  assert(request.getBoundingClientRect().height <= 130 && request.scrollWidth <= request.clientWidth + 1, 'Generated requests must stay compact');
-  const topic = request.querySelector<HTMLElement>('.agt-review-request__topic');
-  assert(topic !== null && topic.clientWidth >= 140, 'Scope must have its own readable line at narrow widths');
-  if (kind === 'CREATE_DRAFT_PR') assert(topic.textContent === `${branch} → release`, 'The publication destination must remain visible');
+  const content = element<HTMLElement>('.agt-instruction__content', request, 'An instruction must have a prompt panel');
+  const action = request.querySelector('.agt-instruction__action')?.textContent;
+  if (kind === 'REFINE_SUMMARY') assert(action === undefined && request.innerText.includes('Refresh the change intention'),
+    'Refining the summary needs no action: its one line says what it does');
+  else assert(action === (kind === 'AUTO_COMMIT' ? 'ByteQuay · Auto commit' : existing ? 'Update pull request #12' : 'Open draft pull request'),
+    'The trusted origin must determine the action');
+  assert(content.hidden && !request.innerText.includes('/private/worktree'), 'The prompt must start folded');
+  assert(request.getBoundingClientRect().height <= ROW && request.scrollWidth <= request.clientWidth + 1, 'Generated requests must stay one row');
+  if (kind === 'CREATE_DRAFT_PR') assert(request.querySelector('.agt-instruction__topic')?.textContent === `${branch} → release`
+    && request.querySelector('.agt-instruction__icon.lucide-git-pull-request') !== null, 'The publication must show as a pull request and its destination');
   toggle().click(); await settle();
-  assert(!content.hidden && request.querySelector('.agt-review-request__prompt') === null && !request.textContent?.includes('/private/worktree'),
-    'Opening details must not show the prompt sent to the agent');
-  assert(request.innerText.includes(kind === 'AUTO_COMMIT' ? 'Authorized local commits' : 'authorized publication'),
-    'Expanded details must explain the authorization scope');
+  shownPrompt(request, prompt);
   assert(document.documentElement.scrollWidth <= innerWidth && request.scrollWidth <= request.clientWidth + 1, 'Expanded details must fit narrow conversations');
   toggle().click(); await settle();
-  assert(content.hidden && request.getBoundingClientRect().height <= 130, 'The generated request must fold back to its summary');
+  assert(content.hidden && request.getBoundingClientRect().height <= ROW, 'The generated request must fold back to its row');
   return { width: innerWidth, kind, snapshot, existing };
 }
 
@@ -197,10 +189,9 @@ export async function generatedReview(snapshot = false) {
     reviewRequests={requests} onToggle={() => {}} onToggleActivity={() => {}} />));
   await settle();
   const request = card();
-  assert(request.getBoundingClientRect().height <= 130 && !request.innerText.includes(prompt), 'Generated review must start as a compact summary');
+  assert(request.getBoundingClientRect().height <= ROW && !request.innerText.includes(prompt), 'Generated review must start as one row');
   toggle().click(); await settle();
-  assert(request.querySelector('.agt-review-request__prompt') === null && !request.textContent?.includes(prompt), 'Expanding the review must not show machine instructions');
-  assert(request.innerText.includes(requests[0].body), 'Review scope must be readable');
+  shownPrompt(request, prompt);
   assert(document.documentElement.scrollWidth <= innerWidth && request.scrollWidth <= request.clientWidth + 1, 'Expanded review must fit narrow conversations');
   return { width: innerWidth, snapshot };
 }
@@ -218,12 +209,10 @@ export async function generatedCi(snapshot = false) {
   await settle();
   const request = card();
   assert(request.innerText.includes('ByteQuay · Fix CI') && request.innerText.includes('acme/demo#17'), 'CI card must name the repair and PR');
-  assert(request.getBoundingClientRect().height <= 130 && !request.innerText.includes('Remote head:'), 'CI request must start compact');
+  assert(request.getBoundingClientRect().height <= ROW && !request.innerText.includes('Remote head:'), 'CI request must start as one row');
   assert(host.querySelector('.agt-user__bubble')?.textContent?.includes('Keep the compatibility fix.'), 'User steering must remain visible');
   toggle().click(); await settle();
-  assert(request.querySelector('.agt-review-request__prompt') === null && !request.textContent?.includes('Remote head:'),
-    'Opening the CI card must not show the prompt sent to the agent');
-  assert(request.innerText.includes('ByteQuay verifies repairs and handles authorized publication.'), 'Expanded details must explain publication ownership');
+  shownPrompt(request, prompt);
   assert(document.documentElement.scrollWidth <= innerWidth && request.scrollWidth <= request.clientWidth + 1, 'Expanded CI details must fit narrow conversations');
   return { width: innerWidth, snapshot };
 }
@@ -250,18 +239,17 @@ export async function localDiscussion(learning = false, snapshot = false) {
     onToggle={() => {}} onToggleActivity={() => {}} />));
   await settle();
   const request = card();
-  assert(request.innerText.includes(learning ? 'Ask about summary' : 'Ask about review') && request.innerText.includes(comment.body),
-    'The compact local request must show the question and distinguish summaries from code');
-  assert(request.getBoundingClientRect().height <= 130 && !request.innerText.includes(savedContext), 'Saved context must start folded');
+  assert(request.innerText.includes(learning ? 'Ask about summary' : 'Ask about review'),
+    'The compact local request must distinguish summaries from code');
+  assert(request.getBoundingClientRect().height <= ROW && !request.innerText.includes(savedContext), 'Saved context must start folded');
   assert(host.querySelector('.agt-user__bubble')?.textContent?.includes('Also explain the edge case.'), 'Unrelated steering must remain visible');
   toggle().click(); await settle();
-  assert(request.querySelector('.agt-review-request__prompt') === null && !request.textContent?.includes(prompt),
-    'Opening the discussion must not show the prompt sent to the agent');
+  shownPrompt(request, prompt);
+  assert(request.innerText.includes(comment.body), 'Opening the discussion must show the question in its thread');
   const saved = request.querySelector<HTMLElement>(learning ? '.lrc-message__body' : '.is-excerpt');
   const savedText = learning ? saved?.textContent : [...saved?.querySelectorAll('.is-source code') ?? []].map(code => code.textContent).join('\n');
   assert(saved !== null && savedText?.trim() === savedContext.trim() && saved.getBoundingClientRect().height > 0,
     `The saved ${learning ? 'summary' : 'code'} must remain readable`);
-  assert(request.innerText.includes(learning ? 'Private summary discussion' : 'Private code discussion'), 'The discussion must show its private scope');
   const buttons = Array.from(request.querySelectorAll('button')).filter(button => button.getBoundingClientRect().height > 0).map(button => button.textContent);
   assert(buttons.includes('Reply') && buttons.includes('Resolve'), 'Private reply and resolution controls must remain available');
   assert(mutations === 0, 'Inspecting the discussion must not write or resolve anything');

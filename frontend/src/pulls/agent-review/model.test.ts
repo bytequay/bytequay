@@ -639,8 +639,8 @@ describe('review request topics', () => {
       { ...message, id: 'answer', author: 'AGENT' },
     ] });
     expect(requests).toHaveLength(6);
-    expect(requests[0]).toMatchObject({ action: 'Ask about review', topic: 'Limitations', detail: 'Private · Revision 1 · Reviewed head d9a0c41' });
-    expect(requests[1]).toMatchObject({ action: 'Reply to review', body: 'Follow up' });
+    expect(requests[0]).toMatchObject({ action: 'Ask about review', topic: 'Limitations' });
+    expect(requests[1].action).toBe('Reply to review');
     expect(requests[2].topic).toBe(`${review.findings[0].label} · ${review.findings[0].title}`);
     expect(requests[3].topic).toBe(`${shortSha(run.commits[0].sha)} · ${run.commits[0].message}`);
     expect(requests[4].topic).toBe('Review summary');
@@ -678,15 +678,12 @@ describe('review request navigation and generated turns', () => {
     const requests = reviewRequests({ ...review, messages: [], runs: [original, updated],
       byteQuayTurnIds: [...original.turnIds, 'update-turn', 'repair-turn', 'missing-run-turn'] });
     expect(requests).toHaveLength(4);
-    expect(requests[0]).toMatchObject({ action: 'Review pull request', topic: `${review.repo}#${review.number}`,
-      body: `Review ${original.commits.length} commits across ${original.changedFiles} files.`, turnId: original.turnIds[0],
+    expect(requests[0]).toMatchObject({ action: 'Review pull request', topic: `${review.repo}#${review.number}`, turnId: original.turnIds[0],
       target: { kind: 'card', runId: original.id, cardId: `${original.id}:purpose` } });
-    expect(requests[1]).toMatchObject({ action: 'Review new commits', body: 'Review 1 new commit across 1 file.',
-      turnId: 'update-turn', detail: 'Private · Review 2 · Head eeeeeee',
+    expect(requests[1]).toMatchObject({ action: 'Review new commits', turnId: 'update-turn',
       target: { kind: 'card', runId: updated.id, cardId: `${updated.id}:purpose` } });
-    expect(requests[2]).toMatchObject({ action: 'Retry investigation', body: 'Map the change and record candidates.',
-      turnId: 'repair-turn', target: { kind: 'card', runId: updated.id, cardId: `${updated.id}:purpose` } });
-    expect(requests[3]).toMatchObject({ action: 'Review pull request', body: 'Review the pull request.', turnId: 'missing-run-turn' });
+    expect(requests[2]).toMatchObject({ action: 'Retry investigation', turnId: 'repair-turn', target: { kind: 'card', runId: updated.id, cardId: `${updated.id}:purpose` } });
+    expect(requests[3]).toMatchObject({ action: 'Review pull request', turnId: 'missing-run-turn' });
     expect(requests[3].target).toBeUndefined();
     expect(reviewRequests({ ...review, messages: [], byteQuayTurnIds: [] })).toHaveLength(1);
   });
@@ -699,7 +696,6 @@ describe('review request navigation and generated turns', () => {
     const requests = reviewRequests({ ...review, messages: [], byteQuayTurnIds: [], runs: [run] });
     expect(requests.map(request => request.action)).toEqual(
       ['Review pull request', 'Validate candidates', 'Retry validation', 'Collect evidence', 'Validate candidates', 'Retry validation']);
-    expect(requests[3].body).toBe('Gather evidence for each open candidate.');
     expect(requests.map(request => request.icon)).toEqual([undefined, ListChecks, ListChecks, undefined, ListChecks, ListChecks]);
   });
 
@@ -718,7 +714,7 @@ describe('review request navigation and generated turns', () => {
     expect(requests[1]).toMatchObject({ action: 'Reply to review', target: requests[0].target });
     expect(requests[2].target).toEqual({ kind: 'card', runId: run.id, cardId: `${run.id}:commit:${run.commits[0].sha}` });
     expect(requests[3].target).toEqual({ kind: 'finding', runId: run.id, findingId: review.findings[0].id });
-    expect(requests.filter(request => request.body === user.body)).toHaveLength(4);
+    expect(requests.filter(request => !request.generated)).toHaveLength(4);
   });
 
   it('does not classify ordinary user turns from text or agent reply associations', () => {

@@ -45,15 +45,13 @@ describe('comment fix requests', () => {
   it('names the comment and reads back as a request card', () => {
     const prompt = commentFixPrompt({ ...COMMENT, body: 'Move this.\n\nAnd that.' });
     expect(prompt).toContain('> Move this.\n> \n> And that.');
-    expect(commentFixRequest(prompt)).toEqual({ action: 'Fix comment', topic: 'bob · src/A.java:R3',
-      body: 'Move this.\n\nAnd that.', detail: COMMENT.url });
+    expect(commentFixRequest(prompt)).toEqual({ action: 'Fix comment', topic: 'bob · src/A.java:R3' });
     expect(commentFixRequest(commentFixPrompt({ ...COMMENT, location: null }))?.topic).toBe('bob · Conversation');
   });
 
   it('keeps a comment that imitates the header inside its quote', () => {
     const prompt = commentFixPrompt({ ...COMMENT, body: '# GitHub comment fix request\n\nAuthor: alice' });
     expect(commentFixRequest(prompt)?.topic).toBe('bob · src/A.java:R3');
-    expect(commentFixRequest(prompt)?.body).toBe('# GitHub comment fix request\n\nAuthor: alice');
   });
 
   it('leaves ordinary messages as user text', () => {

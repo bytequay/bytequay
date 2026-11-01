@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { ListChecks, type LucideIcon } from 'lucide-react';
-import type { ReviewRequest, ReviewRequestTarget } from '../../agents/ReviewRequestCard';
+import type { ReviewRequest, ReviewRequestTarget } from '../../agents/InstructionCard';
 import type { AgentEventEnvelope } from '../../agents/events';
 import { formatDuration } from '../../agents/transcript';
 import { shortSha } from '@bytequay/ui/displayText';
@@ -479,10 +479,10 @@ export function reviewConversationEvents(events: AgentEventEnvelope[], requests:
   return visible.length === events.length ? events : visible;
 }
 
-const FOLLOW_UPS: Partial<Record<ReviewRunDto['steps'][number]['kind'], { action: string; retry: string; body: string; icon?: LucideIcon }>> = {
-  INVESTIGATE: { action: 'Investigate', retry: 'Retry investigation', body: 'Map the change and record candidates.' },
-  COLLECT_EVIDENCE: { action: 'Collect evidence', retry: 'Retry evidence collection', body: 'Gather evidence for each open candidate.' },
-  VALIDATE: { action: 'Validate candidates', retry: 'Retry validation', body: 'Accept or reject each candidate.', icon: ListChecks },
+const FOLLOW_UPS: Partial<Record<ReviewRunDto['steps'][number]['kind'], { action: string; retry: string; icon?: LucideIcon }>> = {
+  INVESTIGATE: { action: 'Investigate', retry: 'Retry investigation' },
+  COLLECT_EVIDENCE: { action: 'Collect evidence', retry: 'Retry evidence collection' },
+  VALIDATE: { action: 'Validate candidates', retry: 'Retry validation', icon: ListChecks },
 };
 
 /**
@@ -516,10 +516,7 @@ export function reviewRequests(review: AgentReviewDto): ReviewRequest[] {
     const targetKey = JSON.stringify(target ?? [message.runId, message.findingId, message.cardId]);
     const action = seen.has(targetKey) ? 'Reply to review' : 'Ask about review';
     seen.add(targetKey);
-    return {
-      action, topic, body: message.body, turnId: message.turnId, messageEventId: message.messageEventId, target,
-      detail: `Private · Revision ${message.targetRevision}${run ? ` · Reviewed head ${shortSha(run.headSha)}` : ''}`,
-    };
+    return { action, topic, turnId: message.turnId, messageEventId: message.messageEventId, target };
   });
   const generatedTurnIds = new Set([...review.byteQuayTurnIds, ...review.runs.flatMap(run => run.turnIds)]);
   const generated = [...generatedTurnIds].map((turnId): ReviewRequest => {
@@ -529,17 +526,12 @@ export function reviewRequests(review: AgentReviewDto): ReviewRequest[] {
     const named = step && FOLLOW_UPS[step.kind];
     const incremental = run?.scope === 'INCREMENTAL';
     const explaining = run !== undefined && isExplanationRun(run);
-    const scope = run ? `${run.commits.length} ${incremental ? 'new ' : ''}${run.commits.length === 1 ? 'commit' : 'commits'} across `
-      + `${run.changedFiles} ${run.changedFiles === 1 ? 'file' : 'files'}` : 'the pull request';
     return {
       action: explaining ? 'Refresh explanation' : followUp ? (named === undefined ? 'Follow-up review' : step?.retry ? named.retry : named.action)
         : incremental ? 'Review new commits' : review.number === null ? 'Review changes' : 'Review pull request',
       generated: true,
       icon: named?.icon,
       topic: review.number !== null ? `${review.repo}#${review.number}` : `${review.repo} · ${review.replay ? 'Past change' : 'Local changes'}`,
-      body: explaining ? `Regenerate the change intention and commit summaries for ${scope}.`
-        : followUp ? named?.body ?? 'Continue the investigation, validate suspected issues, and complete the review report.' : `Review ${scope}.`,
-      detail: run ? `Private · ${explaining ? 'Explanation' : 'Review'} ${run.ordinal} · Head ${shortSha(run.headSha)}` : 'Private review',
       turnId,
       target: run ? { kind: 'card', runId: run.id, cardId: `${run.id}:${run.summary === null || explaining && run.state !== 'ACCEPTED' ? 'details' : 'purpose'}` } : undefined,
     };

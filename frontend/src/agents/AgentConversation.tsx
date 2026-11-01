@@ -14,8 +14,8 @@
 
 import { clock } from '@bytequay/ui/displayText';
 import type { JiraTaskSource } from '../jira/contracts';
-import { JiraRequestCard } from '../jira/JiraSourceAttachment';
-import { BookMarked,BookOpen,Check,ChevronsDownUp,CircleAlert,CircleCheck,CircleDashed,CircleEllipsis,CircleX,CornerDownRight,FilePenLine,FolderOpen,Globe,Hand,Image,ListChecks,ListPlus,LoaderCircle,MessageSquare,Pencil,Search,ShieldCheck,ShieldX,SquareTerminal,Trash2,TriangleAlert,Wrench,type LucideIcon } from 'lucide-react';
+import { JiraIcon } from '@bytequay/jira/renderer';
+import { BookMarked,BookOpen,Check,ChevronsDownUp,CircleAlert,CircleDot,CircleCheck,CircleDashed,CircleEllipsis,CircleX,CornerDownRight,FilePenLine,FolderOpen,GitPullRequest,Globe,Hand,Image,ListChecks,ListPlus,LoaderCircle,MessageSquare,Pencil,Search,ShieldCheck,ShieldX,SquareTerminal,Trash2,TriangleAlert,Wrench,type LucideIcon } from 'lucide-react';
 import hljs from 'highlight.js/lib/common';
 import React,{ useCallback,useEffect,useId,useLayoutEffect,useMemo,useRef,useState } from 'react';
 import { Chevron } from '../Chevron';
@@ -43,10 +43,9 @@ import type { TaskDiscussionDto } from './discussions/contracts';
 import { approvalDecisions, approvalQuestions, questionAnswers, type ApprovalQuestion, type PendingMessage } from './model';
 import Composer, { ComposerAttachments } from '../Composer';
 import ComposerModelControls from './ComposerModelControls';
-import { IssueRequestCard } from './IssueAttachment';
 import { WorkItemPrompt } from './WorkItemPrompt';
 import { WorkingLabel } from './RunningTasks';
-import { ReviewRequestCard, type ReviewRequest, type ReviewRequestTarget } from './ReviewRequestCard';
+import { InstructionCard, type Instruction, type ReviewRequest, type ReviewRequestTarget } from './InstructionCard';
 import { agentDisplayName,activitySummary,formatDuration,itemKey,planChip,planSummary,projectTranscript,rememberedMemory,turnElapsedMs,turnLabel,type ActivityBlock,type ActivityMember,type ApprovalBlock,type CommandAction,type CommandMember,type PlanStep,type ToolMember,type TranscriptTurn,type TurnBlock } from './transcript';
 
 /** Answers accompany a question tool's allow; every other approval sends the decision alone. */
@@ -818,87 +817,48 @@ export function TurnView({ turn, repository, workspaceId, first, open, now, mode
           ?? (sent === null ? undefined : localReview?.threads.find(thread => thread.id === sent[1]));
         const localMessage = localThread?.messages.find(linked)
           ?? localThread?.messages.findLast(message => message.author === 'USER' && message.body === sent?.[2]);
-        const localBody = localMessage?.body ?? sent?.[2];
         const reviewRequest = reviewRequests?.find(message => message.messageEventId === user.id
           || (index === 0 && user.delivery !== 'STEER' && turn.turnId !== null && message.turnId === turn.turnId));
         const reviewTarget = reviewRequest?.target;
         const fixRequest = findingFixRequest(user.text, durable?.taskId) ?? commentFixRequest(user.text);
         const fixTarget = fixRequest?.target;
+        const startsTurn = index === 0 && user.delivery === 'TURN';
+        const instruction: Instruction | null = localThread !== undefined && localReview !== undefined ? {
+          action: `${localMessage !== undefined && localThread.messages.find(message => message.author === 'USER')?.id === localMessage.id ? 'Ask about' : 'Reply to'} ${localThread.learningAnchor ? 'summary' : 'review'}`,
+          topic: localThread.learningAnchor?.title ?? `${localThread.path}:${localThread.side === 'LEFT' ? 'L' : 'R'}${localThread.line}`,
+          card: <LocalReviewThreadCard {...localReview} thread={localThread} />,
+          // A code thread lives in Changes, not Summary, so its card opens in place with the whole thread and Reply.
+          onOpen: onOpenReview === undefined || !localThread.learningAnchor ? undefined : () => onOpenReview({ kind: 'local', threadId: localThread.id }),
+        } : startsTurn && turnRequest ? null
+          : startsTurn && jiraRequest && jiraSource != null ? { icon: JiraIcon, action: 'Start development', topic: jiraSource.key }
+          : startsTurn && issueRequest && issueSource != null ? { icon: CircleDot, action: 'Start development', topic: `${issueSource.repo}#${issueSource.number}` }
+          : reviewRequest !== undefined ? { ...reviewRequest, onOpen: onOpenReview !== undefined && reviewTarget !== undefined ? () => onOpenReview(reviewTarget) : undefined }
+          : fixRequest !== null ? { ...fixRequest, onOpen: onOpenReview !== undefined && fixTarget !== undefined ? () => onOpenReview(fixTarget) : undefined }
+          : index === 0 && ciRequest !== null ? ciRequest
+          : index === 0 && request !== null ? { icon: GitPullRequest, action: request.action,
+            topic: [request.head, request.base === null ? null : `→ ${request.base}`].filter(Boolean).join(' ') || 'Pull request' }
+          : index === 0 && refineRequest !== null ? { topic: refineRequest }
+          : index === 0 && developmentRequest !== null ? developmentRequest
+          : null;
+        const files = user.attachments.length > 0 && <div className="agt-user__files">
+          {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
+        </div>;
         return (
         <React.Fragment key={user.id}>
           {first && index === 0 && <div className="agt-stamp">{stamp(user.at, now)}</div>}
-          {index === 0 && user.delivery === 'TURN' && openingPending ? null : localThread !== undefined && localBody !== undefined && localReview !== undefined ? (
-            <div className="agt-user agt-local-review" data-history-anchor={user.id}>
-              <ReviewRequestCard action={`${localMessage !== undefined && localThread.messages.find(message => message.author === 'USER')?.id === localMessage.id ? 'Ask about' : 'Reply to'} ${localThread.learningAnchor ? 'summary' : 'review'}`}
-                topic={localThread.learningAnchor?.title ?? `${localThread.path}:${localThread.side === 'LEFT' ? 'L' : 'R'}${localThread.line}`}
-                detail={localThread.learningAnchor ? 'Private summary discussion' : 'Private code discussion'}
-                body={localBody}
-                // A code thread lives in Changes, not Summary, so its card opens in place with the whole thread and Reply.
-                onOpen={onOpenReview === undefined || !localThread.learningAnchor ? undefined : () => onOpenReview({ kind: 'local', threadId: localThread.id })}>
-                <LocalReviewThreadCard {...localReview} thread={localThread} />
-              </ReviewRequestCard>
+          {startsTurn && openingPending ? null : instruction !== null ? (
+            <div className={`agt-user${localThread === undefined ? '' : ' agt-local-review'}`} data-history-anchor={user.id}>
+              <InstructionCard {...instruction} prompt={user.text}>{files}</InstructionCard>
             </div>
-          ) : <div className={`agt-user${fixRequest !== null ? ' is-review-fix' : ''}${index === 0 && (request !== null || developmentRequest !== null) ? ' is-development-request' : ''}`} data-history-anchor={user.id}>
-            {index === 0 && user.delivery === 'TURN' && turnRequest ? turnRequest : index === 0 && user.delivery === 'TURN' && jiraRequest && jiraSource != null
-              ? <JiraRequestCard source={jiraSource} attachments={user.attachments.length > 0 && <div className="agt-user__files">
-                {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
-              </div>} />
-              : index === 0 && user.delivery === 'TURN' && issueRequest && issueSource != null
-              ? <IssueRequestCard source={issueSource} attachments={user.attachments.length > 0 && <div className="agt-user__files">
-                {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
-              </div>} /> : reviewRequest !== undefined ? <ReviewRequestCard {...reviewRequest}
-              onOpen={onOpenReview !== undefined && reviewTarget !== undefined ? () => onOpenReview(reviewTarget) : undefined} /> : fixRequest !== null ? (
-              <ReviewRequestCard {...fixRequest}
-                onOpen={onOpenReview !== undefined && fixTarget !== undefined ? () => onOpenReview(fixTarget) : undefined}>
-                {user.attachments.length > 0 && <div className="agt-user__files">
-                  {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
-                </div>}
-                <div className="agt-review-request__body">{renderMarkdown(fixRequest.body, repository, true)}</div>
-              </ReviewRequestCard>
-            ) : index === 0 && ciRequest !== null ? (
-              <ReviewRequestCard {...ciRequest}>
-                <div className="agt-review-request__body">{ciRequest.body}</div>
-                {user.attachments.length > 0 && <div className="agt-user__files">
-                  {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
-                </div>}
-              </ReviewRequestCard>
-            ) : index === 0 && request !== null ? (
-              <ReviewRequestCard action={request.action}
-                topic={[request.head, request.base === null ? null : `→ ${request.base}`].filter(Boolean).join(' ') || 'Pull request'}
-                body="Publish this task’s verified changes to its pull request."
-                detail="ByteQuay verifies the branch and revision and handles the authorized publication.">
-                <div className="agt-review-request__body">Publish this task’s verified changes to its pull request.</div>
-                {user.attachments.length > 0 && <div className="agt-user__files">
-                  {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
-                </div>}
-              </ReviewRequestCard>
-            ) : index === 0 && refineRequest !== null ? (
-              <article className="agt-user__request agt-review-request">
-                <div className="agt-review-request__summary"><MessageSquare aria-hidden="true" />{refineRequest}</div>
-              </article>
-            ) : index === 0 && developmentRequest !== null ? (
-              <ReviewRequestCard {...developmentRequest}>
-                <div className="agt-review-request__body">{developmentRequest.body}</div>
-                {user.attachments.length > 0 && <div className="agt-user__files">
-                  {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
-                </div>}
-              </ReviewRequestCard>
-            ) : (
-              <WorkItemPrompt workspaceId={first && turn.ordinal === 1 && index === 0 && user.delivery === 'TURN' && !generatedRequest ? workspaceId : undefined}
-                taskId={durable?.taskId} attachments={user.attachments.length > 0 && <div className="agt-user__files">
-                  {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
-                </div>}>
+          ) : <div className="agt-user" data-history-anchor={user.id}>
+            {startsTurn && turnRequest ? turnRequest : (
+              <WorkItemPrompt workspaceId={first && turn.ordinal === 1 && startsTurn && !generatedRequest ? workspaceId : undefined}
+                taskId={durable?.taskId} attachments={files}>
                 <div className="agt-user__bubble">
-                  {generatedRequest && index === 0 && user.delivery === 'TURN' && (
+                  {generatedRequest && startsTurn && (
                     <div className="agt-user__attribution">ByteQuay · Review request</div>
                   )}
-                  {user.attachments.length > 0 && (
-                    <div className="agt-user__files">
-                      {user.attachments.map((attachment) => (
-                        <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />
-                      ))}
-                    </div>
-                  )}
+                  {files}
                   <div>{linkIssueNumbers(user.text, repository)}</div>
                   {user.delivery !== 'TURN' && (
                     <div className="agt-muted agt-small agt-user__delivery">

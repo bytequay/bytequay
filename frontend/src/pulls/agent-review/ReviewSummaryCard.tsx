@@ -19,7 +19,7 @@ import MarkdownBody from '../MarkdownBody';
 import ReviewComposer from './ReviewComposer';
 import ReviewThread from './ReviewThread';
 import { ChangedItem, WhatChanged } from './SummaryTimeline';
-import type { ReviewCardFocus } from '../../agents/ReviewRequestCard';
+import type { ReviewCardFocus } from '../../agents/InstructionCard';
 import type { AgentReviewDto, ReviewFindingDto, ReviewRunDto } from './contracts';
 import { askLabel, askQueues, isExplanationRun, latestExplanationRun, latestRun, shortSha } from './model';
 

@@ -244,7 +244,7 @@ public class CiAutofixService
                 checkState(run.status() == Status.ACTIVE && run.currentTurnId().filter(turnId.toString()::equals).isPresent(), "CI repair turn is no longer current");
                 AgentTurn turn = turnService.get(turnId);
                 checkState(turn.taskId().equals(taskId) && turn.state().active(), "CI repair turn is no longer active");
-                inspectWorktree(requireOpenTask(run), run);
+                inspectWorktree(run);
                 CiHeadSnapshot snapshot = gitHub.inspect(run.scope().pullRequest());
                 checkState(snapshot.open() && matchesPullRequestScope(run, snapshot) && snapshot.headSha().equals(run.expectedRemoteHead()), "CI pull request changed");
                 update.accept(run, snapshot);
@@ -858,7 +858,7 @@ public class CiAutofixService
         if (!snapshot.headSha().equals(run.expectedRemoteHead()) || !snapshot.green()) {
             return run;
         }
-        WorktreeSnapshot worktree = inspectWorktree(requireOpenTask(run), run);
+        WorktreeSnapshot worktree = inspectWorktree(run);
         if (worktree.uncommitted() || worktree.gitOperationInProgress() || !worktree.head().equals(run.expectedRemoteHead())) {
             return run;
         }
@@ -970,7 +970,7 @@ public class CiAutofixService
     private CiAutofixRun recordPushJournal(CiAutofixRun run, CiAutofixAttempt attempt, Instant now)
     {
         GitResult result = attempt.gitResult().orElseThrow();
-        inspectWorktree(requireOpenTask(run), run);
+        inspectWorktree(run);
         return store.update(run.recordPushJournal(new PushJournal(attempt.id(), run.expectedRemoteHead(), result.localHead(), result.fingerprint(), now, 0), now));
     }
 
@@ -1101,7 +1101,7 @@ public class CiAutofixService
         if (rejected.isPresent()) {
             return rejected.orElseThrow();
         }
-        WorktreeSnapshot worktree = inspectWorktree(requireOpenTask(run), run);
+        WorktreeSnapshot worktree = inspectWorktree(run);
         WorkspaceRepositoryContext workspace = requireWorkspace(run);
         ownership.require(run);
         if (get(run.id()).version() != run.version() || get(run.id()).status() != Status.ACTIVE) {
@@ -1401,7 +1401,7 @@ public class CiAutofixService
 
     private void verifyBranchRebaseScope(CiAutofixRun run, BranchRebase rebase, String baseSha)
     {
-        TaskWorktree worktree = requireTaskWorktree(requireOpenTask(run), run);
+        TaskWorktree worktree = worktree(run);
         if (!rebase.agentTaskId().equals(run.agentTaskId().orElseThrow())
                 || !rebase.repository().equals(RepoRef.of(
                         worktree.physicalRepository().owner(), worktree.physicalRepository().name()))
@@ -1425,7 +1425,7 @@ public class CiAutofixService
 
     private SynchronizeCiBaseCommand synchronizeBaseCommand(CiAutofixRun run, String baseSha)
     {
-        WorktreeSnapshot worktree = inspectWorktree(requireOpenTask(run), run);
+        WorktreeSnapshot worktree = inspectWorktree(run);
         WorkspaceRepositoryContext workspace = requireWorkspace(run);
         return new SynchronizeCiBaseCommand(
                 workspace.workspaceId(),
@@ -1765,17 +1765,28 @@ public class CiAutofixService
         return worktreeService.inspect(worktree);
     }
 
+    /** The checkout the run repairs in. */
+    private TaskWorktree worktree(CiAutofixRun run)
+    {
+        return requireTaskWorktree(requireOpenTask(run), run);
+    }
+
+    private WorktreeSnapshot inspectWorktree(CiAutofixRun run)
+    {
+        return worktreeService.inspect(worktree(run));
+    }
+
     /** The run's checkout from {@code baseSha} to the head it expects to push over. */
     private CiWorktreeRange worktreeRange(CiAutofixRun run, String baseSha)
     {
-        TaskWorktree worktree = inspectWorktree(requireOpenTask(run), run).worktree();
+        TaskWorktree worktree = inspectWorktree(run).worktree();
         return new CiWorktreeRange(worktree.canonicalWorktree(), worktree.physicalRepository(), worktree.generatedBranch(), baseSha, run.expectedRemoteHead());
     }
 
     private WorkspaceRepositoryContext requireWorkspace(CiAutofixRun run)
     {
         WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(run.scope().workspaceId());
-        TaskWorktree worktree = requireTaskWorktree(requireOpenTask(run), run);
+        TaskWorktree worktree = worktree(run);
         if (!workspace.monitoredRepository().owner().equalsIgnoreCase(run.scope().pullRequest().owner())
                 || !workspace.monitoredRepository().repo().equalsIgnoreCase(run.scope().pullRequest().repo())
                 || !workspace.selectedRepository().owner().equalsIgnoreCase(worktree.physicalRepository().owner())

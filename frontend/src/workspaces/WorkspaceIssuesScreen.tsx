@@ -33,14 +33,9 @@ import { completeAttentionVisit, recordAttentionAction, useAttentionVisit } from
 import type { NavigationMode } from '../navigationHistory';
 import { SkeletonTimeline } from '../pulls/DetailSkeleton';
 import MarkdownBody, { GitHubReferenceLink, linkIssueNumbers } from '../pulls/MarkdownBody';
-import {
-  CardHeader,
-  DiscussionComposer,
-  MetadataPicker,
-  reactionEmoji,
-  toggleSelection,
-  type QuoteRequest,
-} from '../pulls/PullOverview';
+import { CardHeader, DiscussionComposer, type QuoteRequest } from '../pulls/PullOverview';
+import { MetadataPicker, toggleSelection } from '../pulls/PullMetadata';
+import { reactionEmoji } from '../pulls/PullReactions';
 import type { MentionCandidate } from '../pulls/useMentions';
 import { remoteErrorMessage } from '../remoteError';
 import { CommentIcon, PaneIcon, RefreshIcon } from '../pulls/PullsScreen';

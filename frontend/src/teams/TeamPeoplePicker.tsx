@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import { MetadataPicker } from '../pulls/PullOverview';
+import { MetadataPicker } from '../pulls/PullMetadata';
 import { remoteErrorMessage } from '../remoteError';
 import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import type { RepositoryMetadataDto } from '../types';

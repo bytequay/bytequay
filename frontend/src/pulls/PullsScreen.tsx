@@ -68,7 +68,8 @@ import {
 } from './model';
 import { usePrivateThreads, type PrivateThreadSource } from './PrivateThread';
 import PullChanges, { pullReviewThreads, updatePendingReviewComment, type CommitRange, type DiffAgentComment } from './PullChanges';
-import PullOverview, { commentedCodeLines, isAutoMergeEnabled, isQueued, mergePullRequestWriteDetail, useViewer, type PullDetailUpdater } from './PullOverview';
+import PullOverview, { commentedCodeLines, isAutoMergeEnabled, isQueued, useViewer } from './PullOverview';
+import { mergePullRequestWriteDetail, type PullDetailUpdater } from './pullDetail';
 import { remoteErrorMessage } from '../remoteError';
 import ErrorDetails from '../ErrorDetails';
 import PullRequestConflictFiles from './PullRequestConflictFiles';

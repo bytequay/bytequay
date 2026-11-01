@@ -47,7 +47,8 @@ import LocalReviewThreadCard, { localReviewMatchesRevision } from './local-revie
 import type { LocalReviewThreadDto, LocalReviewThreads } from './local-review/types';
 import MarkdownBody, { type SuggestionBase } from './MarkdownBody';
 import MarkdownEditor from './MarkdownEditor';
-import { ReviewThread, threadCommentedLines, useViewer, type PullDetailUpdater } from './PullOverview';
+import { ReviewThread, threadCommentedLines, useViewer } from './PullOverview';
+import type { PullDetailUpdater } from './pullDetail';
 import { remoteErrorMessage } from '../remoteError';
 import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
 

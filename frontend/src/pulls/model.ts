@@ -278,3 +278,7 @@ function reviewLabel(pr: PullRequestDto) {
     default: return null;
   }
 }
+
+export function displayActor(actor: string) {
+  return actor.replace(/\[bot\]$/, '');
+}

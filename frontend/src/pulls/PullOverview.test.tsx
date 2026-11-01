@@ -18,7 +18,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelineCommentDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
 import { canSubmitReview, EMPTY_TIMELINE_PAYLOAD as emptyPayload } from './model';
-import PullOverview, { appendQuotedReply, applyViewerReaction, canUpdateComment, commentedCodeLines, CommentEditor, displayedMetadataPickerOptions, groupTimelineActivities, checkJobId, isAutoMergeEnabled, isViewerComment, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, peoplePickerCandidates, ReviewThread, reviewThreadSuggestion, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
+import PullOverview, { appendQuotedReply, canUpdateComment, commentedCodeLines, CommentEditor, groupTimelineActivities, isAutoMergeEnabled, isViewerComment, ReviewThread, reviewThreadSuggestion, submitPullRequestComment, updateReviewThreadResolution } from './PullOverview';
+import { applyViewerReaction, nextViewerReaction, submitPullReaction } from './PullReactions';
+import { displayedMetadataPickerOptions, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, MetadataPicker, peoplePickerCandidates } from './PullMetadata';
+import { checkJobId } from './PullChecks';
+import { mergePullRequestWriteDetail, updatePullReactionDetail } from './pullDetail';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import PullsScreen, { hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
 import type { AgentReviewDto } from './agent-review/contracts';
@@ -26,7 +30,7 @@ import { reviewDraftFixture, reviewFixture, runningReviewFixture } from './agent
 import { timelineActivity, timelineComment, pr, prDetail } from './fixtures/pullRequest';
 import type { PrivateThreads } from './PrivateThread';
 import { PullRequestWorkspaceProvider } from './PullRequestWorkspace';
-import { activeMention, matchingMentions, replaceMention } from './useMentions';
+import { activeMention, matchingMentions, mentionCandidates, replaceMention } from './useMentions';
 
 /** New lines 41 (context) through 44, as GitHub records a thread's diff_hunk. */
 const COMMENTED_HUNK = '@@ -41,4 +41,18 @@ default long getMemoryUsage()\n {\n+    MemoryUsageTracker createTracker();\n+\n+    interface MemoryUsageTracker';

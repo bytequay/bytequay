@@ -15,10 +15,7 @@
 import { usePullRequestBridge } from './PullRequestWorkspace';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ZOOM_REFERENCE, type ZoomedReference } from '../githubReference';
-import {
-  mergePullRequestWriteDetail,
-  type PullDetailUpdater,
-} from './PullOverview';
+import { mergePullRequestWriteDetail, type PullDetailUpdater } from './pullDetail';
 import { remoteErrorMessage } from '../remoteError';
 import type {
   PullRequestDetailDto,

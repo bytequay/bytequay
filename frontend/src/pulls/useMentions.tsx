@@ -14,7 +14,8 @@
 import { useCallback, useEffect, useId, useState, type KeyboardEvent, type RefObject } from 'react';
 import Avatar from '../Avatar';
 import { once } from '../dataCache';
-import type { RepoUserDto } from '../types';
+import { displayActor } from './model';
+import type { PullRequestDetailDto, RepoUserDto } from '../types';
 
 export type MentionCandidate = { login: string; avatarUrl: string | null };
 type ActiveMention = { start: number; query: string };
@@ -143,4 +144,23 @@ export function useMentions({ repository, workspaceId, participants = NO_PEOPLE,
       </div>
     ),
   };
+}
+
+export function mentionCandidates(detail: PullRequestDetailDto): MentionCandidate[] {
+  const candidates = new Map<string, MentionCandidate>();
+  const add = (login: string | null | undefined, avatarUrl: string | null = null) => {
+    const displayLogin = displayActor(login ?? '').trim();
+    if (!/^[a-z\d](?:[a-z\d-]{0,38}[a-z\d])?$/i.test(displayLogin)) return;
+    const key = displayLogin.toLowerCase();
+    const existing = candidates.get(key);
+    if (!existing || (!existing.avatarUrl && avatarUrl)) candidates.set(key, { login: displayLogin, avatarUrl });
+  };
+  add(detail.author, detail.authorAvatarUrl);
+  detail.reviewers.forEach(reviewer => add(reviewer.login, reviewer.avatarUrl));
+  detail.assignees.forEach(login => add(login));
+  detail.recentActivity.forEach(activity => {
+    add(activity.actor, activity.payload.actorAvatarUrl);
+    activity.payload.comments.forEach(comment => add(comment.actor, comment.actorAvatarUrl));
+  });
+  return [...candidates.values()];
 }

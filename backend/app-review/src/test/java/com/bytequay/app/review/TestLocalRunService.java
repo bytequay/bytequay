@@ -46,6 +46,7 @@ import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.LocalRun;
@@ -147,7 +148,7 @@ class TestLocalRunService
 
         Workspace workspace = new Workspace(WORKSPACE_ID, "Local runs", 1, REPOSITORY, Optional.empty(), Optional.empty(),
                 1, REPOSITORY, Workspace.Topology.DIRECT, "main", ORIGIN, Optional.empty(), Optional.empty(), repository.toString(),
-                Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW);
+                Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW, HostingServer.GITHUB_COM);
         WorkspaceStore workspaceStore = mock(WorkspaceStore.class);
         when(workspaceStore.findById(WORKSPACE_ID)).thenReturn(Optional.of(workspace));
         GitCommandRunner runner = new GitCommandRunner();

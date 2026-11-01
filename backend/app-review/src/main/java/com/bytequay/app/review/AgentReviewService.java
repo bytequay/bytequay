@@ -135,7 +135,7 @@ public class AgentReviewService
 {
     private static final Logger log = LoggerFactory.getLogger(AgentReviewService.class);
     private static final Logger sendTiming = LoggerFactory.getLogger("com.bytequay.agent.SendTiming");
-    // The states the pull-request store keeps for one GitHub no longer shows as open.
+    // The states the pull-request store keeps for one the provider no longer shows as open.
     private static final Set<String> ENDED_PULL_REQUEST_STATES = ImmutableSet.of("merged", "closed");
 
     private final Map<String, SyncFailure> syncFailures = new ConcurrentHashMap<>();
@@ -281,7 +281,7 @@ public class AgentReviewService
         return projection(reviewId);
     }
 
-    /** Lists open and closed workspace reviews without inspecting working copies or refreshing GitHub. Replays are left out; newest updates come first. */
+    /** Lists open and closed workspace reviews without inspecting working copies or refreshing the provider. Replays are left out; newest updates come first. */
     public List<AgentReviewProjection> list(String workspaceId)
     {
         return store.listReviews(workspaceId).stream().filter(review -> review.replay().isEmpty()).map(review -> projection(review, false)).collect(toImmutableList());

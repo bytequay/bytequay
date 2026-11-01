@@ -13,21 +13,34 @@
  */
 package com.bytequay.integration.github;
 
+import com.bytequay.core.hosting.HostingCapabilities;
 import com.bytequay.core.hosting.HostingIntegration;
 import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.IssueClient;
+import com.bytequay.core.hosting.PullRequestCi;
+import com.bytequay.core.hosting.PullRequestContentReader;
+import com.bytequay.core.hosting.PullRequestDiscovery;
+import com.bytequay.core.hosting.PullRequestWriter;
+import com.bytequay.core.hosting.RepositoryMetadataReader;
+import com.bytequay.core.hosting.TeamActivityReader;
 import com.bytequay.integration.github.impl.GitHubConnectionClient;
 import com.bytequay.integration.github.impl.GitHubPullRequestReader;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.net.http.HttpClient;
+import java.util.Optional;
 
 public final class GitHubIntegration
 {
     private GitHubIntegration() {}
 
-    public static HostingIntegration create(HttpClient http, ObjectMapper mapper)
+    /** Content, write, issue, discovery, CI and team adapters are supplied by the application, which still builds them on its existing GitHub clients. */
+    public static HostingIntegration create(HttpClient http, ObjectMapper mapper, PullRequestContentReader contents, PullRequestWriter writer, IssueClient issues,
+            RepositoryMetadataReader metadata, PullRequestDiscovery discovery, PullRequestCi ci, TeamActivityReader team)
     {
-        GitHubConnectionClient client = new GitHubConnectionClient(http, mapper);
-        return new HostingIntegration(HostingProvider.GITHUB, client, client, new GitHubPullRequestReader(http, mapper));
+        GitHubConnectionClient connections = new GitHubConnectionClient(http, mapper);
+        return new HostingIntegration(HostingProvider.GITHUB, Optional.empty(), HostingCapabilities.ALL, connections, connections, new GitHubPullRequestReader(http, mapper),
+                contents, writer, issues, metadata,
+                discovery, ci, team);
     }
 }

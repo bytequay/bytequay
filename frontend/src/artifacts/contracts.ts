@@ -32,6 +32,8 @@ export type ArtifactViewDto = { artifact: ArtifactDto; offers: ArtifactOfferDto[
 
 /** Which page version to show. */
 export type ArtifactTarget = { workspaceId: string; artifactId: string; pageId: string };
+export type ArtifactReaderPage = Pick<ArtifactPageDto, 'id' | 'key' | 'version' | 'title' | 'commit'>;
+export type ArtifactReaderTarget = ArtifactTarget & { pages: ArtifactReaderPage[] };
 
 export type ArtifactBounds = { x: number; y: number; width: number; height: number };
 
@@ -48,7 +50,8 @@ export type ArtifactBridge = {
   answerArtifactQuestion: (workspaceId: string, artifactId: string, approvalId: string, allow: boolean, answers: Record<string, string>) => Promise<ArtifactViewDto>;
   stopArtifact: (workspaceId: string, artifactId: string) => Promise<void>;
   /** Null bounds cover a live page; a null target releases it. A new DOM focus choice cancels restoration. */
-  showArtifact: (target: ArtifactTarget | null, bounds: ArtifactBounds | null, allowFocusRestore?: boolean) => Promise<void>;
+  showArtifact: (target: ArtifactReaderTarget | null, bounds: ArtifactBounds | null, allowFocusRestore?: boolean) => Promise<void>;
+  onArtifactReading: (listener: (target: ArtifactTarget) => void) => () => void;
 };
 
 function parseArtifact(value: unknown): ArtifactDto {
@@ -91,7 +94,14 @@ export function parseArtifactPage(value: unknown): string {
   return text(object(value, 'artifact page').html, 'artifact page');
 }
 
-export function parseArtifactTarget(value: unknown): ArtifactTarget {
+export function parseArtifactTarget(value: unknown): ArtifactReaderTarget {
   const target = object(value, 'artifact target');
-  return { workspaceId: text(target.workspaceId, 'workspace'), artifactId: text(target.artifactId, 'artifact'), pageId: text(target.pageId, 'artifact page') };
+  const pages = list(target.pages, 'artifact pages').map(entry => {
+    const page = object(entry, 'artifact page');
+    return { id: text(page.id, 'page id'), key: text(page.key, 'page key'), version: count(page.version, 'page version'),
+      title: text(page.title, 'page title'), commit: text(page.commit, 'page commit') };
+  });
+  const pageId = text(target.pageId, 'artifact page');
+  if (!pages.some(page => page.id === pageId) || new Set(pages.map(page => page.id)).size !== pages.length) throw new Error('Invalid artifact pages');
+  return { workspaceId: text(target.workspaceId, 'workspace'), artifactId: text(target.artifactId, 'artifact'), pageId, pages };
 }

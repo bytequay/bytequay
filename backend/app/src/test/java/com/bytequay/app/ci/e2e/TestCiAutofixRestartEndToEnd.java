@@ -21,7 +21,6 @@ import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
-import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.app.ByteQuayApplication;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiGitService;
@@ -37,17 +36,22 @@ import com.bytequay.app.scheduler.WorkflowMonitorJob;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
+import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.app.web.agent.AgentRequestFilter;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.domain.UserProfile;
-import com.bytequay.core.store.CredentialStore;
+import com.bytequay.core.hosting.HostingIntegration;
+import com.bytequay.core.store.AppSettingsStore;
+import com.bytequay.core.store.HostingCredentialStore;
+import com.bytequay.core.store.HostingIdentityStore;
 import com.bytequay.core.store.PrDetailStore;
-import com.bytequay.core.store.WorkspaceCredentialStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.bytequay.persistence.sqlite.repository.HostingRepositoryJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableSet;
@@ -115,7 +119,7 @@ class TestCiAutofixRestartEndToEnd
                 "create",
                 Optional.empty(),
                 true)) {
-            scripts = new Scripts(first.getBean(ScriptedGitHubActionsClient.class), first.getBean(ScriptedAgentDriver.class));
+            scripts = new Scripts(first.getBean(ScriptedPullRequestCi.class), first.getBean(ScriptedAgentDriver.class));
             CiAutofixE2eHarness harness = harness(first, scripts);
             fixture = harness.createFixture("restart");
             E2eGitRepository repository = fixture.repository();
@@ -151,7 +155,7 @@ class TestCiAutofixRestartEndToEnd
             assertThat(repository.remoteHead()).isEqualTo(pushedSha);
             assertThat(repository.headRefUpdates()).isEqualTo(branchWrites + 1);
             assertThat(first.getBean(PrDetailStore.class).find(fixture.prId()).orElseThrow().timeline()).isEmpty();
-            assertThat(Files.readString(rawLog)).isEqualTo(CiAutofixE2eHarness.RAW_COMPILE_LOG);
+            assertThat(Files.readString(rawLog)).startsWith("Raw log: read_ci_raw_log(").endsWith(CiAutofixE2eHarness.RAW_COMPILE_LOG);
             assertThat(memoryBeforeRestart).contains("Backend compile", "restart-fix.txt");
             assertThat(eventSequences).isNotEmpty();
             assertThat(metricsBeforeRestart.inputTokens()).isPositive();
@@ -197,7 +201,7 @@ class TestCiAutofixRestartEndToEnd
             assertThat(fixture.repository().remoteHead()).isEqualTo(pushedSha);
             assertThat(fixture.repository().headRefUpdates()).isEqualTo(branchWrites + 1);
             assertThat(fixture.repository().commitSubjects()).containsExactly("First change", "Target change", "fixup! Target change", "Last change");
-            assertThat(Files.readString(rawLog)).isEqualTo(CiAutofixE2eHarness.RAW_COMPILE_LOG);
+            assertThat(Files.readString(rawLog)).startsWith("Raw log: read_ci_raw_log(").endsWith(CiAutofixE2eHarness.RAW_COMPILE_LOG);
             List<Long> recoveredEventSequences = events.readAfter(taskId, 0, 100).stream()
                     .map(event -> event.sequence())
                     .collect(toImmutableList());
@@ -258,13 +262,16 @@ class TestCiAutofixRestartEndToEnd
                 context.getBean(ObjectMapper.class),
                 context.getBean(CiAutofixService.class),
                 context.getBean(WorkflowMonitorJob.class),
-                scripts.gitHub(),
+                scripts.ci(),
                 scripts.agent(),
                 context.getBean(AgentTaskService.class),
                 context.getBean(AgentTurnService.class),
                 context.getBean(AgentEventService.class),
                 context.getBean(AgentResourceService.class),
                 context.getBean(PullRequestJpaRepository.class),
+                context.getBean(HostingIdentityStore.class),
+                context.getBean(HostingCredentialStore.class),
+                context.getBean(HostingRepositoryJpaRepository.class),
                 context.getBean(PrDetailStore.class),
                 context.getBean(WorkspaceStore.class),
                 context.getBean(WorkspacePaths.class),
@@ -298,7 +305,7 @@ class TestCiAutofixRestartEndToEnd
         return run;
     }
 
-    private record Scripts(ScriptedGitHubActionsClient gitHub, ScriptedAgentDriver agent) {}
+    private record Scripts(ScriptedPullRequestCi ci, ScriptedAgentDriver agent) {}
 
     private record RestartInitializer(Optional<Scripts> scripts, boolean losePushResult)
             implements ApplicationContextInitializer<GenericApplicationContext>
@@ -307,10 +314,24 @@ class TestCiAutofixRestartEndToEnd
         public void initialize(GenericApplicationContext context)
         {
             context.registerBean("restartGitCommandRunner", GitCommandRunner.class, RoutedGitCommandRunner::new, bean -> bean.setPrimary(true));
+            context.registerBean(ScriptedPullRequestCi.class, () -> scripts.map(Scripts::ci).orElseGet(ScriptedPullRequestCi::new));
             context.registerBean(
-                    ScriptedGitHubActionsClient.class,
-                    () -> scripts.map(Scripts::gitHub)
-                            .orElseGet(() -> new ScriptedGitHubActionsClient(context.getBean(TaskLogStore.class))),
+                    "restartHostingIntegrations",
+                    HostingIntegrations.class,
+                    () -> ScriptedPullRequestCi.integrations(context.getBeanProvider(HostingIntegration.class), context.getBean(HostingIdentityStore.class),
+                            context.getBean(ScriptedPullRequestCi.class)),
+                    bean -> bean.setPrimary(true));
+            context.registerBean(
+                    "restartWorkspaceHostingService",
+                    WorkspaceHostingService.class,
+                    () -> {
+                        WorkspaceHostingService hosting = spy(context.getBean("workspaceHostingService", WorkspaceHostingService.class));
+                        doAnswer(invocation -> CiAutofixE2eHarness.route(context.getBean(WorkspaceStore.class), context.getBean(HostingIdentityStore.class),
+                                invocation.getArgument(0))).when(hosting).captureRead(anyString());
+                        doAnswer(invocation -> CiAutofixE2eHarness.route(context.getBean(WorkspaceStore.class), context.getBean(HostingIdentityStore.class),
+                                invocation.getArgument(0))).when(hosting).storedRead(anyString());
+                        return hosting;
+                    },
                     bean -> bean.setPrimary(true));
             context.registerBean(
                     ScriptedAgentDriver.class,
@@ -320,8 +341,7 @@ class TestCiAutofixRestartEndToEnd
                     "restartCredentialService",
                     CredentialService.class,
                     () -> new CredentialService(
-                            context.getBean(CredentialStore.class),
-                            context.getBean(WorkspaceCredentialStore.class),
+                            context.getBean(AppSettingsStore.class),
                             context.getBean(GhCliService.class),
                             context.getBean(GitHubAccountClient.class),
                             context.getBean(HostingConnectionService.class),

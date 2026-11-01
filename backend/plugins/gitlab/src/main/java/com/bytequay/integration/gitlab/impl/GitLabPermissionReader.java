@@ -30,10 +30,12 @@ import static java.util.Objects.requireNonNull;
 final class GitLabPermissionReader
 {
     private final GitLabHttpClient http;
+    private final boolean inspectsPersonalTokens;
 
-    GitLabPermissionReader(GitLabHttpClient http)
+    GitLabPermissionReader(GitLabHttpClient http, boolean inspectsPersonalTokens)
     {
         this.http = requireNonNull(http, "http is null");
+        this.inspectsPersonalTokens = inspectsPersonalTokens;
     }
 
     HostingPermissions check(HostingAccess access)
@@ -51,6 +53,9 @@ final class GitLabPermissionReader
                     return unavailable("Could not verify GitLab permissions. " + failure.getMessage() + " Use Check permissions to try again.");
                 }
             }
+        }
+        if (!inspectsPersonalTokens) {
+            return unavailable("GitLab before 15.5 cannot report a personal access token's permissions. Make sure the token has api; project access has not been verified.");
         }
         // OAuth and personal tokens have separate inspection endpoints; no token is sent in a URL.
         try {

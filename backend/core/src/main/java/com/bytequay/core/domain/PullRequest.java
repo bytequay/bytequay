@@ -25,21 +25,21 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
- * The list-level shape of a PR. Most fields come straight from GitHub's
+ * The list-level shape of a PR. Most fields come straight from the provider's
  * search/list endpoints; the trailing block (ciStatus, additions, deletions,
  * commentCount) is populated by the sync job from the
  * accompanying detail fetch so list and Home rows need no extra request.
  *
- * @param createdAt GitHub's {@code created_at}, or null on legacy rows.
+ * @param createdAt the provider's {@code created_at}, or null on legacy rows.
  * @param labelColors side-table for label name to hex color.
- * @param state GitHub PR state: {@code "open"}, {@code "closed"}, or
+ * @param state PR state: {@code "open"}, {@code "closed"}, or
  * {@code "merged"}.
- * @param mergeable GitHub's mergeable flag, or null while GitHub is still
+ * @param mergeable the provider's mergeable flag, or null while the provider is still
  * computing it.
  * @param mergeableState GitHub's mergeable_state value.
  * @param headPushedAt timestamp of the most recent commit on the PR's head
  * branch.
- * @param headRef PR head branch name from GitHub's list response.
+ * @param headRef PR head branch name from the provider's list response.
  */
 public record PullRequest(
         long id,
@@ -100,7 +100,7 @@ public record PullRequest(
         return viewer.map(login -> login.equalsIgnoreCase(author)).orElse(origin == Origin.AUTHORED);
     }
 
-    /** Whether GitHub blocks merging it, such as for a missing approval or a failing required check. */
+    /** Whether the provider blocks merging it, such as for a missing approval or a failing required check. */
     public boolean mergeBlocked()
     {
         return "blocked".equalsIgnoreCase(mergeableState);

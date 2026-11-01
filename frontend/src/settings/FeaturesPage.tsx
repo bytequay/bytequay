@@ -187,7 +187,7 @@ function AssistantPermissionRows({ onError }: { onError: (failure: unknown) => v
       subtitle="Allow once or deny sandboxed commands, answer questions, and send your replies.">
       <Toggle label="Assistant can answer tasks" on={value.answerTasks} disabled={busy} onChange={answerTasks => save({ ...value, answerTasks })} />
     </SettingsRow>
-    <SettingsRow title="Assistant can change Epics and work items" subtitle="Nothing goes to GitHub.">
+    <SettingsRow title="Assistant can change Epics and work items" subtitle="Nothing is pushed.">
       <Toggle label="Assistant can change Epics and work items" on={value.changeWork} disabled={busy} onChange={changeWork => save({ ...value, changeWork })} />
     </SettingsRow>
     <SettingsRow title="Assistant can acknowledge and snooze items">

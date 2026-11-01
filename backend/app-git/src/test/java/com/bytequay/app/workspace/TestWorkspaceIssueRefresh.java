@@ -53,10 +53,13 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.issues;
 import static com.bytequay.app.workspace.WorkspaceIssueTestData.NOW;
 import static com.bytequay.app.workspace.WorkspaceIssueTestData.event;
 import static com.bytequay.app.workspace.WorkspaceIssueTestData.issue;
 import static com.bytequay.app.workspace.WorkspaceIssueTestData.workspace;
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -90,6 +93,9 @@ class TestWorkspaceIssueRefresh
     void setUp()
     {
         when(workspaceStore.findAll()).thenAnswer(invocation -> ImmutableList.copyOf(workspaces.values()));
+        when(workspaceStore.findAllRetained()).thenAnswer(invocation -> ImmutableList.copyOf(workspaces.values()));
+        when(workspaceStore.isWatched(anyString())).thenReturn(true);
+        when(workspaceStore.findByHostingRepositoryId(anyLong())).thenCallRealMethod();
         when(workspaceStore.findById(org.mockito.ArgumentMatchers.anyString()))
                 .thenAnswer(invocation -> Optional.ofNullable(workspaces.get(invocation.getArgument(0))));
         when(workspaceStore.findHostingRepositoryId(org.mockito.ArgumentMatchers.anyString()))
@@ -97,7 +103,7 @@ class TestWorkspaceIssueRefresh
         when(hosting.captureRead(org.mockito.ArgumentMatchers.anyString()))
                 .thenAnswer(invocation -> WorkspaceIssueTestData.route(workspaces.get(invocation.getArgument(0))));
         service = new WorkspaceIssueService(workspaceStore, issueStore, detailStore, hosting,
-                ImmutableList.of(new GitHubIssueClient(gitHub, issueReads, mock(GitHubPullRequestWriteClient.class))),
+                integrations(issues(GITHUB, new GitHubIssueClient(gitHub, issueReads, mock(GitHubPullRequestWriteClient.class)))),
                 mock(RecentTouchRecorder.class), Clock.fixed(NOW, ZoneOffset.UTC), settings);
     }
 
@@ -254,7 +260,7 @@ class TestWorkspaceIssueRefresh
         workspaces.put("other", workspace("other", 100, DIRECT, Topology.DIRECT));
         when(gitHub.fetchIssue("token", UPSTREAM, 7)).thenReturn(Optional.of(issue(7)));
 
-        service.refreshNotifiedIssue(UPSTREAM, 7);
+        service.refreshNotifiedIssue(300, 7);
 
         verify(gitHub, times(1)).fetchIssue("token", UPSTREAM, 7);
         verify(issueStore).saveSyncPage(eq(300L), eq(ImmutableList.of(issue(7))));
@@ -268,9 +274,9 @@ class TestWorkspaceIssueRefresh
         workspaces.put("direct", workspace("direct", 100, DIRECT, Topology.DIRECT));
         when(gitHub.fetchIssue("token", DIRECT, 7)).thenReturn(Optional.empty());
 
-        service.refreshNotifiedIssue(UPSTREAM, 7);
+        service.refreshNotifiedIssue(300, 7);
         verifyNoInteractions(gitHub);
-        service.refreshNotifiedIssue(DIRECT, 7);
+        service.refreshNotifiedIssue(100, 7);
 
         verify(issueStore).delete(100, 7);
         verify(issueStore, never()).completeSync(anyLong(), any(), any());

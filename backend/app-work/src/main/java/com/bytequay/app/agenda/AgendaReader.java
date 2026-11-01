@@ -103,7 +103,7 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Gathers one agenda run's pages from what ByteQuay already stores: the pull requests Needs attention ranks, the tasks app notices
- * describe, Epic work, assigned issues and tickets, and earlier agendas. No GitHub, Jira or provider request is made here.
+ * describe, Epic work, assigned issues and tickets, and earlier agendas. No hosting, Jira or provider request is made here.
  */
 @Component
 public class AgendaReader
@@ -194,14 +194,12 @@ public class AgendaReader
         Map<String, RefInfo> refs = new LinkedHashMap<>();
         Optional<String> viewer = credentials.cachedLogin();
         List<Workspace> watched = workspaces.findAll();
-        Map<String, String> workspaceByRepo = new HashMap<>();
-        watched.stream().filter(Workspace::isGitHub).forEach(workspace -> workspaceByRepo.putIfAbsent(lower(workspace.monitoredRepository().fullName()), workspace.id()));
         List<TeamCircle> circles = read("circles", teams::cachedCircles, ImmutableList.of());
 
         // A snoozed item stays out of the agenda and the assistant's answers until its snooze ends, as it stays out of Needs attention.
         Set<String> snoozed = read("snoozes", marks::snoozedKeys, ImmutableSet.of());
         List<PullRequest> candidates = read("pull requests", () -> pullRequests.listAttentionCandidates().stream()
-                .filter(pr -> !snoozed.contains(markKey(pr.repo(), pr.number()))).collect(toImmutableList()), ImmutableList.of());
+                .filter(pr -> !snoozed.contains("pr:" + pr.id())).collect(toImmutableList()), ImmutableList.of());
         Set<Long> mentioned = read("mentions", () -> pullRequests.findMentioned(candidates), ImmutableSet.of());
         Map<Long, List<PrCommitLine>> afterReview = read("commits", () -> pullRequests.findCachedCommitsSinceReview(candidates), ImmutableMap.of());
         Map<Long, List<String>> failing = read("checks", () -> pullRequests.findCachedFailingChecks(candidates), ImmutableMap.of());
@@ -210,9 +208,9 @@ public class AgendaReader
                 .filter(pr -> pr.mine(viewer) || requested(pr, viewer) || pr.reviewedAt() != null || pr.monitoredAt() != null || mentioned.contains(pr.id()))
                 .collect(toImmutableList());
         for (PullRequest pr : involved) {
-            refs.putIfAbsent(AgendaRefs.pull(pr.repo(), pr.number()),
-                    new RefInfo(Optional.ofNullable(pr.activityAt()).or(() -> Optional.ofNullable(pr.updatedAt())), workspace(workspaceByRepo, pr.repo()),
-                            AgendaTarget.pull(pr.repo(), pr.number(), workspace(workspaceByRepo, pr.repo()))));
+            Optional<String> workspace = pullRequests.findWorkspace(pr.id()).map(Workspace::id);
+            refs.putIfAbsent(AgendaRefs.pull(pr.repo(), pr.number()), new RefInfo(Optional.ofNullable(pr.activityAt()).or(() -> Optional.ofNullable(pr.updatedAt())),
+                    workspace, AgendaTarget.pull(pr.id(), pr.repo(), pr.number(), workspace)));
         }
 
         List<Task> taskEntries = read("tasks", () -> tasks(refs), ImmutableList.of());
@@ -499,10 +497,10 @@ public class AgendaReader
         String repo = workspace.monitoredRepository().fullName();
         ImmutableList.Builder<Ask> asks = ImmutableList.builder();
         for (RepositoryIssue issue : issueDevelopment.attention(workspace.id()).issues()) {
-            if (issue.assignees().stream().noneMatch(viewer.orElseThrow()::equalsIgnoreCase) || snoozed.contains(markKey(repo, issue.number()))) {
+            String ref = AgendaRefs.issue(workspace, issue.number());
+            if (issue.assignees().stream().noneMatch(viewer.orElseThrow()::equalsIgnoreCase) || snoozed.contains(lower(ref))) {
                 continue;
             }
-            String ref = AgendaRefs.issue(workspace, repo, issue.number());
             refs.putIfAbsent(ref, new RefInfo(Optional.of(issue.updatedAt()), Optional.of(workspace.id()), AgendaTarget.issue(repo, issue.number(), workspace.id())));
             asks.add(new Ask(ref, "assigned_issue", clip(issue.title(), TITLE), Optional.of(issue.author()), circle(circles, repo, issue.author()),
                     Optional.of(issue.updatedAt()), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()));
@@ -647,11 +645,6 @@ public class AgendaReader
         return AgendaRefs.numbered("pr:" + key);
     }
 
-    private static Optional<String> workspace(Map<String, String> workspaceByRepo, String repo)
-    {
-        return Optional.ofNullable(workspaceByRepo.get(lower(repo)));
-    }
-
     private static boolean open(PullRequest pr)
     {
         return pr.mergedAt() == null && pr.closedAt() == null && (pr.state() == null || pr.state().equalsIgnoreCase("open"));
@@ -684,12 +677,6 @@ public class AgendaReader
     }
 
     /** One source's facts, or nothing when they cannot be read: a missing source narrows the agenda instead of failing it. */
-    /** A pull request's or an issue's key in Needs attention marks, lowercased as snoozedKeys gives them. */
-    private static String markKey(String repo, int number)
-    {
-        return (repo + "#" + number).toLowerCase(Locale.ROOT);
-    }
-
     private static <T> T read(String what, Supplier<T> source, T fallback)
     {
         try {

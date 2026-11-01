@@ -15,9 +15,12 @@ package com.bytequay.app.workspace;
 
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingCapabilities;
 import com.bytequay.core.hosting.HostingServer;
 
 import java.time.Instant;
+
+import static java.util.Objects.requireNonNull;
 
 public record WorkspaceSummary(
         String id,
@@ -38,9 +41,21 @@ public record WorkspaceSummary(
         Instant lastCodeSyncAt,
         Instant lastMetadataSyncAt,
         int displayOrder,
-        HostingServer hostingServer)
+        HostingServer hostingServer,
+        HostingCapabilities capabilities)
 {
-    public static WorkspaceSummary of(Workspace workspace)
+    public WorkspaceSummary
+    {
+        requireNonNull(hostingServer, "hostingServer is null");
+        requireNonNull(capabilities, "capabilities is null");
+    }
+
+    /**
+     * The workspace as the app shows it.
+     *
+     * @param capabilities what the app supports through the implementation chosen for the workspace's server
+     */
+    public static WorkspaceSummary of(Workspace workspace, HostingCapabilities capabilities)
     {
         return new WorkspaceSummary(
                 workspace.id(),
@@ -61,6 +76,7 @@ public record WorkspaceSummary(
                 workspace.lastCodeSyncAt().orElse(null),
                 workspace.lastMetadataSyncAt().orElse(null),
                 workspace.displayOrder(),
-                workspace.hostingServer().orElse(null));
+                workspace.server(),
+                capabilities);
     }
 }

@@ -22,7 +22,7 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * One reviewer comment that Auto-Review fix handed to a task's agent, and what became of it. The agent's reply reaches
- * GitHub only after its fix is pushed. A post is marked started before it is sent, so a post whose outcome is unknown is
+ * the pull request only after its fix is pushed. A post is marked started before it is sent, so a post whose outcome is unknown is
  * reported instead of repeated.
  *
  * @param requestKey the idempotency key of the input that asked the agent to fix this comment

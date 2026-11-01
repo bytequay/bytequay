@@ -95,7 +95,7 @@ export function timelineActivity(
     eventType: 'review_thread',
     timestamp: '2026-08-20T09:35:00Z',
     body: null,
-    githubId: 4,
+    remoteId: 4,
     ...overrides,
     payload: { ...EMPTY_TIMELINE_PAYLOAD, reactions: [], comments: [], ...payload },
   };
@@ -103,7 +103,7 @@ export function timelineActivity(
 
 export function timelineComment(overrides: Partial<PullTimelineCommentDto> = {}): PullTimelineCommentDto {
   return {
-    githubId: 99,
+    remoteId: 99,
     actor: 'bob',
     actorAvatarUrl: null,
     actorBot: false,

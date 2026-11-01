@@ -29,7 +29,7 @@ export function pullRequestDiffRevision(
   if (detail === null) return fallbackHeadPushedAt ?? null;
   const events = detail.recentActivity
     .filter(activity => DIFF_EVENTS.has(activity.eventType))
-    .map(activity => JSON.stringify([activity.eventType, activity.githubId, activity.timestamp, activity.payload.commitSha]))
+    .map(activity => JSON.stringify([activity.eventType, activity.remoteId, activity.timestamp, activity.payload.commitSha]))
     .sort();
   return JSON.stringify([detail.baseRef, detail.headRef, detail.additions, detail.deletions, detail.changedFiles,
     events.length > 0 ? events : fallbackHeadPushedAt ?? null]);
@@ -69,7 +69,7 @@ export interface PullRequestChangesSource {
   retryFailedRead: () => void;
 }
 
-/** Both PR surfaces own the same selection, snapshot reads, and GitHub comparisons. */
+/** Both PR surfaces own the same selection, snapshot reads, and remote comparisons. */
 export function usePullRequestChanges(
   target: PullRequestChangesTarget | null,
   { active = true, revision = null }: { active?: boolean; revision?: string | null } = {},

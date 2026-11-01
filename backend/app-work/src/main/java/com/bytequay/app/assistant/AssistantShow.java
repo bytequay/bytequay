@@ -51,7 +51,7 @@ import static java.util.Objects.requireNonNull;
 /**
  * The {@code assistant_show} tool: what the assistant shows the user. A list names refs the user could see, on screen or handed out in the
  * conversation, and the panel draws each from ByteQuay's own data, so the assistant never writes a row. An open goes to a page, a
- * repository or such an item only on the user's own words, and leaves a receipt either way. A draft is a new GitHub issue the user
+ * repository or such an item only on the user's own words, and leaves a receipt either way. A draft is a new issue the user
  * edits and creates as an Epic with a click. Making today's agenda, also on the user's words, is the one call that changes data, as
  * the agenda's own Make again does.
  */
@@ -146,7 +146,7 @@ class AssistantShow
                 "workspace", ImmutableMap.of("type", "string", "description", "draft_epic: the ws: ref from start_options of the repository the issue goes to"),
                 "body", ImmutableMap.of("type", "string", "description", "draft_epic: the issue's description for the user to edit")), "op");
         return new ReviewTool(NAME, "Show the user several items as a list in the panel, which the app draws from its own data; open a page, a repository or an "
-                + "item when the user's latest message asks, with a receipt; draft a new GitHub issue that the user edits and creates as an Epic with a click; or "
+                + "item when the user's latest message asks, with a receipt; draft a new issue that the user edits and creates as an Epic with a click; or "
                 + "make today's agenda when the user's latest message asks.", schema,
                 arguments -> call(message, context, items, arguments), false);
     }
@@ -244,7 +244,7 @@ class AssistantShow
                 words);
     }
 
-    /** Puts a new GitHub issue in front of the user to edit and create as an Epic; the assistant itself creates nothing. */
+    /** Puts a new issue in front of the user to edit and create as an Epic; the assistant itself creates nothing. */
     private String draft(AssistantItem message, AssistantContext context, Consumer<AssistantItem> items, JsonNode body)
     {
         String repository = body.path("workspace").asText("").strip();

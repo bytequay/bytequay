@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
-import { handledEntry, issueAttentionItem, loadHandled, pullRequestItem, saveHandled, type AttentionItem } from './attention';
+import { handledEntry, issueAttentionItem, loadHandled, pullRequestItem, pullRoute, saveHandled, type AttentionItem } from './attention';
 import { notifyIssueDevelopmentChanged } from '../workspaces/issueDevelopment';
 
 export type AttentionAction = 'comment' | 'review' | 'prompt' | 'update';
@@ -28,7 +28,7 @@ function readStoredItem(visit: Visit, afterWrite = false): void {
   visit.pending = (visit.pending ?? Promise.resolve()).then(async () => {
     const item = visit.item;
     if (item.pr !== null && window.bridge.fetchAttentionPrs !== undefined) {
-      if (afterWrite) await window.bridge.refreshPullRequestDetailByRef?.(item.repo, item.number, undefined, undefined, item.workspaceId ?? undefined).catch(() => {});
+      if (afterWrite) await window.bridge.refreshPullRequestDetailByRef?.(item.repo, item.number, undefined, undefined, pullRoute(item)).catch(() => {});
       const rows = item.workspaceId === null ? await window.bridge.fetchAttentionPrs()
         : (await window.bridge.fetchWorkspaceHostingAttention(item.workspaceId)).pullRequests;
       const row = rows.find(pr => pr.id === item.pr?.id);

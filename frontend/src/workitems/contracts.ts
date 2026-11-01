@@ -15,14 +15,14 @@
 import { object, oneOf, optionalText, text } from '../pulls/wireParse';
 
 
-export type WorkSource = 'LOCAL' | 'GITHUB' | 'JIRA';
+export type WorkSource = 'LOCAL' | 'ISSUE' | 'JIRA';
 export type UnifiedWorkItem = {
   id: string; source: WorkSource; title: string; description: string; status: string; closed: boolean; updatedAt: string;
   reference: { kind: GoalItemKind; key: string; label: string; title: string; addedAt: string } | null;
   work: WorkItemDto | null;
 };
 export type Publication = {
-  source: 'GITHUB' | 'JIRA'; expectedRevision: number; connectionId?: string; cloudId?: string; project?: string; issueTypeId?: string;
+  source: 'ISSUE' | 'JIRA'; expectedRevision: number; connectionId?: string; cloudId?: string; project?: string; issueTypeId?: string;
 };
 export type WorkItemContextLink = {
   targetId: string; id: string; source: WorkSource; title: string; status: string; available: boolean;
@@ -42,7 +42,7 @@ export function parseWorkItemContextLink(value: unknown): WorkItemContextLink {
   if (value === null || typeof value !== 'object') throw new Error('Malformed context link');
   const link = value as Record<string, unknown>;
   if (typeof link.targetId !== 'string' || typeof link.id !== 'string' || typeof link.title !== 'string' || typeof link.status !== 'string'
-      || typeof link.available !== 'boolean' || !['LOCAL', 'GITHUB', 'JIRA'].includes(String(link.source))) throw new Error('Malformed context link');
+      || typeof link.available !== 'boolean' || !['LOCAL', 'ISSUE', 'JIRA'].includes(String(link.source))) throw new Error('Malformed context link');
   let reference: WorkItemContextLink['reference'] = null;
   if (link.reference != null) {
     if (typeof link.reference !== 'object') throw new Error('Malformed context link source');
@@ -56,7 +56,7 @@ export function parseUnifiedWorkItem(value: unknown): UnifiedWorkItem {
   if (value === null || typeof value !== 'object') throw new Error('Malformed work item');
   const v = value as Record<string, unknown>;
   if (typeof v.id !== 'string' || typeof v.title !== 'string' || typeof v.description !== 'string' || typeof v.status !== 'string'
-      || typeof v.closed !== 'boolean' || typeof v.updatedAt !== 'string' || !['LOCAL', 'GITHUB', 'JIRA'].includes(String(v.source))) throw new Error('Malformed work item');
+      || typeof v.closed !== 'boolean' || typeof v.updatedAt !== 'string' || !['LOCAL', 'ISSUE', 'JIRA'].includes(String(v.source))) throw new Error('Malformed work item');
   let reference: UnifiedWorkItem['reference'] = null;
   if (v.reference != null) {
     const r = v.reference as Record<string, unknown>;
@@ -143,7 +143,7 @@ export type WorkItemDto = {
   priority: WorkItemPriority;
   /** The same Epic's work it waits on. */
   blockedBy: string[];
-  /** The Epic the work belongs to: a local item, GitHub issue, or Jira ticket identity. */
+  /** The Epic the work belongs to: a local item, issue, or Jira ticket identity. */
   epicId?: string | null;
   /** Its place in its Epic's order, lowest first; equal places keep creation order. */
   epicRank?: number;
@@ -151,7 +151,7 @@ export type WorkItemDto = {
 export type CreateWorkItem = Pick<WorkItemDto, 'id' | 'title' | 'kind' | 'acceptanceCriteria' | 'completionRule' | 'epicId'>;
 /** Work an Epic took in, and the other Epic it left, if any. */
 export type EpicJoinDto = { item: WorkItemDto; movedFrom: string | null };
-/** A GitHub sub-issue or Jira child ticket an Epic's source reports, as ByteQuay last read it. */
+/** A provider's child issue or Jira child ticket an Epic's source reports, as ByteQuay last read it. */
 export type EpicChildDto = { identity: string; kind: 'ISSUE' | 'JIRA'; key: string; label: string; title: string; status: string; closed: boolean; url: string | null };
 /** Work the Development model proposed for an Epic, waiting until the user accepts or dismisses it. */
 export type EpicProposalDto = {

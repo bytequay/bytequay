@@ -18,16 +18,16 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.jira.JiraService;
-import com.bytequay.app.repository.github.GitHubRepoClient;
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.epic.EpicBreakdowns;
 import com.bytequay.app.service.epic.EpicService;
 import com.bytequay.app.service.epic.EpicSources;
 import com.bytequay.app.service.epic.InMemoryEpicStore;
+import com.bytequay.app.service.hosting.HostingIntegrations;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.core.domain.Epic;
-import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
+import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemContextLink;
 import com.bytequay.core.domain.WorkItemEvent;
@@ -110,7 +110,7 @@ class TestWorkItemService
         service.beginPublication("workspace", id, created.revision(), "publish-1", "GITHUB:org/repo");
         assertThatThrownBy(() -> service.beginPublication("workspace", id, find(id).revision(), "publish-2", "GITHUB:org/repo"))
                 .hasMessageContaining("may already have succeeded");
-        WorkItemLink published = GoalReferenceReader.issueLink(new GitHubIssueSource("github.com", 43, "org/repo", 7,
+        WorkItemLink published = GoalReferenceReader.issueLink(new HostedIssueSource("github.com", 43, "org/repo", 7,
                 "https://github.com/org/repo/issues/7", "Private investigation", body, NOW), NOW);
         WorkItemView exposed = service.published("workspace", id, published, "publish-1");
         assertThat(exposed.id()).isEqualTo(created.id());
@@ -173,7 +173,7 @@ class TestWorkItemService
         WorkItemView sibling = epicWork(EPIC, "Another piece");
         service.orderEpic("workspace", EPIC, ImmutableList.of(sibling.id(), item.id()));
         service.removeFromEpic("workspace", item.id());
-        WorkItemLink source = GoalReferenceReader.issueLink(new GitHubIssueSource("github.com", 43, "org/repo", 7,
+        WorkItemLink source = GoalReferenceReader.issueLink(new HostedIssueSource("github.com", 43, "org/repo", 7,
                 "https://github.com/org/repo/issues/7", item.title(), item.acceptanceCriteria(), NOW), NOW);
         service.beginPublication("workspace", item.id(), find(item.id()).revision(), "publication-1", "GITHUB:org/repo");
 
@@ -389,7 +389,7 @@ class TestWorkItemService
     @Test
     void attemptsOnOneSourceStayOneOutcomeAndConcludedOrForeignWorkRefusesAnother()
     {
-        WorkItemLink source = GoalReferenceReader.issueLink(new GitHubIssueSource("github.com", 42, "org/repo", 1, "https://github.com/org/repo/issues/1",
+        WorkItemLink source = GoalReferenceReader.issueLink(new HostedIssueSource("github.com", 42, "org/repo", 1, "https://github.com/org/repo/issues/1",
                 "Fix bug", "Accepted description", NOW), NOW);
         service.requireStartable("workspace", source.identity());
         service.recordAttempt(task(), source);
@@ -555,7 +555,7 @@ class TestWorkItemService
         ObjectProvider<JiraService> jira = mock(ObjectProvider.class);
         EpicSources sources = new EpicSources(markers, workspaces, jira, store, epicRecords);
         WorkItemService localWork = new WorkItemService(store, workspaces, references, sources, epicRecords, tasks, transactions, Clock.fixed(NOW, ZoneOffset.UTC));
-        EpicService localEpics = new EpicService(epicRecords, sources, localWork, markers, mock(GitHubRepoClient.class), mock(CredentialService.class), jira,
+        EpicService localEpics = new EpicService(epicRecords, sources, localWork, markers, mock(WorkspaceHostingService.class), mock(HostingIntegrations.class), jira,
                 transactions, mock(RepositoryIssueStore.class), workspaces, mock(EpicBreakdowns.class), Clock.fixed(NOW, ZoneOffset.UTC));
         WorkItemView parent = localWork.create("workspace", UUID.randomUUID().toString(), "Hive field names", WorkItem.Kind.DEVELOP,
                 "Support slash characters across connectors", WorkItem.CompletionRule.MERGED_DELIVERY);
@@ -604,7 +604,7 @@ class TestWorkItemService
                 "Support slash characters", WorkItem.CompletionRule.MERGED_DELIVERY);
         String epicId = EpicSources.localEpicId(parent.id());
         epicRecords.save(Epic.of(epicId, "workspace"));
-        WorkItemLink issue = GoalReferenceReader.issueLink(new GitHubIssueSource("github.com", 43, "org/repo", 7,
+        WorkItemLink issue = GoalReferenceReader.issueLink(new HostedIssueSource("github.com", 43, "org/repo", 7,
                 "https://github.com/org/repo/issues/7", parent.title(), parent.acceptanceCriteria(), NOW), NOW);
         service.beginPublication("workspace", parent.id(), parent.revision(), "publish-1", "GITHUB:org/repo");
         WorkItemView exposed = service.published("workspace", parent.id(), issue, "publish-1");

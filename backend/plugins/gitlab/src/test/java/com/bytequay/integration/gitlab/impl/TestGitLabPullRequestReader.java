@@ -18,6 +18,7 @@ import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.hosting.RemoteHostingRepository;
@@ -108,6 +109,11 @@ class TestGitLabPullRequestReader
         reply.set(new Reply(200, mr().toString(), Optional.of("\"fresh\"")));
     }
 
+    private HostingTarget target()
+    {
+        return new HostingTarget(access, repository);
+    }
+
     @AfterEach
     void tearDown()
     {
@@ -121,7 +127,7 @@ class TestGitLabPullRequestReader
         reply.set(new Reply(200, "[" + listedMergeRequest(17, "opened", 42) + "," + listedMergeRequest(18, "merged", 42) + "]", Optional.empty()));
         nextLink.set(Optional.of("<" + base + "/api/v4/projects/42/merge_requests?page=2>; rel=\"next\""));
 
-        PullRequestListPage result = GitLabIntegration.create(http, MAPPER).pullRequests().list(access, repository, false, 1, 2);
+        PullRequestListPage result = GitLabIntegration.create(http, MAPPER).pullRequests().list(target(), false, 1, 2);
 
         assertThat(requestedPath.get()).isEqualTo("/gitlab/api/v4/projects/42/merge_requests?scope=all&state=all&order_by=updated_at&sort=desc&per_page=2&page=1");
         assertThat(requestToken.get()).isEqualTo("Bearer secret-token");
@@ -143,7 +149,7 @@ class TestGitLabPullRequestReader
         reply.set(new Reply(200, "[" + listedMergeRequest(17, "opened", 42) + "]", Optional.empty()));
         nextLink.set(Optional.of("<" + base + "/api/v4/projects/42/merge_requests?page=1>; rel=\"prev\""));
 
-        PullRequestListPage result = reader.list(access, repository, true, 2, 1);
+        PullRequestListPage result = reader.list(target(), true, 2, 1);
 
         assertThat(requestedPath.get()).isEqualTo("/gitlab/api/v4/projects/42/merge_requests?scope=all&state=opened&order_by=updated_at&sort=desc&per_page=1&page=2");
         assertThat(result.items()).hasSize(1);
@@ -155,7 +161,7 @@ class TestGitLabPullRequestReader
     {
         reply.set(new Reply(200, "[]", Optional.empty()));
 
-        PullRequestListPage result = reader.list(access, repository, false, 1, 100);
+        PullRequestListPage result = reader.list(target(), false, 1, 100);
 
         assertThat(result.items()).isEmpty();
         assertThat(result.hasNext()).isFalse();
@@ -165,7 +171,7 @@ class TestGitLabPullRequestReader
     @CsvSource({"0,100", "1,0", "1,101"})
     void validatesListingCoordinatesBeforeSendingCredentials(int page, int pageSize)
     {
-        assertThatThrownBy(() -> reader.list(access, repository, false, page, pageSize)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> reader.list(target(), false, page, pageSize)).isInstanceOf(IllegalArgumentException.class);
         assertThat(requestedPath.get()).isNull();
     }
 
@@ -175,7 +181,7 @@ class TestGitLabPullRequestReader
     {
         reply.set(new Reply(200, body, Optional.empty()));
 
-        assertThatThrownBy(() -> reader.list(access, repository, false, 1, 100))
+        assertThatThrownBy(() -> reader.list(target(), false, 1, 100))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
     }
 
@@ -184,7 +190,7 @@ class TestGitLabPullRequestReader
     {
         reply.set(new Reply(200, "[" + listedMergeRequest(17, "opened", 99) + "]", Optional.empty()));
 
-        assertThatThrownBy(() -> reader.list(access, repository, false, 1, 100))
+        assertThatThrownBy(() -> reader.list(target(), false, 1, 100))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
     }
 
@@ -193,20 +199,20 @@ class TestGitLabPullRequestReader
     {
         reply.set(new Reply(429, "{}", Optional.empty()));
 
-        assertThatThrownBy(() -> reader.list(access, repository, false, 2, 100))
+        assertThatThrownBy(() -> reader.list(target(), false, 2, 100))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(HostingFailure.Kind.RATE_LIMITED));
     }
 
     @Test
     void readsByTargetProjectIdAndIidUnderTheConfiguredApiPrefix()
     {
-        PullRequestFetch result = GitLabIntegration.create(http, MAPPER).pullRequests().fetch(access, repository, 17, Optional.empty());
+        PullRequestFetch result = GitLabIntegration.create(http, MAPPER).pullRequests().fetch(target(), 17, Optional.empty());
 
         assertThat(requestedPath.get()).isEqualTo("/gitlab/api/v4/projects/42/merge_requests/17");
         assertThat(requestToken.get()).isEqualTo("Bearer secret-token");
         assertThat(result.etag()).contains("\"fresh\"");
         assertThat(result.pullRequest()).hasValueSatisfying(summary -> {
-            assertThat(summary.githubId()).isEqualTo(9001L);
+            assertThat(summary.remoteId()).isEqualTo(9001L);
             assertThat(summary.number()).isEqualTo(17);
             assertThat(summary.repo()).isEqualTo("group/subgroup/repo");
             assertThat(summary.state()).isEqualTo("open");
@@ -233,7 +239,7 @@ class TestGitLabPullRequestReader
     {
         reply.set(new Reply(304, "", Optional.empty()));
 
-        PullRequestFetch result = reader.fetch(access, repository, 17, Optional.of("\"old\""));
+        PullRequestFetch result = reader.fetch(target(), 17, Optional.of("\"old\""));
 
         assertThat(requestValidator.get()).isEqualTo("\"old\"");
         assertThat(result.pullRequest()).isEmpty();
@@ -246,7 +252,7 @@ class TestGitLabPullRequestReader
     {
         reply.set(new Reply(200, mr().toString(), Optional.empty()));
 
-        assertThat(reader.fetch(access, repository, 17, Optional.of("\"old\"")).etag()).isEmpty();
+        assertThat(reader.fetch(target(), 17, Optional.of("\"old\"")).etag()).isEmpty();
     }
 
     @Test
@@ -264,7 +270,7 @@ class TestGitLabPullRequestReader
     {
         reply.set(new Reply(status, "{\"message\":\"secret-token must not leak\"}", Optional.empty()));
 
-        assertThatThrownBy(() -> reader.fetch(access, repository, 17, Optional.empty()))
+        assertThatThrownBy(() -> reader.fetch(target(), 17, Optional.empty()))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> {
                     assertThat(failure.kind()).isEqualTo(kind);
                     assertThat(failure.getMessage()).doesNotContain("secret-token");
@@ -321,7 +327,7 @@ class TestGitLabPullRequestReader
         ((ObjectNode) body.get("author")).put("new_user_field", 7);
         ((ObjectNode) body.get("diff_refs")).put("new_diff_field", true);
         reply.set(new Reply(200, body.toString(), Optional.empty()));
-        assertThat(reader.fetch(access, repository, 17, Optional.empty()).detail()).isPresent();
+        assertThat(reader.fetch(target(), 17, Optional.empty()).detail()).isPresent();
         body.put("state", "future_state");
         reply.set(new Reply(200, body.toString(), Optional.empty()));
 
@@ -345,7 +351,7 @@ class TestGitLabPullRequestReader
     {
         reply.set(new Reply(200, mr().put("description", "").toString(), Optional.empty()));
 
-        assertThat(reader.fetch(access, repository, 17, Optional.empty()).detail().orElseThrow().body()).isEmpty();
+        assertThat(reader.fetch(target(), 17, Optional.empty()).detail().orElseThrow().body()).isEmpty();
     }
 
     @Test
@@ -354,7 +360,7 @@ class TestGitLabPullRequestReader
         ObjectNode body = mr().put("work_in_progress", false);
         body.remove("draft");
         reply.set(new Reply(200, body.toString(), Optional.empty()));
-        assertThat(reader.fetch(access, repository, 17, Optional.empty()).detail().orElseThrow().draft()).isFalse();
+        assertThat(reader.fetch(target(), 17, Optional.empty()).detail().orElseThrow().draft()).isFalse();
 
         body.putNull("draft");
         reply.set(new Reply(200, body.toString(), Optional.empty()));
@@ -385,7 +391,7 @@ class TestGitLabPullRequestReader
         reply.set(new Reply(200, body.toString(), Optional.empty()));
         GitLabPullRequestReader strict = new GitLabPullRequestReader(http, shared);
 
-        assertThatThrownBy(() -> strict.fetch(access, repository, 17, Optional.empty()))
+        assertThatThrownBy(() -> strict.fetch(target(), 17, Optional.empty()))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
         assertThat(shared.isEnabled(DeserializationFeature.ACCEPT_EMPTY_ARRAY_AS_NULL_OBJECT)).isTrue();
     }
@@ -396,7 +402,7 @@ class TestGitLabPullRequestReader
     {
         reply.set(new Reply(200, mr().put("state", remote).toString(), Optional.empty()));
 
-        assertThat(reader.fetch(access, repository, 17, Optional.empty()).detail().orElseThrow().state()).isEqualTo(normalized);
+        assertThat(reader.fetch(target(), 17, Optional.empty()).detail().orElseThrow().state()).isEqualTo(normalized);
     }
 
     @ParameterizedTest
@@ -405,7 +411,7 @@ class TestGitLabPullRequestReader
     {
         reply.set(new Reply(200, mr().put("detailed_merge_status", status).toString(), Optional.empty()));
 
-        assertThat(reader.fetch(access, repository, 17, Optional.empty()).detail()).hasValueSatisfying(detail -> {
+        assertThat(reader.fetch(target(), 17, Optional.empty()).detail()).hasValueSatisfying(detail -> {
             assertThat(detail.mergeable()).isNull();
             assertThat(detail.mergeableState()).isNull();
         });
@@ -416,7 +422,7 @@ class TestGitLabPullRequestReader
     {
         reply.set(new Reply(200, mr().put("detailed_merge_status", "conflict").toString(), Optional.empty()));
 
-        assertThat(reader.fetch(access, repository, 17, Optional.empty()).detail()).hasValueSatisfying(detail -> {
+        assertThat(reader.fetch(target(), 17, Optional.empty()).detail()).hasValueSatisfying(detail -> {
             assertThat(detail.mergeable()).isFalse();
             assertThat(detail.mergeableState()).isEqualTo("dirty");
         });
@@ -430,12 +436,12 @@ class TestGitLabPullRequestReader
         body.remove("detailed_merge_status");
         reply.set(new Reply(200, body.toString(), Optional.empty()));
 
-        assertThat(reader.fetch(access, repository, 17, Optional.empty()).detail()).hasValueSatisfying(detail -> {
+        assertThat(reader.fetch(target(), 17, Optional.empty()).detail()).hasValueSatisfying(detail -> {
             assertThat(detail.mergeable()).isEqualTo(mergeable);
             assertThat(detail.mergeableState()).isEqualTo(mergeableState);
         });
         reply.set(new Reply(200, "[" + body + "]", Optional.empty()));
-        assertThat(reader.list(access, repository, true, 1, 10).items()).singleElement().satisfies(summary -> {
+        assertThat(reader.list(target(), true, 1, 10).items()).singleElement().satisfies(summary -> {
             assertThat(summary.mergeable()).isEqualTo(mergeable);
             assertThat(summary.mergeableState()).isEqualTo(mergeableState);
         });
@@ -448,7 +454,7 @@ class TestGitLabPullRequestReader
     {
         reply.set(new Reply(200, mr().put("detailed_merge_status", detailedStatus).put("merge_status", legacyStatus).toString(), Optional.empty()));
 
-        assertThat(reader.fetch(access, repository, 17, Optional.empty()).detail()).hasValueSatisfying(detail -> {
+        assertThat(reader.fetch(target(), 17, Optional.empty()).detail()).hasValueSatisfying(detail -> {
             assertThat(detail.mergeable()).isEqualTo(mergeable);
             assertThat(detail.mergeableState()).isEqualTo(mergeableState);
         });
@@ -460,7 +466,7 @@ class TestGitLabPullRequestReader
     {
         reply.set(new Reply(200, mr().put("changes_count", changes).toString(), Optional.empty()));
 
-        assertThat(reader.fetch(access, repository, 17, Optional.empty()).detail().orElseThrow().changedFiles()).isEqualTo(UNKNOWN_COUNT);
+        assertThat(reader.fetch(target(), 17, Optional.empty()).detail().orElseThrow().changedFiles()).isEqualTo(UNKNOWN_COUNT);
     }
 
     @Test
@@ -474,7 +480,7 @@ class TestGitLabPullRequestReader
         body.putNull("changes_count");
         reply.set(new Reply(200, body.toString(), Optional.empty()));
 
-        assertThat(reader.fetch(access, repository, 17, Optional.empty()).detail()).hasValueSatisfying(detail -> {
+        assertThat(reader.fetch(target(), 17, Optional.empty()).detail()).hasValueSatisfying(detail -> {
             assertThat(detail.headRef()).isNull();
             assertThat(detail.baseRef()).isNull();
             assertThat(detail.headSha()).isNull();
@@ -489,7 +495,7 @@ class TestGitLabPullRequestReader
         ObjectNode body = mr().put("sha", "d".repeat(40));
         reply.set(new Reply(200, body.toString(), Optional.empty()));
 
-        assertThat(reader.fetch(access, repository, 17, Optional.empty()).detail()).hasValueSatisfying(detail -> {
+        assertThat(reader.fetch(target(), 17, Optional.empty()).detail()).hasValueSatisfying(detail -> {
             assertThat(detail.headSha()).isEqualTo("d".repeat(40));
             assertThat(detail.baseSha()).isNull();
             assertThat(detail.changedFiles()).isEqualTo(UNKNOWN_COUNT);
@@ -502,7 +508,7 @@ class TestGitLabPullRequestReader
         HostingRepository other = new HostingRepository(3, 2, "42", repository.fullPath(), repository.webUrl(), repository.httpCloneUrl(),
                 Optional.empty(), Optional.empty());
 
-        assertThatThrownBy(() -> reader.fetch(access, other, 17, Optional.empty())).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> reader.fetch(new HostingTarget(access, other), 17, Optional.empty())).isInstanceOf(IllegalArgumentException.class);
         assertThat(requestedPath.get()).isNull();
     }
 
@@ -555,7 +561,7 @@ class TestGitLabPullRequestReader
     {
         HostingAccess invalid = new HostingAccess(new HostingInstance(1, GITLAB, URI.create(base), URI.create(base + "/api/v4")), token);
 
-        assertThatThrownBy(() -> reader.fetch(invalid, repository, 17, Optional.empty()))
+        assertThatThrownBy(() -> reader.fetch(new HostingTarget(invalid, repository), 17, Optional.empty()))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> {
                     assertThat(failure.kind()).isEqualTo(HostingFailure.Kind.AUTHENTICATION_REQUIRED);
                     assertThat(failure.toString()).doesNotContain("secret-token", token);
@@ -762,7 +768,7 @@ class TestGitLabPullRequestReader
 
     private void assertInvalidResponse()
     {
-        assertThatThrownBy(() -> reader.fetch(access, repository, 17, Optional.empty()))
+        assertThatThrownBy(() -> reader.fetch(target(), 17, Optional.empty()))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
     }
 

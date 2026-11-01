@@ -185,7 +185,7 @@ class TestWorkspaceHostingController
                 now, now, OTHER, ImmutableList.of(), ImmutableMap.of(), false, "open", null, null, ImmutableList.of(), null, null, "topic");
         PrRawDetail detail = new PrRawDetail("Change", url, "open", "alice", null, now, now, null, "Description", ImmutableList.of(), ImmutableMap.of(),
                 ImmutableList.of(), null, false, null, null, -1, -1, -1, 0, ImmutableList.of(), "a".repeat(40), "topic", "main");
-        return new HostingPullRequestSnapshot(new HostingPullRequest(50, 30, 7, "99"), 20, CONNECTED_ACCOUNT, summary, detail, Optional.empty(), now);
+        return new HostingPullRequestSnapshot(new HostingPullRequest(50, 30, 7), 20, CONNECTED_ACCOUNT, summary, detail, Optional.empty(), now);
     }
 
     private MockMvc mvc()

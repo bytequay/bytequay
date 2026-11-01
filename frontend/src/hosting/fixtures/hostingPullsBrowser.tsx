@@ -16,7 +16,7 @@ import { flushSync } from 'react-dom';
 import { assert, button, element, runScenarios, settle, until } from '../../fixtures/harness';
 import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { pr, prDetail } from '../../pulls/fixtures/pullRequest';
-import type { Bridge, WorkspaceDto } from '../../types';
+import type { Bridge, PullRequestRoute, WorkspaceDto } from '../../types';
 import { workspaceFixture } from '../../workspaces/fixtures/workspace';
 import WorkspaceShell from '../../workspaces/WorkspaceShell';
 import '../../index.css';
@@ -32,19 +32,22 @@ async function sharedRequests(workspace: WorkspaceDto) {
   const failure = 'Server offline (HTTP 503).\n\nRequest: GET /api/v4/projects/:project/merge_requests\nTime (UTC): 2026-01-01T12:00:00Z\nGitLab request ID: request-456';
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => { copied.push(value); } } });
   const repository = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
-  const htmlUrl = workspace.hostingServer ? `${server.webBaseUrl}/${repository}/-/merge_requests/7` : `https://github.com/${repository}/pull/7`;
+  const htmlUrl = workspace.hostingServer.provider === 'GITLAB' ? `${server.webBaseUrl}/${repository}/-/merge_requests/7` : `https://github.com/${repository}/pull/7`;
   let title = 'Shared request';
   let monitored = false;
   let failSync = false;
   let synced: (() => void) | undefined;
   let reads = 0;
-  const routed: string[] = [];
+  const routed: (PullRequestRoute | undefined)[] = [];
   const opened: string[] = [];
   const row = () => pr({ id: 70, repo: repository, number: 7, title, author: 'alice', origin: 'REVIEW_REQUESTED', htmlUrl,
     handledAction: 'COMMENTED', reviewedAt: '2026-02-02T00:00:00Z', monitoredAt: monitored ? '2026-02-01T00:00:00Z' : null, commentCount: 4 });
   const details = prDetail({ id: 70, repo: repository, number: 7, title, body: '**Shared detail** with #9.', author: 'alice', state: 'open', htmlUrl,
     draft: false, viewerCanWrite: false });
-  const route = (workspaceId?: string) => { assert(workspaceId === workspace.id, 'Request lost its workspace account'); routed.push(workspaceId); };
+  const route = (workspaceId?: PullRequestRoute) => {
+    assert(workspaceId === workspace.id, 'Request lost its workspace account');
+    routed.push(workspaceId);
+  };
   const bridge: Partial<Bridge> = {
     fetchPrs: async (id, page, size) => { route(id); reads++; return { pullRequests: [row()], page, pageSize: size, totalPullRequests: 1, openPullRequests: 1, hasMore: false }; },
     getWorkspaceHostingViewer: async id => { route(id); return 'bob'; },
@@ -89,7 +92,7 @@ async function sharedRequests(workspace: WorkspaceDto) {
     element<HTMLButtonElement>('.pull-row', view.host).click();
     await until(() => view.host.textContent?.includes('Shared detail') === true, 'Existing request detail did not open');
     assert(view.host.querySelector('.pull-detail') !== null, 'Detail must use the existing review screen');
-    if (workspace.hostingServer) {
+    if (workspace.hostingServer.provider === 'GITLAB') {
       element<HTMLAnchorElement>('a[href$="/-/issues/9"]', view.host).click();
       await until(() => opened.length > 0, 'Private server issue reference did not open');
       assert(opened[0] === `${server.webBaseUrl}/${repository}/-/issues/9`, 'Issue reference lost its private server or nested namespace');

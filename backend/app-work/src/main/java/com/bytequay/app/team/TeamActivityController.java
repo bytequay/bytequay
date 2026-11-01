@@ -14,6 +14,7 @@
 package com.bytequay.app.team;
 
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -34,17 +35,17 @@ public class TeamActivityController
         this.activity = requireNonNull(activity, "activity is null");
     }
 
-    @GetMapping("/activity")
-    public TeamActivitySnapshot activity(@RequestParam Optional<String> circleId, @RequestParam Optional<Long> memberId,
+    @GetMapping("/{accountId}/activity")
+    public TeamActivitySnapshot activity(@PathVariable long accountId, @RequestParam Optional<String> circleId, @RequestParam Optional<Long> memberId,
             @RequestParam(defaultValue = "7") int days, @RequestParam(defaultValue = "100") int limit, @RequestParam(defaultValue = "all") String filter)
     {
-        return activity.snapshot(circleId, memberId, days, limit, filter);
+        return activity.snapshot(accountId, circleId, memberId, days, limit, filter);
     }
 
-    @PostMapping("/refresh")
-    public TeamActivitySnapshot refresh(@RequestParam Optional<String> circleId, @RequestParam Optional<Long> memberId,
+    @PostMapping("/{accountId}/refresh")
+    public TeamActivitySnapshot refresh(@PathVariable long accountId, @RequestParam Optional<String> circleId, @RequestParam Optional<Long> memberId,
             @RequestParam(defaultValue = "7") int days, @RequestParam(defaultValue = "100") int limit, @RequestParam(defaultValue = "all") String filter)
     {
-        return activity.refresh(circleId, memberId, days, limit, filter);
+        return activity.refresh(accountId, circleId, memberId, days, limit, filter);
     }
 }

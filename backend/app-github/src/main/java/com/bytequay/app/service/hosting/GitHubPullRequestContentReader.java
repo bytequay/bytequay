@@ -15,10 +15,11 @@ package com.bytequay.app.service.hosting;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubActionsClient;
+import com.bytequay.app.repository.github.GitHubNotificationClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
-import com.bytequay.app.repository.github.actions.CiHeadSnapshot;
+import com.bytequay.core.ci.CiHeadSnapshot;
 import com.bytequay.core.domain.DiffFileContent;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
+import com.bytequay.core.domain.MergedPullRequest;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrDiffEtags;
 import com.bytequay.core.domain.PrRawDetail;
@@ -27,14 +28,14 @@ import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestCheckLog;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.StoredPrDiff;
 import com.bytequay.core.hosting.DiscussionProbe;
-import com.bytequay.core.hosting.HostingAccess;
-import com.bytequay.core.hosting.HostingProvider;
-import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
+import com.bytequay.core.hosting.PullRequestAssociation;
 import com.bytequay.core.hosting.PullRequestContentReader;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -48,6 +49,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.net.URI;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -93,20 +97,16 @@ public class GitHubPullRequestContentReader
     private final Executor ioExecutor;
     private final GitHubActionsClient actions;
     private final GitHubAccountClient accounts;
+    private final GitHubNotificationClient notifications;
 
     public GitHubPullRequestContentReader(GitHubPullRequestReadClient gitHub, GitHubActionsClient actions, GitHubAccountClient accounts,
-            @Qualifier(IO_EXECUTOR) Executor ioExecutor)
+            GitHubNotificationClient notifications, @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.actions = requireNonNull(actions, "actions is null");
         this.accounts = requireNonNull(accounts, "accounts is null");
+        this.notifications = requireNonNull(notifications, "notifications is null");
         this.ioExecutor = requireNonNull(ioExecutor, "ioExecutor is null");
-    }
-
-    @Override
-    public HostingProvider provider()
-    {
-        return HostingProvider.GITHUB;
     }
 
     @Override
@@ -117,45 +117,80 @@ public class GitHubPullRequestContentReader
     }
 
     @Override
-    public GitHubPullRequestIdentity identity(HostingAccess access, HostingRepository repository, int number)
+    public PullRequestIdentity identity(HostingTarget target, int number)
     {
-        return gitHub.fetchPullRequestIdentity(access.token(), ref(access, repository, number));
+        return gitHub.fetchPullRequestIdentity(target.access().token(), ref(target, number));
     }
 
     @Override
-    public List<GitHubPullRequestIdentity> identitiesByHead(HostingAccess access, HostingRepository repository, RepoRef sourceRepository, String branch)
+    public String description(HostingTarget target, int number)
     {
-        PullRequestRef ref = ref(access, repository, 1);
-        return gitHub.fetchPullRequestIdentities(access.token(), RepoRef.of(ref.owner(), ref.repo()), sourceRepository, branch);
+        return actions.description(target.access().token(), ref(target, number));
     }
 
     @Override
-    public boolean viewerCanWrite(HostingAccess access, HostingRepository repository)
+    public List<PullRequestIdentity> identitiesByHead(HostingTarget target, RepoRef sourceRepository, String branch)
     {
-        PullRequestRef ref = ref(access, repository, 1);
-        return accounts.fetchViewerCanWrite(access.token(), RepoRef.of(ref.owner(), ref.repo()));
+        PullRequestRef ref = ref(target, 1);
+        return gitHub.fetchPullRequestIdentities(target.access().token(), RepoRef.of(ref.owner(), ref.repo()), sourceRepository, branch);
     }
 
     @Override
-    public Optional<DiscussionProbe> probeDiscussion(HostingAccess access, HostingRepository repository, int number, Map<String, String> etags)
+    public MergedPullRequest merged(HostingTarget target, int number)
     {
-        return Optional.of(gitHub.probeDiscussion(access.token(), ref(access, repository, number), etags));
+        return gitHub.fetchMergedPullRequest(target.access().token(), ref(target, number));
     }
 
     @Override
-    public StoredPrDetail discussion(HostingAccess access, HostingRepository repository, int number, StoredPrDetail existing)
+    public List<String> recentMergedTitles(HostingTarget target, String baseBranch, Instant since, int limit)
     {
-        return await(fetchDiscussion(access.token(), ref(access, repository, number), existing));
+        PullRequestRef ref = ref(target, 1);
+        String query = "repo:" + ref.repoFullName() + " is:pr is:merged merged:>=" + LocalDate.ofInstant(since, ZoneOffset.UTC)
+                + " base:\"" + baseBranch.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+        return gitHub.searchPullRequestsPaged(target.access().token(), query, 1, limit).items().stream().map(pr -> pr.title()).collect(toImmutableList());
     }
 
     @Override
-    public Checks checks(HostingAccess access, HostingRepository repository, int number, String headSha,
+    public List<PullRequestAssociation> mergedWithCommit(HostingTarget target, String sha)
+    {
+        PullRequestRef ref = ref(target, 1);
+        return gitHub.fetchMergedPullRequestsWithCommit(target.access().token(), RepoRef.of(ref.owner(), ref.repo()), sha);
+    }
+
+    @Override
+    public boolean reviewRequested(HostingTarget target, int number, String login)
+    {
+        // The inbox snapshot is read without a network call, so a refresh does not wait on it.
+        return notifications.reviewRequests(login).contains(ref(target, number));
+    }
+
+    @Override
+    public boolean viewerCanWrite(HostingTarget target)
+    {
+        PullRequestRef ref = ref(target, 1);
+        return accounts.fetchViewerCanWrite(target.access().token(), RepoRef.of(ref.owner(), ref.repo()));
+    }
+
+    @Override
+    public Optional<DiscussionProbe> probeDiscussion(HostingTarget target, int number, Map<String, String> etags)
+    {
+        return Optional.of(gitHub.probeDiscussion(target.access().token(), ref(target, number), etags));
+    }
+
+    @Override
+    public StoredPrDetail discussion(HostingTarget target, int number, StoredPrDetail existing)
+    {
+        return await(fetchDiscussion(target.access().token(), ref(target, number), existing));
+    }
+
+    @Override
+    public Checks checks(HostingTarget target, int number, String headSha,
             List<PrCheckRunState> existing, Optional<String> checksEtag, Optional<String> statusesEtag)
     {
-        PullRequestRef ref = ref(access, repository, number);
+        PullRequestRef ref = ref(target, number);
         List<PrCheckRunState> cached = existing.stream()
-                .map(check -> "job".equals(check.source()) ? withSource(check, check.githubId(), "check_run") : check).collect(toImmutableList());
-        var result = actions.refreshPrCheckRuns(access.token(), ref.owner(), ref.repo(), headSha, cached, checksEtag, statusesEtag);
+                .map(check -> "job".equals(check.source()) ? withSource(check, check.remoteId(), "check_run") : check).collect(toImmutableList());
+        var result = actions.refreshPrCheckRuns(target.access().token(), ref.owner(), ref.repo(), headSha, cached, checksEtag, statusesEtag);
         return new Checks(result.checkRuns().stream().map(GitHubPullRequestContentReader::normalizeJob).collect(toImmutableList()),
                 result.checkRunsEtag(), result.commitStatusesEtag(), true);
     }
@@ -184,34 +219,33 @@ public class GitHubPullRequestContentReader
     }
 
     @Override
-    public Diff diff(HostingAccess access, HostingRepository repository, int number, Optional<String> baseSha, Optional<String> headSha,
+    public Diff diff(HostingTarget target, int number, Optional<String> baseSha, Optional<String> headSha,
             StoredPrDiff existing, PrDiffEtags etags)
     {
-        PullRequestRef ref = ref(access, repository, number);
+        PullRequestRef ref = ref(target, number);
         if (baseSha.isPresent()) {
-            return new Diff(gitHub.fetchPrDiffFiles(access.token(), ref, baseSha.orElseThrow(), headSha.orElseThrow()), ImmutableList.of(), PrDiffEtags.none());
+            return new Diff(gitHub.fetchPrDiffFiles(target.access().token(), ref, baseSha.orElseThrow(), headSha.orElseThrow()), ImmutableList.of(), PrDiffEtags.none());
         }
-        var files = gitHub.fetchPrDiffFiles(access.token(), ref, existing.files(), etags.files());
-        var commits = gitHub.fetchPrDiffCommits(access.token(), ref, existing.commits(), etags.commits());
+        var files = gitHub.fetchPrDiffFiles(target.access().token(), ref, existing.files(), etags.files());
+        var commits = gitHub.fetchPrDiffCommits(target.access().token(), ref, existing.commits(), etags.commits());
         return new Diff(files.orElse(existing.files()), commits.orElse(existing.commits()), new PrDiffEtags(files.etag(), commits.etag()));
     }
 
     @Override
-    public PullRequestCheckLog readCheckLog(HostingAccess access, HostingRepository repository, int number, long jobId)
+    public PullRequestCheckLog readCheckLog(HostingTarget target, int number, long jobId)
     {
-        PullRequestRef pullRequest = ref(access, repository, number);
-        CiHeadSnapshot head = actions.inspect(access.token(), pullRequest);
-        boolean failedJob = head.workflowRuns().stream()
+        CiHeadSnapshot head = actions.inspect(target, number);
+        boolean failedJob = head.runs().stream()
                 .flatMap(run -> run.jobs().stream())
                 .anyMatch(job -> job.id() == jobId && job.actionableFailure());
         if (!failedJob) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "This failed job is no longer part of the current PR checks. Refresh the pull request.");
         }
-        String annotations = actions.readFailureAnnotations(access.token(), pullRequest, jobId).stream()
+        String annotations = actions.failureNotes(target, number, jobId).stream()
                 .map(message -> "GitHub annotation: " + message + "\n")
                 .collect(joining());
         try {
-            String log = actions.readJobLog(access.token(), pullRequest, jobId);
+            String log = actions.readJobLog(target, number, jobId);
             return new PullRequestCheckLog(annotations.isEmpty() ? log : annotations + "\n" + log, Optional.empty());
         }
         catch (ResponseStatusException failure) {
@@ -220,16 +254,15 @@ public class GitHubPullRequestContentReader
     }
 
     @Override
-    public DiffFileContent fileContent(HostingAccess access, HostingRepository repository, int number, String path, String baseSha, String headSha, boolean fullDiff)
+    public DiffFileContent fileContent(HostingTarget target, int number, String path, String baseSha, String headSha, boolean fullDiff)
     {
-        return gitHub.fetchPrDiffFileContent(access.token(), ref(access, repository, number), path, baseSha, headSha);
+        return gitHub.fetchPrDiffFileContent(target.access().token(), ref(target, number), path, baseSha, headSha);
     }
 
-    private static PullRequestRef ref(HostingAccess access, HostingRepository repository, int number)
+    private static PullRequestRef ref(HostingTarget target, int number)
     {
-        checkArgument(access.server().equals(GITHUB_SERVER), "This operation requires a GitHub.com account");
-        checkArgument(repository.instanceId() == access.instanceId().orElseThrow(), "Repository belongs to another hosting instance");
-        return parseRef(repository.fullPath(), number);
+        checkArgument(target.access().server().equals(GITHUB_SERVER), "This operation requires a GitHub.com account");
+        return parseRef(target.repository().fullPath(), number);
     }
 
     ListenableFuture<StoredPrDetail> fetchDiscussion(String pat, PullRequestRef ref, StoredPrDetail existing)

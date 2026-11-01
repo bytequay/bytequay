@@ -14,6 +14,7 @@
 import type { AppPage } from '../AppSidebar';
 import type { RunningTask } from '../agents/runningTaskModel';
 import { pullRequestFromRoute, type ZoomedReference } from '../githubReference';
+import { issueAttentionKey } from '../home/attention';
 import { dayText } from '../home/today';
 import { needsAction, type AppNotice } from '../notices/contracts';
 import { SETTINGS_ENTRIES, isWorkspaceSection, settingsRoute } from '../settings/routes';
@@ -71,7 +72,7 @@ export function screenRef(layer: ZoomedReference | undefined, hash: string, work
   if (layer !== undefined) {
     switch (layer.kind) {
       case 'pull': return `pr:${layer.repo.toLowerCase()}#${layer.number}`;
-      case 'issue': return `issue:${layer.repo.toLowerCase()}#${layer.number}`;
+      case 'issue': return issueAttentionKey(layer.repo, layer.number, layer.workspaceId);
       case 'jira': return `jira:${layer.cloudId}:${layer.issueId}`;
       case 'work': return `work:${layer.itemId}`;
       case 'task': return `task:${layer.taskId}`;
@@ -85,7 +86,7 @@ export function screenRef(layer: ZoomedReference | undefined, hash: string, work
   if (location.agentTaskId !== null) return `task:${location.agentTaskId}`;
   if (workspaceRepo === null) return null;
   if (location.pullRequestNumber !== null) return `pr:${workspaceRepo.toLowerCase()}#${location.pullRequestNumber}`;
-  if (location.issueNumber !== null) return `issue:${workspaceRepo.toLowerCase()}#${location.issueNumber}`;
+  if (location.issueNumber !== null) return issueAttentionKey(workspaceRepo, location.issueNumber, location.workspaceId);
   return null;
 }
 

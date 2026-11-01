@@ -30,8 +30,9 @@ export type Metric = keyof typeof METRICS;
 export const ACTIVITY_TYPES = [['all', 'All'], ['merged', 'Merged'], ['reviews', 'Reviews'], ['issues', 'Issues'], ['interactions', 'With you']] as const;
 export type ActivityType = typeof ACTIVITY_TYPES[number][0];
 
+
 export function membersOf(circles: TeamCircle[]): TeamMember[] {
-  return [...new Map(circles.flatMap(circle => circle.members.map(member => [member.githubId, member] as const))).values()]
+  return [...new Map(circles.flatMap(circle => circle.members.map(member => [member.remoteId, member] as const))).values()]
     .sort((left, right) => left.login.localeCompare(right.login));
 }
 

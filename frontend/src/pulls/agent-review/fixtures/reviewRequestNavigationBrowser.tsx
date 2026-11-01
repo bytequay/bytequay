@@ -135,7 +135,7 @@ export async function run(): Promise<string[]> {
   try {
     flushSync(() => root.render(<PullsScreen initialPr={{ repo: review.repo, number: review.number }} initialReviewId={review.id}
       repositoryScope={{ workspaceId: review.workspaceId, repository: review.repo }} reviewWorkspace={{ onBack: () => {} }} />));
-    for (let attempt = 0; attempt < 20 && host.querySelectorAll('.agt-review-request').length < 8; attempt++) await settle();
+    for (let attempt = 0; attempt < 20 && host.querySelectorAll('.agt-instruction').length < 8; attempt++) await settle();
     const conversation = host.querySelector<HTMLElement>('.agr-workspace-conversation');
     const pane = host.querySelector<HTMLElement>('.pull-detail');
     assert(conversation !== null && pane !== null && conversation.parentElement === pane.parentElement,
@@ -145,39 +145,34 @@ export async function run(): Promise<string[]> {
     reviewer.click(); await settle();
     assert(host.querySelector('.agr-workspace-conversation') === conversation,
       'Clicking the current Reviewer must keep its conversation open');
-    assert(conversation.querySelectorAll('.agt-review-request').length === 8, 'Replay must compact the generated request, six discussions and local question');
+    assert(conversation.querySelectorAll('.agt-instruction').length === 8, 'Replay must compact the generated request, six discussions and local question');
     assert(!conversation.innerText.includes('review_get_context') && !conversation.innerText.includes('review_reply')
-      && !conversation.innerText.includes('Selected card:'), 'Generated review instructions must remain folded and saved questions must omit copied context');
+      && !conversation.innerText.includes('Selected card:'), 'Sent prompts must start folded');
+
     assert(conversation.textContent?.includes('Also check cancellation separately.') === true
       && conversation.textContent?.includes('Please keep my ordinary question visible.') === true,
     'Ordinary user text and steering must remain visible');
     const request = (turnId: string) => {
-      const card = conversation.querySelector<HTMLElement>(`[data-history-anchor="${turnId}"] .agt-review-request`);
+      const card = conversation.querySelector<HTMLElement>(`[data-history-anchor="${turnId}"] .agt-instruction`);
       assert(card !== null, `Missing compact request for ${turnId}`);
       return card;
     };
-    for (const card of conversation.querySelectorAll<HTMLElement>('.agt-review-request')) {
-      assert(card.getBoundingClientRect().height < 115, 'Long requests must collapse to a compact card');
-      const toggle = card.querySelector<HTMLButtonElement>('.agt-review-request__toggle');
-      const open = card.querySelector<HTMLButtonElement>('.agt-review-request__open');
+    for (const card of conversation.querySelectorAll<HTMLElement>('.agt-instruction')) {
+      assert(card.getBoundingClientRect().height <= 40, 'Long requests must collapse to one row');
+      const toggle = card.querySelector<HTMLButtonElement>('.agt-instruction__toggle');
+      const open = card.querySelector<HTMLButtonElement>('.agt-instruction__open');
       assert(toggle !== null && open !== null && toggle !== open, 'Opening the review and expanding text must be separate keyboard actions');
-      const header = open.parentElement;
-      assert(header !== null, 'The navigation control must belong to a header');
-      const background = getComputedStyle(header).backgroundColor;
-      const rgb = background.match(/[\d.]+/g)?.map(Number);
-      assert(rgb !== undefined && rgb.length >= 3 && rgb[1] > rgb[0] && rgb[1] >= rgb[2]
-        && (rgb.length < 4 || rgb[3] > 0), `Review request header must have a green background, got ${background}`);
     }
     assert(request('turn-review').textContent?.includes('Review pull request') === true,
       'The initial generated request must use the same compact presentation');
     assert(request('turn-reply').textContent?.includes('Reply to review') === true, 'Repeated discussion input must retain its reply label');
-    results.push('Actual review workspace replays compact green cards and preserves ordinary input');
+    results.push('Actual review workspace replays one-row instruction cards and preserves ordinary input');
 
     button(pane, 'WorkBench').click(); await settle();
     button(pane, 'Summary').click(); await settle();
     assert(pane.querySelector(`[data-review-card="${original.id}:purpose"]`) !== null,
       'The default explanation must belong to the first complete report');
-    request('turn-review').querySelector<HTMLButtonElement>('.agt-review-request__open')?.click(); await settle();
+    request('turn-review').querySelector<HTMLButtonElement>('.agt-instruction__open')?.click(); await settle();
     const intention = pane.querySelector<HTMLElement>(`[data-review-card="${current.id}:purpose"]`);
     const commitCards = current.commits.map(commit => pane.querySelector<HTMLElement>(`[data-review-card="${current.id}:commit:${commit.sha}"]`));
     const rows = commitCards.map(card => card?.querySelector<HTMLElement>('.agr-changed__title') ?? null);
@@ -258,7 +253,7 @@ export async function run(): Promise<string[]> {
     };
     const open = async (turnId: string, selector: string) => {
       const card = request(turnId);
-      const control = card.querySelector<HTMLButtonElement>('.agt-review-request__open');
+      const control = card.querySelector<HTMLButtonElement>('.agt-instruction__open');
       assert(control !== null && /^Open .+ in Summary$/.test(control.getAttribute('aria-label') ?? ''),
         'Request navigation must have an explicit accessible destination');
       control.click();
@@ -281,7 +276,7 @@ export async function run(): Promise<string[]> {
       'Saved user messages must display the repository account avatar');
     button(pane, 'Changes').click(); await settle();
     const localCard = request('turn-local');
-    const inPlace = localCard.querySelector<HTMLButtonElement>('.agt-review-request__open');
+    const inPlace = localCard.querySelector<HTMLButtonElement>('.agt-instruction__open');
     assert(inPlace !== null && !/in Summary$/.test(inPlace.getAttribute('aria-label') ?? ''), 'A code discussion card must not lead to Summary');
     inPlace.click(); await settle();
     assert(button(pane, 'Changes').getAttribute('aria-pressed') === 'true' && localCard.classList.contains('is-open')
@@ -303,12 +298,11 @@ export async function run(): Promise<string[]> {
     assert(target(`[data-review-card="${current.id}:purpose"]`).textContent?.includes(current.summary.purpose) === true,
       'Returning to the current reply must restore its own report');
     const replyCard = request('turn-reply');
-    const toggle = fixtureElement<HTMLButtonElement>('.agt-review-request__toggle', replyCard, 'Reply must have its own disclosure');
+    const toggle = fixtureElement<HTMLButtonElement>('.agt-instruction__toggle', replyCard, 'Reply must have its own disclosure');
     toggle.click(); await settle();
-    assert(toggle.getAttribute('aria-expanded') === 'true' && replyCard.innerText.includes(reply.body),
-      'The separate disclosure must expose the complete user question');
-    assert(!replyCard.innerText.includes('review_reply'), 'Expanding the request must keep generated instructions hidden');
-    results.push('Repeated clicks, older-run identity and complete user-text disclosure work');
+    assert(toggle.getAttribute('aria-expanded') === 'true' && replyCard.querySelector('.agt-instruction__prompt > pre')?.textContent === internal,
+      'The separate disclosure must expose the exact sent prompt');
+    results.push('Repeated clicks, older-run identity and sent-prompt disclosure work');
     const chip = conversation.querySelector<HTMLButtonElement>('.agt-pr-chip');
     assert(chip !== null && chip.textContent?.includes(`#${review.number}`) === true && chip.getAttribute('aria-pressed') === 'false',
       'The reviewer conversation must name its pull request above the composer, unpressed while WorkBench shows');

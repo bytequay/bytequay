@@ -13,6 +13,7 @@
  */
 import { useEffect, useState } from 'react';
 import ErrorDetails from '../ErrorDetails';
+import { providerName } from '../pulls/PullRequestWorkspace';
 import { remoteErrorMessage } from '../remoteError';
 import type { WorkspaceDto } from '../types';
 import GitLabAccounts from './GitLabAccounts';
@@ -27,9 +28,9 @@ export function WorkspaceHostingAccount({ workspace }: { workspace: WorkspaceDto
     return () => { active = false; };
   }, [workspace.id]);
   return <div className="setw-page">
-    <h1>GitLab account</h1><p>{workspace.monitoredOwner}/{workspace.monitoredRepo}</p>
-    <p className="setw-footnote">Choose the account used for this project.</p>
-    <GitLabAccounts selected={accountId} server={workspace.hostingServer ?? undefined} onSelect={async account => {
+    <h1>{providerName(workspace.hostingServer)} account</h1><p>{workspace.monitoredOwner}/{workspace.monitoredRepo}</p>
+    <p className="setw-footnote">Choose the account this workspace reads and writes with.</p>
+    <GitLabAccounts selected={accountId} server={workspace.hostingServer} onSelect={async account => {
       const binding = await window.bridge.setWorkspaceHosting(workspace.id, account.account.id);
       setAccountId(binding.accountId); setError(null);
     }} />

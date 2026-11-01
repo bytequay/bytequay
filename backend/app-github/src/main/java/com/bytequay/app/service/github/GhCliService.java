@@ -14,7 +14,10 @@
 package com.bytequay.app.service.github;
 
 import com.bytequay.app.git.command.GitCommandRunner;
-import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.HostingCli;
+import com.bytequay.app.service.hosting.HostingConnectionService;
+import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingServer;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,6 +34,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -39,12 +43,13 @@ import static java.util.Objects.requireNonNull;
  * fine-grained PATs but has approved the GitHub CLI OAuth app — the
  * user's {@code gh} works, so the app can work off the same bearer.
  *
- * Credential persistence and source selection belong to
- * {@link CredentialService}; this class only finds
- * and invokes the CLI.
+ * It is GitHub's hosting CLI: a GitHub account connected through it saves
+ * the CLI as its source, and {@link HostingConnectionService} reads the
+ * live token through here.
  */
 @Service
 public class GhCliService
+        implements HostingCli
 {
     private static final Logger log = LoggerFactory.getLogger(GhCliService.class);
 
@@ -69,6 +74,26 @@ public class GhCliService
     public GhCliService(GitCommandRunner processRunner)
     {
         this.processRunner = requireNonNull(processRunner, "processRunner is null");
+    }
+
+    @Override
+    public HostingProvider provider()
+    {
+        return HostingProvider.GITHUB;
+    }
+
+    /** ByteQuay does not drive {@code gh auth login}; connecting needs a {@code gh} that is already signed in to github.com. */
+    @Override
+    public void login(HostingServer server)
+    {
+        readToken(server);
+    }
+
+    @Override
+    public String readToken(HostingServer server)
+    {
+        checkArgument(server.equals(HostingServer.GITHUB_COM), "The GitHub CLI signs in to github.com only");
+        return currentToken().orElseGet(this::readToken);
     }
 
     /** Absolute path to the {@code gh} binary, or empty when it isn't installed. */

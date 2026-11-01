@@ -148,9 +148,9 @@ describe('GitHub comment anchoring', () => {
   it('accepts new-side lines inside one hunk only', () => {
     expect(githubCommentBlocker(facts)).toBeNull();
     expect(githubCommentBlocker({ ...facts, start: 10, end: 13 })).toBeNull();
-    expect(githubCommentBlocker({ ...facts, start: 13, end: 41 })).toBe("GitHub accepts line comments only on lines in this pull request's diff");
-    expect(githubCommentBlocker({ ...facts, start: 20, end: 20 })).toBe("GitHub accepts line comments only on lines in this pull request's diff");
-    expect(githubCommentBlocker({ ...facts, prPatch: null })).toBe("GitHub accepts line comments only on lines in this pull request's diff");
+    expect(githubCommentBlocker({ ...facts, start: 13, end: 41 })).toBe("Line comments go only on lines in this pull request's diff");
+    expect(githubCommentBlocker({ ...facts, start: 20, end: 20 })).toBe("Line comments go only on lines in this pull request's diff");
+    expect(githubCommentBlocker({ ...facts, prPatch: null })).toBe("Line comments go only on lines in this pull request's diff");
   });
 
   it('refuses local edits and revisions that differ from the latest PR before checking the diff', () => {

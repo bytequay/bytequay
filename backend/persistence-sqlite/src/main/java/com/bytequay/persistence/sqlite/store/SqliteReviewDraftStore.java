@@ -14,7 +14,6 @@
 package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.hosting.HostingRepository;
-import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewConflictException;
 import com.bytequay.core.review.ReviewDraft;
@@ -29,12 +28,11 @@ import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.net.URI;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
-import static com.bytequay.core.hosting.HostingProvider.GITHUB;
+import static com.bytequay.core.hosting.HostingServer.GITHUB_COM;
 import static com.bytequay.persistence.sqlite.store.SqliteStoreExceptions.mapReviewConstraint;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -43,8 +41,6 @@ import static java.util.Objects.requireNonNull;
 public class SqliteReviewDraftStore
         implements ReviewDraftStore
 {
-    private static final HostingServer LEGACY_GITHUB = new HostingServer(GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
-
     private final PrReviewDraftJpaRepository repository;
     private final AgentReviewStore reviews;
     private final HostingIdentityStore identities;
@@ -74,8 +70,8 @@ public class SqliteReviewDraftStore
         String id = repositoryId + "#" + number;
         return find(id).or(() -> identities.findRepository(repositoryId)
                 .filter(hosted -> identities.findInstance(hosted.instanceId())
-                        .filter(instance -> instance.provider() == LEGACY_GITHUB.provider()
-                                && instance.webBaseUrl().equals(LEGACY_GITHUB.webBaseUrl()) && instance.apiBaseUrl().equals(LEGACY_GITHUB.apiBaseUrl()))
+                        .filter(instance -> instance.provider() == GITHUB_COM.provider()
+                                && instance.webBaseUrl().equals(GITHUB_COM.webBaseUrl()) && instance.apiBaseUrl().equals(GITHUB_COM.apiBaseUrl()))
                         .isPresent())
                 .flatMap(hosted -> repository.findById(hosted.fullPath().toLowerCase(Locale.ROOT) + "#" + number).map(retained -> {
                     requireRetainedIdentity(hosted);
@@ -97,9 +93,9 @@ public class SqliteReviewDraftStore
     private void requireRetainedIdentity(HostingRepository hosted)
     {
         // Retained global drafts have only paths; without workspace IDs they keep that original identity contract.
-        boolean conflict = identities.findRepositories(LEGACY_GITHUB, hosted.fullPath()).size() != 1
+        boolean conflict = identities.findRepositories(GITHUB_COM, hosted.fullPath()).size() != 1
                 || workspaces.findAllRetained().stream()
-                        .filter(workspace -> workspace.hostingServer().map(LEGACY_GITHUB::equals).orElse(true))
+                        .filter(workspace -> workspace.server().equals(GITHUB_COM))
                         .anyMatch(workspace -> (workspace.selectedRepository().fullName().equalsIgnoreCase(hosted.fullPath())
                                 && !Long.toString(workspace.selectedRepositoryId()).equals(hosted.remoteId()))
                                 || (workspace.monitoredRepository().fullName().equalsIgnoreCase(hosted.fullPath())

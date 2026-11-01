@@ -263,12 +263,12 @@ class TestCiAutofixHttpApi
         Instant endedAt = NOW.plusSeconds(10);
         CiAutofixRun finished = run().finish(FinishReason.CANCELLED, "Development automation stopped", endedAt);
 
-        CiAutofixHttpModels.DevelopmentResponse response = CiAutofixHttpModels.development(finished, false);
+        CiAutofixHttpModels.DevelopmentResponse response = CiAutofixHttpModels.development(finished, "https://github.com/owner/repo/pull/7", false);
 
         assertThat(response.terminalAt()).contains(endedAt);
         assertThat(response.status()).isEqualTo("FINISHED");
         assertThat(response.finishReason()).contains("CANCELLED");
-        assertThat(CiAutofixHttpModels.development(run(), false).terminalAt()).isEmpty();
+        assertThat(CiAutofixHttpModels.development(run(), "https://github.com/owner/repo/pull/7", false).terminalAt()).isEmpty();
     }
 
     @Test

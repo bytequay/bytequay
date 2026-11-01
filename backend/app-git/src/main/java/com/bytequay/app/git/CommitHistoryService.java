@@ -19,8 +19,8 @@ import com.bytequay.app.git.GitBrowseService.Commit;
 import com.bytequay.app.repository.github.CommitAvatarSnapshot;
 import com.bytequay.app.repository.github.CommitAvatarSnapshot.CommitAvatar;
 import com.bytequay.app.repository.github.GitHubRepoClient;
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
@@ -29,10 +29,13 @@ import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.CommitRefreshMetadata;
 import com.bytequay.core.domain.CommitRefreshStatus;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
+import com.bytequay.core.hosting.PullRequestAssociation;
 import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.web.context.WebServerApplicationContext;
@@ -44,7 +47,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -67,12 +72,14 @@ public class CommitHistoryService
     private static final Logger log = LoggerFactory.getLogger(CommitHistoryService.class);
     private static final int MAX_COMMITS = 300;
     private static final Duration AVATAR_REFRESH_INTERVAL = Duration.ofDays(1);
+    /** Each commit costs one provider call; a fresh 300-commit branch fills in over a few refreshes instead of one burst. */
+    private static final int MAX_ASSOCIATION_LOOKUPS = 50;
 
     private final WorkspaceRepositoryService workspaces;
+    private final WorkspaceHostingService hosting;
     private final WorkspaceProvisioningService provisioning;
     private final GitBrowseService git;
     private final CommitHistoryStore store;
-    private final CredentialService credentials;
     private final GitHubRepoClient gitHub;
     private final CherryPickPullRequestLookup pullRequests;
     private final AvatarCache avatars;
@@ -81,10 +88,10 @@ public class CommitHistoryService
 
     public CommitHistoryService(
             WorkspaceRepositoryService workspaces,
+            WorkspaceHostingService hosting,
             WorkspaceProvisioningService provisioning,
             GitBrowseService git,
             CommitHistoryStore store,
-            CredentialService credentials,
             GitHubRepoClient gitHub,
             CherryPickPullRequestLookup pullRequests,
             AvatarCache avatars,
@@ -92,10 +99,10 @@ public class CommitHistoryService
             ApplicationContext applicationContext)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.hosting = requireNonNull(hosting, "hosting is null");
         this.provisioning = requireNonNull(provisioning, "provisioning is null");
         this.git = requireNonNull(git, "git is null");
         this.store = requireNonNull(store, "store is null");
-        this.credentials = requireNonNull(credentials, "credentials is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.avatars = requireNonNull(avatars, "avatars is null");
@@ -117,11 +124,12 @@ public class CommitHistoryService
         // first guarantees a concurrent completion causes one later reload.
         CommitRefreshStatus refresh = status(workspaceId);
         List<Commit> commits = git.log(context.repository(), resolved.gitRef(), Math.min(limit, MAX_COMMITS));
-        Map<String, CommitEnrichment> enrichmentBySha = resolved.repositoryId().isEmpty() || !hasGitHubEnrichment(workspaceId)
-                ? ImmutableMap.of()
-                : store.findEnrichment(resolved.repositoryId().orElseThrow(), commits.stream().map(Commit::sha).toList())
-                .commits().stream()
-                .collect(toImmutableMap(CommitEnrichment::sha, Function.identity()));
+        // A repository never read from the provider has no saved rows yet.
+        Optional<HostingRepository> hosted = resolved.repositoryId().isEmpty() ? Optional.empty() : hosting.storedRepository(workspaceId, resolved.repositoryId().getAsLong());
+        Map<String, CommitEnrichment> enrichmentBySha = hosted
+                .map(repository -> store.findEnrichment(repository.id(), commits.stream().map(Commit::sha).toList()).commits().stream()
+                        .collect(toImmutableMap(CommitEnrichment::sha, Function.identity())))
+                .orElseGet(ImmutableMap::of);
         ImmutableList.Builder<CommitHistoryItem> items = ImmutableList.builderWithExpectedSize(commits.size());
         for (Commit commit : commits) {
             items.add(item(commit, Optional.ofNullable(enrichmentBySha.get(commit.sha()))));
@@ -146,7 +154,8 @@ public class CommitHistoryService
     {
         List<CommitHistoryRef> requested = validatedRefs(workspaceId, refs);
         requireNonNull(workspaceId, "workspaceId is null");
-        return WorkspaceOperationLocks.withLock(workspaceId, () -> {
+        Set<String> avatarUrls = new LinkedHashSet<>();
+        CommitRefreshStatus status = WorkspaceOperationLocks.withLock(workspaceId, () -> {
             workspaces.getWorkspace(workspaceId);
             if (staleBefore.isPresent()) {
                 CommitRefreshStatus current = status(workspaceId);
@@ -154,8 +163,11 @@ public class CommitHistoryService
                     return current;
                 }
             }
-            return refreshLocked(workspaceId, requested);
+            return refreshLocked(workspaceId, requested, avatarUrls);
         });
+        // Images download after the lock, so a clone or task never waits on the avatar host.
+        avatars.cacheAll(avatarUrls);
+        return status;
     }
 
     private List<CommitHistoryRef> validatedRefs(String workspaceId, List<CommitHistoryRef> refs)
@@ -210,11 +222,11 @@ public class CommitHistoryService
                 metadata.error());
     }
 
-    private CommitRefreshStatus refreshLocked(String workspaceId, Collection<CommitHistoryRef> refs)
+    private CommitRefreshStatus refreshLocked(String workspaceId, Collection<CommitHistoryRef> refs, Set<String> avatarUrls)
     {
         Instant attempt = clock.instant();
         try {
-            synchronize(workspaceId, refs);
+            synchronize(workspaceId, refs, avatarUrls);
             CommitRefreshMetadata metadata = new CommitRefreshMetadata(workspaceId, Optional.of(attempt), Optional.of(clock.instant()), Optional.empty());
             store.saveRefreshMetadata(metadata);
             return status(metadata);
@@ -231,14 +243,17 @@ public class CommitHistoryService
         return successStale && attemptStale;
     }
 
-    private void synchronize(String workspaceId, Collection<CommitHistoryRef> requestedRefs)
+    private void synchronize(String workspaceId, Collection<CommitHistoryRef> requestedRefs, Set<String> avatarUrls)
     {
         WorkspaceCodeSyncResult synchronization = provisioning.synchronizeCode(workspaceId);
         checkState(synchronization.successful(), "managed repository synchronization failed");
         validateRemoteSources(requestedRefs, synchronization);
         WorkspaceRepositoryContext context = workspaces.requireReadyRepository(workspaceId);
         List<ResolvedCommitHistoryRef> refs = requestedRefs.stream().map(ref -> CommitHistoryRouting.resolve(context, ref)).toList();
-        store.upsertEnrichment(enrichRefs(context, refs));
+        Set<String> failedLookups = new HashSet<>();
+        store.upsertEnrichment(enrichRefs(context, refs, avatarUrls, failedLookups));
+        // Answered lookups are kept above; the failed ones stay due for the next refresh.
+        checkState(failedLookups.isEmpty(), "commit pull-request synchronization failed");
     }
 
     private static void validateRemoteSources(Collection<CommitHistoryRef> refs, WorkspaceCodeSyncResult synchronization)
@@ -253,14 +268,14 @@ public class CommitHistoryService
                 });
     }
 
-    private Collection<CommitEnrichment> enrichRefs(WorkspaceRepositoryContext context, Collection<ResolvedCommitHistoryRef> refs)
+    private Collection<CommitEnrichment> enrichRefs(
+            WorkspaceRepositoryContext context,
+            Collection<ResolvedCommitHistoryRef> refs,
+            Set<String> avatarUrls,
+            Set<String> failedLookups)
     {
-        if (!hasGitHubEnrichment(context.workspaceId())) {
-            // GitLab history comes from the checkout; this enrichment cache contains GitHub identities only.
-            refs.forEach(ref -> git.log(context.repository(), ref.gitRef(), MAX_COMMITS));
-            return ImmutableList.of();
-        }
-        String token = credentials.resolveGitHubToken(context.workspaceId());
+        // Every provider supplies pull-request links; avatars come only from a provider that has them.
+        boolean avatars = hasCommitAvatars(context.workspaceId());
         Instant now = clock.instant();
         Map<EnrichmentKey, CommitEnrichment> updates = new LinkedHashMap<>();
         for (ResolvedCommitHistoryRef ref : refs) {
@@ -270,32 +285,43 @@ public class CommitHistoryService
                 git.log(context.repository(), ref.gitRef(), MAX_COMMITS);
                 continue;
             }
-            enrich(context, ref, token, now).forEach(value -> updates.merge(new EnrichmentKey(value.repositoryId(), value.sha()), value, CommitHistoryService::merge));
+            enrich(context, ref, avatars, now, avatarUrls, failedLookups)
+                    .forEach(value -> updates.merge(new EnrichmentKey(value.hostingRepositoryId(), value.sha()), value, CommitHistoryService::merge));
         }
         return updates.values();
     }
 
-    private boolean hasGitHubEnrichment(String workspaceId)
+    private boolean hasCommitAvatars(String workspaceId)
     {
-        var server = workspaces.getWorkspace(workspaceId).hostingServer();
-        return server == null || server.provider() == HostingProvider.GITHUB;
+        return workspaces.getWorkspace(workspaceId).capabilities().commitAvatars();
     }
 
-    private List<CommitEnrichment> enrich(WorkspaceRepositoryContext context, ResolvedCommitHistoryRef ref, String token, Instant now)
+    private List<CommitEnrichment> enrich(
+            WorkspaceRepositoryContext context,
+            ResolvedCommitHistoryRef ref,
+            boolean avatars,
+            Instant now,
+            Set<String> avatarUrls,
+            Set<String> failedLookups)
     {
-        long repositoryId = ref.repositoryId().orElseThrow();
         RepoRef repository = ref.repository().orElseThrow();
         List<Commit> commits = git.log(context.repository(), ref.gitRef(), MAX_COMMITS);
-        Map<String, CommitEnrichment> existing = store.findEnrichment(repositoryId, commits.stream().map(Commit::sha).toList())
+        HostingTarget target = target(context.workspaceId(), ref.repositoryId().orElseThrow(), repository);
+        long hostingRepositoryId = target.repository().id();
+        Map<String, CommitEnrichment> existing = store.findEnrichment(hostingRepositoryId, commits.stream().map(Commit::sha).toList())
                 .commits().stream()
                 .collect(toImmutableMap(CommitEnrichment::sha, Function.identity()));
-        int avatarLimit = avatarScanLimit(commits, existing, now);
+        int avatarLimit = avatars ? avatarScanLimit(commits, existing, now) : 0;
         Map<String, CommitAvatar> identities;
         if (avatarLimit > 0) {
-            CommitAvatarSnapshot avatarSnapshot = gitHub.fetchCommitAvatarSnapshot(token, repository, commits.getFirst().sha(), avatarLimit);
+            CommitAvatarSnapshot avatarSnapshot = gitHub.fetchCommitAvatarSnapshot(target.access().token(), repository, commits.getFirst().sha(), avatarLimit);
             checkState(avatarSnapshot.succeeded(), "commit avatar synchronization failed");
             identities = avatarSnapshot.avatars().stream()
                     .collect(toImmutableMap(CommitAvatar::sha, Function.identity()));
+            identities.values().forEach(identity -> {
+                identity.authorSourceUrl().ifPresent(avatarUrls::add);
+                identity.committerSourceUrl().ifPresent(avatarUrls::add);
+            });
         }
         else {
             identities = ImmutableMap.of();
@@ -304,22 +330,33 @@ public class CommitHistoryService
         List<String> dueAssociations = commits.stream()
                 .filter(commit -> CommitEnrichment.associationDue(commit.committedAt(), Optional.ofNullable(existing.get(commit.sha())), now))
                 .map(Commit::sha)
+                .limit(MAX_ASSOCIATION_LOOKUPS)
                 .toList();
-        PullRequestLookupResult associationSnapshot = pullRequests.lookUpResult(token, repository, dueAssociations, ref.providerRef(), new ArrayList<>());
-        checkState(associationSnapshot.failedShas().isEmpty(), "commit pull-request synchronization failed");
+        PullRequestLookupResult associationSnapshot = dueAssociations.isEmpty()
+                ? new PullRequestLookupResult(ImmutableList.of(), ImmutableSet.of())
+                : pullRequests.lookUpResult(target, dueAssociations, ref.providerRef(), new ArrayList<>());
+        failedLookups.addAll(associationSnapshot.failedShas());
         Map<String, PullRequestAssociation> associations = associationSnapshot.associations().stream()
                 .collect(toImmutableMap(PullRequestLookupResult.Association::sha, PullRequestLookupResult.Association::pullRequest));
         return commits.stream()
                 .map(commit -> enrichment(
-                        repositoryId,
+                        hostingRepositoryId,
                         commit,
                         Optional.ofNullable(existing.get(commit.sha())),
                         Optional.ofNullable(identities.get(commit.sha())),
                         Optional.ofNullable(associations.get(commit.sha())),
                         checkedAvatarShas.contains(commit.sha()),
-                        dueAssociations.contains(commit.sha()),
+                        dueAssociations.contains(commit.sha()) && !failedLookups.contains(commit.sha()),
                         now))
                 .toList();
+    }
+
+    /** The ref's repository read with the workspace's account, which also stores it; one renamed or replaced since the last sync waits for the next sync. */
+    private HostingTarget target(String workspaceId, long repositoryId, RepoRef repository)
+    {
+        HostingTarget target = hosting.repositoryTarget(workspaceId, repository.fullName());
+        checkState(target.repository().remoteId().equals(Long.toString(repositoryId)), "commit history repository identity changed");
+        return target;
     }
 
     private static int avatarScanLimit(List<Commit> commits, Map<String, CommitEnrichment> existing, Instant now)
@@ -335,7 +372,7 @@ public class CommitHistoryService
     }
 
     private CommitEnrichment enrichment(
-            long repositoryId,
+            long hostingRepositoryId,
             Commit commit,
             Optional<CommitEnrichment> existing,
             Optional<CommitAvatar> identity,
@@ -345,12 +382,12 @@ public class CommitHistoryService
             Instant now)
     {
         CommitEnrichment observed = new CommitEnrichment(
-                repositoryId,
+                hostingRepositoryId,
                 commit.sha(),
                 identity.flatMap(CommitAvatar::authorLogin),
-                identity.flatMap(CommitAvatar::authorSourceUrl).flatMap(avatars::cache),
+                identity.flatMap(CommitAvatar::authorSourceUrl).map(avatars::key),
                 identity.flatMap(CommitAvatar::committerLogin),
-                identity.flatMap(CommitAvatar::committerSourceUrl).flatMap(avatars::cache),
+                identity.flatMap(CommitAvatar::committerSourceUrl).map(avatars::key),
                 association.map(PullRequestAssociation::number),
                 association.map(PullRequestAssociation::title).filter(value -> !value.isBlank()),
                 association.map(PullRequestAssociation::url).filter(value -> !value.isBlank()),
@@ -364,7 +401,7 @@ public class CommitHistoryService
     private static CommitEnrichment merge(CommitEnrichment first, CommitEnrichment second)
     {
         return new CommitEnrichment(
-                second.repositoryId(),
+                second.hostingRepositoryId(),
                 second.sha(),
                 second.authorLogin().or(first::authorLogin),
                 second.avatarKey().or(first::avatarKey),
@@ -398,5 +435,5 @@ public class CommitHistoryService
         return status(failed);
     }
 
-    private record EnrichmentKey(long repositoryId, String sha) {}
+    private record EnrichmentKey(long hostingRepositoryId, String sha) {}
 }

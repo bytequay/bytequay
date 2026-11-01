@@ -14,11 +14,12 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.core.ci.CiDeliveryChecks;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.FetchedPullRequest;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
+import com.bytequay.core.domain.MergedPullRequest;
 import com.bytequay.core.domain.PrMergeQueueRemoval;
 import com.bytequay.core.domain.PrReaction;
 import com.bytequay.core.domain.PrReviewState;
@@ -27,10 +28,12 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestHistoryPage;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepoUser;
 import com.bytequay.core.hosting.DiscussionProbe;
+import com.bytequay.core.hosting.PullRequestAssociation;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
@@ -129,13 +132,13 @@ public class GitHubPullRequestReadClient
     }
 
     /** Reads all PR states for an exact fork or same-repository head, retaining different base branches. */
-    public List<GitHubPullRequestIdentity> fetchPullRequestIdentities(String pat, RepoRef baseRepository, RepoRef headRepository, String headBranch)
+    public List<PullRequestIdentity> fetchPullRequestIdentities(String pat, RepoRef baseRepository, RepoRef headRepository, String headBranch)
     {
         requirePat(pat);
         requireNonNull(baseRepository, "baseRepository is null");
         requireNonNull(headRepository, "headRepository is null");
         requireNonNull(headBranch, "headBranch is null");
-        ImmutableList.Builder<GitHubPullRequestIdentity> result = ImmutableList.builder();
+        ImmutableList.Builder<PullRequestIdentity> result = ImmutableList.builder();
         boolean complete = GitHubPaginator.forEachPage(50, page -> requireBody(translating(() -> get(gitHubRestClient, pat, uri -> uri.path("/repos/{owner}/{repo}/pulls")
                     .queryParam("state", "all")
                     .queryParam("head", "{head}")
@@ -145,7 +148,7 @@ public class GitHubPullRequestReadClient
                     .retrieve()
                     .body(new ParameterizedTypeReference<List<PublicationPullRequest>>() {})), "GitHub returned no pull-request identity response"), rows -> {
                 for (PublicationPullRequest row : rows) {
-                    GitHubPullRequestIdentity identity = publicationIdentity(row, baseRepository);
+                    PullRequestIdentity identity = publicationIdentity(row, baseRepository);
                     if (!identity.headRepository().fullName().equalsIgnoreCase(headRepository.fullName()) || !identity.headBranch().equals(headBranch)) {
                         throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned another pull-request head");
                     }
@@ -158,12 +161,12 @@ public class GitHubPullRequestReadClient
         return result.build();
     }
 
-    public GitHubPullRequestIdentity fetchPullRequestIdentity(String pat, PullRequestRef pullRequest)
+    public PullRequestIdentity fetchPullRequestIdentity(String pat, PullRequestRef pullRequest)
     {
         requirePat(pat);
         requireNonNull(pullRequest, "pullRequest is null");
         PublicationPullRequest response = readPublication(pat, pullRequest);
-        GitHubPullRequestIdentity identity = publicationIdentity(response, RepoRef.of(pullRequest.owner(), pullRequest.repo()));
+        PullRequestIdentity identity = publicationIdentity(response, RepoRef.of(pullRequest.owner(), pullRequest.repo()));
         checkState(identity.pullRequest().equals(pullRequest), "GitHub returned another pull request");
         return identity;
     }
@@ -174,9 +177,9 @@ public class GitHubPullRequestReadClient
         requirePat(pat);
         requireNonNull(pullRequest, "pullRequest is null");
         PublicationPullRequest before = readPublication(pat, pullRequest);
-        GitHubPullRequestIdentity identity = publicationIdentity(before, RepoRef.of(pullRequest.owner(), pullRequest.repo()));
+        PullRequestIdentity identity = publicationIdentity(before, RepoRef.of(pullRequest.owner(), pullRequest.repo()));
         checkState(identity.pullRequest().equals(pullRequest), "GitHub returned another pull request");
-        checkState(identity.state() == GitHubPullRequestIdentity.State.MERGED && Boolean.TRUE.equals(before.merged()), "The pull request is not verified merged");
+        checkState(identity.state() == PullRequestIdentity.State.MERGED && Boolean.TRUE.equals(before.merged()), "The pull request is not verified merged");
         checkState(before.mergeCommitSha() != null, "GitHub omitted the landed commit");
         checkSha(before.mergeCommitSha(), "GitHub merge commit");
         checkState(before.base().repo().id() > 0, "GitHub omitted the base repository ID");
@@ -201,6 +204,29 @@ public class GitHubPullRequestReadClient
         return new MergedPullRequest(identity, before.base().repo().id(), before.mergedAt(), before.mergeCommitSha(), sequence);
     }
 
+    /** Merged pull requests that contain {@code sha}; a full page fails, because the rest of the list is unknown. */
+    public List<PullRequestAssociation> fetchMergedPullRequestsWithCommit(String pat, RepoRef repository, String sha)
+    {
+        requirePat(pat);
+        requireNonNull(repository, "repository is null");
+        requireNonNull(sha, "sha is null");
+        List<CommitPullRequest> candidates = requireBody(translating(() -> get(gitHubRestClient, pat, uri -> uri.path("/repos/{owner}/{repo}/commits/{sha}/pulls")
+                .queryParam("per_page", GitHubPaginator.PAGE_SIZE)
+                .build(repository.owner(), repository.repo(), sha))
+                .retrieve()
+                .body(new ParameterizedTypeReference<List<CommitPullRequest>>() {})), "GitHub returned no commit pull-request response");
+        checkState(candidates.size() < GitHubPaginator.PAGE_SIZE, "GitHub's commit pull-request list reached the page limit");
+        return candidates.stream()
+                .filter(candidate -> candidate.mergedAt() != null && candidate.base() != null)
+                .map(candidate -> new PullRequestAssociation(candidate.number(), Optional.ofNullable(candidate.title()).orElse(""),
+                        Optional.ofNullable(candidate.htmlUrl()).orElse(""), candidate.base().ref(), candidate.mergedAt()))
+                .collect(toImmutableList());
+    }
+
+    private record CommitPullRequest(int number, String title, @JsonProperty("html_url") String htmlUrl, @JsonProperty("merged_at") String mergedAt, CommitPullRequestBase base) {}
+
+    private record CommitPullRequestBase(String ref) {}
+
     private PublicationPullRequest readPublication(String pat, PullRequestRef pullRequest)
     {
         return requireBody(translating(() -> get(gitHubRestClient, pat, "/repos/{owner}/{repo}/pulls/{number}",
@@ -208,25 +234,13 @@ public class GitHubPullRequestReadClient
                 "GitHub returned no pull-request merge evidence");
     }
 
-    public record MergedPullRequest(GitHubPullRequestIdentity identity, long repositoryId, Instant mergedAt, String mergeSha, List<String> commits)
-    {
-        public MergedPullRequest
-        {
-            requireNonNull(identity, "identity is null");
-            requireNonNull(mergedAt, "mergedAt is null");
-            checkSha(mergeSha, "mergeSha");
-            commits = ImmutableList.copyOf(commits);
-        }
-    }
-
     /** Reads complete current-head checks and both classic and ruleset requirements without a cached success fallback. */
-    public GitHubDeliveryChecks fetchDeliveryChecks(String pat, PullRequestRef pullRequest)
+    public CiDeliveryChecks fetchDeliveryChecks(String pat, PullRequestRef pullRequest)
     {
         requirePat(pat);
         requireNonNull(pullRequest, "pullRequest is null");
         JsonNode first = fetchDeliveryCheckPage(pat, pullRequest, Optional.empty());
-        GitHubPullRequestIdentity identity = deliveryIdentity(first, pullRequest);
-        String nodeId = deliveryText(first, "id");
+        PullRequestIdentity identity = deliveryIdentity(first, pullRequest);
         List<String> waiting = new ArrayList<>();
         List<String> failures = new ArrayList<>();
         try {
@@ -261,7 +275,7 @@ public class GitHubPullRequestReadClient
                     if (!"SUCCESS".equals(state)) {
                         waiting.add("GitHub's current-head check rollup is " + state);
                     }
-                    return new GitHubDeliveryChecks(nodeId, identity, waiting, failures);
+                    return new CiDeliveryChecks(identity, waiting, failures);
                 }
                 String nextCursor = deliveryText(pageInfo, "endCursor");
                 checkState(!cursor.filter(nextCursor::equals).isPresent(), "GitHub check pagination did not advance");
@@ -273,7 +287,7 @@ public class GitHubPullRequestReadClient
         catch (IllegalArgumentException | IllegalStateException invalid) {
             waiting.add(invalid.getMessage());
         }
-        return new GitHubDeliveryChecks(nodeId, identity, waiting, failures);
+        return new CiDeliveryChecks(identity, waiting, failures);
     }
 
     private JsonNode fetchDeliveryCheckPage(String pat, PullRequestRef pullRequest, Optional<String> cursor)
@@ -281,7 +295,7 @@ public class GitHubPullRequestReadClient
         String query = """
                 query($owner:String!,$name:String!,$number:Int!,$cursor:String){
                   repository(owner:$owner,name:$name){pullRequest(number:$number){
-                    id number url state isDraft author{login} headRefName headRefOid baseRefName baseRefOid
+                    number url state isDraft author{login} headRefName headRefOid baseRefName baseRefOid
                     headRepository{nameWithOwner} baseRepository{nameWithOwner}
                     headRef{target{oid}}
                     baseRef{target{oid} branchProtectionRule{requiresStatusChecks requiredStatusChecks{context app{databaseId}}}}
@@ -303,7 +317,7 @@ public class GitHubPullRequestReadClient
         return response.path("data").path("repository").path("pullRequest");
     }
 
-    private static GitHubPullRequestIdentity deliveryIdentity(JsonNode row, PullRequestRef pullRequest)
+    private static PullRequestIdentity deliveryIdentity(JsonNode row, PullRequestRef pullRequest)
     {
         checkState(row.path("number").isIntegralNumber() && row.path("number").intValue() == pullRequest.number(), "GitHub returned another pull request");
         checkState(row.path("isDraft").isBoolean(), "GitHub omitted draft status");
@@ -316,8 +330,8 @@ public class GitHubPullRequestReadClient
         checkState(head.equals(deliveryText(row.path("headRef").path("target"), "oid")), "The pull-request head branch changed or is missing");
         // GitHub records baseRefOid at the last push, so a base branch that moved on since then is normal and leaves head checks valid.
         checkState(row.path("baseRef").path("target").path("oid").isTextual(), "The pull-request base branch is missing");
-        return new GitHubPullRequestIdentity(pullRequest, deliveryText(row, "url"), headRepository, deliveryText(row, "headRefName"), head,
-                baseRepository, deliveryText(row, "baseRefName"), base, GitHubPullRequestIdentity.State.valueOf(deliveryText(row, "state")),
+        return new PullRequestIdentity(pullRequest, deliveryText(row, "url"), headRepository, deliveryText(row, "headRefName"), head,
+                baseRepository, deliveryText(row, "baseRefName"), base, PullRequestIdentity.State.valueOf(deliveryText(row, "state")),
                 row.path("isDraft").booleanValue(), deliveryText(row.path("author"), "login"));
     }
 
@@ -352,7 +366,7 @@ public class GitHubPullRequestReadClient
         }
     }
 
-    private void readRulesetRequirements(String pat, GitHubPullRequestIdentity identity, List<RequiredDeliveryCheck> required, List<String> waiting)
+    private void readRulesetRequirements(String pat, PullRequestIdentity identity, List<RequiredDeliveryCheck> required, List<String> waiting)
     {
         boolean complete = GitHubPaginator.forEachPage(10, page -> {
             JsonNode rows = translating(() -> get(gitHubRestClient, pat,
@@ -462,7 +476,7 @@ public class GitHubPullRequestReadClient
 
     private record RequiredDeliveryCheck(String context, Optional<Long> appId) {}
 
-    private static GitHubPullRequestIdentity publicationIdentity(PublicationPullRequest row, RepoRef expectedBase)
+    private static PullRequestIdentity publicationIdentity(PublicationPullRequest row, RepoRef expectedBase)
     {
         try {
             requireNonNull(row, "pull request is null");
@@ -473,12 +487,12 @@ public class GitHubPullRequestReadClient
             checkState(row.mergedAt() == null || "closed".equals(row.state()), "GitHub returned inconsistent pull-request state");
             checkState(row.head().sha().matches("(?:[0-9a-f]{40}|[0-9a-f]{64})")
                     && row.base().sha().matches("(?:[0-9a-f]{40}|[0-9a-f]{64})"), "GitHub returned an invalid pull-request revision");
-            GitHubPullRequestIdentity.State state = switch (row.state()) {
-                case "open" -> GitHubPullRequestIdentity.State.OPEN;
-                case "closed" -> row.mergedAt() == null ? GitHubPullRequestIdentity.State.CLOSED : GitHubPullRequestIdentity.State.MERGED;
+            PullRequestIdentity.State state = switch (row.state()) {
+                case "open" -> PullRequestIdentity.State.OPEN;
+                case "closed" -> row.mergedAt() == null ? PullRequestIdentity.State.CLOSED : PullRequestIdentity.State.MERGED;
                 default -> throw new IllegalStateException("GitHub returned an unknown pull-request state");
             };
-            return new GitHubPullRequestIdentity(
+            return new PullRequestIdentity(
                     PullRequestRef.of(baseRepository.owner(), baseRepository.repo(), row.number()), row.htmlUrl(),
                     headRepository, row.head().ref(), row.head().sha(), baseRepository, row.base().ref(), row.base().sha(),
                     state, row.draft(), row.user().login());
@@ -820,7 +834,7 @@ public class GitHubPullRequestReadClient
                     if (!"removed_from_merge_queue".equals(event.event())) {
                         return mapped;
                     }
-                    return new PrTimelineEvent(mapped.githubId(), mapped.event(), mapped.actor(), mapped.timestamp(), mapped.body(),
+                    return new PrTimelineEvent(mapped.remoteId(), mapped.event(), mapped.actor(), mapped.timestamp(), mapped.body(),
                             PrTimelinePayload.builder(mapped.payload()).mergeQueueRemoval(removals.get(event.nodeId())).build(), mapped.localEventKey());
                 })
                 .collect(toImmutableList());
@@ -830,9 +844,9 @@ public class GitHubPullRequestReadClient
         try {
             Map<Long, List<PrReaction>> reactions = fetchReviewReactions(pat, pr);
             return timeline.stream()
-                    .map(event -> event.githubId() == null
+                    .map(event -> event.remoteId() == null
                             ? event
-                            : withReviewReactions(event, reactions.get(event.githubId())))
+                            : withReviewReactions(event, reactions.get(event.remoteId())))
                     .collect(toImmutableList());
         }
         catch (RestClientResponseException ignored) {
@@ -966,7 +980,7 @@ public class GitHubPullRequestReadClient
             return event;
         }
         return new PrTimelineEvent(
-                event.githubId(),
+                event.remoteId(),
                 event.event(),
                 event.actor(),
                 event.timestamp(),

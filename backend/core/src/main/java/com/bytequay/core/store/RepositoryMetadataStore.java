@@ -28,8 +28,11 @@ public interface RepositoryMetadataStore
 {
     Optional<RepositoryMetadataSnapshot> find(long repositoryId);
 
-    /** Cached contributors across repositories, deduplicated by GitHub identity and sorted by login. */
-    List<RepositoryContributor> findAllContributors();
+    /**
+     * The people cached for every repository on one hosting instance: contributors, and the users who can be assigned, which is all a
+     * provider without contributor accounts has. Each person appears once, sorted by login.
+     */
+    List<RepositoryContributor> findPeople(long instanceId);
 
     void upsertOverview(long repositoryId, RepoRef repository, String description, int stargazersCount, List<String> topics, Map<String, Long> languages, Instant syncedAt);
 

@@ -15,9 +15,9 @@ package com.bytequay.app.workitem;
 
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.service.epic.EpicSources;
-import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
+import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssuePage;
@@ -85,7 +85,7 @@ public class WorkItemCatalog
             item.links().forEach(link -> owners.put(link.identity(), item.id()));
             Optional<WorkItemLink> source = item.links().stream().filter(link -> link.reference().kind() == GoalItemKind.ISSUE
                     || link.reference().kind() == GoalItemKind.JIRA).findFirst();
-            String body = source.flatMap(link -> link.issueSource().map(GitHubIssueSource::body)
+            String body = source.flatMap(link -> link.issueSource().map(HostedIssueSource::body)
                     .or(() -> link.jiraSource().map(value -> value.body()))).orElse(item.acceptanceCriteria());
             result.put(item.id(), new UnifiedWorkItem(item.id(), source.map(link -> type(link.reference().kind())).orElse(UnifiedWorkItem.Source.LOCAL),
                     item.title(), body, item.state().name(), item.state() == WorkItem.State.DONE || item.state() == WorkItem.State.DROPPED, item.updatedAt(),
@@ -135,7 +135,7 @@ public class WorkItemCatalog
                                 return;
                             }
                             GoalItem reference = new GoalItem(GoalItemKind.ISSUE, GoalItem.numberedKey(epic.repo(), epic.number()), "#" + epic.number(), "", epic.updatedAt());
-                            result.put(epicId, new UnifiedWorkItem(epicId, UnifiedWorkItem.Source.GITHUB, "", "", "Epic", false, epic.updatedAt(), Optional.of(reference),
+                            result.put(epicId, new UnifiedWorkItem(epicId, UnifiedWorkItem.Source.ISSUE, "", "", "Epic", false, epic.updatedAt(), Optional.of(reference),
                                     Optional.empty()));
                         }));
         return result.values().stream().sorted(Comparator.comparing(UnifiedWorkItem::updatedAt).reversed()).collect(toImmutableList());
@@ -143,7 +143,7 @@ public class WorkItemCatalog
 
     private static void addIssue(Map<String, UnifiedWorkItem> result, Map<String, String> owners, Map<String, WorkItemView> views, Workspace workspace, RepositoryIssue issue)
     {
-        WorkItemLink link = GoalReferenceReader.issueLink(new GitHubIssueSource(workspace.issueHost(), issue.id(), workspace.monitoredRepository().fullName(),
+        WorkItemLink link = GoalReferenceReader.issueLink(new HostedIssueSource(workspace.issueHost(), issue.id(), workspace.monitoredRepository().fullName(),
                 issue.number(), issue.htmlUrl(), issue.title(), issue.body(), issue.updatedAt()), issue.updatedAt());
         add(result, owners, views, link, issue.title(), issue.body(), "Open", false);
     }
@@ -230,13 +230,13 @@ public class WorkItemCatalog
     private static UnifiedWorkItem.Source sourceOf(String id)
     {
         if (id.startsWith("ISSUE:")) {
-            return UnifiedWorkItem.Source.GITHUB;
+            return UnifiedWorkItem.Source.ISSUE;
         }
         return id.startsWith("JIRA:") ? UnifiedWorkItem.Source.JIRA : UnifiedWorkItem.Source.LOCAL;
     }
 
     private static UnifiedWorkItem.Source type(GoalItemKind kind)
     {
-        return kind == GoalItemKind.ISSUE ? UnifiedWorkItem.Source.GITHUB : UnifiedWorkItem.Source.JIRA;
+        return kind == GoalItemKind.ISSUE ? UnifiedWorkItem.Source.ISSUE : UnifiedWorkItem.Source.JIRA;
     }
 }

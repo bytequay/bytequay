@@ -79,14 +79,14 @@ public record PullRequestDetail(
             String eventType,
             Instant timestamp,
             String body,
-            Long githubId,
+            Long remoteId,
             PrTimelinePayload payload) {}
 
     public record Label(String name, String color) {}
 
     public record Reviewer(String login, String avatarUrl, String state) {}
 
-    public record CheckRun(Long githubId, String name, String status, String conclusion, String detailsUrl, String source, String category, Instant startedAt, Instant completedAt)
+    public record CheckRun(Long remoteId, String name, String status, String conclusion, String detailsUrl, String source, String category, Instant startedAt, Instant completedAt)
     {
     }
 }

@@ -68,8 +68,8 @@ export function CardActions({ label, className = '', children }: { label?: strin
   return <span className={`card-actions ${className}`.trim()} role="group" aria-label={label}>{children}</span>;
 }
 
-/** The work is Local: only on this Mac until it is pushed to GitHub or Jira. */
-export function LocalBadge({ title = 'Local: private until you push it to GitHub or Jira' }: { title?: string }): React.JSX.Element {
+/** The work is Local: only on this Mac until it is pushed as an issue or a Jira ticket. */
+export function LocalBadge({ title = 'Local: private until you push it' }: { title?: string }): React.JSX.Element {
   return <span className="card-local" title={title}><LockKeyhole size={11} aria-hidden="true" />Local</span>;
 }
 

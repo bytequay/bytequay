@@ -13,12 +13,10 @@
  */
 package com.bytequay.app.team;
 
-import com.bytequay.app.repository.github.GitHubAccountClient;
-import com.bytequay.app.repository.github.GitHubAccountClient.UserIdentity;
-import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
+import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.app.team.TeamCircle.Avatar;
 import com.bytequay.core.domain.RepositoryContributor;
+import com.bytequay.core.hosting.HostingPerson;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.RepositoryMetadataStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -32,7 +30,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.function.UnaryOperator;
 
@@ -41,7 +38,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
-/** Private account-owned preferences. No operation changes a GitHub team or follows a GitHub user. */
+/** Private circles of each hosting account. No operation changes a provider team or follows a user. */
 @Service
 public class TeamService
 {
@@ -49,110 +46,116 @@ public class TeamService
 
     private final AppSettingsStore settings;
     private final ObjectMapper mapper;
-    private final CredentialService credentials;
-    private final GitHubAccountClient github;
+    private final TeamAccounts accounts;
+    private final HostingIntegrations integrations;
     private final RepositoryMetadataStore metadata;
-    private final Object identityLock = new Object();
     private final Object directoryLock = new Object();
-    private volatile Optional<Account> account = Optional.empty();
 
-    public TeamService(AppSettingsStore settings, ObjectMapper mapper, CredentialService credentials, GitHubAccountClient github, RepositoryMetadataStore metadata)
+    TeamService(AppSettingsStore settings, ObjectMapper mapper, TeamAccounts accounts, HostingIntegrations integrations, RepositoryMetadataStore metadata)
     {
         this.settings = requireNonNull(settings, "settings is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
-        this.credentials = requireNonNull(credentials, "credentials is null");
-        this.github = requireNonNull(github, "github is null");
+        this.accounts = requireNonNull(accounts, "accounts is null");
+        this.integrations = requireNonNull(integrations, "integrations is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
     }
 
-    public TeamDirectory directory()
+    /** Every account's circles. */
+    public List<TeamDirectory> directories()
     {
-        return read(currentAccount());
+        return accounts.all().stream().map(this::read).collect(toImmutableList());
     }
 
     /**
-     * The circles of the account an earlier request already named, without contacting GitHub; none until one has, or after the token
-     * changed. Read paths that must answer offline use this instead of {@link #directory()}, which asks GitHub on a cold cache.
+     * The circles of the accounts known without contacting a provider, for read paths that must answer offline; the desktop sign-in's
+     * appear once a read has verified it.
      */
     public List<TeamCircle> cachedCircles()
     {
-        Optional<GitHubCredential> credential = credentials.cachedCredential();
-        return account.filter(value -> credential.filter(current -> current == value.credential()).isPresent())
-                .map(value -> read(value).circles())
-                .orElse(ImmutableList.of());
+        return accounts.cached().stream().flatMap(account -> read(account).circles().stream()).collect(toImmutableList());
     }
 
-    /** Stable account namespace shared by the separately collected activity. */
-    public long accountId()
+    TeamAccount account(long accountId)
     {
-        return currentAccount().identity().id();
+        return accounts.require(accountId);
     }
 
-    public List<RepositoryContributor> contributors()
+    List<TeamAccount> accounts()
     {
-        return metadata.findAllContributors();
+        return accounts.all();
     }
 
-    public TeamDirectory create(String name, String description, Avatar avatar, List<String> repositories, List<TeamMemberInput> selected)
+    TeamDirectory directory(TeamAccount account)
+    {
+        return read(account);
+    }
+
+    /** The people cached for the repositories on the account's server, to pick circle members from. */
+    public List<RepositoryContributor> contributors(long accountId)
+    {
+        return metadata.findPeople(accounts.require(accountId).account().instanceId());
+    }
+
+    public TeamDirectory create(long accountId, String name, String description, Avatar avatar, List<String> repositories, List<TeamMemberInput> selected)
     {
         TeamCircle circle = new TeamCircle(UUID.randomUUID().toString(), name, description, avatar, repositories, ImmutableList.of());
         List<TeamMemberInput> requested = ImmutableList.copyOf(selected).stream().distinct().collect(toImmutableList());
-        Account owner = currentAccount();
+        TeamAccount owner = accounts.require(accountId);
         Map<Long, TeamMember> members = new LinkedHashMap<>();
         requested.forEach(input -> {
             TeamMember member = resolveMember(owner, input);
-            members.put(member.githubId(), member);
+            members.put(member.remoteId(), member);
         });
         TeamCircle populated = new TeamCircle(circle.id(), circle.name(), circle.description(), circle.avatar(), circle.repositories(), ImmutableList.copyOf(members.values()));
         return mutate(owner, circles -> ImmutableList.<TeamCircle>builder().addAll(circles).add(populated).build());
     }
 
-    public TeamDirectory update(String id, String name, String description, Avatar avatar, List<String> repositories)
+    public TeamDirectory update(long accountId, String id, String name, String description, Avatar avatar, List<String> repositories)
     {
-        return change(currentAccount(), id, circle -> new TeamCircle(circle.id(), name, description, avatar, repositories, circle.members()));
+        return change(accounts.require(accountId), id, circle -> new TeamCircle(circle.id(), name, description, avatar, repositories, circle.members()));
     }
 
-    public TeamDirectory remove(String id)
+    public TeamDirectory remove(long accountId, String id)
     {
-        return mutate(currentAccount(), circles -> {
+        return mutate(accounts.require(accountId), circles -> {
             requireCircle(circles, id);
             return circles.stream().filter(circle -> !circle.id().equals(id)).collect(toImmutableList());
         });
     }
 
-    public TeamDirectory addMember(String id, TeamMemberInput selected)
+    public TeamDirectory addMember(long accountId, String id, TeamMemberInput selected)
     {
         requireNonNull(selected, "selected is null");
-        Account owner = currentAccount();
+        TeamAccount owner = accounts.require(accountId);
         requireCircle(read(owner).circles(), id);
         // Resolve outside the directory lock; concurrent edits are reread when this member is saved.
         TeamMember member = resolveMember(owner, selected);
         return change(owner, id, circle -> {
             List<TeamMember> members = new ArrayList<>(circle.members());
-            members.removeIf(existing -> existing.githubId() == member.githubId());
+            members.removeIf(existing -> existing.remoteId() == member.remoteId());
             members.add(member);
             return new TeamCircle(circle.id(), circle.name(), circle.description(), circle.avatar(), circle.repositories(), members);
         });
     }
 
-    public TeamDirectory removeMember(String id, long githubId)
+    public TeamDirectory removeMember(long accountId, String id, long remoteId)
     {
-        checkArgument(githubId > 0, "GitHub user ID must be positive");
-        return change(currentAccount(), id, circle -> new TeamCircle(circle.id(), circle.name(), circle.description(), circle.avatar(), circle.repositories(),
-                circle.members().stream().filter(member -> member.githubId() != githubId).collect(toImmutableList())));
+        checkArgument(remoteId > 0, "User ID must be positive");
+        return change(accounts.require(accountId), id, circle -> new TeamCircle(circle.id(), circle.name(), circle.description(), circle.avatar(), circle.repositories(),
+                circle.members().stream().filter(member -> member.remoteId() != remoteId).collect(toImmutableList())));
     }
 
-    private TeamMember resolveMember(Account owner, TeamMemberInput selected)
+    private TeamMember resolveMember(TeamAccount owner, TeamMemberInput selected)
     {
-        UserIdentity identity = github.fetchUserIdentity(owner.credential().token(), Optional.of(selected.login()));
-        if (identity.id() != selected.githubId()) {
+        HostingPerson person = integrations.of(owner.server()).team().person(owner.session().access(), selected.login());
+        if (person.id() != selected.remoteId()) {
             // The login leads the message so the dialog can mark which selected person to remove.
-            throw new ResponseStatusException(HttpStatus.CONFLICT, selected.login() + " couldn't be verified: the cached contributor no longer matches their GitHub account");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, selected.login() + " couldn't be verified: the cached contributor no longer matches their account");
         }
-        return new TeamMember(identity.id(), identity.login(), identity.name().filter(value -> !value.isBlank()).orElse(identity.login()), identity.avatarUrl().orElse(""));
+        return new TeamMember(person.id(), person.login(), person.name(), person.avatarUrl());
     }
 
-    private TeamDirectory change(Account owner, String id, UnaryOperator<TeamCircle> edit)
+    private TeamDirectory change(TeamAccount owner, String id, UnaryOperator<TeamCircle> edit)
     {
         return mutate(owner, circles -> {
             TeamCircle existing = requireCircle(circles, id);
@@ -161,47 +164,36 @@ public class TeamService
         });
     }
 
-    private TeamDirectory mutate(Account owner, UnaryOperator<List<TeamCircle>> edit)
+    private TeamDirectory mutate(TeamAccount owner, UnaryOperator<List<TeamCircle>> edit)
     {
         // ponytail: one local directory lock; split by account only if concurrent account editing becomes a feature.
         synchronized (directoryLock) {
-            TeamDirectory updated = new TeamDirectory(owner.identity().login(), edit.apply(read(owner).circles()));
+            Saved updated = new Saved(edit.apply(read(owner).circles()));
             try {
-                settings.put(PREFIX + owner.identity().id(), mapper.writeValueAsString(updated));
+                settings.put(PREFIX + owner.id(), mapper.writeValueAsString(updated));
             }
             catch (JsonProcessingException failure) {
                 throw new IllegalStateException("Private circles could not be saved", failure);
             }
-            return updated;
+            return directory(owner, updated.circles());
         }
     }
 
-    private TeamDirectory read(Account owner)
+    private TeamDirectory read(TeamAccount owner)
     {
-        return settings.get(PREFIX + owner.identity().id()).map(value -> {
+        return directory(owner, settings.get(PREFIX + owner.id()).map(value -> {
             try {
-                TeamDirectory saved = requireNonNull(mapper.readValue(value, TeamDirectory.class), "Saved private circles are null");
-                return new TeamDirectory(owner.identity().login(), saved.circles());
+                return requireNonNull(mapper.readValue(value, Saved.class), "Saved private circles are null").circles();
             }
             catch (JsonProcessingException failure) {
                 throw new IllegalStateException("Saved private circles could not be read", failure);
             }
-        }).orElseGet(() -> new TeamDirectory(owner.identity().login(), ImmutableList.of()));
+        }).orElse(ImmutableList.of()));
     }
 
-    private Account currentAccount()
+    private static TeamDirectory directory(TeamAccount owner, List<TeamCircle> circles)
     {
-        GitHubCredential credential = credentials.resolveGitHubCredential();
-        synchronized (identityLock) {
-            Optional<Account> cached = account.filter(value -> value.credential() == credential);
-            if (cached.isPresent()) {
-                return cached.orElseThrow();
-            }
-            UserIdentity identity = github.fetchUserIdentity(credential.token(), Optional.empty());
-            Account resolved = new Account(credential, identity);
-            account = Optional.of(resolved);
-            return resolved;
-        }
+        return new TeamDirectory(owner.id(), owner.account().login(), owner.server(), circles);
     }
 
     private static TeamCircle requireCircle(List<TeamCircle> circles, String id)
@@ -211,5 +203,11 @@ public class TeamService
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Private circle was not found"));
     }
 
-    private record Account(GitHubCredential credential, UserIdentity identity) {}
+    private record Saved(List<TeamCircle> circles)
+    {
+        private Saved
+        {
+            circles = ImmutableList.copyOf(circles);
+        }
+    }
 }

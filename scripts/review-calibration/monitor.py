@@ -31,7 +31,7 @@ import batch
 import saved
 
 APP_DATA = Path.home() / "Library/Application Support/ByteQuay"
-DATABASE = APP_DATA / "bytequay-1.0.db"
+DATABASE = APP_DATA / "bytequay-055.db"
 # The workspaces left the app's data, as a space in a checkout's path breaks tests; they count as its `workspaces` folder.
 WORKSPACES = Path.home() / ".bytequay/workspaces"
 STORE = "monitor.db"
@@ -61,7 +61,7 @@ IDLE_AFTER = 7 * 86400  # seconds an open task goes unchanged before it counts a
 # worktrees, and the repository clones of the layout before workspaces, which nothing reads since the workspaces came.
 CODE_INDEX = {"codegraph", "codegraph-home", "codegraph.head", "codegraph-baselines"}
 RETIRED_FOLDERS = {"new-flow-worktrees", "repos"}
-COPIES_NAMED = ("database-backup", "backup-before", "bytequay.db")  # copies made before past changes, and the database's old name
+COPIES_NAMED = ("database-backup", "backup-before", "bytequay.db", "bytequay-1.0.db")  # copies made before past changes, and the database's old names
 # Besides tasks, the operations whose rows name a worktree folder; such a worktree is the app's own while the row is there.
 # (A CI fix's worktree column holds the id of its workspace.) A test checks that no other table names a worktree.
 WORKTREES = ("branch_rebase", "cherry_pick_execution")

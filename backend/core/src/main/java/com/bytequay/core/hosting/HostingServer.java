@@ -15,15 +15,28 @@ package com.bytequay.core.hosting;
 
 import java.net.URI;
 
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static java.util.Objects.requireNonNull;
 
 /** Validated connection coordinates, available before an account or persistent identity exists. */
 public record HostingServer(HostingProvider provider, URI webBaseUrl, URI apiBaseUrl)
 {
+    public static final HostingServer GITHUB_COM = new HostingServer(GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
+
     public HostingServer
     {
         requireNonNull(provider, "provider is null");
         webBaseUrl = HostingUrls.canonicalBaseUrl(webBaseUrl);
         apiBaseUrl = HostingUrls.canonicalBaseUrl(apiBaseUrl);
+    }
+
+    /**
+     * How stored keys and labels name the server: its web address, without the scheme when that is https, such as {@code github.com},
+     * the way a hosted issue source reads a host.
+     */
+    public String host()
+    {
+        String address = webBaseUrl.toASCIIString();
+        return webBaseUrl.getScheme().equals("https") ? address.substring("https://".length()) : address;
     }
 }

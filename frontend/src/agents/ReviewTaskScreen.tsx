@@ -19,7 +19,7 @@ import WorktreeChanges from '../pulls/code-tests/WorktreeChanges';
 import TaskPaneDivider, { useTaskPane } from './TaskPaneDivider';
 import TaskHeader from './TaskHeader';
 import { ConfirmDialog } from '../ConfirmDialog';
-import type { ReviewCardFocus } from './ReviewRequestCard';
+import type { ReviewCardFocus } from './InstructionCard';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import { mergeReviewFindings } from '../pulls/agent-review/model';
 import { remoteErrorMessage } from '../remoteError';

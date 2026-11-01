@@ -95,8 +95,7 @@ describe('the unified review conversation', () => {
     } });
     expect(html).toContain('data-local-review-thread="local-review"');
     expect(html).toContain('Explain this return value');
-    expect(html).not.toContain('agt-review-request__prompt');
-    expect(html).not.toContain('Review the authentication change');
+    expect(html).toMatch(/<pre>[^<]*Review the authentication change/);
     expect(html).not.toContain('class="agt-user__bubble"');
   });
 
@@ -138,8 +137,7 @@ describe('the unified review conversation', () => {
     const html = render({ review: { ...props.review, activeTurn: null }, composer: 'Continue' });
     expect(html).toContain('Recovery required');
     expect(html).toContain('Review pull request');
-    expect(html).not.toContain('agt-review-request__prompt');
-    expect(html).not.toContain('Review the authentication change');
+    expect(html).toMatch(/<pre>[^<]*Review the authentication change/);
     expect(html).not.toContain('<textarea');
     expect(html).not.toContain('class="agt-live"');
     expect(render({ review: { ...reviewFixture(), state: 'CLOSED' } })).not.toContain('<textarea');
@@ -171,10 +169,9 @@ describe('the unified review conversation', () => {
     const steered: AgentEventEnvelope = { ...first, eventId: 'steered-input', sequence: 3,
       payload: { ...first.payload, text: 'Also check cancellation', deliveryKind: 'STEER' } };
     const html = render({ events: [...props.events, steered] });
-    expect(html.match(/agt-user__request-action">Review pull request/g)).toHaveLength(1);
+    expect(html.match(/agt-instruction__action">Review pull request/g)).toHaveLength(1);
     expect(html).not.toContain('ByteQuay · Review request');
-    expect(html).not.toContain('agt-review-request__prompt');
-    expect(html).not.toContain('Review the authentication change');
+    expect(html).toMatch(/<pre>[^<]*Review the authentication change/);
     expect(html).toContain('Also check cancellation');
     expect(html).toContain('Steered into the running turn');
   });
@@ -196,9 +193,9 @@ describe('compact review requests', () => {
     expect(pending).not.toContain(prompt);
     expect(pending).not.toContain('agt-user__bubble');
     const html = render({ review: { ...base, messages: [{ ...question, turnId: event.turnId }] }, events: [event], reviewSequence: 0 });
-    expect(html).toContain('agt-review-request');
-    expect(html).toContain(question.body);
-    expect(html).not.toContain(prompt);
+    expect(html).toContain('aria-label="Ask about review: Limitations"');
+    expect(html).toContain(`<pre>${prompt}</pre>`);
+    expect(html).not.toContain('agt-user__bubble');
     // Only a completed review read can establish that an unmatched input is ordinary user text.
     expect(render({ review: base, events: [event], reviewSequence: event.sequence })).toContain(prompt);
   });
@@ -208,23 +205,19 @@ describe('compact review requests', () => {
     const onFinding: ReviewMessageDto = { ...question, cardId: null, findingId: finding.id, targetRevision: finding.revision };
     const review = { ...base, messages: [onFinding] };
     const html = render({ review, events: [questionEvent], findingCard: value => <article data-finding-card={value.id} /> });
-    expect(html).toContain(`Ask about review</span><span class="agt-review-request__topic" title="${finding.label} · ${finding.title}">`);
+    expect(html).toContain(`Ask about review</span><span class="agt-instruction__topic" title="${finding.label} · ${finding.title}">`);
     expect(html).toContain(`<article data-finding-card="${finding.id}"></article>`);
-    expect(html).not.toContain('<div class="agt-review-request__body">Which Maven');
-    expect(render({ review, events: [questionEvent] })).toContain('<div class="agt-review-request__body">Which Maven');
+    expect(render({ review, events: [questionEvent] })).not.toContain('data-finding-card');
   });
 
-  it('renders the saved question and topic after reload without exposing the generated prompt', () => {
+  it('renders the saved question’s topic after reload over its prompt', () => {
     const review = parseAgentReview(JSON.parse(JSON.stringify({ ...base, messages: [question] })));
     const html = render({ review, events: [questionEvent] });
-    expect(html).toContain('<article class="agt-user__request agt-review-request">');
+    expect(html).toContain('<article class="agt-instruction">');
     expect(html).toContain('Ask about review');
     expect(html).toContain('Limitations');
-    expect(html).toContain(question.body);
-    expect(html).toContain('Private · Revision 1 · Reviewed head d9a0c41');
-    expect(html).not.toContain('review_reply');
-    expect(html).not.toContain('Selected card:');
-    expect(html).not.toContain('internal-card-id');
+    expect(html).toContain(`<pre>${prompt}</pre>`);
+    expect(html).not.toContain('agt-user__bubble');
   });
 
   it('keeps subsequent replies distinct and does not replace unrelated steering or agent replies', () => {
@@ -233,16 +226,15 @@ describe('compact review requests', () => {
     const steer: AgentEventEnvelope = { ...questionEvent, eventId: 'steer', turnId: reply.turnId, sequence: 3,
       payload: { ...first.payload, text: 'Also check cancellation', deliveryKind: 'STEER' } };
     const html = render({ review: { ...base, messages: [question, reply] }, events: [questionEvent, replyEvent, steer] });
-    expect(html.match(/agt-user__request agt-review-request/g)).toHaveLength(2);
+    expect(html.match(/class="agt-instruction"/g)).toHaveLength(2);
     expect(html).toContain('Reply to review');
-    expect(html).toContain(reply.body);
     expect(html).toContain('Also check cancellation');
     expect(html).toContain('Steered into the running turn');
     const ordinary = render({ review: { ...base, messages: [{ ...question, author: 'AGENT' }] }, events: [{ ...questionEvent, turnId: 'ordinary-turn' }] });
     expect(ordinary).toContain(prompt);
-    expect(ordinary).not.toContain('agt-review-request');
+    expect(ordinary).not.toContain('agt-instruction');
     const steerOnly = render({ review: { ...base, messages: [reply] }, events: [steer] });
-    expect(steerOnly).not.toContain('agt-review-request');
+    expect(steerOnly).not.toContain('agt-instruction');
   });
 
   it('matches a claimed queue message by its durable event even after a retry changes its turn', () => {
@@ -250,10 +242,9 @@ describe('compact review requests', () => {
     const event: AgentEventEnvelope = { ...questionEvent, payload: { ...first.payload, text: prompt, deliveryKind: 'QUEUED' } };
     const html = render({ review: parseAgentReview({ ...base, messages: [queued] }), events: [event], reviewSequence: 0 });
     expect(html).toContain('Ask about review');
-    expect(html).toContain(question.body);
-    expect(html).not.toContain(prompt);
+    expect(html).toContain(`<pre>${prompt}</pre>`);
     const waiting = render({ review: { ...base, messages: [{ ...queued, turnId: null, messageEventId: null }], queuedInputIds: ['queued-question'] }, events: [] });
     expect(waiting).toContain(question.body);
-    expect(waiting).not.toContain('agt-review-request');
+    expect(waiting).not.toContain('agt-instruction');
   });
 });

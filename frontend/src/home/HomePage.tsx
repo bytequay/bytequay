@@ -27,12 +27,16 @@ import {
   issueAttentionItems,
   attentionCandidates,
   loadHandled,
+  pullReferenceRoute,
+  pullRoute,
   saveHandled,
   visibleAttention,
   type AttentionItem,
   type Handled,
 } from './attention';
 import ContributionCard from './ContributionCard';
+import DoneList from './DoneList';
+import { isoDay } from '../recent/model';
 import MyWork, { AllMyWork, useLocalWork } from './MyWork';
 import { isOwnWork, myWorkItems } from './work';
 import TodayList, { useWideWindow } from './TodayList';
@@ -112,7 +116,7 @@ function HomePage({
     () => getCached<PullRequestDto[]>(SEED.attention) ?? null);
   const [attentionError, setAttentionError] = useState<string | null>(null);
   const jira = useJiraAttention();
-  const teams = useTeams(profile?.login ?? null);
+  const teams = useTeams();
   const [issueAttentionError, setIssueAttentionError] = useState<string | null>(null);
   const [loading, setLoading] = useState(() => getCached(SEED.workspaces) === undefined);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
@@ -125,6 +129,8 @@ function HomePage({
   const onToday = useMemo(() => todayKeys(today.agenda), [today.agenda]);
   const [issueItems, setIssueItems] = useState<AttentionItem[]>(() => getCached<AttentionItem[]>(SEED.issues) ?? []);
   const [authoredIssues, setAuthoredIssues] = useState<AuthoredIssueDto[]>(() => getCached<AuthoredIssueDto[]>(SEED.authoredIssues) ?? []);
+  // The day Done shows; unset follows today, so a Home left open past midnight moves on with the clock.
+  const [doneDay, setDoneDay] = useState<string | null>(null);
 
   useEffect(() => {
     void load();
@@ -360,6 +366,7 @@ function HomePage({
   }
 
   const todayList = <TodayList today={today} scope="global" facts={candidates} />;
+  const doneList = <DoneList day={doneDay ?? isoDay(new Date())} onDay={setDoneDay} work={work} />;
 
   if (allWork) {
     return (
@@ -385,8 +392,9 @@ function HomePage({
         </div>
       )}
       {/* ── Contribution card: graph + bio ── */}
-      <ContributionCard profile={profile} />
+      <ContributionCard profile={profile} onSelectDay={setDoneDay} />
       {!wide && todayList}
+      {!wide && doneList}
 
       {jira.error && <div className="ws-error" role="alert">{jira.error}</div>}
       <MyWork items={work} todayKeys={onToday} />
@@ -407,6 +415,10 @@ function HomePage({
             zoomReference({ kind: 'issue', repo: item.repo, number: item.number, workspaceId: item.workspaceId });
             return;
           }
+          if (item.type === 'pr' && pullRoute(item) !== undefined) {
+            zoomReference({ kind: 'pull', repo: item.repo, number: item.number, ...pullReferenceRoute(item) });
+            return;
+          }
           const slash = item.repo.indexOf('/');
           onSelectRepo(item.repo.slice(0, slash), item.repo.slice(slash + 1), item.number);
         }}
@@ -425,10 +437,9 @@ function HomePage({
         onWatch={() => setShowModal(true)}
       />
       <CirclesGrid
-        key={teams.directory?.accountLogin ?? ''}
-        directory={teams.directory}
+        key={teams.directories?.[0]?.accountId ?? ''}
+        directories={teams.directories}
         attention={visibleAttention(candidates, handled, Date.now())}
-        viewerLogin={login ?? null}
       />
 
       </main>
@@ -441,7 +452,7 @@ function HomePage({
               <button type="button" className="card-iconbtn" aria-label="Close activity" title="Close" onClick={closeDrawer}><X size={14} aria-hidden="true" /></button>
             </div>
           )}
-          {wide && <>{todayList}<hr className="home-side__divider" /></>}
+          {wide && <>{todayList}<hr className="home-side__divider" />{doneList}<hr className="home-side__divider" /></>}
           <section className="home-side-section">
             <h3 className="home-side-section__title">From people you follow</h3>
             {followingEvents.length === 0 ? (

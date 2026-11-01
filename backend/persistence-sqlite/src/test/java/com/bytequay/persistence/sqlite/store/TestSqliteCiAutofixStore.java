@@ -182,8 +182,8 @@ class TestSqliteCiAutofixStore
     void preservesStoredWarningAndFailureJson()
     {
         String warningsJson = "[{\"code\":\"MEMORY\",\"message\":\"memory unavailable\",\"occurredAt\":\"2026-08-17T00:00:00.123456789Z\"}]";
-        String failuresJson = "[{\"signature\":\"compile\",\"summary\":\"compile failed\",\"workflowRunId\":100,\"workflowAttempt\":1,\"jobId\":200,\"jobAttempt\":1,\"log\":null},"
-                + "{\"signature\":\"test\",\"summary\":\"test failed\",\"workflowRunId\":101,\"workflowAttempt\":2,\"jobId\":201,\"jobAttempt\":2,"
+        String failuresJson = "[{\"signature\":\"compile\",\"summary\":\"compile failed\",\"runId\":100,\"runAttempt\":1,\"jobId\":200,\"jobAttempt\":1,\"log\":null},"
+                + "{\"signature\":\"test\",\"summary\":\"test failed\",\"runId\":101,\"runAttempt\":2,\"jobId\":201,\"jobAttempt\":2,"
                 + "\"log\":{\"path\":\"blobs/log\",\"mediaType\":\"text/plain\",\"size\":10,\"truncated\":true}}]";
         Instant warningAt = NOW.plusNanos(123456789);
         CiAutofixRun run = newRun("stored-json", "stored-json", NOW)

@@ -98,7 +98,7 @@ testBrowserScenarios([
   },
   {
     name: 'manages private circles and inspects recorded activity in Chromium',
-    expected: 14, timeout: 90_000,
+    expected: 15, timeout: 90_000,
     fixture: {
       prefix: 'bytequay-teams-',
       entry: 'src/teams/fixtures/teamsBrowser.tsx',

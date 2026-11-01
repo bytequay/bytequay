@@ -16,15 +16,20 @@ package com.bytequay.app.workspace;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingServer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
+import java.net.URI;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.bothProviders;
 import static com.bytequay.app.workspace.WorkspaceRelationships.Kind.DEPENDENCY;
 import static com.bytequay.app.workspace.WorkspaceRelationships.Kind.FORK;
+import static com.bytequay.core.hosting.HostingProvider.GITLAB;
+import static com.bytequay.core.hosting.HostingServer.GITHUB_COM;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -32,7 +37,7 @@ class TestWorkspaceRelationships
 {
     private final InMemoryWorkspaceStore workspaces = new InMemoryWorkspaceStore();
     private final InMemoryAppSettingsStore settings = new InMemoryAppSettingsStore();
-    private final WorkspaceRelationships relationships = new WorkspaceRelationships(workspaces, settings, new ObjectMapper());
+    private final WorkspaceRelationships relationships = new WorkspaceRelationships(workspaces, settings, new ObjectMapper(), bothProviders());
 
     @Test
     void persistsLinksOnTheNamingWorkspaceAndRechecksAvailabilityAndRouting()
@@ -58,7 +63,7 @@ class TestWorkspaceRelationships
         assertThatThrownBy(() -> relationships.save("p3", new WorkspaceRelationships.Relationship(alias.id(), FORK, "", false)))
                 .hasMessageContaining("upstream settings");
         relationships.save("p2", new WorkspaceRelationships.Relationship("p3", DEPENDENCY, "Version in pom.xml", false));
-        assertThat(new WorkspaceRelationships(workspaces, settings, new ObjectMapper()).list("p2")).singleElement()
+        assertThat(new WorkspaceRelationships(workspaces, settings, new ObjectMapper(), bothProviders()).list("p2")).singleElement()
                 .satisfies(link -> assertThat(link.guidance()).isEqualTo("Version in pom.xml"));
         assertThat(workspaces.findById("p2")).contains(p2);
         workspaces.setWatched("p3", false);
@@ -156,6 +161,15 @@ class TestWorkspaceRelationships
     }
 
     @Test
+    void offersGitLabWorkspacesForForkWorkflows()
+    {
+        add("oss", 1);
+        add("project", 2, new HostingServer(GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4")));
+
+        assertThat(relationships.backportWorkspaces()).extracting(WorkspaceRelationships.BackportWorkspace::workspaceId).containsExactlyInAnyOrder("oss", "project");
+    }
+
+    @Test
     void concurrentRowSavesDoNotLoseOtherRelationships()
     {
         add("p2", 2);
@@ -170,9 +184,14 @@ class TestWorkspaceRelationships
 
     private Workspace add(String id, long repositoryId)
     {
+        return add(id, repositoryId, GITHUB_COM);
+    }
+
+    private Workspace add(String id, long repositoryId, HostingServer server)
+    {
         Workspace workspace = new Workspace(id, id, repositoryId, RepoRef.of("owner", id), Optional.empty(), Optional.empty(),
-                repositoryId, RepoRef.of("owner", id), Workspace.Topology.DIRECT, "main", "https://github.com/owner/" + id + ".git",
-                Optional.empty(), Optional.empty(), "/managed/" + id, Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH);
+                repositoryId, RepoRef.of("owner", id), Workspace.Topology.DIRECT, "main", server.webBaseUrl() + "/owner/" + id + ".git",
+                Optional.empty(), Optional.empty(), "/managed/" + id, Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, server);
         return workspaces.save(workspace);
     }
 }

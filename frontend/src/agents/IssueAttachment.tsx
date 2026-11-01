@@ -13,7 +13,7 @@
  */
 
 import { CircleDot, ExternalLink, RefreshCw } from 'lucide-react';
-import { useId, type ReactNode } from 'react';
+import { useId } from 'react';
 import MarkdownBody from '../pulls/MarkdownBody';
 import ReferenceCard, { previewMarkdown, useHoverCard } from '../ReferenceCard';
 import type { AgentIssueSourceDto } from '../types';
@@ -57,18 +57,5 @@ export function IssueAttachment({ source, onRefresh, refreshing = false }: {
         View issue <ExternalLink size={13} aria-hidden="true" />
       </button>}
     />
-  </div>;
-}
-
-/** The first turn is identified by durable provenance, never by interpreting provider prompt text. */
-export function IssueRequestCard({ source, attachments }: { source: AgentIssueSourceDto; attachments?: ReactNode }) {
-  const reference = `${source.repo}#${source.number}`;
-  return <div className="agt-issue-request">
-    <div className="agt-user__request">
-      <CircleDot aria-hidden="true" />
-      <span className="agt-user__request-action">Start development</span>
-      <span className="agt-user__request-head" title={reference}>{reference}</span>
-    </div>
-    {attachments}
   </div>;
 }

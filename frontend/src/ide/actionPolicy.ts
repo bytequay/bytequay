@@ -180,13 +180,13 @@ export function validateIdeAction(method: unknown, args: unknown, context: IdeCo
       return;
     }
     const target = method === 'github.edit' || method === 'github.react' ? args[3] : args[2];
-    const thread = comments.threads.activities.find(activity => activity.eventType === 'review_thread' && activity.payload.comments.some(comment => comment.githubId === target));
-    const comment = thread?.payload.comments.find(comment => comment.githubId === target);
+    const thread = comments.threads.activities.find(activity => activity.eventType === 'review_thread' && activity.payload.comments.some(comment => comment.remoteId === target));
+    const comment = thread?.payload.comments.find(comment => comment.remoteId === target);
     if (!thread || !comment) throw new Error('Unknown review comment');
     if (method === 'github.reply' || method === 'github.resolve') {
       count(args, 4);
       const root = thread.payload.comments.find(comment => comment.inReplyToId === null) ?? thread.payload.comments[0];
-      if (root.githubId !== target) throw new Error('The reply must target the current thread');
+      if (root.remoteId !== target) throw new Error('The reply must target the current thread');
       if (method === 'github.reply') text(args[3]);
       else if (typeof args[3] !== 'boolean') throw new Error('Invalid resolution');
     }
@@ -233,7 +233,7 @@ export function validateIdeAction(method: unknown, args: unknown, context: IdeCo
         if (comment.replyToCommentId != null) {
           integer(comment.replyToCommentId);
           const thread = comments.threads.activities.find(activity => activity.eventType === 'review_thread'
-            && (activity.payload.comments.find(value => value.inReplyToId === null) ?? activity.payload.comments[0])?.githubId === comment.replyToCommentId);
+            && (activity.payload.comments.find(value => value.inReplyToId === null) ?? activity.payload.comments[0])?.remoteId === comment.replyToCommentId);
           if (!thread || thread.payload.path !== comment.path) throw new Error('Unknown review thread');
         }
       }

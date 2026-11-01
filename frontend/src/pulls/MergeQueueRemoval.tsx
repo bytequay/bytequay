@@ -27,7 +27,7 @@ export default function MergeQueueRemoval({ activity, repo, number }: { activity
   const explanation = reason === 'failed_checks' ? null
     : reason === 'merge_conflict' ? 'The pull request conflicted with the target branch or another queued change.'
       : reason ? `GitHub reason: ${reason.replaceAll('_', ' ')}` : 'Removal reason unavailable.';
-  const timelineUrl = `https://github.com/${repo}/pull/${number}${activity.githubId === null ? '' : `#event-${activity.githubId}`}`;
+  const timelineUrl = `https://github.com/${repo}/pull/${number}${activity.remoteId === null ? '' : `#event-${activity.remoteId}`}`;
   return <div className="pr-queue-removal">
     {failedCount > 0 && <button type="button" className="pr-queue-removal__toggle" aria-expanded={expanded} aria-controls={detailsId}
       onClick={() => setExpanded(value => !value)}>

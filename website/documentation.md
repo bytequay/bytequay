@@ -167,10 +167,12 @@ Work items and Tasks as GitHub workspaces. Refresh reads through the selected
 account. Open a request to read its discussion, checks and changes, add comments,
 approve or merge. Work items lists the project's issues and can start a task from
 one. Task publication creates a merge request through the workspace account.
+GitLab workspaces can be linked as forks and carry backports; each backport opens
+its merge request in the destination workspace's own project.
 
 GitLab supports a different set of review operations. Request-changes reviews,
-multi-line review comments, merge trains, GitHub-specific CI automation and
-remote epic-child synchronization are not yet integrated. The app reports
+multi-line review comments, merge trains and remote epic-child synchronization
+are not yet integrated. CI repair follows the merge request's head pipeline. The app reports
 unsupported remote actions explicitly. Project settings control GitLab merge
 methods. Use **Open in GitLab** for unsupported operations.
 
@@ -183,6 +185,12 @@ uses a model session; it never writes to GitHub or starts a task on its own.
 - Click a row for its reason and action. **Done** or **Tomorrow** sets it aside.
 - **Start task** starts suggested work with your saved automation.
 - On the last working day, **This week** looks back at what merged and slipped.
+
+**Done** on Home lists what you finished that day, with or without Today:
+pull requests merged or reviewed, issues closed, and tasks and work items done.
+Use the arrows or click a day on the contribution graph to see another day.
+The copy button takes the day as stand-up notes; today's notes add your work in
+progress from My work.
 
 <a id="assistant"></a>
 
@@ -506,7 +514,10 @@ or Jira ticket can be one; the grouping stays on your Mac.
    files and end with a question card. A card waits five minutes; if it times
    out, an alert opens the conversation so you can reply there.
 2. Choose **Make the page** when offered, or ask for one at any time.
-3. Ask for changes in the same conversation; **Versions** keeps each save.
+3. Use **Index** to jump to a page or section. Scroll down to keep reading the
+   next page; the reader shows your current page and section as you go.
+4. Ask for changes in the same conversation. Each page's version selector keeps
+   earlier saves available without replacing the other pages in the reader.
 
 The agent reads the repository but never changes it.
 
@@ -528,6 +539,9 @@ reproduce failures.
 
 Choose **Circles → Create a circle**, then pick people and repositories. It
 sends no invitations, and **Insights** cover only what ByteQuay has collected.
+Each circle belongs to one signed-in GitHub or GitLab account and holds people
+from that account's server; with several accounts, pick one under **Account**.
+GitLab activity comes from your watched GitLab projects.
 
 <a id="jira"></a>
 

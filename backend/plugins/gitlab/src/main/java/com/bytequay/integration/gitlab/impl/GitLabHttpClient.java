@@ -16,7 +16,7 @@ package com.bytequay.integration.gitlab.impl;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingProvider;
-import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -40,6 +40,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -62,7 +63,7 @@ final class GitLabHttpClient
             "(?:^Bearer\\s+|,\\s*)([a-z][a-z0-9_]*)\\s*=\\s*(?:\"((?:\\\\.|[^\"\\\\])*)\"|([^,\\s]+))", Pattern.CASE_INSENSITIVE);
     private static final Set<String> API_RESOURCES = ImmutableSet.of("projects", "user", "users", "personal_access_tokens", "merge_requests", "issues",
             "pipelines", "jobs", "bridges", "repository", "languages", "notes", "discussions", "diffs", "changes", "commits", "approvals", "approve",
-            "merge", "cancel_merge_when_pipeline_succeeds", "award_emoji", "trace", "retry");
+            "merge", "cancel_merge_when_pipeline_succeeds", "award_emoji", "trace", "retry", "todos", "version");
 
     private final HttpClient http;
     private final ObjectReader reader;
@@ -136,6 +137,18 @@ final class GitLabHttpClient
     {
         return request(access, "POST", path, Optional.empty(), Optional.of(body), responseType);
     }
+
+    /** Posts a GraphQL query to the server's GraphQL endpoint, which sits beside the REST API's {@code /v4}. */
+    <T> Response<T> graphql(HostingAccess access, String query, Map<String, Object> variables, Class<T> responseType)
+    {
+        requireNonNull(access, "access is null");
+        String api = access.server().apiBaseUrl().toString();
+        checkArgument(api.endsWith("/v4"), "The GitLab API address must end with /v4");
+        URI endpoint = URI.create(api.substring(0, api.length() - "/v4".length()) + "/graphql");
+        return request(access, "POST", endpoint, "GraphQL query", "graphql", Optional.empty(), Optional.of(new GraphQlRequest(query, variables)), responseType);
+    }
+
+    private record GraphQlRequest(String query, Map<String, Object> variables) {}
 
     <T> Response<T> put(HostingAccess access, String path, Object body, Class<T> responseType)
     {
@@ -320,6 +333,7 @@ final class GitLabHttpClient
             case "pipelines" -> parts.length > 4 ? switch (parts[4]) {
                 case "jobs" -> "pipeline jobs";
                 case "bridges" -> "pipeline trigger jobs";
+                case "retry" -> "pipeline retry";
                 default -> "pipeline details";
             } : "pipeline details";
             case "jobs" -> parts.length > 4 && parts[4].equals("trace") ? "pipeline job log" : "pipeline job";
@@ -372,22 +386,21 @@ final class GitLabHttpClient
         }
     }
 
-    static String projectPath(HostingAccess access, HostingRepository repository)
+    static String projectPath(HostingTarget target)
     {
-        checkArgument(repository.instanceId() == access.instanceId().orElseThrow(), "Repository belongs to another hosting instance");
-        return "projects/" + encode(repository.remoteId());
+        return "projects/" + encode(target.repository().remoteId());
     }
 
-    static String mergeRequestPath(HostingAccess access, HostingRepository repository, int number)
+    static String mergeRequestPath(HostingTarget target, int number)
     {
         checkArgument(number > 0, "number must be positive");
-        return projectPath(access, repository) + "/merge_requests/" + number;
+        return projectPath(target) + "/merge_requests/" + number;
     }
 
-    static String issuePath(HostingAccess access, HostingRepository repository, int number)
+    static String issuePath(HostingTarget target, int number)
     {
         checkArgument(number > 0, "number must be positive");
-        return projectPath(access, repository) + "/issues/" + number;
+        return projectPath(target) + "/issues/" + number;
     }
 
     record Response<T>(Optional<T> body, Optional<String> etag, boolean hasNext) {}

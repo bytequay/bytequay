@@ -41,8 +41,8 @@ let assignmentFails = false;
 let taskRequest: CreateAgentTaskRequest | null = null;
 const connection: JiraConnection = { id: 'connection', authType: 'oauth', tokenEmail: null, account: { accountId: 'alex', displayName: 'Alex Chen', email: 'alex@example.com' }, duplicateOf: null, state: 'connected', sites: [{ id: 'site', name: 'Engineering', url: 'https://example.atlassian.net' }], authorizationUrl: null, pairingCode: null, error: null };
 const workspaces = [
-  { id: 'workspace', name: 'Repository', monitoredOwner: 'owner', monitoredRepo: 'repository' },
-  { id: 'other-workspace', name: 'Connectors', monitoredOwner: 'example', monitoredRepo: 'connectors' },
+  { id: 'workspace', name: 'Repository', monitoredOwner: 'owner', monitoredRepo: 'repository', hostingServer: { provider: 'GITHUB', webBaseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' } },
+  { id: 'other-workspace', name: 'Connectors', monitoredOwner: 'example', monitoredRepo: 'connectors', hostingServer: { provider: 'GITHUB', webBaseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' } },
 ] as WorkspaceDto[];
 const record = (name: string, ...args: unknown[]) => { calls.push({ name, args }); };
 const button = (label: string, scope: ParentNode = document): HTMLButtonElement => {

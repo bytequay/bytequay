@@ -13,274 +13,171 @@
  */
 package com.bytequay.app.git;
 
-import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingFailure;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
+import com.bytequay.core.hosting.PullRequestAssociation;
+import com.bytequay.core.hosting.PullRequestContentReader;
+import com.bytequay.core.hosting.PullRequestWriter;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.web.client.RestClient;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.IntStream;
 
-import static java.util.stream.Collectors.joining;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.pullRequests;
+import static com.bytequay.core.hosting.HostingFailure.Kind.RATE_LIMITED;
+import static com.bytequay.core.hosting.HostingFailure.Kind.UNAVAILABLE;
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
+import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.http.HttpMethod.GET;
-import static org.springframework.test.web.client.ExpectedCount.manyTimes;
-import static org.springframework.test.web.client.ExpectedCount.times;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
-import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
-import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atMost;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class TestCherryPickPullRequestLookup
 {
-    private static final RepoRef REPOSITORY = RepoRef.of("owner", "repository");
     private static final String SHA = "a".repeat(40);
+    private static final HostingTarget GITHUB_TARGET = target(1, GITHUB, "https://github.com", "https://api.github.com", 11, "owner/repository");
+    private static final HostingTarget GITLAB_TARGET = target(2, GITLAB, "https://gitlab.example.test", "https://gitlab.example.test/api/v4", 12, "group/sub/project");
+
+    private final PullRequestContentReader gitHub = mock(PullRequestContentReader.class);
+    private final PullRequestContentReader gitLab = mock(PullRequestContentReader.class);
+    private final CherryPickPullRequestLookup lookup = new CherryPickPullRequestLookup(integrations(
+            pullRequests(GITHUB, gitHub, mock(PullRequestWriter.class)), pullRequests(GITLAB, gitLab, mock(PullRequestWriter.class))));
 
     @Test
     void groupsACommitUnderItsSingleMergedPullRequest()
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.com");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        server.expect(requestTo(url(SHA)))
-                .andExpect(method(GET))
-                .andRespond(withStatus(HttpStatus.OK)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .body("""
-                                [{"number":23401,"title":"Fix Hive coercion",
-                                  "html_url":"https://github.com/owner/repository/pull/23401",
-                                  "merged_at":"2026-08-03T10:00:00Z","base":{"ref":"master"}}]
-                                """));
+        when(gitHub.mergedWithCommit(GITHUB_TARGET, SHA)).thenReturn(ImmutableList.of(merged(23401, "master")));
 
         List<String> warnings = new ArrayList<>();
-        PullRequestLookupResult result = lookup(builder).lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", warnings);
+        PullRequestLookupResult result = lookup.lookUpResult(GITHUB_TARGET, ImmutableList.of(SHA), "master", warnings);
 
-        assertThat(association(result, SHA).number()).isEqualTo(23401);
-        assertThat(association(result, SHA).title()).isEqualTo("Fix Hive coercion");
-        assertThat(association(result, SHA).mergedAt()).isEqualTo("2026-08-03T10:00:00Z");
+        assertThat(association(result, SHA)).isEqualTo(merged(23401, "master"));
+        assertThat(result.failedShas()).isEmpty();
         assertThat(warnings).isEmpty();
-        server.verify();
     }
 
     @Test
-    void usesTheSelectedWorkspaceCredentialWithoutResolvingTheDefaultAccount()
+    void asksTheTargetsProviderAndKeepsEachRepositorysAnswerApart()
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.com");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        server.expect(requestTo(url(SHA)))
-                .andExpect(header("Authorization", "Bearer workspace-token"))
-                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body("[]"));
-        CherryPickPullRequestLookup lookup = new CherryPickPullRequestLookup(builder.build(), () -> {
-            throw new AssertionError("must use the selected credential");
-        });
+        when(gitHub.mergedWithCommit(GITHUB_TARGET, SHA)).thenReturn(ImmutableList.of(merged(1, "main")));
+        when(gitLab.mergedWithCommit(GITLAB_TARGET, SHA)).thenReturn(ImmutableList.of(merged(2, "main")));
 
-        PullRequestLookupResult result = lookup.lookUpResult("workspace-token", REPOSITORY, ImmutableList.of(SHA), "main", new ArrayList<>());
-
-        assertThat(result.failedShas()).isEmpty();
-        server.verify();
+        assertThat(association(lookup.lookUpResult(GITHUB_TARGET, ImmutableList.of(SHA), "main", new ArrayList<>()), SHA).number()).isEqualTo(1);
+        assertThat(association(lookup.lookUpResult(GITLAB_TARGET, ImmutableList.of(SHA), "main", new ArrayList<>()), SHA).number()).isEqualTo(2);
+        assertThat(association(lookup.lookUpResult(GITLAB_TARGET, ImmutableList.of(SHA), "main", new ArrayList<>()), SHA).number()).isEqualTo(2);
+        verify(gitLab).mergedWithCommit(GITLAB_TARGET, SHA);
     }
 
     @Test
     void breaksATieOnTheSourceBranchAndOtherwiseLeavesTheCommitUngrouped()
     {
         String tie = "b".repeat(40);
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.com");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).ignoreExpectOrder(true).build();
-        server.expect(requestTo(url(SHA)))
-                .andRespond(withStatus(HttpStatus.OK)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .body("""
-                                [{"number":1,"title":"Backport","html_url":"u1",
-                                  "merged_at":"2026-08-01T00:00:00Z","base":{"ref":"release-477"}},
-                                 {"number":2,"title":"Original","html_url":"u2",
-                                  "merged_at":"2026-08-02T00:00:00Z","base":{"ref":"master"}}]
-                                """));
-        server.expect(requestTo(url(tie)))
-                .andRespond(withStatus(HttpStatus.OK)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .body("""
-                                [{"number":3,"title":"One","html_url":"u3",
-                                  "merged_at":"2026-08-01T00:00:00Z","base":{"ref":"release-477"}},
-                                 {"number":4,"title":"Two","html_url":"u4",
-                                  "merged_at":"2026-08-02T00:00:00Z","base":{"ref":"release-478"}}]
-                                """));
+        when(gitHub.mergedWithCommit(GITHUB_TARGET, SHA)).thenReturn(ImmutableList.of(merged(1, "release-477"), merged(2, "master")));
+        when(gitHub.mergedWithCommit(GITHUB_TARGET, tie)).thenReturn(ImmutableList.of(merged(3, "release-477"), merged(4, "release-478")));
 
         List<String> warnings = new ArrayList<>();
-        PullRequestLookupResult result = lookup(builder).lookUpResult(REPOSITORY, ImmutableList.of(SHA, tie), "master", warnings);
+        PullRequestLookupResult result = lookup.lookUpResult(GITHUB_TARGET, ImmutableList.of(SHA, tie), "master", warnings);
 
         assertThat(association(result, SHA).number()).as("base ref breaks the tie").isEqualTo(2);
-        assertThat(result.associations()).as("an ambiguous commit is never guessed")
-                .noneMatch(value -> value.sha().equals(tie));
+        assertThat(result.associations()).as("an ambiguous commit is never guessed").noneMatch(value -> value.sha().equals(tie));
         assertThat(warnings).anyMatch(warning -> warning.contains("no single merged pull request"));
     }
 
     @Test
-    void ignoresUnmergedPullRequestsAndCommitsWithNone()
+    void leavesACommitWithNoMergedPullRequestUngrouped()
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.com");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        server.expect(requestTo(url(SHA)))
-                .andRespond(withStatus(HttpStatus.OK)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .body("""
-                                [{"number":9,"title":"Still open","html_url":"u9",
-                                  "merged_at":null,"base":{"ref":"master"}}]
-                                """));
+        when(gitHub.mergedWithCommit(GITHUB_TARGET, SHA)).thenReturn(ImmutableList.of());
 
         List<String> warnings = new ArrayList<>();
-        assertThat(lookup(builder).lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", warnings)
-                .associations()).isEmpty();
+        PullRequestLookupResult result = lookup.lookUpResult(GITHUB_TARGET, ImmutableList.of(SHA), "master", warnings);
+
+        assertThat(result.associations()).isEmpty();
+        assertThat(result.failedShas()).isEmpty();
         assertThat(warnings).anyMatch(warning -> warning.contains("listed individually"));
     }
 
     @Test
-    void keepsCommitsSelectableWhenGitHubFails()
+    void keepsCommitsSelectableWhenTheProviderFails()
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.com");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        server.expect(manyTimes(), requestTo(url(SHA))).andRespond(withServerError());
+        when(gitLab.mergedWithCommit(GITLAB_TARGET, SHA)).thenThrow(new HostingFailure(UNAVAILABLE, "GitLab is unavailable"));
 
         List<String> warnings = new ArrayList<>();
-        PullRequestLookupResult result = lookup(builder).lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", warnings);
+        PullRequestLookupResult result = lookup.lookUpResult(GITLAB_TARGET, ImmutableList.of(SHA), "main", warnings);
 
         assertThat(result.associations()).isEmpty();
         assertThat(result.failedShas()).containsExactly(SHA);
-        assertThat(warnings).anyMatch(warning -> warning.contains("could not be checked against GitHub"));
+        assertThat(warnings).anyMatch(warning -> warning.contains("could not be checked")).noneMatch(warning -> warning.contains("no single merged pull request"));
     }
 
     @Test
-    void warnsInsteadOfFailingWhenNoCredentialExists()
+    void stopsAskingAfterARateLimitAndLeavesTheRestFailed()
     {
-        CherryPickPullRequestLookup lookup = new CherryPickPullRequestLookup(
-                offlineClient(),
-                () -> {
-                    throw new IllegalStateException("no GitHub token configured");
-                });
+        List<String> shas = IntStream.range(0, 20).mapToObj(index -> "%040x".formatted(index)).toList();
+        when(gitLab.mergedWithCommit(eq(GITLAB_TARGET), anyString())).thenThrow(new HostingFailure(RATE_LIMITED, "GitLab's rate limit was reached"));
 
-        List<String> warnings = new ArrayList<>();
-        assertThat(lookup.lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", warnings)
-                .associations()).isEmpty();
-        assertThat(warnings).anyMatch(warning -> warning.contains("without GitHub credentials"));
+        PullRequestLookupResult result = lookup.lookUpResult(GITLAB_TARGET, shas, "main", new ArrayList<>());
+
+        assertThat(result.failedShas()).containsExactlyElementsOf(shas);
+        // Only the lookups already running when the first limit came back reach the provider.
+        verify(gitLab, atMost(8)).mergedWithCommit(eq(GITLAB_TARGET), anyString());
     }
 
     @Test
-    void asksGitHubOncePerCommitEvenWhenLookedUpAgain()
+    void asksOncePerCommitEvenWhenLookedUpAgain()
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.com");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        server.expect(requestTo(url(SHA)))
-                .andRespond(withStatus(HttpStatus.OK)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .body("""
-                                [{"number":5,"title":"Cached","html_url":"u5",
-                                  "merged_at":"2026-08-04T00:00:00Z","base":{"ref":"master"}}]
-                                """));
+        when(gitHub.mergedWithCommit(GITHUB_TARGET, SHA)).thenReturn(ImmutableList.of(merged(5, "master")));
 
-        CherryPickPullRequestLookup lookup = lookup(builder);
-        List<String> warnings = new ArrayList<>();
-        lookup.lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", warnings);
-        assertThat(association(lookup.lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", warnings), SHA).number())
-                .isEqualTo(5);
-        server.verify();
+        lookup.lookUpResult(GITHUB_TARGET, ImmutableList.of(SHA), "master", new ArrayList<>());
+
+        assertThat(association(lookup.lookUpResult(GITHUB_TARGET, ImmutableList.of(SHA), "master", new ArrayList<>()), SHA).number()).isEqualTo(5);
+        verify(gitHub).mergedWithCommit(GITHUB_TARGET, SHA);
     }
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void negativeAndAmbiguousResultsCanBecomePositive(boolean ambiguous)
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.com");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        server.expect(requestTo(url(SHA)))
-                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(ambiguous ? """
-                        [{"number":1,"title":"First","html_url":"u1",
-                          "merged_at":"2026-08-01T00:00:00Z","base":{"ref":"release-477"}},
-                         {"number":2,"title":"Second","html_url":"u2",
-                          "merged_at":"2026-08-02T00:00:00Z","base":{"ref":"release-478"}}]
-                        """ : "[]"));
-        server.expect(requestTo(url(SHA)))
-                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body("""
-                        [{"number":3,"title":"Merged","html_url":"u3",
-                          "merged_at":"2026-08-03T00:00:00Z","base":{"ref":"master"}}]
-                        """));
-        CherryPickPullRequestLookup lookup = lookup(builder);
-        PullRequestLookupResult first = lookup.lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", new ArrayList<>());
+        when(gitHub.mergedWithCommit(GITHUB_TARGET, SHA))
+                .thenReturn(ambiguous ? ImmutableList.of(merged(1, "release-477"), merged(2, "release-478")) : ImmutableList.of())
+                .thenReturn(ImmutableList.of(merged(3, "master")));
+
+        PullRequestLookupResult first = lookup.lookUpResult(GITHUB_TARGET, ImmutableList.of(SHA), "master", new ArrayList<>());
 
         assertThat(first.associations()).isEmpty();
         assertThat(first.failedShas()).isEmpty();
-        assertThat(association(lookup.lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", new ArrayList<>()), SHA).number()).isEqualTo(3);
-        server.verify();
+        assertThat(association(lookup.lookUpResult(GITHUB_TARGET, ImmutableList.of(SHA), "master", new ArrayList<>()), SHA).number()).isEqualTo(3);
     }
 
     @Test
     void positiveMemoizationRetainsTheSourceBranchUsedToDisambiguate()
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.com");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        server.expect(times(2), requestTo(url(SHA)))
-                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body("""
-                        [{"number":1,"title":"Backport","html_url":"u1",
-                          "merged_at":"2026-08-01T00:00:00Z","base":{"ref":"release-477"}},
-                         {"number":2,"title":"Original","html_url":"u2",
-                          "merged_at":"2026-08-02T00:00:00Z","base":{"ref":"master"}}]
-                        """));
-        CherryPickPullRequestLookup lookup = lookup(builder);
+        when(gitHub.mergedWithCommit(GITHUB_TARGET, SHA)).thenReturn(ImmutableList.of(merged(1, "release-477"), merged(2, "master")));
 
-        assertThat(association(lookup.lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", new ArrayList<>()), SHA).number()).isEqualTo(2);
-        assertThat(association(lookup.lookUpResult(REPOSITORY, ImmutableList.of(SHA), "release-477", new ArrayList<>()), SHA).number()).isEqualTo(1);
-        assertThat(association(lookup.lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", new ArrayList<>()), SHA).number()).isEqualTo(2);
-        server.verify();
+        assertThat(association(lookup.lookUpResult(GITHUB_TARGET, ImmutableList.of(SHA), "master", new ArrayList<>()), SHA).number()).isEqualTo(2);
+        assertThat(association(lookup.lookUpResult(GITHUB_TARGET, ImmutableList.of(SHA), "release-477", new ArrayList<>()), SHA).number()).isEqualTo(1);
+        assertThat(association(lookup.lookUpResult(GITHUB_TARGET, ImmutableList.of(SHA), "master", new ArrayList<>()), SHA).number()).isEqualTo(2);
+        verify(gitHub, times(2)).mergedWithCommit(GITHUB_TARGET, SHA);
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"missing-body", "full-negative-page", "full-page-with-single-merged"})
-    void incompleteResponsesAreFailuresInsteadOfCheckedAssociations(String kind)
+    private static PullRequestAssociation merged(int number, String baseRef)
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.com");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        String body = kind.equals("missing-body") ? "" : IntStream.rangeClosed(1, 100)
-                .mapToObj(number -> """
-                        {"number":%s,"title":"Candidate %s","html_url":"u%s","merged_at":%s,"base":{"ref":"master"}}
-                        """.formatted(number, number, number, kind.equals("full-page-with-single-merged") && number == 1 ? "\"2026-08-01T00:00:00Z\"" : "null"))
-                .collect(joining(",", "[", "]"));
-        server.expect(requestTo(url(SHA)))
-                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(body));
-        List<String> warnings = new ArrayList<>();
-
-        PullRequestLookupResult result = lookup(builder).lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", warnings);
-
-        assertThat(result.associations()).isEmpty();
-        assertThat(result.failedShas()).containsExactly(SHA);
-        assertThat(warnings).anyMatch(warning -> warning.contains("unavailable or incomplete"));
-        assertThat(warnings).noneMatch(warning -> warning.contains("no single merged pull request"));
-        server.verify();
-    }
-
-    /**
-     * A client that cannot reach anything.
-     *
-     * <p>The lookup must return before it asks for a token it does not have, so
-     * this fails the test loudly rather than letting a regression quietly send
-     * a request to github.com.
-     */
-    static RestClient offlineClient()
-    {
-        return RestClient.builder()
-                .baseUrl("https://api.github.com")
-                .requestFactory((uri, httpMethod) -> {
-                    throw new AssertionError("this test must not make an HTTP request: " + httpMethod + " " + uri);
-                })
-                .build();
-    }
-
-    private static CherryPickPullRequestLookup lookup(RestClient.Builder builder)
-    {
-        return new CherryPickPullRequestLookup(builder.build(), () -> "test-token");
+        return new PullRequestAssociation(number, "Change " + number, "https://example.test/" + number, baseRef, "2026-08-0" + Math.min(number, 9) + "T00:00:00Z");
     }
 
     private static PullRequestAssociation association(PullRequestLookupResult result, String sha)
@@ -292,8 +189,10 @@ class TestCherryPickPullRequestLookup
                 .pullRequest();
     }
 
-    private static String url(String sha)
+    private static HostingTarget target(long instanceId, HostingProvider provider, String web, String api, long repositoryId, String path)
     {
-        return "https://api.github.com/repos/owner/repository/commits/" + sha + "/pulls?per_page=100";
+        HostingInstance instance = new HostingInstance(instanceId, provider, URI.create(web), URI.create(api));
+        return new HostingTarget(new HostingAccess(instance, "test-token"), new HostingRepository(repositoryId, instanceId, "100", path, URI.create(web + "/" + path),
+                URI.create(web + "/" + path + ".git"), Optional.empty(), Optional.of("main")));
     }
 }

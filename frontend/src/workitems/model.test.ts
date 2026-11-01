@@ -92,7 +92,7 @@ describe('work item model', () => {
     const contextLinks = [{ targetId: 'ISSUE:github.com:1', title: 'Related request' }];
     expect(parseWorkItem({ ...work, contextLinks })).toEqual({ ...work, contextLinks });
     expect(() => parseWorkItem({ ...work, contextLinks: [{ title: 'Missing identity' }] })).toThrow('Malformed context link target');
-    const resolved = { targetId: 'ISSUE:github.com:1', id: 'local-copy', source: 'GITHUB', title: 'Related request', status: 'Open', available: true,
+    const resolved = { targetId: 'ISSUE:github.com:1', id: 'local-copy', source: 'ISSUE', title: 'Related request', status: 'Open', available: true,
       reference: { kind: 'ISSUE', key: 'org/repo#1', label: '#1' } };
     expect(parseWorkItemContextLink(resolved)).toEqual(resolved);
     expect(parseWorkItemContextLink({ ...resolved, available: false, reference: undefined }).reference).toBeNull();

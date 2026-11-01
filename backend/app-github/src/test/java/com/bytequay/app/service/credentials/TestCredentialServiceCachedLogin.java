@@ -14,14 +14,19 @@
 package com.bytequay.app.service.credentials;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
+import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
+import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.core.domain.UserProfile;
-import com.bytequay.core.store.CredentialStore;
-import com.bytequay.core.store.WorkspaceCredentialStore;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingCredential.Source;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.store.WorkspaceStore;
 import org.junit.jupiter.api.Test;
 
+import java.net.URI;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -37,10 +42,14 @@ class TestCredentialServiceCachedLogin
     void readsTheCachedLoginWhileAReplacementProfileIsStillLoading()
             throws Exception
     {
-        CredentialStore store = mock(CredentialStore.class);
+        InMemoryAppSettingsStore settings = new InMemoryAppSettingsStore();
+        settings.put(CredentialService.GITHUB_ACCOUNT_SETTING, "7");
+        HostingConnectionService hosting = mock(HostingConnectionService.class);
+        HostingInstance github = new HostingInstance(1, HostingProvider.GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
+        when(hosting.credentialSource(7)).thenReturn(Optional.of(Source.TOKEN));
+        when(hosting.readSession(7)).thenReturn(new HostingReadSession(7, "hosting-account", new HostingAccess(github, "token")),
+                new HostingReadSession(7, "hosting-account", new HostingAccess(github, "rotated")));
         GitHubAccountClient accounts = mock(GitHubAccountClient.class);
-        when(store.source()).thenReturn(Optional.empty());
-        when(store.getSecret()).thenReturn(Optional.of("token"), Optional.of("rotated"));
         when(accounts.fetchUserProfile("token")).thenReturn(profile("octocat"));
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
@@ -49,8 +58,7 @@ class TestCredentialServiceCachedLogin
             assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
             return profile("hubot");
         });
-        CredentialService service = new CredentialService(store, mock(WorkspaceCredentialStore.class), mock(GhCliService.class), accounts,
-                mock(HostingConnectionService.class), mock(WorkspaceStore.class));
+        CredentialService service = new CredentialService(settings, mock(GhCliService.class), accounts, hosting, mock(WorkspaceStore.class));
         assertThat(service.cachedLogin()).isEmpty();
         assertThat(service.cachedCredential()).isEmpty();
         service.resolveGitHubCredential();

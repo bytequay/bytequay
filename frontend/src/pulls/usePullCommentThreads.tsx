@@ -30,7 +30,7 @@ function WatchCommentRepository({ repo, onWatched }: { repo: string; onWatched: 
   const watch = () => run(async () => {
     const repositories = await window.bridge.searchRepositories(repo, 30);
     const match = repositories.find(candidate => candidate.fullName.toLowerCase() === repo.toLowerCase());
-    if (!match) throw new Error(`Could not find ${repo}. Check your GitHub access and try again.`);
+    if (!match) throw new Error(`Could not find ${repo}. Check your access and try again.`);
     setRepositoryId(match.id);
   });
   const added = () => { setRepositoryId(null); onWatched(); };

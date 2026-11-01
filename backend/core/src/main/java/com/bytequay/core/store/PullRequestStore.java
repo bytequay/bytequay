@@ -45,6 +45,12 @@ public interface PullRequestStore
 
     void setMonitored(long prId, boolean monitored);
 
+    /** Shows or hides a request that account discovery found; a hidden one stays stored. */
+    void setDashboardVisible(long prId, boolean visible);
+
+    /** The requests account discovery currently shows, newest first. */
+    List<PullRequest> findDashboardVisible();
+
     Map<Long, PrActivitySummary> findActivities(Set<Long> prIds);
 
     Optional<Instant> findDiscussionActivityAt(long prId);
@@ -60,21 +66,10 @@ public interface PullRequestStore
     /** Keeps the later of the stored and the observed attention activity. */
     void observeAttentionActivity(long prId, Instant at);
 
-    PullRequestPage findRepositoryPage(String repository, int page, int pageSize);
-
-    PullRequestPage findRepositoryPage(String repository, int page, int pageSize, String search);
-
     /** One repository's merged rows, newest merge first; a non-blank search matches the title or a #number. */
-    List<PullRequest> findMergedRepositoryPullRequests(String repository, String search, int limit);
+    List<PullRequest> findMergedRepositoryPullRequests(long hostingRepositoryId, String search, int limit);
 
-    /** Stores a page of fetched pull requests and returns them as stored rows. */
-    List<PullRequest> saveDashboardSyncPage(List<FetchedPullRequest> pullRequests);
-
-    List<PullRequest> saveRepositorySyncPage(String repository, List<FetchedPullRequest> pullRequests);
-
-    /** Stores the pull request and returns the stored row, creating one if needed. */
-    PullRequest saveObserved(FetchedPullRequest pullRequest);
-
+    /** The request at a repository path; when servers share the path, the most recently updated one. */
     Optional<Long> findIdByRepoAndNumber(String repo, int number);
 
     /** Every stored pull request whose head is the given branch of the repository, newest number first. */

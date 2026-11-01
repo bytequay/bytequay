@@ -27,6 +27,7 @@ import type { AttentionTone } from '../home/attention';
 import JiraScreen from '../jira/JiraScreen';
 import type { JiraConnection } from '../jira/contracts';
 import MarkdownBody from '../pulls/MarkdownBody';
+import { useProviderName } from '../pulls/PullRequestWorkspace';
 import { PaneIcon, RefreshIcon } from '../pulls/PullsScreen';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import { useResizablePane } from '../useResizablePane';
@@ -41,13 +42,12 @@ import '../css/issues.css';
 import '../css/epic-view.css';
 import './workitems.css';
 
-/** A work item kept on this Mac; one pushed to GitHub or Jira stays here, linked to its remote copy. */
+/** A work item kept on this Mac; one pushed as an issue or to Jira stays here, linked to its remote copy. */
 type LocalItem = UnifiedWorkItem & { work: WorkItemDto };
 type Group = 'open' | 'done' | 'closed';
 /** An Epic as a work item names it: its key, and its key and title together. */
 type EpicName = { id: string; label: string; title: string };
 
-const REMOTE = { GITHUB: 'GitHub', JIRA: 'Jira' } as const;
 const KIND: Record<WorkItemKind, string> = { DEVELOP: 'Develop', INVESTIGATE: 'Investigate', LEARN: 'Learn' };
 const RULE: Record<CompletionRule, string> = { MERGED_DELIVERY: 'Merged delivery', ACCEPTED_RESULT: 'Accepted result' };
 const PRIORITY: Record<WorkItemPriority, string> = { HIGH: 'High', NORMAL: 'Normal', LOW: 'Low' };
@@ -59,7 +59,7 @@ const STATE: Record<WorkItemDto['state'], { label: string; group: Group; pill: s
   DONE: { label: 'Finished', group: 'done', pill: ' is-merged', order: 2 },
   DROPPED: { label: 'Closed', group: 'closed', pill: ' is-draft', order: 3 },
 };
-const LINK_KIND: Record<GoalItemDto['kind'], string> = { ISSUE: 'GitHub issue', JIRA: 'Jira ticket', TASK: 'Agent task', PULL_REQUEST: 'Pull request' };
+const LINK_KIND: Record<GoalItemDto['kind'], string> = { ISSUE: 'Issue', JIRA: 'Jira ticket', TASK: 'Agent task', PULL_REQUEST: 'Pull request' };
 const LINK_TONE: Record<GoalItemDto['state'], AttentionTone> = { WORKING: 'blue', MERGED: 'purple', IDLE: 'neutral', ENDED: 'neutral', UNKNOWN: 'neutral' };
 const CLOSED_BY_USER = 'Closed by the user';
 const FINISHED_BY_USER = 'Marked finished by user';
@@ -91,9 +91,10 @@ function StateIcon({ state, size = 16 }: { state: WorkItemDto['state']; size?: n
   return <Icon size={size} strokeWidth={1.6} aria-hidden="true" />;
 }
 
-const TABS = [['local', 'Local'], ['github', 'GitHub issues'], ['jira', 'Jira']] as const;
+const TABS = [['local', 'Local'], ['issues', 'Issues'], ['jira', 'Jira']] as const;
 
-export default function WorkItemsScreen({ workspace, tab, github }: { workspace: WorkspaceDto; tab: 'issues' | 'jira'; github: ReactNode }) {
+export default function WorkItemsScreen({ workspace, tab, issues }: { workspace: WorkspaceDto; tab: 'issues' | 'jira'; issues: ReactNode }) {
+  const provider = useProviderName();
   const [hash, setHash] = useState(() => typeof window === 'undefined' ? '' : window.location.hash);
   useEffect(() => {
     const changed = () => setHash(window.location.hash);
@@ -102,11 +103,11 @@ export default function WorkItemsScreen({ workspace, tab, github }: { workspace:
   }, []);
   const [path, search] = hash.split('?');
   const query = new URLSearchParams(search);
-  const active = hash ? path.endsWith('/jira') ? 'jira' : query.get('source') === 'github' || /\/issues\/\d+$/.test(path) ? 'github' : 'local'
+  const active = hash ? path.endsWith('/jira') ? 'jira' : query.get('source') === 'issues' || /\/issues\/\d+$/.test(path) ? 'issues' : 'local'
     : tab === 'jira' ? 'jira' : 'local';
   const select = (source: typeof TABS[number][0]) => {
     window.location.hash = source === 'local' ? workItemRoute(workspace.id)
-      : source === 'jira' ? workspaceRoute(workspace.id, 'jira') : `${workspaceRoute(workspace.id, 'issues')}?source=github`;
+      : source === 'jira' ? workspaceRoute(workspace.id, 'jira') : `${workspaceRoute(workspace.id, 'issues')}?source=issues`;
   };
   return <div className="work-sources">
     <div className="work-sources__tabs" role="tablist" aria-label="Work item sources">
@@ -118,15 +119,16 @@ export default function WorkItemsScreen({ workspace, tab, github }: { workspace:
           if (next === null) return;
           event.preventDefault(); select(TABS[next][0]);
           event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
-        }}>{source === 'github' && workspace.hostingServer?.provider === 'GITLAB' ? 'GitLab issues' : label}</button>)}
+        }}>{source === 'issues' ? `${provider} issues` : label}</button>)}
     </div>
     <div className="work-sources__panel" id={`work-panel-${active}`} role="tabpanel" aria-labelledby={`work-source-${active}`}>
-      {active === 'github' ? github : active === 'jira' ? <JiraScreen workspace={workspace} /> : <LocalWorkItems key={workspace.id} workspace={workspace} />}
+      {active === 'issues' ? issues : active === 'jira' ? <JiraScreen workspace={workspace} /> : <LocalWorkItems key={workspace.id} workspace={workspace} />}
     </div>
   </div>;
 }
 
 export function LocalWorkItems({ workspace, zoomedItemId, headerAction }: { workspace: WorkspaceDto; zoomedItemId?: string; headerAction?: ReactNode }) {
+  const provider = useProviderName();
   const [items, setItems] = useState<UnifiedWorkItem[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [selected, setSelected] = useState<string | null>(() => zoomedItemId ?? selectedId());
@@ -182,7 +184,7 @@ export function LocalWorkItems({ workspace, zoomedItemId, headerAction }: { work
   const count = (value: Group) => matching.filter(candidate => STATE[candidate.work.state].group === value).length;
   const visible = matching.filter(value => STATE[value.work.state].group === group).sort((left, right) => STATE[left.work.state].order - STATE[right.work.state].order);
   const item = local.find(value => value.id === selected);
-  // The issue cache may not hold an Epic's issue, which the catalog then names by number only; GitHub names it for the open work item.
+  // The issue cache may not hold an Epic's issue, which the catalog then names by number only; the provider names it for the open work item.
   const epicId = item?.work.epicId ?? null;
   const unnamedEpic = items.find(value => value.id === epicId && value.title === '' && value.reference?.kind === 'ISSUE')?.reference?.key ?? null;
   const epicNamed = epicId !== null && (lend.epicTitles.has(epicId) || issueTitles.has(epicId));
@@ -232,7 +234,7 @@ export function LocalWorkItems({ workspace, zoomedItemId, headerAction }: { work
         <select aria-label="Filter work items by where they are" value={where} onChange={event => setWhere(event.target.value)}>
           <option value="">Local + remote</option>
           <option value="LOCAL">Local only</option>
-          <option value="GITHUB">On GitHub</option>
+          <option value="ISSUE">On {provider}</option>
           <option value="JIRA">On Jira</option>
         </select>
       </div>
@@ -284,6 +286,7 @@ function WorkRow({ item, all, epic, selected, onPick, onStart, onViewTask, onPub
   item: LocalItem; all: WorkItemDto[]; epic: EpicName | null; selected: boolean; onPick: () => void; onStart: () => void; onViewTask: () => void; onPublish: () => void;
 }) {
   const availability = useAgentAvailability(item.work.workspaceId);
+  const provider = useProviderName();
   const work = item.work;
   const remote = remoteOf(work);
   const task = taskOf(work);
@@ -312,7 +315,7 @@ function WorkRow({ item, all, epic, selected, onPick, onStart, onViewTask, onPub
       <button type="button" className="issues-row__select" aria-label={`Open ${item.title}`} onClick={onPick}>
         <span className="pull-row__meta">
           <LocalBadge />
-          {remote && <LinkKey source={GOAL_SOURCES[remote.kind]} name={remote.label} size={12} title={`Pushed to ${remote.kind === 'JIRA' ? 'Jira as' : 'GitHub as issue'} ${remote.label}`} />}
+          {remote && <LinkKey source={GOAL_SOURCES[remote.kind]} name={remote.label} size={12} title={`Pushed to ${remote.kind === 'JIRA' ? 'Jira as' : `${provider} as issue`} ${remote.label}`} />}
           <span>·</span>
           <span className="pull-row__meta-time">{settledWord(work)}</span>
           <span>·</span>
@@ -323,7 +326,7 @@ function WorkRow({ item, all, epic, selected, onPick, onStart, onViewTask, onPub
         {availability.any && isOpen(work) && !work.isEpic && !task && <button className="pulls-toolbar-button" type="button" title="Use agent to develop" aria-label={`Start development of ${item.title}`} onClick={onStart}>
           <Play size={16} aria-hidden="true" /></button>}
         {task && <button className="pulls-toolbar-button" type="button" title="View task" aria-label={`View the task for ${item.title}`} onClick={onViewTask}><ListTodo size={16} aria-hidden="true" /></button>}
-        {!remote && work.state !== 'DROPPED' && <button className="pulls-toolbar-button" type="button" title="Push to GitHub or Jira…" aria-label={`Push ${item.title} to GitHub or Jira`}
+        {!remote && work.state !== 'DROPPED' && <button className="pulls-toolbar-button" type="button" title={`Push to ${provider} or Jira…`} aria-label={`Push ${item.title} to ${provider} or Jira`}
           onClick={onPublish}><Upload size={16} aria-hidden="true" /></button>}
       </span>
     </div>
@@ -397,6 +400,7 @@ function WorkItemDetail({ workspace, item, all, catalog, epic, publishing, onPub
   const availability = useAgentAvailability(item.work.workspaceId);
   const work = item.work;
   const repository = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
+  const provider = useProviderName();
   const [workShown, setWorkShown] = useState(work.isEpic);
   const unmark = useUnmarkEpic();
   const open = isOpen(work);
@@ -404,7 +408,7 @@ function WorkItemDetail({ workspace, item, all, catalog, epic, publishing, onPub
   const task = taskOf(work);
   const development = work.links.filter(link => link.kind === 'TASK' || link.kind === 'PULL_REQUEST');
   const canStart = availability.any && open && !work.isEpic && !task;
-  // One item may be pushed to both GitHub and Jira; its links keep both.
+  // One item may be pushed both as an issue and to Jira; its links keep both.
   const canPublish = work.state !== 'DROPPED' && !(work.links.some(link => link.kind === 'ISSUE') && work.links.some(link => link.kind === 'JIRA'));
   const blockers = waitingOn(work, all);
   const progress = epic === null ? null : summarize({ items: epicWork(all, epic.id) }, new Set());
@@ -420,7 +424,7 @@ function WorkItemDetail({ workspace, item, all, catalog, epic, publishing, onPub
   const openLink = (link: GoalItemDto) => openGoalItem(link, workspace.id, taskId => zoomReference({ kind: 'task', workspaceId: workspace.id, taskId }));
   if (editing) return <WorkItemForm workspaceId={workspace.id} item={work} onClose={() => setEditing(false)} onSaved={async () => { await onChanged(); setEditing(false); }} headerAction={headerAction} />;
   return <>
-    <DetailHeader label={remote ? `Work item · on ${REMOTE[item.source === 'JIRA' ? 'JIRA' : 'GITHUB']} ${remote.label}` : 'Work item'}
+    <DetailHeader label={remote ? `Work item · on ${item.source === 'JIRA' ? 'Jira' : provider} ${remote.label}` : 'Work item'}
       tabs={work.isEpic ? <EpicTabs source={<><LocalBadge /> Context</>} progress={workProgress(all, localEpicId(work.id))} work={workShown && !publishing}
         onWork={shown => { setWorkShown(shown); if (shown) onPublishing(false); }} /> : undefined}>
       {remote && <button className="pull-detail__icon-action" type="button" title={`Open ${remote.label}`} aria-label={`Open ${remote.label}`} onClick={() => openLink(remote)}>
@@ -460,7 +464,7 @@ function WorkItemDetail({ workspace, item, all, catalog, epic, publishing, onPub
         <div className="pr-overview__rule" />
         <div className="pr-meta">
           <span><small>Visibility</small>{remote
-            ? <>Local + <SourceIcon source={GOAL_SOURCES[remote.kind]} size={13} />{REMOTE[remote.kind === 'JIRA' ? 'JIRA' : 'GITHUB']} {remote.label}</>
+            ? <>Local + <SourceIcon source={GOAL_SOURCES[remote.kind]} size={13} />{remote.kind === 'JIRA' ? 'Jira' : provider} {remote.label}</>
             : <><LockKeyhole size={13} aria-hidden="true" />Local only</>}</span>
           <span><small>Kind</small>{KIND[work.kind]}</span>
           <label className={`pr-meta__chip issue-type-chip${work.priority === 'HIGH' ? ' is-high' : ''}`}><small>Priority</small>
@@ -489,7 +493,7 @@ function WorkItemDetail({ workspace, item, all, catalog, epic, publishing, onPub
             </>}
             <WorkItemContextLinks work={work} catalog={catalog} onChanged={onChanged} />
             <footer className="work-items__card-foot"><LockKeyhole size={12} aria-hidden="true" />{remote
-              ? `Pushed to ${remote.kind === 'JIRA' ? 'Jira as' : 'GitHub as issue'} ${remote.label}. Local history and task conversations stay local.`
+              ? `Pushed to ${remote.kind === 'JIRA' ? 'Jira as' : `${provider} as issue`} ${remote.label}. Local history and task conversations stay local.`
               : 'Private local work. Development can deliver a pull request without creating an issue or ticket.'}</footer>
           </article>
           <article className="pr-card">
@@ -507,7 +511,7 @@ function WorkItemDetail({ workspace, item, all, catalog, epic, publishing, onPub
             {work.links.map(link => <div className="work-items__dev-row" key={`${link.kind}:${link.key}`}>
               <SourceIcon source={GOAL_SOURCES[link.kind]} size={16} tinted ended={link.state === 'MERGED' ? 'merged' : null} />
               <span><button type="button" className="work-items__link" onClick={() => openLink(link)}>{link.title}</button><span className="card-key">{link.label}</span>
-                <small>{LINK_KIND[link.kind]}</small></span>
+                <small>{link.kind === 'ISSUE' ? `${provider} issue` : LINK_KIND[link.kind]}</small></span>
               <Pill tone={LINK_TONE[link.state]} className="is-square">{link.status}</Pill>
             </div>)}
             {epic !== null && progress !== null && <div className="work-items__dev-row">
@@ -555,7 +559,8 @@ function WorkItemDetail({ workspace, item, all, catalog, epic, publishing, onPub
 }
 
 function PublishWorkItem({ workspace, item, onChanged, onClose }: { workspace: WorkspaceDto; item: WorkItemDto; onChanged: () => Promise<void>; onClose: () => void }) {
-  const [source, setSource] = useState<'GITHUB' | 'JIRA'>(() => item.links.some(link => link.kind === 'ISSUE') ? 'JIRA' : 'GITHUB');
+  const [source, setSource] = useState<'ISSUE' | 'JIRA'>(() => item.links.some(link => link.kind === 'ISSUE') ? 'JIRA' : 'ISSUE');
+  const provider = useProviderName();
   const [connections, setConnections] = useState<JiraConnection[]>([]);
   const [site, setSite] = useState('');
   const [project, setProject] = useState('');
@@ -566,7 +571,7 @@ function PublishWorkItem({ workspace, item, onChanged, onClose }: { workspace: W
   useEffect(() => { void window.bridge.listJiraConnections().then(setConnections).catch(cause => setError(errorText(cause))); }, [setError]);
   const [connectionId, cloudId] = site.split('/');
   const pending = item.history.some(event => event.action === 'PUBLISH_STARTED' && !item.history.some(done => done.operationId === `${event.operationId}:settled`));
-  const already = item.links.some(link => link.kind === (source === 'GITHUB' ? 'ISSUE' : 'JIRA'));
+  const already = item.links.some(link => link.kind === source);
   const destination: Publication = { source, expectedRevision: item.revision, ...(source === 'JIRA' ? { connectionId, cloudId, project, issueTypeId: type } : {}) };
   const loadTypes = () => run(async () => {
     const values = await window.bridge.workItemJiraTypes(workspace.id, connectionId, cloudId, project); setTypes(values); setType(values[0]?.id ?? '');
@@ -579,14 +584,14 @@ function PublishWorkItem({ workspace, item, onChanged, onClose }: { workspace: W
     }
     catch (cause) { setError(errorText(cause)); await onChanged().catch(() => {}); }
   });
-  const destinations = [['GITHUB', 'GitHub issue', `${workspace.monitoredOwner}/${workspace.monitoredRepo}`, 'issue'], ['JIRA', 'Jira ticket', 'A connected Jira site', 'jira']] as const;
-  return <article className="pr-card work-items__publish" aria-label="Push to GitHub or Jira">
+  const destinations = [['ISSUE', `${provider} issue`, `${workspace.monitoredOwner}/${workspace.monitoredRepo}`, 'issue'], ['JIRA', 'Jira ticket', 'A connected Jira site', 'jira']] as const;
+  return <article className="pr-card work-items__publish" aria-label={`Push to ${provider} or Jira`}>
     <header className="pr-card__header">
-      <Upload size={15} aria-hidden="true" /><strong>Push to GitHub or Jira</strong>
-      <div className="pr-card__menu"><button type="button" className="work-items__quiet" title="Cancel" aria-label="Close Push to GitHub or Jira" onClick={onClose}><X size={15} aria-hidden="true" /></button></div>
+      <Upload size={15} aria-hidden="true" /><strong>Push to {provider} or Jira</strong>
+      <div className="pr-card__menu"><button type="button" className="work-items__quiet" title="Cancel" aria-label={`Close Push to ${provider} or Jira`} onClick={onClose}><X size={15} aria-hidden="true" /></button></div>
     </header>
     <div className="work-items__publish-body">
-      <p>Push this work item to GitHub as an issue or to Jira as a ticket. It stays in Local, linked to the remote copy; the title and context become visible to people with
+      <p>Push this work item to {provider} as an issue or to Jira as a ticket. It stays in Local, linked to the remote copy; the title and context become visible to people with
         access to the destination. Task conversations and local history stay local.</p>
       <div className="work-items__dests">
         {destinations.map(([value, label, sub, icon]) => <button key={value} type="button" aria-pressed={source === value} disabled={busy} onClick={() => setSource(value)}>
@@ -609,16 +614,16 @@ function PublishWorkItem({ workspace, item, onChanged, onClose }: { workspace: W
         <strong>{item.title}</strong>
         <MarkdownBody body={item.acceptanceCriteria || 'No description.'} repository={`${workspace.monitoredOwner}/${workspace.monitoredRepo}`} />
       </div>
-      {already && <p>This item already has a {REMOTE[source]} source.</p>}
+      {already && <p>This item already has a {source === 'JIRA' ? 'Jira' : provider} source.</p>}
       {pending && <p role="alert">The previous publication may have succeeded. Find the existing issue or ticket and link it below; ByteQuay will not create another copy.</p>}
       {error && <div className="issues-error" role="alert">{error}</div>}
       <div className="pr-description-editor__actions work-items__publish-actions">
         <button type="button" className="is-primary" disabled={busy || already || pending || (source === 'JIRA' && !type)} onClick={() => void publish(false)}>
-          {busy ? 'Working…' : source === 'GITHUB' ? 'Create GitHub issue' : 'Create Jira ticket'}
+          {busy ? 'Working…' : source === 'ISSUE' ? `Create ${provider} issue` : 'Create Jira ticket'}
         </button>
         <button type="button" disabled={busy} onClick={onClose}>Cancel</button>
         <span>or link existing</span>
-        <input aria-label={source === 'GITHUB' ? 'Issue number in this repository' : 'Ticket key on the selected site'} placeholder={source === 'GITHUB' ? 'Issue #' : 'ENG-123'}
+        <input aria-label={source === 'ISSUE' ? 'Issue number in this repository' : 'Ticket key on the selected site'} placeholder={source === 'ISSUE' ? 'Issue #' : 'ENG-123'}
           value={key} onChange={event => setKey(event.target.value)} />
         <button type="button" disabled={busy || already || !key.trim() || (source === 'JIRA' && !site)} onClick={() => void publish(true)}><Link2 size={14} aria-hidden="true" />Link</button>
       </div>

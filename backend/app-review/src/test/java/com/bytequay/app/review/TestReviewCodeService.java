@@ -51,6 +51,7 @@ import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewConflictException;
@@ -178,7 +179,7 @@ class TestReviewCodeService
 
         Workspace workspace = new Workspace(WORKSPACE_ID, "Review code", 1, REPOSITORY, Optional.empty(), Optional.empty(),
                 1, REPOSITORY, Workspace.Topology.DIRECT, "main", ORIGIN, Optional.empty(), Optional.empty(), repository.toString(),
-                Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW);
+                Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW, HostingServer.GITHUB_COM);
         WorkspaceStore workspaceStore = mock(WorkspaceStore.class);
         when(workspaceStore.findById(WORKSPACE_ID)).thenReturn(Optional.of(workspace));
         GitCommandRunner runner = new GitCommandRunner();

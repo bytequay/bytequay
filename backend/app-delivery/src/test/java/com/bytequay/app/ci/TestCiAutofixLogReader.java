@@ -24,22 +24,28 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
-import com.bytequay.app.repository.github.actions.BoundedCiLog;
-import com.bytequay.app.repository.github.actions.CiHeadSnapshot;
-import com.bytequay.app.repository.github.actions.CiJob;
-import com.bytequay.app.repository.github.actions.CiStep;
-import com.bytequay.app.repository.github.actions.CiWorkflowRun;
-import com.bytequay.app.repository.github.actions.GitHubActionsClient;
-import com.bytequay.app.repository.github.actions.ReadCiLogQuery;
+import com.bytequay.app.service.ci.BoundedCiLog;
+import com.bytequay.app.service.ci.CiLogReader;
+import com.bytequay.app.service.ci.ReadCiLogQuery;
 import com.bytequay.core.ci.CiAutofixAttempt;
 import com.bytequay.core.ci.CiAutofixAttempt.FailureEvidence;
 import com.bytequay.core.ci.CiAutofixAttemptId;
 import com.bytequay.core.ci.CiAutofixRunId;
+import com.bytequay.core.ci.CiHeadSnapshot;
+import com.bytequay.core.ci.CiJob;
+import com.bytequay.core.ci.CiRun;
+import com.bytequay.core.ci.CiStep;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
+import com.bytequay.core.hosting.PullRequestCi;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
+import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -50,6 +56,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.LongStream;
 
+import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -66,7 +73,7 @@ class TestCiAutofixLogReader
     void readsTheTurnsOwnLatestAnswerNewestFirst()
     {
         AgentEventService events = mock(AgentEventService.class);
-        CiAutofixLogReader reader = new CiAutofixLogReader(mock(GitHubActionsClient.class), events);
+        CiAutofixLogReader reader = new CiAutofixLogReader(mock(CiLogReader.class), events);
         TaskId taskId = TaskId.random();
         TurnId turnId = TurnId.random();
         AgentEventSource child = new AgentEventSource(Optional.of("child"), Optional.of("root"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
@@ -90,17 +97,21 @@ class TestCiAutofixLogReader
     void boundsParallelDownloadsAndKeepsOrderedEvidenceWhenOneLogIsUnavailable()
             throws Exception
     {
-        GitHubActionsClient gitHub = mock(GitHubActionsClient.class);
-        CiAutofixLogReader reader = new CiAutofixLogReader(gitHub, mock(AgentEventService.class));
+        CiLogReader logs = mock(CiLogReader.class);
+        CiAutofixLogReader reader = new CiAutofixLogReader(logs, mock(AgentEventService.class));
         TaskId taskId = TaskId.random();
+        HostingTarget target = target();
+        PullRequestCi ci = mock(PullRequestCi.class);
         CiHeadSnapshot snapshot = snapshot();
         CountDownLatch entered = new CountDownLatch(4);
         CountDownLatch release = new CountDownLatch(1);
         CountDownLatch laterDownloaded = new CountDownLatch(1);
         AtomicInteger active = new AtomicInteger();
         AtomicInteger maximumActive = new AtomicInteger();
-        when(gitHub.readLog(any())).thenAnswer(invocation -> {
-            ReadCiLogQuery query = invocation.getArgument(0);
+        when(logs.read(any(), any(), any())).thenAnswer(invocation -> {
+            assertThat(invocation.<HostingTarget>getArgument(0)).isSameAs(target);
+            assertThat(invocation.<PullRequestCi>getArgument(1)).isSameAs(ci);
+            ReadCiLogQuery query = invocation.getArgument(2);
             assertThat(query.taskId()).isEqualTo(taskId);
             assertThat(query.maximumBytes()).isEqualTo(1024 * 1024);
             maximumActive.accumulateAndGet(active.incrementAndGet(), Math::max);
@@ -122,7 +133,7 @@ class TestCiAutofixLogReader
 
         List<FailureEvidence> failures;
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            var pending = executor.submit(() -> reader.readFailures(taskId, snapshot));
+            var pending = executor.submit(() -> reader.readFailures(taskId, target, ci, snapshot));
             try {
                 assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
                 assertThat(active.get()).isEqualTo(4);
@@ -135,7 +146,7 @@ class TestCiAutofixLogReader
 
         assertThat(maximumActive.get()).isEqualTo(4);
         assertThat(active.get()).isZero();
-        verify(gitHub, times(50)).readLog(any());
+        verify(logs, times(50)).read(any(), any(), any());
         assertThat(failures).extracting(FailureEvidence::jobId).containsExactlyElementsOf(LongStream.rangeClosed(1, 50).boxed().collect(toImmutableList()));
         assertThat(failures.get(1).log()).isEmpty();
         assertThat(failures.get(1).summary()).contains("Job 2 failed at Compile", "log unavailable: GitHub returned HTTP 404");
@@ -175,7 +186,16 @@ class TestCiAutofixLogReader
                 ImmutableList.of(workflow(100, 1, 30), workflow(200, 31, 52)));
     }
 
-    private static CiWorkflowRun workflow(long workflowId, long firstJob, long lastJob)
+    /** A provider other than GitHub, so the reader cannot depend on one. */
+    private static HostingTarget target()
+    {
+        HostingInstance instance = new HostingInstance(1, GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"));
+        URI url = URI.create("https://gitlab.example.com/bytequay/sample");
+        return new HostingTarget(new HostingAccess(instance, "token"), new HostingRepository(2, instance.id(), "42", "bytequay/sample", url, url, Optional.empty(),
+                Optional.of("main")));
+    }
+
+    private static CiRun workflow(long workflowId, long firstJob, long lastJob)
     {
         ImmutableList.Builder<CiJob> jobs = ImmutableList.builder();
         jobs.add(new CiJob(workflowId, workflowId, "Passing job", 1, "completed", Optional.of("success"), "https://github.com/actions/jobs/" + workflowId, ImmutableList.of()));
@@ -190,14 +210,14 @@ class TestCiAutofixLogReader
                     "https://github.com/actions/jobs/" + jobId,
                     ImmutableList.of(new CiStep(1, "Compile", "completed", Optional.of("failure")))));
         }
-        return new CiWorkflowRun(workflowId, workflowId, "Build", 1, "completed", Optional.of("failure"), HEAD_SHA, "https://github.com/actions/runs/" + workflowId, jobs.build());
+        return new CiRun(workflowId, workflowId, "Build", 1, "completed", Optional.of("failure"), HEAD_SHA, "https://github.com/actions/runs/" + workflowId, jobs.build());
     }
 
     @Test
     void computesStableBoundedSignatureFromProgramFacts()
     {
         CiJob job = failedJob();
-        CiWorkflowRun workflow = failedWorkflow(job);
+        CiRun workflow = failedWorkflow(job);
         BoundedCiLog firstLog = errorLog(ImmutableList.of("error: cannot find symbol", "build failed"));
         BoundedCiLog sameLog = errorLog(ImmutableList.of("error: cannot find symbol", "build failed"));
 
@@ -212,9 +232,9 @@ class TestCiAutofixLogReader
                 .isEqualTo("ci-b23706f0dba15d1f83dab5c3f8978948bb92e07ef60a99afe00c3f87cde14a46");
     }
 
-    private static CiWorkflowRun failedWorkflow(CiJob job)
+    private static CiRun failedWorkflow(CiJob job)
     {
-        return new CiWorkflowRun(900, 80, "Build", 2, "completed", Optional.of("failure"), HEAD_SHA, "https://github.com/actions/runs/900", ImmutableList.of(job));
+        return new CiRun(900, 80, "Build", 2, "completed", Optional.of("failure"), HEAD_SHA, "https://github.com/actions/runs/900", ImmutableList.of(job));
     }
 
     private static CiJob failedJob()

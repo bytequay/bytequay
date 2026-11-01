@@ -32,6 +32,7 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -42,10 +43,10 @@ import java.util.concurrent.Executors;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Completes an interactive task once every pull request it owns is merged or closed on GitHub, as Complete does, and says
+ * Completes an interactive task once every pull request it owns is merged or closed, as Complete does, and says
  * why on the task.
  *
- * <p>It reads only stored pull requests, which each list refresh keeps current, so it asks GitHub nothing; a single pull
+ * <p>It reads only stored pull requests, which each list refresh keeps current, so it asks the provider nothing; a single pull
  * request's refresh that finds it merged or closed runs the same check without waiting for the next list refresh. Completion
  * keeps its own refusals: a task with a turn running, input queued or changes not committed stays open and is tried
  * again after the next refresh. A review of the task's own changes borrows its working copy, so it ends first, as End
@@ -129,7 +130,7 @@ public class PullRequestTaskWatcher
             try {
                 Optional<PullRequest> ended = ended(task);
                 if (ended.isPresent()) {
-                    String outcome = "pull request #" + ended.get().number() + " was " + state(ended.get()) + " on GitHub";
+                    String outcome = "pull request #" + ended.get().number() + " was " + state(ended.get());
                     reviews.endForTask(task.id(), "Agent review ended: " + outcome);
                     completions.complete(new CompleteAgentTaskCommand(task.id(), Optional.of("Completed: " + outcome)));
                 }
@@ -143,14 +144,23 @@ public class PullRequestTaskWatcher
         }
     }
 
-    /** The newest pull request the task owns, when it owns some and GitHub reports each of them merged or closed. */
+    /** The newest pull request the task owns, when it owns some and the provider reports each of them merged or closed. */
     private Optional<PullRequest> ended(AgentTask task)
     {
         List<PullRequest> owned = ownership.pullRequests(task);
         if (owned.isEmpty() || !owned.stream().allMatch(pullRequest -> ENDED.contains(state(pullRequest)))) {
             return Optional.empty();
         }
+        // A task started on requests that had already ended is new work on them, such as a backport, not work their end finished.
+        if (owned.stream().allMatch(pullRequest -> endedAt(pullRequest).filter(at -> at.isBefore(task.createdAt())).isPresent())) {
+            return Optional.empty();
+        }
         return Optional.of(owned.getFirst());
+    }
+
+    private static Optional<Instant> endedAt(PullRequest pullRequest)
+    {
+        return Optional.ofNullable(pullRequest.mergedAt()).or(() -> Optional.ofNullable(pullRequest.closedAt()));
     }
 
     private static String state(PullRequest pullRequest)

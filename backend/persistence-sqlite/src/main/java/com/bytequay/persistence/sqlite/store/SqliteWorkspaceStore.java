@@ -15,7 +15,6 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingAccount;
-import com.bytequay.core.hosting.HostingCacheTarget;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
@@ -31,12 +30,10 @@ import com.bytequay.persistence.sqlite.repository.WorkspaceJpaRepository;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.net.URI;
 import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkText;
-import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -107,10 +104,9 @@ public class SqliteWorkspaceStore
     }
 
     @Override
-    public Optional<Workspace> findBySelectedRepositoryId(long selectedRepositoryId)
+    public Optional<Workspace> findBySelectedRepository(HostingServer server, long selectedRepositoryId)
     {
-        return repository.findBySelectedRepositoryIdAndHostingServerIsNull(selectedRepositoryId)
-                .map(WorkspaceEntity::toDomain);
+        return repository.findByRepositoryKey(WorkspaceEntity.repositoryKey(server, selectedRepositoryId)).map(WorkspaceEntity::toDomain);
     }
 
     @Override
@@ -123,22 +119,6 @@ public class SqliteWorkspaceStore
     public Optional<WorkspaceHostingBinding> findHostingBinding(String workspaceId)
     {
         return repository.findById(checkText(workspaceId, "workspaceId")).flatMap(WorkspaceEntity::hostingBinding);
-    }
-
-    @Override
-    public Optional<HostingCacheTarget> findHostingCacheTarget(String workspaceId)
-    {
-        return repository.findById(checkText(workspaceId, "workspaceId")).flatMap(WorkspaceEntity::hostingCacheTarget);
-    }
-
-    @Override
-    @Transactional
-    public void saveHostingCacheTarget(String workspaceId, HostingCacheTarget target)
-    {
-        requireNonNull(target, "target is null");
-        WorkspaceEntity entity = repository.findById(workspaceId).orElseThrow(() -> new IllegalArgumentException("Workspace not found: " + workspaceId));
-        entity.setHostingCacheTarget(target);
-        repository.save(entity);
     }
 
     @Override
@@ -162,7 +142,7 @@ public class SqliteWorkspaceStore
         HostingAccountEntity accountEntity = hostingAccounts.findById(accountId).orElseThrow(() -> new IllegalArgumentException("Hosting account not found"));
         HostingAccount account = accountEntity.toDomain();
         HostingInstance instance = hostingInstances.findById(account.instanceId()).orElseThrow().toDomain();
-        HostingServer server = workspace.hostingServer().orElseGet(() -> new HostingServer(GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com")));
+        HostingServer server = workspace.server();
         checkArgument(new HostingServer(instance.provider(), instance.webBaseUrl(), instance.apiBaseUrl()).equals(server), "Hosting account belongs to another workspace server");
         HostingRepositoryEntity selected = bindingRepository(selectedRepositoryId, account.instanceId(), workspace.selectedRepositoryId());
         Optional<HostingRepositoryEntity> upstream = upstreamRepositoryId.map(id -> bindingRepository(id, account.instanceId(), workspace.upstreamRepositoryId().orElseThrow()));
@@ -180,25 +160,13 @@ public class SqliteWorkspaceStore
 
     @Override
     @Transactional
-    public Workspace createOrGet(Workspace workspace)
+    public Workspace createHosted(Workspace workspace, long accountId, long selectedRepositoryId, Optional<Long> upstreamRepositoryId)
     {
-        requireNonNull(workspace, "workspace is null");
-        Optional<Workspace> existing = workspace.hostingServer().isEmpty() ? findBySelectedRepositoryId(workspace.selectedRepositoryId())
-                : repository.findByRepositoryKey(WorkspaceEntity.repositoryKey(workspace)).map(WorkspaceEntity::toDomain);
-        if (existing.isPresent()) {
-            return existing.orElseThrow();
-        }
-        checkArgument(!repository.existsById(workspace.id()), "Workspace already exists: %s", workspace.id());
-        return repository.saveAndFlush(WorkspaceEntity.fromDomain(workspace)).toDomain();
-    }
-
-    @Override
-    @Transactional
-    public Workspace createHosted(Workspace workspace, long accountId, long selectedRepositoryId)
-    {
-        checkArgument(workspace.hostingServer().isPresent(), "Hosted workspace has no server");
-        WorkspaceEntity entity = repository.findByRepositoryKey(WorkspaceEntity.repositoryKey(workspace)).orElseGet(() -> WorkspaceEntity.fromDomain(workspace));
-        bind(entity, accountId, selectedRepositoryId, Optional.empty());
+        WorkspaceEntity entity = repository.findByRepositoryKey(WorkspaceEntity.repositoryKey(workspace)).orElseGet(() -> {
+            checkArgument(!repository.existsById(workspace.id()), "Workspace already exists: %s", workspace.id());
+            return WorkspaceEntity.fromDomain(workspace);
+        });
+        bind(entity, accountId, selectedRepositoryId, upstreamRepositoryId);
         entity.setWatched(true);
         return repository.saveAndFlush(entity).toDomain();
     }

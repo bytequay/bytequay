@@ -14,7 +14,7 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.app.git.AvatarCache;
-import com.bytequay.core.domain.RepoRef;
+import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryLabel;
 import com.bytequay.core.domain.RepositoryMetadataSnapshot;
@@ -35,7 +35,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 
@@ -55,7 +54,7 @@ public class WorkspaceMetadataService
     private final WorkspaceStore workspaces;
     private final RepositoryMetadataStore metadata;
     private final WorkspaceHostingService hosting;
-    private final List<RepositoryMetadataReader> readers;
+    private final HostingIntegrations integrations;
     private final AvatarCache avatarCache;
     private final Clock clock;
     private final Striped<Lock> locks = Striped.lock(64);
@@ -64,14 +63,14 @@ public class WorkspaceMetadataService
             WorkspaceStore workspaces,
             RepositoryMetadataStore metadata,
             WorkspaceHostingService hosting,
-            List<RepositoryMetadataReader> readers,
+            HostingIntegrations integrations,
             AvatarCache avatarCache,
             Clock clock)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.hosting = requireNonNull(hosting, "hosting is null");
-        this.readers = ImmutableList.copyOf(readers);
+        this.integrations = requireNonNull(integrations, "integrations is null");
         this.avatarCache = requireNonNull(avatarCache, "avatarCache is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
@@ -86,14 +85,17 @@ public class WorkspaceMetadataService
      */
     public void synchronize(String workspaceId)
     {
-        WorkspaceOperationLocks.withLock(workspaceId, () -> synchronizeLocked(workspaceId));
+        List<String> avatarUrls = WorkspaceOperationLocks.withLock(workspaceId, () -> synchronizeLocked(workspaceId));
+        // A large repository's first sync downloads hundreds of images; a clone waiting on the workspace lock must not wait for them.
+        avatarCache.cacheAll(avatarUrls);
     }
 
-    private void synchronizeLocked(String workspaceId)
+    /** Returns the picker users' avatar images to download once the locks are released. */
+    private List<String> synchronizeLocked(String workspaceId)
     {
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
         Lock lock = locks.get(workspace.id());
-        withLock(lock, () -> {
+        return withLock(lock, () -> {
             try {
                 Instant now = clock.instant();
                 RepositoryMetadataSnapshot current = snapshot(workspace);
@@ -102,23 +104,24 @@ public class WorkspaceMetadataService
                         && !expired(current.contributorsSyncedAt(), now, CONTRIBUTOR_TTL)
                         && !expired(current.pickerUsersSyncedAt(), now, PICKER_USER_TTL)
                         && !expired(current.labelsTopicsSyncedAt(), now, LABEL_TOPIC_TTL)) {
-                    return null;
+                    return ImmutableList.of();
                 }
-                refreshExpired(workspace);
+                List<String> avatarUrls = refreshExpired(workspace);
                 now = clock.instant();
                 Workspace latest = requireWorkspace(workspaces, workspaceId);
                 workspaces.save(latest.withMetadataSyncAt(Optional.of(now), now));
+                return avatarUrls;
             }
             catch (RuntimeException failure) {
                 log.warn("Workspace {} metadata synchronization failed: {}",
                         workspaceId, failure.getMessage());
+                return ImmutableList.of();
             }
-            return null;
         });
     }
 
     /**
-     * Reads the latest local metadata without contacting GitHub.
+     * Reads the latest local metadata without contacting the provider.
      *
      * @param workspaceId workspace whose monitored repository identifies the shared cache
      * @return latest snapshot, possibly empty or stale
@@ -128,30 +131,24 @@ public class WorkspaceMetadataService
         return snapshot(requireWorkspace(workspaces, workspaceId));
     }
 
-    /**
-     * Reads local metadata when the repository belongs to a watched workspace.
-     *
-     * @param repository monitored repository identity
-     * @return latest local snapshot, or empty when the repository is not watched
-     */
-    public Optional<RepositoryMetadataSnapshot> findSnapshot(RepoRef repository)
+    /** Reads local metadata when a workspace monitors the hosting repository; empty when none does. */
+    public Optional<RepositoryMetadataSnapshot> findSnapshot(long repositoryId)
     {
-        requireNonNull(repository, "repository is null");
-        return findWorkspace(repository).map(this::snapshot);
+        return workspaces.findByHostingRepositoryId(repositoryId).map(this::snapshot);
     }
 
     public List<String> listTeams(String workspaceId)
     {
         WorkspaceHostingRead route = hosting.captureRead(workspaceId);
-        return reader(route).repositoryTeams(route.session().access(), route.repository());
+        return reader(route).repositoryTeams(route.target());
     }
 
     private RepositoryMetadataReader reader(WorkspaceHostingRead route)
     {
-        return readers.stream().filter(value -> value.provider() == route.session().access().server().provider()).findFirst().orElseThrow();
+        return integrations.of(route.target()).metadata();
     }
 
-    private void refreshExpired(Workspace workspace)
+    private List<String> refreshExpired(Workspace workspace)
     {
         Instant now = clock.instant();
         RepositoryMetadataSnapshot current = snapshot(workspace);
@@ -160,22 +157,22 @@ public class WorkspaceMetadataService
         boolean pickerUsersExpired = expired(current.pickerUsersSyncedAt(), now, PICKER_USER_TTL);
         boolean labelsExpired = expired(current.labelsTopicsSyncedAt(), now, LABEL_TOPIC_TTL);
         if (!overviewExpired && !contributorsExpired && !pickerUsersExpired && !labelsExpired) {
-            return;
+            return ImmutableList.of();
         }
 
         WorkspaceHostingRead route = hosting.captureRead(workspace.id());
         RepositoryMetadataReader reader = reader(route);
         Optional<RepositoryOverview> overview = overviewExpired
-                ? Optional.of(reader.overview(route.session().access(), route.repository()))
+                ? Optional.of(reader.overview(route.target()))
                 : Optional.empty();
         Optional<List<RepositoryContributor>> contributors = contributorsExpired
-                ? reader.contributors(route.session().access(), route.repository())
+                ? reader.contributors(route.target())
                 : Optional.empty();
         List<HostingRepositoryUser> pickerUsers = pickerUsersExpired
-                ? reader.repositoryUsers(route.session().access(), route.repository())
+                ? reader.repositoryUsers(route.target())
                 : ImmutableList.of();
         List<RepositoryLabel> labels = labelsExpired
-                ? reader.repositoryLabels(route.session().access(), route.repository())
+                ? reader.repositoryLabels(route.target())
                 : ImmutableList.of();
 
         overview.ifPresent(value -> metadata.upsertOverview(
@@ -191,7 +188,7 @@ public class WorkspaceMetadataService
             metadata.replacePickerUsers(
                     route.repository().id(),
                     workspace.monitoredRepository(),
-                    cachePickerUsers(current.pickerUsers(), pickerUsers),
+                    pickerUsers.stream().map(this::pickerUser).toList(),
                     now);
         }
         if (labelsExpired) {
@@ -199,35 +196,21 @@ public class WorkspaceMetadataService
                     route.repository().id(), workspace.monitoredRepository(), labels,
                     overview.map(RepositoryOverview::topics).orElse(current.topics()), now);
         }
+        return pickerUsers.stream().map(HostingRepositoryUser::avatarUrl).toList();
     }
 
-    private List<RepositoryPickerUser> cachePickerUsers(
-            List<RepositoryPickerUser> current,
-            List<HostingRepositoryUser> refreshed)
+    /** The key is stored now and its image downloads after the lock; until it lands the picker shows initials. */
+    private RepositoryPickerUser pickerUser(HostingRepositoryUser user)
     {
-        Map<Long, Optional<String>> previousKeys = current.stream()
-                .collect(java.util.stream.Collectors.toMap(
-                        RepositoryPickerUser::id,
-                        RepositoryPickerUser::avatarKey,
-                        (left, right) -> right));
-        return refreshed.stream()
-                .map(user -> new RepositoryPickerUser(
-                        user.id(),
-                        user.login(),
-                        cacheAvatar(user).or(() -> previousKeys.getOrDefault(user.id(), Optional.empty())),
-                        user.bot()))
-                .toList();
-    }
-
-    private Optional<String> cacheAvatar(HostingRepositoryUser user)
-    {
+        Optional<String> avatarKey;
         try {
-            return avatarCache.cache(user.avatarUrl());
+            avatarKey = Optional.of(avatarCache.key(user.avatarUrl()));
         }
         catch (RuntimeException failure) {
-            log.debug("Avatar cache write failed for {}: {}", user.login(), failure.getMessage());
-            return Optional.empty();
+            log.debug("Avatar URL rejected for {}: {}", user.login(), failure.getMessage());
+            avatarKey = Optional.empty();
         }
+        return new RepositoryPickerUser(user.id(), user.login(), avatarKey, user.bot());
     }
 
     private RepositoryMetadataSnapshot snapshot(Workspace workspace)
@@ -235,15 +218,6 @@ public class WorkspaceMetadataService
         return workspaces.findHostingRepositoryId(workspace.id()).flatMap(metadata::find)
                 .orElseGet(() -> RepositoryMetadataSnapshot.empty(
                         workspace.monitoredRepositoryId(), workspace.monitoredRepository()));
-    }
-
-    private Optional<Workspace> findWorkspace(RepoRef repository)
-    {
-        requireNonNull(repository, "repository is null");
-        return workspaces.findAllRetained().stream().filter(Workspace::isGitHub)
-                .filter(workspace -> workspace.monitoredRepository().owner().equalsIgnoreCase(repository.owner())
-                        && workspace.monitoredRepository().repo().equalsIgnoreCase(repository.repo()))
-                .findFirst();
     }
 
     private static boolean expired(Optional<Instant> syncedAt, Instant now, Duration ttl)

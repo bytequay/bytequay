@@ -45,6 +45,7 @@ import com.bytequay.core.domain.ServedRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.AssistantStore;
+import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -145,6 +146,7 @@ class AssistantActions
     private final AgentTurnService turns;
     private final ItemTaskStarter starts;
     private final PullRequestTaskService pullRequestTasks;
+    private final PullRequestStore pullRequests;
     private final WorkspaceStore workspaces;
     private final AppNoticeService notices;
     private final AgentReviewStore reviews;
@@ -161,6 +163,7 @@ class AssistantActions
             AgentTurnService turns,
             ItemTaskStarter starts,
             PullRequestTaskService pullRequestTasks,
+            PullRequestStore pullRequests,
             WorkspaceStore workspaces,
             AppNoticeService notices,
             AgentReviewStore reviews,
@@ -176,6 +179,7 @@ class AssistantActions
         this.turns = requireNonNull(turns, "turns is null");
         this.starts = requireNonNull(starts, "starts is null");
         this.pullRequestTasks = requireNonNull(pullRequestTasks, "pullRequestTasks is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.notices = requireNonNull(notices, "notices is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
@@ -666,8 +670,8 @@ class AssistantActions
         private Result startOnPullRequest(Request request)
         {
             AgendaRefs.Numbered pr = AgendaRefs.numbered(request.text("from")).orElseThrow(() -> new IllegalArgumentException("That pull request ref is not valid"));
-            Workspace workspace = workspaces.findAll().stream().filter(Workspace::isGitHub)
-                    .filter(watched -> watched.monitoredRepository().fullName().equalsIgnoreCase(pr.repo())).findFirst()
+            Workspace workspace = pullRequests.findIdByRepoAndNumber(pr.repo(), pr.number()).flatMap(pullRequests::findHostingIdentity)
+                    .flatMap(identity -> workspaces.findByHostingRepositoryId(identity.repositoryId())).filter(found -> workspaces.isWatched(found.id()))
                     .orElseThrow(() -> new IllegalArgumentException("That pull request's repository is not watched"));
             boolean had = pullRequestTasks.find(workspace.id(), pr.repo(), pr.number()).filter(found -> found.state() != TaskState.COMPLETED).isPresent();
             AgentTask task = pullRequestTasks.assign(workspace.id(), pr.repo(), pr.number());

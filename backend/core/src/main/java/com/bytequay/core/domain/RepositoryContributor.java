@@ -16,7 +16,7 @@ package com.bytequay.core.domain;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** A locally cached GitHub account associated with a monitored repository. */
+/** A locally cached hosting account associated with a monitored repository. */
 public record RepositoryContributor(long id, String login, String avatarUrl, boolean bot)
 {
     public RepositoryContributor

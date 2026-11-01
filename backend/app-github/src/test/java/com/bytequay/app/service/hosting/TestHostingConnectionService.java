@@ -22,11 +22,12 @@ import com.bytequay.core.hosting.HostingCredential;
 import com.bytequay.core.hosting.HostingCredential.Source;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
-import com.bytequay.core.hosting.HostingIntegration;
 import com.bytequay.core.hosting.HostingPermissions;
 import com.bytequay.core.hosting.HostingRepositories;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.HostingTarget;
+import com.bytequay.core.hosting.HostingVersion;
 import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.hosting.PullRequestReader;
 import com.bytequay.core.hosting.RemoteHostingAccount;
@@ -46,6 +47,10 @@ import java.net.URI;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.connections;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.since;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.targeting;
 import static com.bytequay.core.domain.PrRawDetail.UNKNOWN_COUNT;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
@@ -61,6 +66,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -82,12 +88,32 @@ class TestHostingConnectionService
     {
         when(cli.provider()).thenReturn(GITLAB);
         service = new HostingConnectionService(identities, credentials,
-                ImmutableList.of(new HostingIntegration(GITLAB, accounts, repositories, requests)), ImmutableList.of(cli));
+                integrations(connections(GITLAB, accounts, repositories, requests)), ImmutableList.of(cli));
         when(identities.listInstances()).thenReturn(ImmutableList.of(instance));
         when(identities.listAccounts(10)).thenReturn(ImmutableList.of(account));
         when(identities.findAccount(20)).thenReturn(Optional.of(account));
         when(identities.findInstance(10)).thenReturn(Optional.of(instance));
         when(credentials.find(20)).thenReturn(Optional.of(new HostingCredential(20, "first-secret", Source.TOKEN)));
+    }
+
+    @Test
+    void connectSavesTheServersReleaseAndChecksPermissionsThroughItsImplementation()
+    {
+        HostingAccounts legacyAccounts = mock(HostingAccounts.class);
+        HostingPermissions legacyReport = new HostingPermissions(HostingPermissions.Status.UNAVAILABLE, ImmutableList.of(), "This release cannot report token permissions.");
+        when(legacyAccounts.checkPermissions(any())).thenReturn(Optional.of(legacyReport));
+        service = new HostingConnectionService(identities, credentials, integrations(since(connections(GITLAB, accounts, repositories, requests), HostingVersion.of(16, 11)),
+                connections(GITLAB, legacyAccounts, repositories, requests)), ImmutableList.of(cli));
+        when(identities.upsertInstance(new HostingServer(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl()))).thenReturn(instance);
+        when(accounts.verify(any())).thenReturn(new RemoteHostingAccount("remote-user-id", "alice"));
+        when(accounts.serverVersion(any())).thenReturn(HostingVersion.parse("14.10.5"));
+        when(identities.upsertAccount(eq(10L), any())).thenReturn(account);
+
+        HostingConnection result = service.connect(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl(), "new-secret");
+
+        assertThat(result.permissions()).contains(legacyReport);
+        verify(identities).updateVersion(10, HostingVersion.parse("14.10.5"));
+        verify(accounts, never()).checkPermissions(any());
     }
 
     @Test
@@ -254,6 +280,23 @@ class TestHostingConnectionService
     }
 
     @Test
+    void cliAccountsVerifyTheirTokenOnceUntilItChanges()
+    {
+        HostingServer server = new HostingServer(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl());
+        when(credentials.find(20)).thenReturn(Optional.of(new HostingCredential(20, "old-token", Source.CLI)));
+        when(cli.readToken(server)).thenReturn("current-token", "current-token", "refreshed-token");
+        when(accounts.verify(any())).thenReturn(new RemoteHostingAccount("42", "alice"));
+
+        service.readSession(20);
+        service.readSession(20);
+        service.readSession(20);
+        service.disconnect(20);
+        service.readSession(20);
+
+        verify(accounts, times(3)).verify(any());
+    }
+
+    @Test
     void cliAccountChangesCannotReadThroughAnotherStoredAccount()
     {
         when(credentials.find(20)).thenReturn(Optional.of(new HostingCredential(20, "old-token", Source.CLI)));
@@ -399,9 +442,9 @@ class TestHostingConnectionService
     {
         HostingRepository repository = storedRepository();
         when(identities.findRepository(30)).thenReturn(Optional.of(repository));
-        when(requests.fetch(any(), eq(repository), eq(7), eq(Optional.empty()))).thenReturn(metadata());
+        when(requests.fetch(targeting(repository), eq(7), eq(Optional.empty()))).thenReturn(metadata());
         service.readPullRequest(service.readSession(20), 30, 7, Optional.empty(), Optional.empty());
-        verify(requests).fetch(any(HostingAccess.class), eq(repository), eq(7), eq(Optional.empty()));
+        verify(requests).fetch(targeting(repository), eq(7), eq(Optional.empty()));
     }
 
     @Test
@@ -410,8 +453,8 @@ class TestHostingConnectionService
         HostingRepository repository = storedRepository();
         PullRequestFetch unchanged = new PullRequestFetch(Optional.empty(), Optional.of("\"v1\""));
         when(identities.findRepository(30)).thenReturn(Optional.of(repository));
-        when(requests.fetch(any(), eq(repository), eq(7), eq(unchanged.etag()))).thenAnswer(call -> {
-            HostingAccess access = call.getArgument(0);
+        when(requests.fetch(targeting(repository), eq(7), eq(unchanged.etag()))).thenAnswer(call -> {
+            HostingAccess access = call.<HostingTarget>getArgument(0).access();
             assertThat(access.token()).isEqualTo("first-secret");
             return unchanged;
         });
@@ -425,10 +468,10 @@ class TestHostingConnectionService
         HostingRepository repository = storedRepository();
         when(identities.findRepository(30)).thenReturn(Optional.of(repository));
         PullRequestFetch result = metadata();
-        when(requests.fetch(any(), eq(repository), eq(7), eq(Optional.empty()))).thenReturn(result);
+        when(requests.fetch(targeting(repository), eq(7), eq(Optional.empty()))).thenReturn(result);
 
         assertThat(service.readPullRequest(service.readSession(20), 30, 7, Optional.of("old/group/project"), Optional.of("\"v1\""))).isSameAs(result);
-        verify(requests).fetch(any(), eq(repository), eq(7), eq(Optional.empty()));
+        verify(requests).fetch(targeting(repository), eq(7), eq(Optional.empty()));
     }
 
     @ParameterizedTest
@@ -437,7 +480,7 @@ class TestHostingConnectionService
     {
         HostingRepository repository = storedRepository();
         when(identities.findRepository(30)).thenReturn(Optional.of(repository));
-        when(requests.fetch(any(), eq(repository), eq(7), eq(Optional.empty())))
+        when(requests.fetch(targeting(repository), eq(7), eq(Optional.empty())))
                 .thenReturn(new PullRequestFetch(Optional.empty(), Optional.of("\"v1\"")));
 
         assertThatThrownBy(() -> {
@@ -464,10 +507,10 @@ class TestHostingConnectionService
         HostingRepository repository = storedRepository();
         when(identities.findRepository(30)).thenReturn(Optional.of(repository));
         PullRequestFetch result = metadata();
-        when(requests.fetch(any(), eq(repository), eq(7), eq(Optional.empty()))).thenReturn(result);
+        when(requests.fetch(targeting(repository), eq(7), eq(Optional.empty()))).thenReturn(result);
 
         assertThat(service.readPullRequest(service.readSession(20), 30, 7, Optional.empty(), Optional.of("\"unscoped\""))).isSameAs(result);
-        verify(requests).fetch(any(), eq(repository), eq(7), eq(Optional.empty()));
+        verify(requests).fetch(targeting(repository), eq(7), eq(Optional.empty()));
     }
 
     private static RemoteHostingRepository remoteRepository()

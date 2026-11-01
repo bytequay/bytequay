@@ -324,13 +324,13 @@ public class AgendaService
     }
 
     /**
-     * The reader takes only circles already read, because the assistant reads it inside a turn. This run may still ask GitHub which
-     * account owns them, before its turn starts, so an agenda made soon after a start keeps them.
+     * The reader takes only circles already read, because the assistant reads it inside a turn. This run may still verify the desktop
+     * sign-in that owns some of them, before its turn starts, so an agenda made soon after a start keeps them.
      */
     private void resolveCircleAccount()
     {
         try {
-            teams.directory();
+            teams.directories();
         }
         catch (RuntimeException unresolved) {
             log.warn("Agenda could not resolve the account for circles: {}", unresolved.getMessage());

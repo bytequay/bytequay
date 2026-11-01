@@ -28,7 +28,7 @@ export type TaskDiscussionDto = {
   version: number;
   createdAt: string;
   updatedAt: string;
-  /** The GitHub comment a private thread is about; null on a passage discussion. */
+  /** The pull request comment a private thread is about; null on a passage discussion. */
   comment: DiscussionCommentDto | null;
   replyDraft: string | null;
   replyDraftError: string | null;

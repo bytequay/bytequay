@@ -247,7 +247,7 @@ export default function MarkdownEditor({
   const bodyRef = textareaRef ?? ownRef;
   const suggestionLines = canSuggest ? suggestion?.lines ?? null : null;
   const statusId = useId();
-  // A private note never reaches GitHub, so nobody there could be mentioned.
+  // A private note never reaches the provider, so nobody there could be mentioned.
   const mentions = useMentions({ repository: isPrivate ? undefined : repository, value, onChange, textareaRef: bodyRef });
 
   const edit = (change: (value: string, start: number, end: number) => { value: string; start: number; end: number }) => {

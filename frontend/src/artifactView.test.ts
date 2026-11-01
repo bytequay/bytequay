@@ -16,7 +16,7 @@ import type { BrowserWindow } from 'electron';
 import type { EventEmitter } from 'node:events';
 import { ArtifactView } from './artifactView';
 
-type MockContents = EventEmitter & { destroyed: boolean; focused: boolean; close: () => void; focus: () => void; loadURL: () => Promise<undefined> };
+type MockContents = EventEmitter & { destroyed: boolean; focused: boolean; close: () => void; focus: () => void; loadURL: () => Promise<undefined>; executeJavaScript: () => Promise<undefined> };
 const desktop = vi.hoisted(() => ({ contents: [] as MockContents[], removeChildView: vi.fn() }));
 vi.mock('electron', async () => {
   const { EventEmitter } = await import('node:events');
@@ -31,7 +31,7 @@ vi.mock('electron', async () => {
         isFocused: () => this.contents.focused,
         focus: vi.fn(() => { this.contents.focused = true; }),
         close: vi.fn(() => { this.contents.destroyed = true; this.contents.emit('destroyed'); }),
-        loadURL: vi.fn(async () => undefined), setWebRTCIPHandlingPolicy: vi.fn(), setWindowOpenHandler: vi.fn(),
+        loadURL: vi.fn(async () => undefined), executeJavaScript: vi.fn(async () => undefined), setBackgroundThrottling: vi.fn(), setWebRTCIPHandlingPolicy: vi.fn(), setWindowOpenHandler: vi.fn(),
         session: {
           protocol: { isProtocolHandled: () => false, handle: vi.fn() },
           webRequest: { onBeforeRequest: vi.fn() }, setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn(),
@@ -51,7 +51,8 @@ const window = {
   getContentBounds: () => ({ width: 1000, height: 800 }),
   contentView: { addChildView: vi.fn(), removeChildView: desktop.removeChildView },
 } as unknown as BrowserWindow;
-const target = { workspaceId: 'workspace', artifactId: 'artifact', pageId: 'page' };
+const target = { workspaceId: 'workspace', artifactId: 'artifact', pageId: 'page', pages:
+  ['page', 'another-page'].map((id, i) => ({ id, key: 'p1', version: i + 1, title: 'Saved page', commit: 'abc1234' })) };
 const bounds = { x: 0, y: 0, width: 800, height: 600 };
 const readPage = vi.fn(async () => '<h1>Saved page</h1>');
 let artifacts: ArtifactView;
@@ -70,6 +71,14 @@ it('reopens a page after Electron clears its destroyed web contents, and tolerat
   expect(desktop.contents[1].loadURL).toHaveBeenCalledWith('bytequay-artifact://artifact/workspace/');
   desktop.contents[1].close();
   expect(() => artifacts.releaseWindow()).not.toThrow();
+});
+
+it('reloads the reader after its renderer crashes', async () => {
+  await artifacts.show(target, bounds);
+  desktop.contents[0].emit('render-process-gone');
+  await artifacts.show(target, bounds);
+  expect(desktop.contents[0].loadURL).toHaveBeenCalledTimes(2);
+  expect(desktop.contents[0].executeJavaScript).not.toHaveBeenCalled();
 });
 
 it('ignores a page read from a destroyed view even when the same page is reopened', async () => {
@@ -91,7 +100,7 @@ it('waits for the selected page to load when it is presented again during a pend
   let finishRead!: (html: string) => void;
   let finishLoad!: () => void;
   readPage.mockImplementationOnce(() => new Promise<string>(resolve => { finishRead = resolve; }));
-  vi.mocked(desktop.contents[0].loadURL).mockImplementationOnce(() => new Promise<undefined>(resolve => { finishLoad = () => resolve(undefined); }));
+  vi.mocked(desktop.contents[0].executeJavaScript).mockImplementationOnce(() => new Promise<undefined>(resolve => { finishLoad = () => resolve(undefined); }));
   const next = { ...target, pageId: 'another-page' };
   const completed = vi.fn();
   const first = artifacts.show(next, bounds).then(completed);
@@ -102,7 +111,7 @@ it('waits for the selected page to load when it is presented again during a pend
   expect(completed).not.toHaveBeenCalled();
   expect(readPage).toHaveBeenCalledTimes(2);
   finishRead('<h1>Another page</h1>');
-  await vi.waitFor(() => expect(desktop.contents[0].loadURL).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() => expect(desktop.contents[0].executeJavaScript).toHaveBeenCalledOnce());
   expect(completed).not.toHaveBeenCalled();
   finishLoad();
   await Promise.all([first, repeated, restored]);

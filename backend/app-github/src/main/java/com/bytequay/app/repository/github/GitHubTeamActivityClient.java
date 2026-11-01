@@ -13,22 +13,26 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.bytequay.app.repository.github.GitHubAccountClient.UserIdentity;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.TeamActivityEvent;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingPerson;
+import com.bytequay.core.hosting.TeamActivityReader;
+import com.bytequay.core.hosting.TeamIdentity;
+import com.bytequay.core.hosting.TeamObservation;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.MissingNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -48,6 +52,8 @@ import static com.bytequay.app.repository.github.GitHubApiSupport.requireBody;
 import static com.bytequay.app.repository.github.GitHubApiSupport.requirePat;
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static com.bytequay.app.repository.github.GitHubRateLimitException.isRateLimit;
+import static com.bytequay.core.hosting.HostingServer.GITHUB_COM;
+import static com.bytequay.core.hosting.TeamIdentity.mentions;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -55,21 +61,32 @@ import static java.util.Objects.requireNonNull;
 /** Bounded read-only observations; neither public events nor these repository pages are a complete audit log. */
 @Component
 public class GitHubTeamActivityClient
+        implements TeamActivityReader
 {
-    /** How far back one pass reads: GitHub keeps 30 days of public events, and repository reads ask for the same window. */
-    public static final Duration LOOK_BACK = Duration.ofDays(30);
     private static final Pattern REPOSITORY = Pattern.compile("[A-Za-z0-9_-]{1,100}/[A-Za-z0-9_.-]{1,100}");
     private static final Pattern LOGIN = Pattern.compile("[A-Za-z0-9-]+(?:\\[bot\\])?");
     private final RestClient client;
+    private final GitHubAccountClient accounts;
 
-    public GitHubTeamActivityClient(@Qualifier("gitHubRestClient") RestClient client)
+    public GitHubTeamActivityClient(@Qualifier("gitHubRestClient") RestClient client, GitHubAccountClient accounts)
     {
         this.client = requireNonNull(client, "client is null");
+        this.accounts = requireNonNull(accounts, "accounts is null");
     }
 
-    public Observation publicEvents(String token, String login, Identity identity)
+    @Override
+    public HostingPerson person(HostingAccess access, String login)
     {
-        requirePat(token);
+        UserIdentity identity = accounts.fetchUserIdentity(token(access), Optional.of(login));
+        return new HostingPerson(identity.id(), identity.login(), identity.name().filter(value -> !value.isBlank()).orElse(identity.login()),
+                identity.avatarUrl().orElse(""));
+    }
+
+    /** GitHub keeps 30 days of public events, as many as one pass reads back. */
+    @Override
+    public TeamObservation personActivity(HostingAccess access, String login, TeamIdentity identity)
+    {
+        String token = token(access);
         checkArgument(LOGIN.matcher(login).matches(), "Invalid GitHub login");
         Collector collector = new Collector(identity);
         // GitHub limits this public stream to 300 events from the last 30 days, including unrelated event kinds.
@@ -80,9 +97,11 @@ public class GitHubTeamActivityClient
         return collector.result();
     }
 
-    public Observation repository(String token, String repository, Identity identity, int offset, BiFunction<Integer, Instant, Optional<StoredPrDetail>> cachedDetails)
+    @Override
+    public TeamObservation repositoryActivity(HostingAccess access, String repository, TeamIdentity identity, int offset,
+            BiFunction<Integer, Instant, Optional<StoredPrDetail>> cachedDetails)
     {
-        requirePat(token);
+        String token = token(access);
         checkArgument(REPOSITORY.matcher(repository).matches() && !repository.endsWith("/.") && !repository.endsWith("/.."), "Invalid GitHub repository");
         Collector collector = new Collector(identity);
         String prefix = "/repos/" + repository;
@@ -127,7 +146,7 @@ public class GitHubTeamActivityClient
         return collector.result();
     }
 
-    private static boolean cachedPull(Collector collector, String repository, JsonNode subject, StoredPrDetail cached, Identity identity)
+    private static boolean cachedPull(Collector collector, String repository, JsonNode subject, StoredPrDetail cached, TeamIdentity identity)
     {
         if (cached.raw().mergedAt() == null) {
             return true; // The repository issue page already supplied the open/closed subject.
@@ -143,14 +162,14 @@ public class GitHubTeamActivityClient
         return true;
     }
 
-    private static boolean cachedReviews(Collector collector, String repository, int number, JsonNode subject, StoredPrDetail cached, Identity identity)
+    private static boolean cachedReviews(Collector collector, String repository, int number, JsonNode subject, StoredPrDetail cached, TeamIdentity identity)
     {
         List<PrReviewState> reviews = cached.reviews().stream().filter(review -> !review.state().equalsIgnoreCase("pending")).collect(toImmutableList());
-        if (reviews.stream().anyMatch(review -> review.githubId() == null || review.submittedAt() == null || cachedActor(identity, subject, review.login()).isMissingNode())) {
+        if (reviews.stream().anyMatch(review -> review.remoteId() == null || review.submittedAt() == null || cachedActor(identity, subject, review.login()).isMissingNode())) {
             return false;
         }
         for (PrReviewState review : reviews) {
-            ObjectNode value = JsonNodeFactory.instance.objectNode().put("id", review.githubId()).put("state", review.state())
+            ObjectNode value = JsonNodeFactory.instance.objectNode().put("id", review.remoteId()).put("state", review.state())
                     .put("submitted_at", review.submittedAt().toString()).put("body", review.body());
             value.set("user", cachedActor(identity, subject, review.login()));
             collector.review(repository, number, value, subject, "CACHED_DETAIL");
@@ -158,7 +177,7 @@ public class GitHubTeamActivityClient
         return true;
     }
 
-    private static boolean cachedTimeline(Collector collector, String repository, int number, JsonNode subject, StoredPrDetail cached, Identity identity)
+    private static boolean cachedTimeline(Collector collector, String repository, int number, JsonNode subject, StoredPrDetail cached, TeamIdentity identity)
     {
         List<PrTimelineEvent> requests = cached.timeline().stream()
                 .filter(event -> event.event().equals("review_requested") && event.localEventKey().isEmpty()).collect(toImmutableList());
@@ -173,7 +192,7 @@ public class GitHubTeamActivityClient
         return true;
     }
 
-    private static JsonNode cachedActor(Identity identity, JsonNode subject, String login)
+    private static JsonNode cachedActor(TeamIdentity identity, JsonNode subject, String login)
     {
         if (login == null) {
             return MissingNode.getInstance();
@@ -253,31 +272,21 @@ public class GitHubTeamActivityClient
         }
     }
 
-    public record Identity(long viewerId, String viewerLogin, Map<Long, String> members)
+    private static String token(HostingAccess access)
     {
-        public Identity
-        {
-            members = ImmutableMap.copyOf(members);
-        }
-    }
-
-    public record Observation(List<TeamActivityEvent> events, List<String> errors, boolean rateLimited)
-    {
-        public Observation
-        {
-            events = ImmutableList.copyOf(events);
-            errors = ImmutableList.copyOf(errors);
-        }
+        checkArgument(access.server().equals(GITHUB_COM), "This operation requires a GitHub.com account");
+        requirePat(access.token());
+        return access.token();
     }
 
     static final class Collector
     {
-        private final Identity identity;
+        private final TeamIdentity identity;
         private final Map<String, TeamActivityEvent> events = new LinkedHashMap<>();
         private final List<String> errors = new ArrayList<>();
         private boolean rateLimited;
 
-        Collector(Identity identity)
+        Collector(TeamIdentity identity)
         {
             this.identity = identity;
         }
@@ -468,15 +477,10 @@ public class GitHubTeamActivityClient
             events.merge(key, fact, TeamActivityEvent::merge);
         }
 
-        Observation result()
+        TeamObservation result()
         {
-            return new Observation(ImmutableList.copyOf(events.values()), errors, rateLimited);
+            return new TeamObservation(ImmutableList.copyOf(events.values()), errors, rateLimited);
         }
-    }
-
-    public static boolean mentions(String body, String login)
-    {
-        return Pattern.compile("(?i)(?<![A-Za-z0-9_@])@" + Pattern.quote(login) + "(?![A-Za-z0-9_-])").matcher(body).find();
     }
 
     private static String subjectKey(String repository, int number, String kind)

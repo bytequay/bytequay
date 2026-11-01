@@ -15,9 +15,8 @@ package com.bytequay.integration.github.impl;
 
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrRawDetail;
-import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingFailure;
-import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.HostingUrls;
 import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.hosting.PullRequestListPage;
@@ -54,14 +53,12 @@ public final class GitHubPullRequestReader
     }
 
     @Override
-    public PullRequestFetch fetch(HostingAccess access, HostingRepository repository, int number, Optional<String> validator)
+    public PullRequestFetch fetch(HostingTarget target, int number, Optional<String> validator)
     {
-        requireNonNull(access, "access is null");
-        requireNonNull(repository, "repository is null");
-        checkArgument(access.instanceId().orElseThrow() == repository.instanceId(), "repository belongs to another hosting instance");
+        requireNonNull(target, "target is null");
         checkArgument(number > 0, "number must be positive");
         GitHubHttpClient.Response<GitHubPullRequestResponse> response = http.get(
-                access, GitHubHttpClient.repositoryPath(repository.fullPath()) + "/pulls/" + number, GitHubPullRequestResponse.class, validator);
+                target.access(), GitHubHttpClient.repositoryPath(target.repository().fullPath()) + "/pulls/" + number, GitHubPullRequestResponse.class, validator);
         if (response.body().isEmpty()) {
             return new PullRequestFetch(Optional.empty(), response.validator());
         }
@@ -69,30 +66,28 @@ public final class GitHubPullRequestReader
         if (item.number() != number) {
             throw new HostingFailure(INVALID_RESPONSE, "GitHub returned another pull request");
         }
-        return toPullRequest(access, repository, item, response.validator());
+        return toPullRequest(target, item, response.validator());
     }
 
     @Override
-    public PullRequestListPage list(HostingAccess access, HostingRepository repository, boolean openOnly, int page, int pageSize)
+    public PullRequestListPage list(HostingTarget target, boolean openOnly, int page, int pageSize)
     {
-        requireNonNull(access, "access is null");
-        requireNonNull(repository, "repository is null");
-        checkArgument(access.instanceId().orElseThrow() == repository.instanceId(), "repository belongs to another hosting instance");
+        requireNonNull(target, "target is null");
         checkArgument(page > 0, "page must be positive");
         checkArgument(pageSize > 0 && pageSize <= 100, "pageSize must be between 1 and 100");
-        String path = GitHubHttpClient.repositoryPath(repository.fullPath()) + "/pulls?state=" + (openOnly ? "open" : "all") +
+        String path = GitHubHttpClient.repositoryPath(target.repository().fullPath()) + "/pulls?state=" + (openOnly ? "open" : "all") +
                 "&sort=updated&direction=desc&per_page=" + pageSize + "&page=" + page;
-        GitHubHttpClient.Response<GitHubPullRequestResponse[]> response = http.get(access, path, GitHubPullRequestResponse[].class, Optional.empty());
+        GitHubHttpClient.Response<GitHubPullRequestResponse[]> response = http.get(target.access(), path, GitHubPullRequestResponse[].class, Optional.empty());
         List<FetchedPullRequest> items = Arrays.stream(response.body().orElseThrow())
-                .map(item -> toPullRequest(access, repository, item, Optional.empty()).pullRequest().orElseThrow()).collect(toImmutableList());
+                .map(item -> toPullRequest(target, item, Optional.empty()).pullRequest().orElseThrow()).collect(toImmutableList());
         return new PullRequestListPage(items, response.hasNext());
     }
 
-    private static PullRequestFetch toPullRequest(HostingAccess access, HostingRepository repository, GitHubPullRequestResponse item, Optional<String> validator)
+    private static PullRequestFetch toPullRequest(HostingTarget target, GitHubPullRequestResponse item, Optional<String> validator)
     {
         try {
             if (item.id() <= 0 || item.number() <= 0 || item.base() == null || item.base().repo() == null || item.base().repo().id() <= 0 ||
-                    !Long.toString(item.base().repo().id()).equals(repository.remoteId())) {
+                    !Long.toString(item.base().repo().id()).equals(target.repository().remoteId())) {
                 throw new HostingFailure(INVALID_RESPONSE, "GitHub returned invalid pull request metadata");
             }
             checkText(item.title(), "title");
@@ -103,12 +98,12 @@ public final class GitHubPullRequestReader
                 case "open", "closed" -> item.mergedAt() == null ? item.state() : "merged";
                 default -> throw new HostingFailure(INVALID_RESPONSE, "GitHub returned an invalid pull request state");
             };
-            String url = HostingUrls.requireWithinBase(URI.create(checkText(item.htmlUrl(), "htmlUrl")), access.server().webBaseUrl()).toASCIIString();
+            String url = HostingUrls.requireWithinBase(URI.create(checkText(item.htmlUrl(), "htmlUrl")), target.access().server().webBaseUrl()).toASCIIString();
             List<String> reviewers = Optional.ofNullable(item.requestedReviewers()).orElse(ImmutableList.of()).stream()
                     .map(GitHubPullRequestResponse.User::login).filter(Objects::nonNull).collect(toImmutableList());
-            PrRawDetail detail = toPrRawDetail(repository.fullPath(), item, reviewers, state, url);
+            PrRawDetail detail = toPrRawDetail(target.repository().fullPath(), item, reviewers, state, url);
             FetchedPullRequest summary = new FetchedPullRequest(
-                    item.id(), repository.fullPath(), item.number(), detail.title(), detail.author(), detail.htmlUrl(), detail.createdAt(), detail.updatedAt(),
+                    item.id(), target.repository().fullPath(), item.number(), detail.title(), detail.author(), detail.htmlUrl(), detail.createdAt(), detail.updatedAt(),
                     OTHER, detail.labels(), detail.labelColors(), detail.draft(), detail.state(), item.closedAt(), detail.mergedAt(), reviewers,
                     detail.mergeable(), detail.mergeableState(), detail.headRef());
             return new PullRequestFetch(Optional.of(summary), validator, Optional.of(detail));

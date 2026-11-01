@@ -36,6 +36,6 @@ describe('workspaces page', () => {
 
 function workspace(id: string) {
   return workspaceFixture({
-    id, name: 'octocat/project', selectedOwner: 'octocat', monitoredOwner: 'octocat', localRepositoryPath: '/managed/project',
+    id, name: 'octocat/project', selectedOwner: 'octocat', monitoredOwner: 'octocat', hostingServer: { provider: 'GITHUB', webBaseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' }, localRepositoryPath: '/managed/project',
   });
 }

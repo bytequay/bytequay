@@ -53,7 +53,7 @@ public final class AgendaFixtures
         }
         refs.put("pr:owner/repository#31402", pull(31402));
         refs.put("pr:owner/repository#31377", pull(31377));
-        refs.put("pr:owner/gateway#612", new RefInfo(Optional.of(NOW), Optional.empty(), AgendaTarget.pull("owner/gateway", 612, Optional.empty())));
+        refs.put("pr:owner/gateway#612", new RefInfo(Optional.of(NOW), Optional.empty(), AgendaTarget.pull(1, "owner/gateway", 612, Optional.empty())));
         refs.put("task:t1", new RefInfo(Optional.of(NOW.minusSeconds(3600)), Optional.of("ws1"), AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", "t1")));
         refs.put("work:w19", new RefInfo(Optional.of(NOW), Optional.of("ws1"), AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w19")));
         refs.put("work:w22", new RefInfo(Optional.of(NOW.minusSeconds(32400)), Optional.of("ws1"), AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w22"),
@@ -83,6 +83,6 @@ public final class AgendaFixtures
 
     private static RefInfo pull(int number)
     {
-        return new RefInfo(Optional.of(NOW), Optional.of("ws1"), AgendaTarget.pull("owner/repository", number, Optional.of("ws1")));
+        return new RefInfo(Optional.of(NOW), Optional.of("ws1"), AgendaTarget.pull(1, "owner/repository", number, Optional.of("ws1")));
     }
 }

@@ -120,8 +120,8 @@ public class CiMemoryService
         FailureEvidence failure = value.failure();
         memory.append("\n### Attempt ").append(attempt.number())
                 .append(" at ").append(attempt.updatedAt()).append('\n')
-                .append("- Workflow run: ").append(failure.workflowRunId())
-                .append(" (attempt ").append(failure.workflowAttempt()).append(")\n")
+                .append("- CI run: ").append(failure.runId())
+                .append(" (attempt ").append(failure.runAttempt()).append(")\n")
                 .append("- Job: ").append(failure.jobId())
                 .append(" (attempt ").append(failure.jobAttempt()).append(")\n")
                 .append("- Input SHA: `").append(attempt.inputSha()).append("`\n")

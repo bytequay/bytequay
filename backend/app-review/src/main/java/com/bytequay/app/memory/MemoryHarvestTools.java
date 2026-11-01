@@ -62,7 +62,7 @@ public class MemoryHarvestTools
     static final String REPLACED = "harvest-replaced:";
     static final int PAGE_SIZE = 25;
     private static final String POLICY = "This harvest reads closed pull requests' review discussion and saves repository memory through its tools only. It must "
-            + "not commit, push, comment on GitHub, change files, read credentials or start child agents.";
+            + "not commit, push, post comments, change files, read credentials or start child agents.";
 
     private final ContextBuildStore builds;
     private final ContextBuildService service;
@@ -186,7 +186,7 @@ public class MemoryHarvestTools
         HarvestThread thread = harvest.thread(note);
         HarvestPull pull = harvest.pull(thread.pull());
         return MemorySource.pullRequest(note.url().startsWith("https://") ? note.url() : pull.url(), ContextText.excerpt(note.body(), MemorySource.MAX_QUOTE_BYTES),
-                note.at(), new MemorySource.PullRequestPart(pull.number(), thread.part(), note.githubId(), note.author(), note.maintainer(), pull.merged(),
+                note.at(), new MemorySource.PullRequestPart(pull.number(), thread.part(), note.remoteId(), note.author(), note.maintainer(), pull.merged(),
                 thread.resolved(), thread.outdated()));
     }
 

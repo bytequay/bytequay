@@ -11,23 +11,32 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-.backport-route { color: var(--text-2); overflow-wrap: anywhere; }
 .backport-intro { background: light-dark(#f6f7f9, var(--dark-subtle)); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; font-size: 12px; line-height: 1.5; }
 .backport-intro p { margin: 4px 0 0; color: var(--text-2); }
-.backport-steps { list-style: none; padding: 14px 14px 0; margin: 0; font-size: 12px; }
-.backport-steps li { position: relative; padding: 0 0 16px 25px; margin-left: 5px; border-left: 2px solid var(--border); color: var(--text-3); }
-.backport-steps li:last-child { border-left-color: transparent; }
-.backport-steps li.is-complete { border-left-color: light-dark(#83b894, var(--dark-green)); }
-.backport-steps li.is-current, .backport-steps li.is-complete { color: var(--text); }
-.backport-step-title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-.backport-step-title > span:not(.backport-links):not(.backport-marker) { font-size: 11px; color: var(--text-3); }
-.backport-marker { position: absolute; left: -9px; top: 0; width: 16px; height: 16px; line-height: 16px; text-align: center; background: var(--bg); border-radius: 50%; }
-.is-complete > .backport-step-title .backport-marker { color: var(--on-solid); background: light-dark(#287341, #287a43); }
-.backport-links { display: flex; gap: 10px; margin-left: auto; font-size: 11px; }
-.backport-steps p { margin: 4px 0 0 22px; color: var(--text-3); font-size: 11px; line-height: 1.5; white-space: pre-wrap; }
-.backport-block { background: light-dark(#fffae9, var(--dark-amber-soft)); border: 1px solid light-dark(#ead9a0, var(--dark-amber-border)); border-radius: 5px; padding: 8px 10px; margin: 8px 0 0 22px; }
-.backport-block p { margin: 0 0 6px; color: light-dark(#80621d, var(--dark-amber)); }
-.backport-chain .linked-work-state.is-blocked { color: light-dark(#9a6a12, var(--dark-orange)); background: light-dark(#fff4cf, var(--dark-amber-soft)); }
-.backport-chain .linked-work-state.is-completed { color: light-dark(#287341, var(--dark-green)); background: light-dark(#e5f5e8, var(--dark-green-soft)); }
+
+.backport-chain { border: 1px solid light-dark(#e4e6ea, var(--dark-border)); border-radius: 12px; background: var(--surface-canvas); }
+.backport-chain__head { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 9px 9px 6px 12px; }
+.backport-chain__title { font-size: 13px; font-weight: 600; }
+.backport-chain__actions { display: flex; gap: 6px; margin-left: auto; }
+.bq-button.backport-chain__action { height: 26px; padding: 0 10px 0 8px; gap: 5px; border-radius: 7px; box-shadow: none; font-size: 12px; font-weight: 500; }
+.bq-button.backport-chain__action svg { width: 11px; height: 11px; }
+.backport-chain .pill svg { width: 11px; height: 11px; stroke-width: 2.8; }
+.backport-chain .agt-spin { color: inherit; }
+.backport-chain > .cmt-error { margin: 0 12px 12px; }
+
+/* Each repository is a node on one rail; dashed while the chain waits or is stopped. */
+.backport-rail { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 4px 12px 12px; list-style: none; }
+.backport-node { position: relative; display: flex; align-items: flex-start; gap: 10px; }
+.backport-node:not(:last-child)::before { content: ""; position: absolute; left: 9.25px; top: 20px; bottom: -10px; border-left: 1.5px solid light-dark(#d6dade, var(--dark-border)); }
+.backport-rail.is-dashed > .backport-node::before { border-left-style: dashed; }
+.backport-node > .pill { position: relative; box-shadow: 0 0 0 3px var(--surface-canvas); }
+.backport-node__body { display: flex; flex: 1; flex-direction: column; gap: 1px; min-width: 0; padding-top: 1px; }
+.backport-node__line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.backport-chain .backport-node__repo { min-width: 0; margin-right: auto; overflow: hidden; color: inherit; font-size: 12.5px; font-weight: 500; white-space: nowrap; text-overflow: ellipsis; }
+.backport-chain .backport-node__pr { flex: none; color: var(--fg-link); font-size: 12px; font-weight: 500; }
+.backport-node__branch { flex: none; padding: 2px 5px; border-radius: 4px; background: light-dark(#f1f2f4, var(--dark-subtle)); color: light-dark(#4b535c, var(--dark-muted)); font: 11px var(--mono); }
+.backport-node__note { color: light-dark(#6b7280, var(--dark-muted)); font-size: 11.5px; overflow-wrap: anywhere; }
+.backport-node__note.is-blocked { color: var(--fg-danger); }
+.backport-node__note.is-stopped { color: var(--fg-warning); }
 
 .agt-backport-hint { padding: 10px 14px 0; font-size: 12px; color: var(--text-2); }

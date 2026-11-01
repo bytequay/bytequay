@@ -16,6 +16,7 @@ package com.bytequay.app.workspace;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.TaskWorktree;
+import com.bytequay.app.service.pr.PullRequestRows;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.store.PullRequestStore;
@@ -40,6 +41,7 @@ public class TaskPullRequestOwnership
     private final WorkspaceStore workspaces;
     private final PullRequestTaskStore assignments;
     private final PullRequestStore pullRequests;
+    private final PullRequestRows rows;
     private final ManagedWorktreeService worktrees;
 
     public TaskPullRequestOwnership(WorkspaceStore workspaces, PullRequestTaskStore assignments, PullRequestStore pullRequests, ManagedWorktreeService worktrees)
@@ -47,6 +49,7 @@ public class TaskPullRequestOwnership
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.assignments = requireNonNull(assignments, "assignments is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.rows = new PullRequestRows(pullRequests, workspaces);
         this.worktrees = requireNonNull(worktrees, "worktrees is null");
     }
 
@@ -64,7 +67,7 @@ public class TaskPullRequestOwnership
             return false;
         }
         if (assignments.findByTaskId(task.id().toString()).filter(assigned -> assigned.repo().equalsIgnoreCase(repo) && assigned.number() == number).isPresent()) {
-            return !open || find(task.workspaceId().orElseThrow(), repo, number).filter(TaskPullRequestOwnership::isOpen).isPresent();
+            return !open || find(task.workspaceId().orElseThrow(), number).filter(TaskPullRequestOwnership::isOpen).isPresent();
         }
         TaskWorktree worktree = task.taskWorktree().orElseThrow(() -> new AgentConflictException("Task worktree is unavailable"));
         // The agent may have renamed the branch; the current branch is read only when the generated one does not match.
@@ -94,7 +97,7 @@ public class TaskPullRequestOwnership
     public Optional<List<PullRequest>> assignedPullRequests(AgentTask task)
     {
         return assignments.findByTaskId(task.id().toString())
-                .map(pr -> find(pr.workspaceId(), pr.repo(), pr.number()).stream().collect(toImmutableList()));
+                .map(pr -> find(pr.workspaceId(), pr.number()).stream().collect(toImmutableList()));
     }
 
     public List<String> branches(TaskWorktree worktree)
@@ -138,17 +141,14 @@ public class TaskPullRequestOwnership
                 .or(() -> pullRequests.stream().filter(pr -> "merged".equals(pr.state())).max(newest));
     }
 
-    private Optional<PullRequest> find(String workspaceId, String repo, int number)
+    private Optional<PullRequest> find(String workspaceId, int number)
     {
-        return workspaces.findById(workspaceId).flatMap(workspace -> workspace.isGitHub()
-                ? pullRequests.findIdByRepoAndNumber(repo, number).flatMap(pullRequests::findById)
-                : workspaces.findHostingRepositoryId(workspaceId).flatMap(id -> pullRequests.findByHostingRepository(id, number)));
+        return workspaces.findById(workspaceId).flatMap(workspace -> rows.find(workspace, number));
     }
 
     private List<PullRequest> byHead(String workspaceId, String repo, String branch)
     {
-        return workspaces.findById(workspaceId).filter(workspace -> !workspace.isGitHub())
-                .map(workspace -> workspaces.findHostingRepositoryId(workspaceId).map(id -> pullRequests.findByHostingHeadRef(id, branch)).orElse(ImmutableList.of()))
+        return workspaces.findById(workspaceId).map(workspace -> rows.findByHead(workspace, branch))
                 .orElseGet(() -> pullRequests.findByHeadRef(repo, branch));
     }
 

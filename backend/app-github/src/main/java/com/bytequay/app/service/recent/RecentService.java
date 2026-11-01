@@ -61,7 +61,7 @@ import static java.util.stream.Collectors.mapping;
 
 /**
  * Reads the local record of what the user worked on. Every method answers from
- * SQLite alone: a failed GitHub refresh degrades {@link #changes()} and never
+ * SQLite alone: a failed provider refresh degrades {@link #changes()} and never
  * blanks the stream.
  */
 @Service

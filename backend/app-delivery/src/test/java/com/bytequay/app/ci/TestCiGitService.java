@@ -19,11 +19,14 @@ import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
+import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.core.ci.CiAutofixAttempt.GitResult;
 import com.bytequay.core.ci.CiAutofixAttemptId;
 import com.bytequay.core.ci.CiAutofixRun.PushJournal;
-import com.bytequay.core.store.CredentialStore;
-import com.bytequay.core.store.WorkspaceCredentialStore;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.WorkspaceHostingBinding;
+import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -33,6 +36,7 @@ import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -71,21 +75,23 @@ class TestCiGitService
     private static final RepositoryIdentity REPOSITORY = new RepositoryIdentity("acme", "project");
     private static final String HEAD_REF = "feature";
     private static final String REMOTE_URL = "https://github.com/acme/project.git";
+    private static final URI WEB_BASE = URI.create("https://github.com");
     private static final String WORKSPACE_ID = "workspace-1";
 
     @TempDir
     Path temporaryDirectory;
 
     @Test
-    void authenticatesFetchPushAndReconciliationWithTheWorkspaceToken()
+    void authenticatesFetchPushAndReconciliationWithTheBoundAccountToken()
             throws IOException
     {
         Repository fixture = repository("authenticated-transport");
         String nextBase = advanceRemoteBase(fixture);
-        WorkspaceCredentialStore overrides = mock(WorkspaceCredentialStore.class);
-        when(overrides.getSecret(WORKSPACE_ID)).thenReturn(Optional.of("workspace-token"));
-        CredentialService credentials = new CredentialService(mock(CredentialStore.class), overrides, mock(GhCliService.class),
-                mock(GitHubAccountClient.class), mock(HostingConnectionService.class), mock(WorkspaceStore.class));
+        WorkspaceStore workspaces = mock(WorkspaceStore.class);
+        when(workspaces.findHostingBinding(WORKSPACE_ID)).thenReturn(Optional.of(new WorkspaceHostingBinding(WORKSPACE_ID, 7, 9, Optional.empty())));
+        HostingConnectionService hosting = mock(HostingConnectionService.class);
+        when(hosting.readSession(7)).thenReturn(new HostingReadSession(7, "hosting-account", new HostingAccess(HostingServer.GITHUB_COM, "workspace-token")));
+        CredentialService credentials = new CredentialService(mock(AppSettingsStore.class), mock(GhCliService.class), mock(GitHubAccountClient.class), hosting, workspaces);
         String authorization = "Authorization: Basic " + Base64.getEncoder().encodeToString("x-access-token:workspace-token".getBytes(StandardCharsets.UTF_8));
         List<String> transports = new ArrayList<>();
         GitCommandRunner routed = new RoutedGitCommandRunner();
@@ -96,9 +102,11 @@ class TestCiGitService
             {
                 if (ImmutableList.of("fetch", "ls-remote", "push").contains(arguments.getFirst())) {
                     assertThat(environment).containsExactlyInAnyOrderEntriesOf(ImmutableMap.of(
-                            "GIT_CONFIG_COUNT", "1",
+                            "GIT_CONFIG_COUNT", "2",
                             "GIT_CONFIG_KEY_0", "http.https://github.com/.extraHeader",
-                            "GIT_CONFIG_VALUE_0", authorization));
+                            "GIT_CONFIG_VALUE_0", authorization,
+                            "GIT_CONFIG_KEY_1", "http.followRedirects",
+                            "GIT_CONFIG_VALUE_1", "false"));
                     transports.add(arguments.getFirst());
                 }
                 return routed.run(worktree, timeout, environment, arguments);
@@ -316,7 +324,7 @@ class TestCiGitService
         CiGitInspection inspection = service().inspectAgentResult(inspect(fixture));
         PushJournal journal = new PushJournal(CiAutofixAttemptId.random(), fixture.inputSha(), inspection.result().orElseThrow().localHead(),
                 inspection.result().orElseThrow().fingerprint(), NOW.minus(Duration.ofDays(1)), 0);
-        PushCiHeadCommand command = new PushCiHeadCommand(WORKSPACE_ID, fixture.worktree(), REPOSITORY, HEAD_REF, "origin", REPOSITORY, HEAD_REF, journal);
+        PushCiHeadCommand command = new PushCiHeadCommand(WORKSPACE_ID, fixture.worktree(), REPOSITORY, HEAD_REF, "origin", REPOSITORY, WEB_BASE, HEAD_REF, journal);
 
         CiPushResult pushed = service().push(command);
         write(fixture.worktree().resolve("later.txt"), "later local work\n");
@@ -452,7 +460,7 @@ class TestCiGitService
         CiGitInspection inspection = service().inspectAgentResult(inspect(fixture));
 
         PushJournal altered = new PushJournal(CiAutofixAttemptId.random(), fixture.inputSha(), inspection.result().orElseThrow().localHead(), "changed-fingerprint", NOW, 0);
-        PushCiHeadCommand alteredCommand = new PushCiHeadCommand(WORKSPACE_ID, fixture.worktree(), REPOSITORY, HEAD_REF, "origin", REPOSITORY, HEAD_REF, altered);
+        PushCiHeadCommand alteredCommand = new PushCiHeadCommand(WORKSPACE_ID, fixture.worktree(), REPOSITORY, HEAD_REF, "origin", REPOSITORY, WEB_BASE, HEAD_REF, altered);
         assertThat(service().push(alteredCommand).outcome()).isEqualTo(REJECTED);
         assertThat(remoteHead(fixture)).isEqualTo(fixture.inputSha());
     }
@@ -529,7 +537,7 @@ class TestCiGitService
         write(valid.worktree().resolve("next.txt"), "next\n");
         commit(valid.worktree(), "Next change");
         write(valid.worktree().resolve("draft.txt"), "uncommitted\n");
-        FixupPositionCheck movedOn = service().checkFixupPositions(new CiWorktreeRange(valid.worktree(), REPOSITORY, HEAD_REF, valid.baseSha(), validHead));
+        FixupPositionCheck movedOn = service().checkFixupPositions(new CiWorktreeRange(valid.worktree(), REPOSITORY, WEB_BASE, HEAD_REF, valid.baseSha(), validHead));
         assertThat(movedOn.result()).isEqualTo(VALID);
         assertThat(movedOn.headSha()).isEqualTo(validHead);
 
@@ -560,8 +568,8 @@ class TestCiGitService
         String movedBase = advanceRemoteBase(fixture);
         git(fixture.worktree(), "fetch", fixture.remote().toString(), "main");
 
-        CiGitInspection inspection = service().inspectAgentResult(new CiWorktreeRange(fixture.worktree(), REPOSITORY, HEAD_REF, movedBase, fixture.inputSha()));
-        FixupPositionCheck check = service().checkFixupPositions(new CiWorktreeRange(fixture.worktree(), REPOSITORY, HEAD_REF, movedBase, head(fixture.worktree())));
+        CiGitInspection inspection = service().inspectAgentResult(new CiWorktreeRange(fixture.worktree(), REPOSITORY, WEB_BASE, HEAD_REF, movedBase, fixture.inputSha()));
+        FixupPositionCheck check = service().checkFixupPositions(new CiWorktreeRange(fixture.worktree(), REPOSITORY, WEB_BASE, HEAD_REF, movedBase, head(fixture.worktree())));
 
         assertThat(inspection.outcome()).isEqualTo(READY);
         assertThat(inspection.result().orElseThrow().changedPaths()).containsExactly("source.txt");
@@ -592,6 +600,7 @@ class TestCiGitService
                 HEAD_REF,
                 "origin",
                 REPOSITORY,
+                WEB_BASE,
                 "feature:refs/heads/other",
                 journal(fixture, inspection, 0));
         assertThat(service().push(unsafe).outcome()).isEqualTo(REJECTED);
@@ -600,6 +609,38 @@ class TestCiGitService
         Repository credential = repository("credential-origin");
         git(credential.worktree(), "config", "remote.origin.url", "https://secret@github.com/acme/project.git");
         assertInvalid(service(), credential, "unsupported credentials");
+    }
+
+    @Test
+    void acceptsOriginsOnlyOnTheWorkspaceServer()
+            throws IOException
+    {
+        URI selfManaged = URI.create("https://gitlab.example.com/gitlab");
+        RepositoryIdentity nested = RepositoryIdentity.valueOf("group/sub/project");
+        Repository fixture = repository("workspace-server-origin");
+        CiWorktreeRange range = new CiWorktreeRange(fixture.worktree(), nested, selfManaged, HEAD_REF, fixture.baseSha(), fixture.inputSha());
+        for (String origin : ImmutableList.of(
+                "https://gitlab.example.com/gitlab/group/sub/project.git",
+                "https://GITLAB.example.com/gitlab/group/sub/project",
+                "git@gitlab.example.com:group/sub/project.git",
+                "ssh://git@gitlab.example.com/group/sub/project.git")) {
+            git(fixture.worktree(), "config", "remote.origin.url", origin);
+            assertThat(service().inspectAgentResult(range).outcome()).as(origin).isEqualTo(NO_CHANGE);
+        }
+        for (String origin : ImmutableList.of(
+                "https://gitlab.example.com/group/sub/project.git",
+                "https://gitlab.example.com:8443/gitlab/group/sub/project.git",
+                "https://github.com/group/sub/project.git",
+                "git@github.com:group/sub/project.git")) {
+            git(fixture.worktree(), "config", "remote.origin.url", origin);
+            CiGitInspection result = service().inspectAgentResult(range);
+            assertThat(result.outcome()).as(origin).isEqualTo(INVALID);
+            assertThat(result.diagnostics()).as(origin).containsAnyOf("not on the workspace's hosting server", "Origin URL is invalid");
+        }
+        git(fixture.worktree(), "config", "remote.origin.url", "https://gitlab.example.com/gitlab/group/other.git");
+        assertThat(service().inspectAgentResult(range).diagnostics()).contains("does not match the authorized pull request");
+        git(fixture.worktree(), "config", "remote.origin.url", "http://gitlab.example.com/gitlab/group/sub/project.git");
+        assertThat(service().inspectAgentResult(range).diagnostics()).contains("unsupported credentials or transport");
     }
 
     private CiGitService service()
@@ -647,22 +688,22 @@ class TestCiGitService
 
     private static SynchronizeCiBaseCommand synchronize(Repository fixture, String baseSha)
     {
-        return new SynchronizeCiBaseCommand(WORKSPACE_ID, fixture.worktree(), REPOSITORY, HEAD_REF, "origin", REPOSITORY, "main", baseSha, "bytequay/ci-base/test-run");
+        return new SynchronizeCiBaseCommand(WORKSPACE_ID, fixture.worktree(), REPOSITORY, HEAD_REF, "origin", REPOSITORY, WEB_BASE, "main", baseSha, "bytequay/ci-base/test-run");
     }
 
     private static CiWorktreeRange inspect(Repository fixture)
     {
-        return new CiWorktreeRange(fixture.worktree(), REPOSITORY, HEAD_REF, fixture.baseSha(), fixture.inputSha());
+        return new CiWorktreeRange(fixture.worktree(), REPOSITORY, WEB_BASE, HEAD_REF, fixture.baseSha(), fixture.inputSha());
     }
 
     private static CiWorktreeRange check(Repository fixture)
     {
-        return new CiWorktreeRange(fixture.worktree(), REPOSITORY, HEAD_REF, fixture.baseSha(), head(fixture.worktree()));
+        return new CiWorktreeRange(fixture.worktree(), REPOSITORY, WEB_BASE, HEAD_REF, fixture.baseSha(), head(fixture.worktree()));
     }
 
     private static PushCiHeadCommand push(Repository fixture, CiGitInspection inspection, int retries)
     {
-        return new PushCiHeadCommand(WORKSPACE_ID, fixture.worktree(), REPOSITORY, HEAD_REF, "origin", REPOSITORY, HEAD_REF, journal(fixture, inspection, retries));
+        return new PushCiHeadCommand(WORKSPACE_ID, fixture.worktree(), REPOSITORY, HEAD_REF, "origin", REPOSITORY, WEB_BASE, HEAD_REF, journal(fixture, inspection, retries));
     }
 
     private static PushJournal journal(Repository fixture, CiGitInspection inspection, int retries)

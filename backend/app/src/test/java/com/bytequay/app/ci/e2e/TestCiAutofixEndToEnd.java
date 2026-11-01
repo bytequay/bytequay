@@ -32,7 +32,6 @@ import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
-import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
@@ -42,14 +41,13 @@ import com.bytequay.app.ci.ReadCiMemoryCommand;
 import com.bytequay.app.ci.RoutedGitCommandRunner;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubAccountClient;
-import com.bytequay.app.repository.github.GitHubDeliveryChecks;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
-import com.bytequay.app.repository.github.actions.RerunFailedJobsCommand;
 import com.bytequay.app.scheduler.WorkflowMonitorJob;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
+import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspaceHostingRead;
@@ -58,18 +56,24 @@ import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.core.ci.CiAutofixAttempt.CiResult;
 import com.bytequay.core.ci.CiAutofixRun;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
+import com.bytequay.core.ci.CiDeliveryChecks;
+import com.bytequay.core.ci.RerunFailedJobsCommand;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingIntegration;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.RepositoryVisibility;
-import com.bytequay.core.store.CredentialStore;
+import com.bytequay.core.store.AppSettingsStore;
+import com.bytequay.core.store.HostingCredentialStore;
+import com.bytequay.core.store.HostingIdentityStore;
 import com.bytequay.core.store.PrDetailStore;
-import com.bytequay.core.store.WorkspaceCredentialStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.bytequay.persistence.sqlite.repository.HostingRepositoryJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -80,6 +84,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -153,7 +158,7 @@ class TestCiAutofixEndToEnd
     private WorkflowMonitorJob monitor;
 
     @Autowired
-    private ScriptedGitHubActionsClient gitHub;
+    private ScriptedPullRequestCi ci;
 
     @Autowired
     private ScriptedAgentDriver agent;
@@ -198,6 +203,15 @@ class TestCiAutofixEndToEnd
     private PullRequestJpaRepository pullRequests;
 
     @Autowired
+    private HostingIdentityStore identities;
+
+    @Autowired
+    private HostingCredentialStore hostingCredentials;
+
+    @Autowired
+    private HostingRepositoryJpaRepository repositories;
+
+    @Autowired
     private PrDetailStore details;
 
     @Autowired
@@ -223,26 +237,33 @@ class TestCiAutofixEndToEnd
     @BeforeEach
     void setUp()
     {
-        gitHub.reset();
+        ci.reset();
         agent.reset();
         doReturn(RepositoryVisibility.PUBLIC).when(connections).visibility(any(), any());
-        when(publicationReads.fetchPullRequestIdentity(any(), any())).thenAnswer(invocation -> gitHub.identity(invocation.getArgument(1)));
+        when(publicationReads.fetchPullRequestIdentity(any(), any())).thenAnswer(invocation -> ci.identity(invocation.getArgument(1)));
         harness = new CiAutofixE2eHarness(
                 mvc,
                 objectMapper,
                 service,
                 monitor,
-                gitHub,
+                ci,
                 agent,
                 tasks,
                 turns,
                 events,
                 resources,
                 pullRequests,
+                identities,
+                hostingCredentials,
+                repositories,
                 details,
                 workspaces,
                 workspacePaths,
                 clock);
+        doAnswer(invocation -> workspaces.findById(invocation.getArgument(0)).isPresent() ? harness.route(invocation.getArgument(0)) : invocation.callRealMethod())
+                .when(hosting).captureRead(anyString());
+        doAnswer(invocation -> workspaces.findById(invocation.getArgument(0)).isPresent() ? harness.route(invocation.getArgument(0)) : invocation.callRealMethod())
+                .when(hosting).storedRead(anyString());
     }
 
     @AfterEach
@@ -266,6 +287,7 @@ class TestCiAutofixEndToEnd
                 URI.create("https://github.com/" + repo.fullName()), URI.create("https://github.com/" + repo.fullName() + ".git"),
                 Optional.empty(), Optional.of(E2eGitRepository.BASE_REF));
         doReturn(new WorkspaceHostingRead(session, retained, "author")).when(hosting).captureRead(fixture.workspaceId());
+        doReturn(new WorkspaceHostingRead(session, retained, "author")).when(hosting).storedRead(fixture.workspaceId());
         DevelopmentAutomation automation = new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.of(ScriptedAgentDriver.LANE));
         TaskId sourceTaskId = TaskId.random();
         AgentTask source = tasks.createInteractive(new CreateInteractiveAgentTaskCommand(
@@ -279,16 +301,16 @@ class TestCiAutofixEndToEnd
         AtomicBoolean draft = new AtomicBoolean(true);
         AtomicReference<String> initialPublishedHead = new AtomicReference<>();
         Supplier<String> remoteHead = () -> E2eGitRepository.git(repository.worktree(), "--git-dir=" + repository.bareRemote(), "rev-parse", "refs/heads/" + branch);
-        Supplier<GitHubPullRequestIdentity> identity = () -> new GitHubPullRequestIdentity(
+        Supplier<PullRequestIdentity> identity = () -> new PullRequestIdentity(
                 pr, "https://github.com/" + pr.fullName(), repo, branch, remoteHead.get(), repo, E2eGitRepository.BASE_REF,
-                repository.baseSha(), GitHubPullRequestIdentity.State.OPEN, draft.get(), "author");
+                repository.baseSha(), PullRequestIdentity.State.OPEN, draft.get(), "author");
         when(gh.findBinary()).thenReturn(Optional.of("/fixture/gh"));
         when(gh.readToken()).thenReturn("test-token");
         when(publicationReads.fetchPullRequestIdentities("test-token", repo, repo, branch))
                 .thenAnswer(ignored -> published.get() ? ImmutableList.of(identity.get()) : ImmutableList.of());
         doAnswer(ignored -> identity.get()).when(publicationReads).fetchPullRequestIdentity("test-token", pr);
-        when(publicationReads.fetchDeliveryChecks("test-token", pr))
-                .thenAnswer(ignored -> new GitHubDeliveryChecks("development-pr-node", identity.get(), ImmutableList.of(), ImmutableList.of()));
+        ci.setDeliveryChecks(() -> new CiDeliveryChecks(identity.get(), ImmutableList.of(), ImmutableList.of()));
+        when(publicationWrites.pullRequestNodeId("test-token", pr)).thenReturn(Optional.of("development-pr-node"));
         doAnswer(ignored -> {
             assertThat(draft.compareAndSet(true, false)).isTrue();
             return null;
@@ -426,7 +448,7 @@ class TestCiAutofixEndToEnd
         });
         assertThat(agent.turns()).hasSize(1);
         assertThat(agent.turns().getFirst().worktree()).isEqualTo(task.taskWorktree().orElseThrow().canonicalWorktree());
-        assertThat(gitHub.logCalls()).hasSize(1);
+        assertThat(ci.logCalls()).hasSize(1);
         Path log = resources.require(TaskId.valueOf(run.agentTaskId().orElseThrow()))
                 .runtimeDirectory()
                 .resolve(run.attempts().getFirst().failures().getFirst().log().orElseThrow().path());
@@ -434,11 +456,11 @@ class TestCiAutofixEndToEnd
         assertThat(fixture.repository().remoteHead()).isEqualTo(fixture.repository().initialHeadSha());
         assertThat(fixture.repository().status()).isEmpty();
 
-        int inspectionsBeforeTick = gitHub.inspectCalls().size();
+        int inspectionsBeforeTick = ci.inspectCalls().size();
         harness.tick();
 
-        assertThat(gitHub.inspectCalls()).hasSize(inspectionsBeforeTick + 1);
-        assertThat(gitHub.logCalls()).hasSize(1);
+        assertThat(ci.inspectCalls()).hasSize(inspectionsBeforeTick + 1);
+        assertThat(ci.logCalls()).hasSize(1);
         assertThat(harness.run(started.runId()).currentTurnId()).isPresent();
         assertThat(fixture.repository().remoteHead()).isEqualTo(fixture.repository().initialHeadSha());
         CiAutofixE2eHarness.Snapshot snapshot = harness.snapshot(started.runId());
@@ -478,12 +500,12 @@ class TestCiAutofixEndToEnd
         Path log = resources.require(TaskId.valueOf(initial.agentTaskId().orElseThrow()))
                 .runtimeDirectory()
                 .resolve(initial.attempts().getFirst().failures().getFirst().log().orElseThrow().path());
-        assertThat(Files.readString(log)).isEqualTo(CiAutofixE2eHarness.RAW_COMPILE_LOG);
+        assertThat(Files.readString(log)).startsWith("Raw log: read_ci_raw_log(").endsWith(CiAutofixE2eHarness.RAW_COMPILE_LOG);
         assertThat(agent.turns()).singleElement().satisfies(turn -> {
             assertThat(turn.attachments()).isEmpty();
             assertThat(turn.message()).contains("read_pull_request_ci", "read_ci_raw_log").doesNotContain(CiAutofixE2eHarness.RAW_COMPILE_LOG);
         });
-        assertThat(gitHub.logCalls()).hasSize(1);
+        assertThat(ci.logCalls()).hasSize(1);
         assertThat(initial.attempts()).hasSize(1);
 
         CiAutofixRun firstPublished = harness.driveUntil(started.runId(), run -> run.attempts().getFirst().pushedSha().isPresent(), 10);
@@ -566,16 +588,16 @@ class TestCiAutofixEndToEnd
                 .doesNotContain("RAW_COMPILE_LOG_SENTINEL", "RAW_TEST_LOG_SENTINEL");
 
         int turnCount = agent.turns().size();
-        int logCount = gitHub.logCalls().size();
-        int inspectCount = gitHub.inspectCalls().size();
+        int logCount = ci.logCalls().size();
+        int inspectCount = ci.inspectCalls().size();
         CiAutofixE2eHarness.StartResult repeated = harness.start(fixture, idempotencyKey);
         assertThat(repeated.runId()).isEqualTo(started.runId());
         assertThat(service.list(200).stream()
                 .filter(run -> run.scope().pullRequest().equals(repository.pullRequest())))
                 .singleElement();
         assertThat(agent.turns()).hasSize(turnCount);
-        assertThat(gitHub.logCalls()).hasSize(logCount);
-        assertThat(gitHub.inspectCalls()).hasSize(inspectCount);
+        assertThat(ci.logCalls()).hasSize(logCount);
+        assertThat(ci.inspectCalls()).hasSize(inspectCount);
         assertThat(details.find(fixture.prId()).orElseThrow().timeline()).hasSize(2);
         assertThat(repository.remoteHead()).isEqualTo(secondPushedSha);
 
@@ -604,7 +626,7 @@ class TestCiAutofixEndToEnd
 
         assertThat(service.list(200)).hasSize(runsBefore);
         assertThat(taskStore.listRecent(200)).hasSize(tasksBefore);
-        assertThat(gitHub.rerunCalls()).isEmpty();
+        assertThat(ci.rerunCalls()).isEmpty();
         assertThat(agent.turns()).isEmpty();
         assertThat(fixture.repository().headRefUpdates()).isEqualTo(branchWrites);
         assertThat(details.find(fixture.prId()).orElseThrow().timeline()).isEmpty();
@@ -633,7 +655,7 @@ class TestCiAutofixEndToEnd
         requestFlakyRerun(fixture);
         CiAutofixRun rerunning = harness.driveUntil(started.runId(), run -> run.rerunJournal().isPresent(), 6);
 
-        assertThat(gitHub.rerunCalls()).containsExactly(expectedRerun);
+        assertThat(ci.rerunCalls()).containsExactly(expectedRerun);
         assertThat(rerunning.pushJournal()).isEmpty();
         assertThat(rerunning.attempts().getFirst().gitResult()).isEmpty();
         assertThat(repository.remoteHead()).isEqualTo(repository.initialHeadSha());
@@ -647,7 +669,7 @@ class TestCiAutofixEndToEnd
         assertThat(finished.rerunCounter().used()).isEqualTo(1);
         assertThat(finished.attempts().getFirst().observedCiResult()).isEqualTo(CiResult.PASSED);
         assertThat(repository.headRefUpdates()).isEqualTo(branchWrites);
-        assertThat(gitHub.rerunCalls()).containsExactly(expectedRerun);
+        assertThat(ci.rerunCalls()).containsExactly(expectedRerun);
         assertThat(details.find(fixture.prId()).orElseThrow().timeline()).isEmpty();
     }
 
@@ -669,7 +691,7 @@ class TestCiAutofixEndToEnd
             int expectedCalls = previousAttempt;
             harness.driveUntil(started.runId(), run -> run.currentTurnId().isPresent() && run.attemptsUsed() == expectedCalls, 12);
             requestFlakyRerun(fixture);
-            harness.driveUntil(started.runId(), run -> gitHub.rerunCalls().size() == expectedCalls, 12);
+            harness.driveUntil(started.runId(), run -> ci.rerunCalls().size() == expectedCalls, 12);
             harness.scriptRerunCi(fixture, previousAttempt + 1, false);
             harness.driveUntil(started.runId(), run -> run.rerunCounter().used() == expectedCalls && run.rerunJournal().isEmpty(), 5);
         }
@@ -677,13 +699,13 @@ class TestCiAutofixEndToEnd
 
         assertThat(paused.finishReason()).contains(CiAutofixRun.FinishReason.MAX_ATTEMPTS);
         assertThat(paused.rerunCounter().used()).isEqualTo(3);
-        assertThat(gitHub.rerunCalls()).containsExactlyElementsOf(expectedReruns);
+        assertThat(ci.rerunCalls()).containsExactlyElementsOf(expectedReruns);
         assertThat(agent.turns()).hasSize(3);
         assertThat(repository.remoteHead()).isEqualTo(repository.initialHeadSha());
         assertThat(repository.headRefUpdates()).isEqualTo(branchWrites);
         assertThat(details.find(fixture.prId()).orElseThrow().timeline()).isEmpty();
         harness.tick();
-        assertThat(gitHub.rerunCalls()).hasSize(3);
+        assertThat(ci.rerunCalls()).hasSize(3);
     }
 
     @Test
@@ -733,7 +755,7 @@ class TestCiAutofixEndToEnd
         assertThat(finished.finishReason()).contains(CiAutofixRun.FinishReason.GREEN);
         assertThat(repository.commitSubjects()).containsExactly("First change", "Target change", "fixup! Target change", "Last change");
         assertThat(repository.headRefUpdates()).isEqualTo(branchWrites + 1);
-        assertThat(gitHub.rerunCalls()).isEmpty();
+        assertThat(ci.rerunCalls()).isEmpty();
         assertThat(details.find(fixture.prId()).orElseThrow().timeline()).hasSize(1);
     }
 
@@ -756,7 +778,7 @@ class TestCiAutofixEndToEnd
         assertThat(pausedAgain.pauseReason()).contains(CiAutofixRun.PauseReason.INVALID_GIT_RESULT);
         assertThat(pausedAgain.pushJournal()).isEmpty();
         assertThat(agent.turns()).hasSize(2);
-        assertThat(gitHub.rerunCalls()).isEmpty();
+        assertThat(ci.rerunCalls()).isEmpty();
         assertThat(repository.remoteHead()).isEqualTo(repository.initialHeadSha());
         assertThat(repository.headRefUpdates()).isEqualTo(branchWrites);
         assertThat(details.find(fixture.prId()).orElseThrow().timeline()).isEmpty();
@@ -866,12 +888,12 @@ class TestCiAutofixEndToEnd
         assertThat(agent.cancellations()).hasSize(1);
         assertThat(turns.get(com.bytequay.agent.core.TurnId.valueOf(turnId)).state().name())
                 .isEqualTo("CANCELLED");
-        int inspections = gitHub.inspectCalls().size();
+        int inspections = ci.inspectCalls().size();
         harness.tick();
         harness.tick();
 
-        assertThat(gitHub.inspectCalls()).hasSize(inspections);
-        assertThat(gitHub.rerunCalls()).isEmpty();
+        assertThat(ci.inspectCalls()).hasSize(inspections);
+        assertThat(ci.rerunCalls()).isEmpty();
         assertThat(repository.remoteHead()).isEqualTo(repository.initialHeadSha());
         assertThat(repository.headRefUpdates()).isEqualTo(branchWrites);
         assertThat(details.find(fixture.prId()).orElseThrow().timeline()).isEmpty();
@@ -904,7 +926,7 @@ class TestCiAutofixEndToEnd
         });
         assertThat(tasks.get(taskId).state()).isNotEqualTo(TaskState.COMPLETED);
         assertThat(agent.turns()).hasSize(1);
-        assertThat(gitHub.rerunCalls()).isEmpty();
+        assertThat(ci.rerunCalls()).isEmpty();
         harness.tick();
         harness.tick();
 
@@ -923,7 +945,7 @@ class TestCiAutofixEndToEnd
         assertThat(harness.startWithoutSession()).isEqualTo(401);
 
         assertThat(service.list(200)).hasSize(runsBefore);
-        assertThat(gitHub.inspectCalls()).isEmpty();
+        assertThat(ci.inspectCalls()).isEmpty();
         assertThat(agent.turns()).isEmpty();
     }
 
@@ -932,7 +954,11 @@ class TestCiAutofixEndToEnd
             throws Exception
     {
         PullRequestRef unknown = PullRequestRef.of("bytequay", "unknown", 91);
-        assertThatThrownBy(() -> gitHub.inspect(unknown))
+        HostingInstance instance = new HostingInstance(1, GITHUB_SERVER.provider(), GITHUB_SERVER.webBaseUrl(), GITHUB_SERVER.apiBaseUrl());
+        URI url = URI.create("https://github.com/" + unknown.repoFullName());
+        HostingTarget target = new HostingTarget(new HostingAccess(instance, "test-token"),
+                new HostingRepository(1, instance.id(), "91", unknown.repoFullName(), url, url, Optional.empty(), Optional.of("main")));
+        assertThatThrownBy(() -> ci.inspect(target, unknown.number()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining(unknown.fullName());
 
@@ -960,10 +986,16 @@ class TestCiAutofixEndToEnd
         }
 
         @Bean
-        @Primary
-        ScriptedGitHubActionsClient scriptedGitHubActionsClient(TaskLogStore logs)
+        ScriptedPullRequestCi scriptedPullRequestCi()
         {
-            return new ScriptedGitHubActionsClient(logs);
+            return new ScriptedPullRequestCi();
+        }
+
+        @Bean
+        @Primary
+        HostingIntegrations e2eHostingIntegrations(ObjectProvider<HostingIntegration> integrations, HostingIdentityStore identities, ScriptedPullRequestCi ci)
+        {
+            return ScriptedPullRequestCi.integrations(integrations, identities, ci);
         }
 
         @Bean
@@ -975,14 +1007,13 @@ class TestCiAutofixEndToEnd
         @Bean
         @Primary
         CredentialService e2eCredentialService(
-                CredentialStore store,
-                WorkspaceCredentialStore workspaceCredentials,
+                AppSettingsStore settings,
                 GhCliService ghCli,
                 GitHubAccountClient gitHubAccount,
                 HostingConnectionService hosting,
                 WorkspaceStore workspaces)
         {
-            return new CredentialService(store, workspaceCredentials, ghCli, gitHubAccount, hosting, workspaces)
+            return new CredentialService(settings, ghCli, gitHubAccount, hosting, workspaces)
             {
                 @Override
                 public String resolveGitHubToken()

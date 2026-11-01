@@ -59,13 +59,13 @@ export default function ReviewComments({ cards, selectedPath, repository, unavai
     </div>
     {scope === 'file' && selectedPath && <p className="ide-comments__path" title={selectedPath}>{selectedPath}</p>}
     {onComment && <button type="button" className="ide-comments__compose" onClick={onComment}>Comment on selection</button>}
-    {unavailable && <p role="status">GitHub review comments could not be loaded.</p>}
+    {unavailable && <p role="status">Posted review comments could not be loaded.</p>}
     {error && <p role="alert">{error}</p>}
     <div className="ide-comments__list" role="tabpanel" id={`${id}-cards`} aria-labelledby={`${id}-${scope}`} tabIndex={0}>
       {visible.length === 0 && <p className="ide-comments__empty">{scope === 'file'
         ? selectedPath === null ? 'Select a file to see its review comments.' : 'No review comments in this file.'
         : 'No review comments yet.'}</p>}
-      {visible.map(card => <ReviewThreadCard key={card.id} tone={card.kind === 'GitHub' ? 'github' : 'local'}
+      {visible.map(card => <ReviewThreadCard key={card.id} tone={card.kind === 'Posted' ? 'github' : 'local'}
         title={<code className="lrc__title" title={card.location}>{shortPath(card.location)}</code>}
         chip={<span className="lrc__chip">{card.kind}</span>}
         badges={card.status && <span className="lrc__badge">{card.status}</span>}

@@ -28,11 +28,11 @@ import com.bytequay.app.workitem.GoalReferenceReader;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspaceHostingRead;
 import com.bytequay.core.domain.FetchedPullRequest;
-import com.bytequay.core.domain.GitHubIssueSource;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
+import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
@@ -42,6 +42,7 @@ import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.integration.jira.JiraDtos;
 import com.bytequay.integration.jira.JiraIssue;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -136,7 +137,7 @@ class TestAgentTaskHttpApi
         Workspace workspace = workspaces.findById(workspaceId).orElseThrow();
         Instant updated = Instant.parse("2026-09-16T00:00:00Z");
         long issueId = workspace.monitoredRepositoryId() * 1000 + 7;
-        GitHubIssueSource source = new GitHubIssueSource("github.com", issueId, workspace.monitoredRepository().fullName(), 7,
+        HostedIssueSource source = new HostedIssueSource("github.com", issueId, workspace.monitoredRepository().fullName(), 7,
                 "https://github.com/" + workspace.monitoredRepository().fullName() + "/issues/7", "Fix issue selection", "Long source description kept in local metadata", updated);
         issueRows.saveSyncPage(workspaces.findHostingRepositoryId(workspace.id()).orElseThrow(), ImmutableList.of(new RepositoryIssue(issueId, 7, source.title(), source.body(),
                 "alice", "", source.url(), ImmutableList.of(), ImmutableList.of(), 0, updated, updated)));
@@ -189,7 +190,7 @@ class TestAgentTaskHttpApi
     {
         Workspace workspace = workspaces.findById(workspaceId).orElseThrow();
         when(credentials.resolveGitHubToken()).thenReturn("pat");
-        GitHubIssueSource started = cachedIssue(workspace, 8);
+        HostedIssueSource started = cachedIssue(workspace, 8);
         ResponseEntity<JsonNode> response = post("/agent/tasks", issueLaunch(started), null);
         assertThat(response.getStatusCode()).as("create response: %s", response.getBody()).isEqualTo(HttpStatus.CREATED);
         WorkItem work = workItems.findByIdentity(WorkItemLink.issueIdentity("github.com", started.issueId())).orElseThrow();
@@ -197,7 +198,7 @@ class TestAgentTaskHttpApi
         assertThat(work.workspaceId()).isEqualTo(workspaceId);
         assertThat(work.state()).isEqualTo(WorkItem.State.WORKING);
 
-        GitHubIssueSource dropped = cachedIssue(workspace, 9);
+        HostedIssueSource dropped = cachedIssue(workspace, 9);
         saveWorkItem(workspaceId, GoalReferenceReader.issueLink(dropped, Instant.now()), WorkItem.State.DROPPED);
         Map<String, Object> refusedLaunch = issueLaunch(dropped);
         ResponseEntity<JsonNode> refused = post("/agent/tasks", refusedLaunch, null);
@@ -205,7 +206,7 @@ class TestAgentTaskHttpApi
         assertThat(refused.getBody().path("message").asText()).contains("Reopen the work item");
         assertThat(get("/agent/tasks/" + refusedLaunch.get("taskId") + "?workspaceId=" + workspaceId).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
 
-        GitHubIssueSource foreign = cachedIssue(workspace, 10);
+        HostedIssueSource foreign = cachedIssue(workspace, 10);
         saveWorkItem("other-workspace", GoalReferenceReader.issueLink(foreign, Instant.now()), WorkItem.State.PLANNED);
         ResponseEntity<JsonNode> elsewhere = post("/agent/tasks", issueLaunch(foreign), null);
         assertThat(elsewhere.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
@@ -257,7 +258,7 @@ class TestAgentTaskHttpApi
         String path = "/agent/tasks/" + taskId + "/pull-requests?workspaceId=";
         assertThat(get(path + workspaceId).getBody()).isEmpty();
 
-        pullRequests.saveRepositorySyncPage(REPOSITORY, ImmutableList.of(fetchedPullRequest(482, branch), fetchedPullRequest(483, "feature")));
+        saveListed(REPOSITORY, ImmutableList.of(fetchedPullRequest(482, branch), fetchedPullRequest(483, "feature")));
 
         JsonNode listed = get(path + workspaceId).getBody();
         assertThat(listed).hasSize(1);
@@ -275,7 +276,7 @@ class TestAgentTaskHttpApi
         TaskWorktree worktree = tasks.get(TaskId.valueOf(taskId)).taskWorktree().orElseThrow();
         String branch = "published-" + taskId;
         run("git", "-C", worktree.canonicalWorktree().toString(), "branch", "-m", branch);
-        pullRequests.saveRepositorySyncPage(
+        saveListed(
                 REPOSITORY,
                 ImmutableList.of(fetchedPullRequest(484, worktree.generatedBranch()), fetchedPullRequest(485, branch), fetchedPullRequest(486, "unrelated"),
                         // Another author's fork on the same renamed branch name is not the task's pull request.
@@ -300,7 +301,7 @@ class TestAgentTaskHttpApi
         TaskWorktree worktree = tasks.get(TaskId.valueOf(taskId)).taskWorktree().orElseThrow();
         String branch = "new-pr-" + taskId;
         run("git", "-C", worktree.canonicalWorktree().toString(), "branch", "-m", branch);
-        pullRequests.saveRepositorySyncPage(REPOSITORY, ImmutableList.of(fetchedPullRequest(488, null)));
+        saveListed(REPOSITORY, ImmutableList.of(fetchedPullRequest(488, null)));
         String path = "/agent/tasks/" + taskId + "/pull-requests";
         assertThat(get(path + "?workspaceId=" + workspaceId).getBody()).isEmpty();
         useWorkspaceHosting("alice");
@@ -331,7 +332,7 @@ class TestAgentTaskHttpApi
                 workspaceId, previous.name(), previous.selectedRepositoryId(), fork,
                 Optional.of(upstreamId), Optional.of(upstream), upstreamId, upstream, Workspace.Topology.FORK,
                 "main", origin, Optional.of("master"), Optional.of(upstreamUrl), repository.toString(),
-                previous.lastCodeSyncAt(), previous.lastMetadataSyncAt(), previous.displayOrder(), previous.createdAt(), Instant.now()));
+                previous.lastCodeSyncAt(), previous.lastMetadataSyncAt(), previous.displayOrder(), previous.createdAt(), Instant.now(), HostingServer.GITHUB_COM));
         run("git", "-C", repository.toString(), "remote", "set-url", "origin", origin);
         run("git", "-C", repository.toString(), "remote", "add", "upstream", upstreamUrl);
         run("git", "-C", repository.toString(), "update-ref", "refs/remotes/upstream/master", "HEAD");
@@ -343,8 +344,8 @@ class TestAgentTaskHttpApi
         assertThat(worktree.physicalRepository()).isEqualTo(task.repository());
         String branch = "cache-table-stats";
         run("git", "-C", worktree.canonicalWorktree().toString(), "branch", "-m", branch);
-        pullRequests.saveRepositorySyncPage(upstream.fullName(), ImmutableList.of(fetchedPullRequest(upstream.fullName(), 41, branch)));
-        pullRequests.saveRepositorySyncPage(fork.fullName(), ImmutableList.of(fetchedPullRequest(fork.fullName(), 123, branch)));
+        saveListed(upstream.fullName(), ImmutableList.of(fetchedPullRequest(upstream.fullName(), 41, branch)));
+        saveListed(fork.fullName(), ImmutableList.of(fetchedPullRequest(fork.fullName(), 123, branch)));
         String path = "/agent/tasks/" + taskId + "/pull-requests";
 
         JsonNode cached = get(path + "?workspaceId=" + workspaceId).getBody();
@@ -371,15 +372,18 @@ class TestAgentTaskHttpApi
         RepoRef target = workspaces.findById(workspaceId).orElseThrow().monitoredRepository();
         String head = "a".repeat(40);
         String base = "b".repeat(40);
-        var identity = new GitHubPullRequestIdentity(PullRequestRef.of(target.owner(), target.repo(), summary.number()), summary.htmlUrl(),
-                source, summary.headRef(), head, target, "main", base, GitHubPullRequestIdentity.State.OPEN, false, summary.author());
+        var identity = new PullRequestIdentity(PullRequestRef.of(target.owner(), target.repo(), summary.number()), summary.htmlUrl(),
+                source, summary.headRef(), head, target, "main", base, PullRequestIdentity.State.OPEN, false, summary.author());
         when(gitHub.fetchPullRequestIdentities("pat", target, source, summary.headRef())).thenReturn(ImmutableList.of(identity));
         PrRawDetail detail = new PrRawDetail(summary.title(), summary.htmlUrl(), summary.state(), summary.author(), "", summary.createdAt(), summary.updatedAt(),
                 null, "", ImmutableList.of(), ImmutableMap.of(), ImmutableList.of(), null, false, null, null, 0, 0, 0, 0, ImmutableList.of(),
                 head, summary.headRef(), "main", base);
-        var request = new HostingPullRequest(summary.number(), route.repository().id(), summary.number(), summary.githubId().toString());
-        when(workspaceHosting.readPullRequest(route, summary.number())).thenReturn(new HostingPullRequestSnapshot(request, route.session().accountId(),
-                route.session().credentialScope(), summary, detail, Optional.empty(), Instant.now()));
+        var request = new HostingPullRequest(summary.number(), route.repository().id(), summary.number());
+        // A real read stores the request under the workspace repository before returning it.
+        when(workspaceHosting.readPullRequest(route, summary.number())).thenAnswer(invocation -> {
+            saveListed(target.fullName(), ImmutableList.of(summary));
+            return new HostingPullRequestSnapshot(request, route.session().accountId(), route.session().credentialScope(), summary, detail, Optional.empty(), Instant.now());
+        });
     }
 
     private static FetchedPullRequest fetchedPullRequest(int number, String headRef)
@@ -686,12 +690,12 @@ class TestAgentTaskHttpApi
     }
 
     /** Caches open issue {@code number} in the workspace and serves it as the fresh GitHub read. */
-    private GitHubIssueSource cachedIssue(Workspace workspace, int number)
+    private HostedIssueSource cachedIssue(Workspace workspace, int number)
     {
         Instant updated = Instant.parse("2026-09-16T00:00:00Z");
         long issueId = workspace.monitoredRepositoryId() * 1000 + number;
         String repo = workspace.monitoredRepository().fullName();
-        GitHubIssueSource source = new GitHubIssueSource("github.com", issueId, repo, number, "https://github.com/" + repo + "/issues/" + number,
+        HostedIssueSource source = new HostedIssueSource("github.com", issueId, repo, number, "https://github.com/" + repo + "/issues/" + number,
                 "Fix issue " + number, "Issue body", updated);
         issueRows.saveSyncPage(workspaces.findHostingRepositoryId(workspace.id()).orElseThrow(),
                 ImmutableList.of(new RepositoryIssue(issueId, number, source.title(), source.body(),
@@ -700,7 +704,7 @@ class TestAgentTaskHttpApi
         return source;
     }
 
-    private Map<String, Object> issueLaunch(GitHubIssueSource source)
+    private Map<String, Object> issueLaunch(HostedIssueSource source)
     {
         return ImmutableMap.<String, Object>builder().putAll(createTaskBody("codex", "test-model", "Implement " + source.title()))
                 .put("issueSource", ImmutableMap.of("issueId", source.issueId(), "number", source.number(), "updatedAt", source.updatedAt().toString())).buildOrThrow();

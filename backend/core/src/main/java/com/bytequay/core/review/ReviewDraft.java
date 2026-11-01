@@ -33,7 +33,7 @@ import static java.util.Objects.requireNonNull;
  * {@code postedSummaryFindingIds}, so it is never offered again after the text is cleared.
  *
  * <p>{@code reviewPublication} is the send that carries the review text and event while its outcome
- * is unknown: reserved while it runs, uncertain once it failed without a refusal from GitHub. Until
+ * is unknown: reserved while it runs, uncertain once it failed without a refusal from the provider. Until
  * the user confirms whether that review landed, the text and event stay as sent and are never
  * submitted again.
  */

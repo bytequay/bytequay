@@ -32,7 +32,7 @@ function assert(condition: unknown, message: string): asserts condition {
 const WS = 'ws1';
 const WORKSPACE = {
   id: WS, name: 'example/harbor', selectedOwner: 'example', selectedRepo: 'harbor', monitoredOwner: 'example', monitoredRepo: 'harbor',
-  localRepositoryPath: '/managed/ws1/harbor', topology: 'DIRECT',
+  hostingServer: { provider: 'GITHUB', webBaseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' }, localRepositoryPath: '/managed/ws1/harbor', topology: 'DIRECT',
 } as unknown as WorkspaceDto;
 const MODELS: ModelOptionDto[] = [{ id: 'opus', name: 'Opus 5.5', description: 'Most capable', efforts: ['medium', 'high'], defaultEffort: 'high', inputModalities: ['text', 'image'] }];
 const TITLE = 'Add retry backoff to the webhook client';

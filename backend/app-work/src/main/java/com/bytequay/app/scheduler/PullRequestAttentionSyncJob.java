@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.scheduler;
 
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
@@ -33,14 +32,12 @@ public class PullRequestAttentionSyncJob
     private static final Logger log = LoggerFactory.getLogger(PullRequestAttentionSyncJob.class);
 
     private final PullRequestService pullRequests;
-    private final CredentialService credentials;
     private final AppSettingsService settings;
     private final WorkspaceIssueService issues;
 
-    public PullRequestAttentionSyncJob(PullRequestService pullRequests, CredentialService credentials, AppSettingsService settings, WorkspaceIssueService issues)
+    public PullRequestAttentionSyncJob(PullRequestService pullRequests, AppSettingsService settings, WorkspaceIssueService issues)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
-        this.credentials = requireNonNull(credentials, "credentials is null");
         this.settings = requireNonNull(settings, "settings is null");
         this.issues = requireNonNull(issues, "issues is null");
     }
@@ -52,7 +49,7 @@ public class PullRequestAttentionSyncJob
             return;
         }
         try {
-            if (credentials.isGitHubAccountConfigured()) {
+            if (pullRequests.hasDiscoveryAccounts()) {
                 pullRequests.syncAttentionSummaries();
             }
         }

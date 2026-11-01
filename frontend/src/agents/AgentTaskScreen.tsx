@@ -87,7 +87,7 @@ import DevelopmentLearningPanel from './DevelopmentLearningPanel';
 import { IssueAttachment } from './IssueAttachment';
 import { LinkedWorkCard, LinkedWorkRequest, useLinkedWorkspaceWork } from './LinkedWorkspaceWork';
 import ProviderSignInDialog from './ProviderSignInDialog';
-import type { ReviewCardFocus, ReviewRequestTarget } from './ReviewRequestCard';
+import type { ReviewCardFocus, ReviewRequestTarget } from './InstructionCard';
 import SubagentsPanel from './SubagentsPanel';
 import TaskPaneDivider, { useTaskPane } from './TaskPaneDivider';
 import TaskHeader from './TaskHeader';
@@ -1107,7 +1107,7 @@ export function AgentTaskBody({
   };
   const pullRequestShowing = panelOpen && visiblePanelTab === 'pr';
   /**
-   * A link to this task's own pull request reads in the panel instead of leaving for GitHub.
+   * A link to this task's own pull request reads in the panel instead of leaving for the provider.
    * The task route does not change, and every other link keeps its ordinary behaviour. It runs in the
    * capture phase because a pull request title link navigates from its own click handler, which runs first.
    */
@@ -1140,12 +1140,14 @@ export function AgentTaskBody({
     : state.turn?.developmentOrigin?.kind === 'REFINE_SUMMARY' ? 'Refining summary…' : null;
   const ciWaiting = pendingApprovals?.some(approval => approval.taskId !== state.task?.id) ?? false;
   const pillTone = ciWaiting || currentCi?.status === 'PAUSED' || currentCi?.activity === 'FIXING' ? 'amber' : 'blue';
+  // A paused run says why on hover, such as a pipeline the provider stopped before any job.
+  const ciPausedWhy = currentCi?.status === 'PAUSED' ? currentCi.summary ?? undefined : undefined;
   const autoMerge = state.task?.autoMerge;
   const automationPill = status === 'idle' && automationActive
-    ? <AutomationPill tone={pillTone} label={currentCi != null ? ciWaiting ? 'Needs approval' : ciActivity(currentCi) : 'Automation active'}
+    ? <AutomationPill tone={pillTone} label={currentCi != null ? ciWaiting ? 'Needs approval' : ciActivity(currentCi) : 'Automation active'} title={ciPausedWhy}
       stopLabel="Stop automation" stopTitle="Stop automation · your draft is kept" stopDisabled={state.sending || ciSubmissionBlocked} onStop={onStopServer} />
     : !terminal && !automationActive && currentCi != null && status !== 'recovery'
-      ? <AutomationPill tone={pillTone} label={ciWaiting ? 'Needs approval' : ciActivity(currentCi)}
+      ? <AutomationPill tone={pillTone} label={ciWaiting ? 'Needs approval' : ciActivity(currentCi)} title={ciPausedWhy}
         stopLabel="Stop CI Autofix" stopTitle={ciStopping ? 'Stopping…' : 'Stop CI Autofix'} stopDisabled={ciStopping} onStop={onStopCi} />
       : !terminal && (autoMerge?.state === 'READY' || autoMerge?.state === 'MERGING')
         ? <AutomationPill tone="blue" label={mergeLabel(autoMerge, now)} stopLabel="Stop auto-merge"
@@ -2272,7 +2274,7 @@ export default function AgentTaskScreen({
     {
       active: state.task?.interactive === true,
       bridge: explicitBridge,
-      // A discussion is private and never reaches GitHub, so a closed pull request is nothing to it.
+      // A discussion is private and never reaches the provider, so a closed pull request is nothing to it.
       // What stops it is the task releasing the files the agent would read.
       disabledReason: state.task?.checkoutRemovedAt == null ? null
         : 'This task released its files, so its discussions are read-only.',

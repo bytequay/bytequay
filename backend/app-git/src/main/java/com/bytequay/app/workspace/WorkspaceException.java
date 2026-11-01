@@ -13,9 +13,13 @@
  */
 package com.bytequay.app.workspace;
 
+import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingCapabilities;
 import com.bytequay.core.store.WorkspaceStore;
 import org.springframework.http.HttpStatus;
+
+import java.util.function.Predicate;
 
 import static java.util.Objects.requireNonNull;
 
@@ -40,18 +44,25 @@ public final class WorkspaceException
         return workspaces.findById(workspaceId).orElseThrow(() -> notFound(workspaceId));
     }
 
-    public static Workspace requireGitHubWorkspace(WorkspaceStore workspaces, String workspaceId)
+    public static Workspace requireFeature(WorkspaceStore workspaces, HostingIntegrations integrations, String workspaceId, Predicate<HostingCapabilities> feature)
     {
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
-        requireGitHub(workspace);
+        if (!feature.test(integrations.of(workspace.server()).capabilities())) {
+            throw unavailable();
+        }
         return workspace;
     }
 
-    public static void requireGitHub(Workspace workspace)
+    /** Every workspace reads through the hosting account bound to it. */
+    public static WorkspaceException accountRequired()
     {
-        if (!workspace.isGitHub()) {
-            throw new WorkspaceException("WORKSPACE_FEATURE_UNAVAILABLE", HttpStatus.NOT_IMPLEMENTED, "This feature is not available for GitLab workspaces yet.", false);
-        }
+        return new WorkspaceException("WORKSPACE_ACCOUNT_REQUIRED", HttpStatus.CONFLICT, "Choose the account this workspace uses in its settings.", false);
+    }
+
+    private static WorkspaceException unavailable()
+    {
+        return new WorkspaceException("WORKSPACE_FEATURE_UNAVAILABLE", HttpStatus.NOT_IMPLEMENTED,
+                "This feature is not available for this workspace's hosting provider yet.", false);
     }
 
     public static WorkspaceException notFound(String workspaceId)
@@ -113,7 +124,7 @@ public final class WorkspaceException
     {
         return new WorkspaceException(
                 "WORKSPACE_PUSH_NOT_WRITABLE", HttpStatus.FORBIDDEN,
-                "The selected repository is read-only for the configured GitHub account. "
+                "The selected repository is read-only for the connected account. "
                         + "Grant write access or watch a writable fork; ByteQuay will not choose another remote.",
                 false);
     }

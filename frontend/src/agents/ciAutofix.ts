@@ -72,7 +72,5 @@ export function ciAutofixRequest(turn: AgentTurnDto | undefined, text: string) {
   return {
     action: 'ByteQuay · Fix CI',
     topic: repository,
-    body: 'Investigate failed checks, repair their cause and run useful local checks.',
-    detail: 'ByteQuay verifies repairs and handles authorized publication.',
   };
 }

@@ -16,6 +16,7 @@ package com.bytequay.app.web;
 import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.service.pr.PullRequestRead;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
+import com.bytequay.app.service.pr.PullRequestRoute;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.web.agent.AgentController;
 import com.bytequay.core.hosting.HostingAccess;
@@ -66,7 +67,7 @@ class TestGitHubTransportErrors
         PullRequestRead route = new PullRequestRead(new HostingReadSession(1, "account", new HostingAccess(instance, "token")),
                 new HostingRepository(1, 1, "1", "owner/repo", URI.create("https://github.com/owner/repo"),
                         URI.create("https://github.com/owner/repo.git"), Optional.empty(), Optional.of("main")), 7, "contributor");
-        when(pullRequests.prepareRead(null, "owner/repo", 7)).thenReturn(route);
+        when(pullRequests.prepareRead(PullRequestRoute.of(null, null), "owner/repo", 7)).thenReturn(route);
         when(pullRequests.openPullRequestDetail(route)).thenThrow(new ResourceAccessException("Operation timed out"));
         when(refresh.refreshDetail(route)).thenThrow(new ResourceAccessException("Operation timed out"));
         when(refresh.refreshAllDetail(route)).thenThrow(new ResourceAccessException("Operation timed out"));

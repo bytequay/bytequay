@@ -15,10 +15,10 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.config.WriteVersion;
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.service.pr.PullRequestRead;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
+import com.bytequay.app.service.pr.PullRequestRoute;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceCommitsSettingsService;
@@ -36,9 +36,11 @@ import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestDetailRefresh;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingCapabilities;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -98,7 +100,7 @@ class TestPullRequestRefreshControllers
 
         verify(refresh).refreshOpenedDetail(read("owner/repo", 7));
         verifyNoMoreInteractions(refresh);
-        verify(pullRequests).prepareRead(null, "owner/repo", 7);
+        verify(pullRequests).prepareRead(PullRequestRoute.of(null, null), "owner/repo", 7);
         verifyNoMoreInteractions(pullRequests);
     }
 
@@ -157,6 +159,7 @@ class TestPullRequestRefreshControllers
         verify(pullRequests).findCachedFailingChecks(candidates);
         verify(pullRequests).findMentioned(candidates);
         verify(pullRequests).attentionVersion();
+        verify(pullRequests).attentionRoutes(candidates);
         verifyNoMoreInteractions(ignoreStubs(pullRequests));
         verifyNoInteractions(refresh);
     }
@@ -184,6 +187,43 @@ class TestPullRequestRefreshControllers
                 .andExpect(header().string("ETag", "\"boot-8-42\""));
 
         verify(pullRequests, times(2)).listAttentionCandidates();
+    }
+
+    @Test
+    void readsAStoredRequestThroughTheAccountItNames()
+            throws Exception
+    {
+        PullRequestService pullRequests = pullRequests();
+        var mvc = standaloneSetup(new PullRequestController(pullRequests, mock(PullRequestRefreshService.class))).build();
+
+        mvc.perform(get("/prs/stored").param("repo", "group/project").param("number", "4").param("accountId", "11"))
+                .andExpect(status().isOk());
+
+        verify(pullRequests).prepareRead(PullRequestRoute.account(11), "group/project", 4);
+    }
+
+    @Test
+    void namesTheRouteEachSharedAttentionRowOpensThrough()
+            throws Exception
+    {
+        PullRequestService pullRequests = pullRequests();
+        List<PullRequest> candidates = ImmutableList.of(attentionPullRequest(1), attentionPullRequest(2), attentionPullRequest(3));
+        when(pullRequests.attentionVersion()).thenReturn("boot-7-42");
+        when(pullRequests.listAttentionCandidates()).thenReturn(candidates);
+        when(pullRequests.attentionRoutes(candidates)).thenReturn(ImmutableMap.of(1L, PullRequestRoute.of(null, null), 2L, PullRequestRoute.of("gitlab-workspace", null),
+                3L, PullRequestRoute.account(11)));
+        var mvc = standaloneSetup(new PullRequestController(pullRequests, mock(PullRequestRefreshService.class))).build();
+
+        mvc.perform(get("/prs/attention"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3))
+                .andExpect(jsonPath("$[0].id").value(1))
+                .andExpect(jsonPath("$[0].workspaceId").doesNotExist())
+                .andExpect(jsonPath("$[0].accountId").doesNotExist())
+                .andExpect(jsonPath("$[1].id").value(2))
+                .andExpect(jsonPath("$[1].workspaceId").value("gitlab-workspace"))
+                .andExpect(jsonPath("$[2].id").value(3))
+                .andExpect(jsonPath("$[2].accountId").value(11));
     }
 
     private static PullRequest attentionPullRequest(long id)
@@ -474,7 +514,7 @@ class TestPullRequestRefreshControllers
         PullRequestDetail detail = detail();
         when(pullRequests.commentOnPullRequest(read("owner/repo", 7), "hello")).thenReturn(detail);
 
-        assertThat(controller.comment("owner/repo", 7, new PullRequestController.CommentRequest("hello"), null)).isSameAs(detail);
+        assertThat(controller.comment("owner/repo", 7, new PullRequestController.CommentRequest("hello"), null, null)).isSameAs(detail);
     }
 
     @Test
@@ -490,7 +530,6 @@ class TestPullRequestRefreshControllers
                 mock(WorkspaceMetadataService.class),
                 issues,
                 mock(ModelSettingsService.class),
-                mock(CredentialService.class),
                 mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class),
                 mock(WorkspaceRelationships.class), new WriteVersion());
 
@@ -509,7 +548,7 @@ class TestPullRequestRefreshControllers
         WorkspaceController controller = new WorkspaceController(
                 workspaces, deletion, pullRequests(), mock(PullRequestRefreshService.class),
                 mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class),
-                mock(ModelSettingsService.class), mock(CredentialService.class), mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class),
+                mock(ModelSettingsService.class), mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class),
                 mock(WorkspaceRelationships.class), new WriteVersion());
         var mvc = standaloneSetup(controller).build();
 
@@ -536,11 +575,10 @@ class TestPullRequestRefreshControllers
         when(workspaces.listWorkspaces()).thenReturn(ImmutableList.of(workspaceSummary("watched-id", 200)));
         WorkspaceDeletionService deletion = mock(WorkspaceDeletionService.class);
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
-        CredentialService credentials = mock(CredentialService.class);
         WorkspaceController controller = new WorkspaceController(
                 workspaces, deletion, pullRequests(), refresh,
                 mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class),
-                mock(ModelSettingsService.class), credentials, mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class),
+                mock(ModelSettingsService.class), mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class),
                 mock(WorkspaceRelationships.class), new WriteVersion());
         var mvc = standaloneSetup(controller).build();
 
@@ -558,7 +596,7 @@ class TestPullRequestRefreshControllers
         verify(workspaces).listRetiredWorkspaces();
         verify(workspaces).listWorkspaces();
         verifyNoMoreInteractions(workspaces);
-        verifyNoInteractions(deletion, refresh, credentials);
+        verifyNoInteractions(deletion, refresh);
     }
 
     @Test
@@ -575,7 +613,6 @@ class TestPullRequestRefreshControllers
                 mock(WorkspaceMetadataService.class),
                 mock(WorkspaceIssueService.class),
                 mock(ModelSettingsService.class),
-                mock(CredentialService.class),
                 mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class),
                 mock(WorkspaceRelationships.class), new WriteVersion());
 
@@ -588,7 +625,7 @@ class TestPullRequestRefreshControllers
     private static PullRequestService pullRequests()
     {
         PullRequestService service = mock(PullRequestService.class);
-        when(service.prepareRead(any(), anyString(), anyInt())).thenAnswer(call -> read(call.getArgument(1), call.getArgument(2)));
+        when(service.prepareRead(any(PullRequestRoute.class), anyString(), anyInt())).thenAnswer(call -> read(call.getArgument(1), call.getArgument(2)));
         return service;
     }
 
@@ -603,7 +640,7 @@ class TestPullRequestRefreshControllers
     {
         return new WorkspaceSummary(id, "owner/repo", repositoryId, "owner", "repo", null, null, null,
                 repositoryId, "owner", "repo", Topology.DIRECT, "main", null,
-                "/tmp/bytequay-workspaces/" + id + "/repository", NOW, NOW, 0, null);
+                "/tmp/bytequay-workspaces/" + id + "/repository", NOW, NOW, 0, HostingServer.GITHUB_COM, HostingCapabilities.ALL);
     }
 
     private static PullRequestDetail detail()

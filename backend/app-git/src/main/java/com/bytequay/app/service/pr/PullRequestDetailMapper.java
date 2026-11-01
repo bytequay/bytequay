@@ -90,7 +90,7 @@ final class PullRequestDetailMapper
 
     private static boolean isNewer(PrCheckRunState candidate, PrCheckRunState kept)
     {
-        return candidate.githubId() != null && (kept.githubId() == null || candidate.githubId() > kept.githubId());
+        return candidate.remoteId() != null && (kept.remoteId() == null || candidate.remoteId() > kept.remoteId());
     }
 
     /** The names of the latest runs that fail, in the order the aggregate CI status reads them. */
@@ -106,7 +106,7 @@ final class PullRequestDetailMapper
     {
         return dedupeCheckRunsByName(checkRuns).stream()
                 .map(checkRun -> new PullRequestDetail.CheckRun(
-                        checkRun.githubId(),
+                        checkRun.remoteId(),
                         checkRun.name(),
                         checkRun.status(),
                         checkRun.conclusion(),
@@ -144,8 +144,8 @@ final class PullRequestDetailMapper
     {
         return timeline.stream()
                 .sorted(Comparator.comparing(PullRequestDetailMapper::time)
-                        .thenComparing(event -> Optional.ofNullable(event.githubId()).orElse(Long.MAX_VALUE)))
-                .map(event -> new PullRequestDetail.ActivityItem(event.actor(), event.event(), event.timestamp(), event.body(), event.githubId(), event.payload()))
+                        .thenComparing(event -> Optional.ofNullable(event.remoteId()).orElse(Long.MAX_VALUE)))
+                .map(event -> new PullRequestDetail.ActivityItem(event.actor(), event.event(), event.timestamp(), event.body(), event.remoteId(), event.payload()))
                 .collect(toImmutableList());
     }
 

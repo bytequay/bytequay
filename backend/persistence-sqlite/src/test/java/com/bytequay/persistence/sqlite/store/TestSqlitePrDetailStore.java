@@ -26,7 +26,12 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.bytequay.persistence.sqlite.entity.PullRequestEntity;
+import com.bytequay.persistence.sqlite.repository.HostingRepositoryJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PrCheckRunJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PrDetailJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PrReviewJpaRepository;
@@ -45,6 +50,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
+import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -52,6 +58,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -71,6 +78,12 @@ class TestSqlitePrDetailStore
 
     @Autowired
     private PullRequestJpaRepository pullRequests;
+
+    @Autowired
+    private SqliteHostingIdentityStore identities;
+
+    @Autowired
+    private HostingRepositoryJpaRepository repositories;
 
     @Autowired
     private PrTimelineJpaRepository timeline;
@@ -94,8 +107,13 @@ class TestSqlitePrDetailStore
     @BeforeEach
     void seedPullRequest()
     {
+        String path = PULL_REQUEST.repoFullName();
+        HostingInstance instance = identities.upsertInstance(new HostingServer(GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com")));
+        HostingRepository repository = identities.upsertRepository(instance.id(), new RemoteHostingRepository("1", path, URI.create("https://github.com/" + path),
+                URI.create("https://github.com/" + path + ".git"), Optional.empty(), Optional.of("main")));
         PullRequestEntity pullRequest = new PullRequestEntity();
-        pullRequest.setRepo(PULL_REQUEST.repoFullName());
+        pullRequest.setHostingRepository(repositories.getReferenceById(repository.id()));
+        pullRequest.setRepo(path);
         pullRequest.setNumber(PULL_REQUEST.number());
         pullRequest.setTitle("CI fix");
         pullRequest.setOrigin("AUTHORED");
@@ -370,7 +388,7 @@ class TestSqlitePrDetailStore
         store.save(prId, withTimeline(patched, third));
 
         assertThat(store.find(prId).orElseThrow().timeline())
-                .extracting(PrTimelineEvent::githubId)
+                .extracting(PrTimelineEvent::remoteId)
                 .containsExactlyInAnyOrder(null, 1L, 2L, 3L);
         assertThat(store.find(prId).orElseThrow().timeline())
                 .extracting(PrTimelineEvent::localEventKey)
@@ -525,7 +543,7 @@ class TestSqlitePrDetailStore
                 ImmutableList.of(new PrCheckRunState(21L, "build", "completed", "success", null, "check_run", null, null),
                         new PrCheckRunState(22L, "test", "completed", "failure", null, "check_run", null, null))));
         long aliceRowId = reviews.findByPrId(prId).stream()
-                .filter(row -> row.getGithubId() == 11L)
+                .filter(row -> row.getRemoteId() == 11L)
                 .findFirst()
                 .orElseThrow()
                 .getId();
@@ -536,12 +554,12 @@ class TestSqlitePrDetailStore
                 ImmutableList.of(new PrCheckRunState(21L, "build", "completed", "success", null, "check_run", null, null))));
 
         assertThat(reviews.findByPrId(prId)).singleElement().satisfies(row -> {
-            assertThat(row.getGithubId()).isEqualTo(11L);
+            assertThat(row.getRemoteId()).isEqualTo(11L);
             assertThat(row.getId()).isEqualTo(aliceRowId);
             assertThat(row.getBody()).isEqualTo("still lgtm");
         });
         assertThat(checkRuns.findByPrId(prId)).singleElement()
-                .satisfies(row -> assertThat(row.getGithubId()).isEqualTo(21L));
+                .satisfies(row -> assertThat(row.getRemoteId()).isEqualTo(21L));
     }
 
     @Test
@@ -562,11 +580,11 @@ class TestSqlitePrDetailStore
                 ImmutableList.of(StoredPrDetail.REVIEWS, StoredPrDetail.CHECKS, StoredPrDetail.REVIEW_THREADS)));
 
         assertThat(reviews.findByPrId(prId)).singleElement()
-                .satisfies(row -> assertThat(row.getGithubId()).isEqualTo(11L));
+                .satisfies(row -> assertThat(row.getRemoteId()).isEqualTo(11L));
         assertThat(checkRuns.findByPrId(prId)).singleElement()
-                .satisfies(row -> assertThat(row.getGithubId()).isEqualTo(21L));
+                .satisfies(row -> assertThat(row.getRemoteId()).isEqualTo(21L));
         assertThat(timeline.findByPrIdOrderByTimestampAscIdAsc(prId)).singleElement()
-                .satisfies(row -> assertThat(row.getGithubId()).isEqualTo(31L));
+                .satisfies(row -> assertThat(row.getRemoteId()).isEqualTo(31L));
     }
 
     @Test
@@ -627,9 +645,9 @@ class TestSqlitePrDetailStore
         return partial(ImmutableList.of(), ImmutableList.of(), events, ImmutableList.of());
     }
 
-    private static PrReviewState review(long githubId, String login, String body)
+    private static PrReviewState review(long remoteId, String login, String body)
     {
-        return new PrReviewState(githubId, login, null, false, "COMMENTED", NOW, body, null, null);
+        return new PrReviewState(remoteId, login, null, false, "COMMENTED", NOW, body, null, null);
     }
 
     private static StoredPrDetail detail(List<PrReviewState> reviews, List<PrCheckRunState> checkRuns)
@@ -664,14 +682,14 @@ class TestSqlitePrDetailStore
                 unavailableSections, false);
     }
 
-    private static PrTimelineEvent commit(long githubId, String sha, String message, Instant timestamp)
+    private static PrTimelineEvent commit(long remoteId, String sha, String message, Instant timestamp)
     {
-        return new PrTimelineEvent(githubId, "committed", "author", timestamp, null, PrTimelinePayload.builder().commitSha(sha).commitMessage(message).build(), Optional.empty());
+        return new PrTimelineEvent(remoteId, "committed", "author", timestamp, null, PrTimelinePayload.builder().commitSha(sha).commitMessage(message).build(), Optional.empty());
     }
 
-    private static PrTimelineEvent remote(long githubId, Instant timestamp)
+    private static PrTimelineEvent remote(long remoteId, Instant timestamp)
     {
-        return new PrTimelineEvent(githubId, "commented", "reviewer", timestamp, "comment", Optional.empty());
+        return new PrTimelineEvent(remoteId, "commented", "reviewer", timestamp, "comment", Optional.empty());
     }
 
     public static class RecordingStatementInspector

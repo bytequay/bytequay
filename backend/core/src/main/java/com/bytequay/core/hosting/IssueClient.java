@@ -13,8 +13,8 @@
  */
 package com.bytequay.core.hosting;
 
-import com.bytequay.core.domain.GitHubIssuePreview;
-import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.HostedIssuePreview;
+import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
@@ -26,28 +26,29 @@ import java.util.Optional;
 /** Remote issue operations normalized for the existing workspace issue surface. */
 public interface IssueClient
 {
-    HostingProvider provider();
+    IssueSyncPage list(HostingTarget target, Optional<Instant> since, int page);
 
-    IssueSyncPage list(HostingAccess access, HostingRepository repository, Optional<Instant> since, int page);
+    Optional<RepositoryIssue> find(HostingTarget target, int number);
 
-    Optional<RepositoryIssue> find(HostingAccess access, HostingRepository repository, int number);
+    HostedIssuePreview preview(HostingTarget target, int number);
 
-    GitHubIssuePreview preview(HostingAccess access, HostingRepository repository, int number);
+    RepositoryIssueDetail detail(HostingTarget target, int number);
 
-    RepositoryIssueDetail detail(HostingAccess access, HostingRepository repository, int number);
+    HostedIssueSource source(HostingTarget target, int number, boolean requireOpen);
 
-    GitHubIssueSource source(HostingAccess access, HostingRepository repository, int number, boolean requireOpen);
-
-    GitHubIssueSource create(HostingAccess access, HostingRepository repository, String title, String body);
+    HostedIssueSource create(HostingTarget target, String title, String body);
 
     /** Returns the note, or a command result with no remote ID when no note was created. */
-    PrTimelineEvent comment(HostingAccess access, HostingRepository repository, int number, String body);
+    PrTimelineEvent comment(HostingTarget target, int number, String body);
 
-    void close(HostingAccess access, HostingRepository repository, int number);
+    void close(HostingTarget target, int number);
 
-    String updateType(HostingAccess access, HostingRepository repository, int number, String type);
+    String updateType(HostingTarget target, int number, String type);
 
-    IssueMetadata updateMetadata(HostingAccess access, HostingRepository repository, int number, List<String> assignees, List<String> labels);
+    IssueMetadata updateMetadata(HostingTarget target, int number, List<String> assignees, List<String> labels);
 
-    IssueActivity activity(HostingAccess access, HostingRepository repository, int number);
+    IssueActivity activity(HostingTarget target, int number);
+
+    /** The issues the provider lists as children of issue {@code number}. */
+    ChildIssues children(HostingTarget target, int number);
 }

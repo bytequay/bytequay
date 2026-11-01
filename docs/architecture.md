@@ -41,10 +41,13 @@ read-only agent session on the workspace's Development model in a scratch
 checkout of the default branch, recorded as the same agent events a task
 records. The pages the agent saves are stored in SQLite with their versions and
 shown in a sandboxed `WebContentsView` with its own in-memory partition and no
-preload. Each page is its own origin on the `bytequay-artifact` scheme, served
-from its stored HTML under a content security policy that allows only inline
-scripts and styles and the app theme; navigation and new windows are refused, so
-a page reaches nothing outside itself.
+preload. An app-owned reader on the `bytequay-artifact` scheme stacks the saved
+pages in opaque-origin sandboxed frames. Each page is served from its stored HTML
+under a content security policy that allows only inline scripts and styles and
+the app theme. Pages report their height and headings to the reader for continuous
+scrolling and its index, but cannot access the reader or other pages. Only the
+reader may load a saved version into a frame; page navigation, new windows and
+external access remain refused.
 
 App notices project existing task, turn, approval, and queue state through the
 authenticated `/agent/notices` endpoint. Electron polls this local snapshot and
@@ -151,13 +154,22 @@ readers are verified with the matching application release.
 
 GitHub and GitLab share the contracts in `core.hosting`. The adapters in
 `plugins/github` and `plugins/gitlab` own HTTP requests, typed response records,
-provider-specific URLs and normalization. Application services select an adapter
-from the configured server; `app` composes the concrete implementations. The
-adapters depend on `core`, not application services or persistence.
+provider-specific URLs and normalization. Each provider supplies one
+`HostingIntegration` per range of server releases, holding all of its hosting
+ports, the oldest release it needs, and its capabilities. GitLab has two: one
+for 16.11 and later, and a legacy one for older servers (checked on 14.10) that
+reads unpaged changes, REST pipeline errors, and offers no issue child items.
+Connecting an account, and checking its permissions, read the server's release
+and keep it with the server. A remote call carries one `HostingTarget`, the
+selected account access and retained repository, and application services select
+the integration only through `HostingIntegrations`, by that target's server: the
+provider's newest implementation its release supports; `app` composes the
+concrete implementations. The adapters depend on `core`, not application
+services or persistence.
 
 The contracts cover accounts, repository metadata, paginated PR/MR and issue
-reads, request discussion, checks, diffs, and explicit remote actions. Existing
-GitHub clients implement the rich contracts through adapters in `app-github`;
+reads, request discussion, checks, CI runs and logs, diffs, and explicit remote
+actions. Existing GitHub clients implement the rich contracts through adapters in `app-github`;
 GitLab implements them in `plugins/gitlab`. GitLab.com and company servers use the same adapter
 with configured web/API base URLs, including path prefixes and ports. Credentials
 are encrypted separately from retained object identities. Redirects cannot
@@ -182,35 +194,40 @@ instance and retain the remote repository/project ID; namespace paths and URLs
 can change without creating a new identity. GitLab namespace paths may contain
 multiple groups.
 
-PRs and MRs use the existing `pull_requests` table, keyed by local hosting
-repository ID and request number, with the remote request ID retained separately.
-`pr_metadata_snapshots` stores normalized summary/detail data and ETags for each
+PRs and MRs from every provider use the `pull_requests` table, keyed by local
+hosting repository ID and request number. A repository is identified by its
+remote ID and a number is never reused inside it, so no request ID is kept: one
+provider API may report another ID for the same request (GitHub's issue search
+reports the issue's). `pr_metadata_snapshots` stores normalized summary/detail data and ETags for each
 observing account. Credential source distinguishes connected-account, global and
 workspace credentials. List refresh stores summaries without loading full detail
 or advancing its validation time; cached lists are paged within that account,
 repository and credential source. Cache eviction keeps request identity and local work.
 Hibernate owns the current schema; no migration framework is maintained.
 
-Legacy desktop rows remain separate because matching repository paths cannot
-establish historical remote identity. Shared metadata is projected onto existing
-desktop PR IDs so drafts, reviews and local timeline events keep their references.
-Path-only legacy lookups exclude hosted rows. Hosted reads and local mutations
-use the retained repository or PR ID. Account changes clear remote detail/diff
+Discovery and notifications store a summary under its repository and show the row
+on the dashboard; a full discovery pass hides an account's rows it no longer finds.
+Repository listings and card summaries store rows without showing them there. A
+caller that only knows `owner/repo#number` finds the row by its repository path;
+when two servers share that path, the most recently updated request wins. Needs
+attention lists one shared set of rows, and each opens through a workspace on its
+repository, else a connected account that reads it, else the desktop sign-in. Hosted
+reads and local mutations use the retained repository or PR ID. Account changes clear remote detail/diff
 projections while retaining local timeline events. Review drafts use the retained
 repository ID and request number. Issue caches and repository metadata use local
 hosting repository IDs, so equal project numbers on separate servers cannot collide.
 
 Workspace repository numbers are scoped by the configured server. A GitLab
-workspace retains that server and its selected hosting account/repository binding;
-GitHub workspaces keep their existing routing. Setup resolves the chosen project
+workspace retains that server and its selected hosting account/repository binding,
+whatever its provider. Setup resolves the chosen project
 through its account before saving a direct-clone workspace. Selecting another
 account re-verifies the same project on the same server. GitLab-only sign-in can
 reach workspace setup without a GitHub credential.
 
 ### Routing and refresh
 
-Workspace reads use their explicit hosting binding when present, otherwise the
-workspace token override, then the global GitHub credential. A read session holds
+Every workspace reads, and authenticates Git, through the account its hosting
+binding names; a workspace without one asks for an account. A read session holds
 the selected account, credential source and access details. It is a passive value;
 it does not lock reads or reject results if selection changes during a request.
 Desktop entry points use the same session and shared metadata cache, without a
@@ -250,20 +267,51 @@ state and timeline storage. Tokens remain in the backend.
 Issue refresh, comments, editing and publication use the shared issue client.
 Development task import fetches the provider's request head reference, and draft
 publication uses the selected workspace's writer. CI jobs expose a normalized job
-identity for log reads and explicit retry actions.
+identity for log reads and explicit retry actions. CI Autofix reads runs, job logs
+and delivery checks, and reruns failed jobs, through the workspace integration's
+`PullRequestCi`; the raw-log cache and excerpt selection are shared by every
+provider. On GitLab the run is the merge request's head pipeline: a retried job
+is a new attempt, the log's section headers become steps, the definition is the
+target project, and a rerun retries the pipeline's failed jobs. The agent's CI
+tools serve tasks on every provider.
 
 ### Provider differences and remaining integration
 
 GitLab approval, notes and discussions map to the existing review DTOs. GitLab
 has no atomic equivalent of a GitHub review containing several comments: if a
-later write fails, the adapter reports which earlier writes succeeded. Unsupported
-request-changes reviews, multi-line review comments and merge-train operations
-fail explicitly. The GitLab project's merge method remains authoritative.
+later write fails, the adapter reports which earlier writes succeeded. Each
+provider declares `HostingCapabilities`; the app hides request-changes reviews,
+multi-line selection and fork/backport workflows where a provider lacks them, and
+publishes a saved range on its last line. Merge-train operations fail explicitly.
+The GitLab project's merge method remains authoritative.
 
-Global GitHub personal discovery, GitHub-specific CI automation, fork/backport
-operations and remote epic-child synchronization still have native GitHub
-consumers. These need their own provider integration before GitLab parity can be
-claimed. GitLab contributor account profiles are unavailable where the API only
+Account discovery runs through each integration's `PullRequestDiscovery`, for the
+desktop GitHub sign-in and every other connected account. GitHub searches, reads
+its notifications inbox and summarizes cards with GraphQL. GitLab lists the
+account's merge requests, reads its to-do list and summarizes cards from each
+request's detail; it has no "reviewed by" or "involves" filter, and its cards
+carry no line counts, review decision or author-reply check. My Work lists the
+rows of each watched repository with the rest and opens them through that
+workspace. Requests discovered in repositories no workspace has open through a
+connected account that read them: an account route names that account instead of
+a workspace. A full discovery pass hides the requests an account no longer finds
+or is notified about.
+
+Backports and cherry-pick delivery read merge evidence, recent merged titles and
+request identities, and open or close requests, through the workspace's hosting
+route; links and description templates come from the provider. GitLab merge
+evidence takes the merge commit, else the squash commit, else the request's head
+for a fast-forward merge. A GitLab merge request opens within one project: GitLab
+workspaces have no fork topology, so two GitLab workspaces related as forks each
+push to their own project. Remote epic-child synchronization still has a native
+GitHub consumer that GitLab's capabilities hide and refuse.
+
+Circles belong to one hosting account, the desktop GitHub sign-in or a connected
+account, and their people are users on that account's server, keyed by the
+provider's user id. Activity collection reads through each integration's
+`TeamActivityReader` with the owning account's sign-in: GitHub reads members'
+public events and pages of watched repositories; GitLab reads the project events
+of watched projects, since its per-user events leave out merge requests. GitLab contributor account profiles are unavailable where the API only
 supplies commit author names and emails. GitLab commit history reads the local
 checkout without GitHub avatar or pull-request association enrichment.
 

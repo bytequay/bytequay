@@ -24,27 +24,29 @@ import { updateTeams } from '../teams/useTeams';
 import type { AttentionItem } from './attention';
 
 type Props = {
-  directory: TeamDirectory | null;
+  directories: TeamDirectory[] | null;
   /** Visible attention items, so "need you" matches the circle's Needs you tab. */
   attention: AttentionItem[];
-  viewerLogin: string | null;
 };
 
-/** "Circles": one tile per circle, like the repo tiles; a click opens that circle. */
-function CirclesGrid({ directory, attention, viewerLogin }: Props) {
+/** "Circles": one tile per circle across every account, like the repo tiles; a click opens that circle. */
+function CirclesGrid({ directories, attention }: Props) {
   const [creating, setCreating] = useState(false);
   const { busy, error, setError, run } = useAsyncAction(remoteErrorMessage);
+
+  if (directories === null || directories.length === 0) return null;
+  // ponytail: Home adds to the first account (the desktop sign-in when there is one); the Circles page adds to any account.
+  const target = directories[0];
+  const tiles = directories.flatMap(directory => directory.circles.map(circle => ({ directory, circle })));
 
   async function createCircle(value: TeamCreateInput) {
     if (busy) return;
     return run(async () => {
-      updateTeams(await window.bridge.createTeam(parseTeamCreateInput(value)));
+      updateTeams(await window.bridge.createTeam(target.accountId, parseTeamCreateInput(value)));
       setCreating(false);
     });
   }
 
-  if (directory === null) return null;
-  const account = directory.accountLogin;
   return (
     <div className="home-section">
       <div className="home-section__header">
@@ -53,13 +55,13 @@ function CirclesGrid({ directory, attention, viewerLogin }: Props) {
           + Add circle
         </button>
       </div>
-      {directory.circles.length === 0 && <div className="hp-empty">No circles yet.</div>}
+      {tiles.length === 0 && <div className="hp-empty">No circles yet.</div>}
       <div className="home-repo-grid">
-        {directory.circles.map(circle => {
-          const open = () => openCircle(account, circle.id);
+        {tiles.map(({ directory, circle }) => {
+          const open = () => openCircle(directory.accountId, circle.id);
           return (
             <div
-              key={circle.id}
+              key={`${directory.accountId}:${circle.id}`}
               data-circle-id={circle.id}
               className="home-repo-tile"
               role="button"
@@ -81,16 +83,16 @@ function CirclesGrid({ directory, attention, viewerLogin }: Props) {
               <div className="home-repo-tile__stats">
                 {circle.members.length === 0 ? <span><b>0</b> people</span> : <span className="home-circle-tile__people">
                   <span className="cir-avatars">{circle.members.slice(0, 3).map(member =>
-                    <Avatar key={member.githubId} login={member.login} avatarUrl={member.avatarUrl} size={16} />)}</span>
+                    <Avatar key={member.remoteId} login={member.login} avatarUrl={member.avatarUrl} size={16} allowGitHubFallback={directory.server.provider === 'GITHUB'} />)}</span>
                   {circle.members.length > 3 && <span>{circle.members.length - 3} {circle.members.length === 4 ? 'other' : 'others'}</span>}
                 </span>}
-                <span><b>{circleNeeds(attention, [circle], viewerLogin).length}</b> need you</span>
+                <span><b>{circleNeeds(attention, [{ ...directory, circles: [circle] }]).length}</b> need you</span>
               </div>
             </div>
           );
         })}
       </div>
-      {creating && <CircleDialog circle={null} circles={directory.circles} busy={busy} error={error}
+      {creating && <CircleDialog circle={null} directory={target} busy={busy} error={error}
         onSave={createCircle} onCancel={() => setCreating(false)} onClearError={() => setError(null)} />}
     </div>
   );

@@ -15,15 +15,19 @@ package com.bytequay.app.cherrypick;
 
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.git.command.GitCommandRunner.Result;
-import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
-import com.bytequay.app.repository.github.GitHubPullRequestReadClient.MergedPullRequest;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.HostingIntegrations;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.cherrypick.MergedPullRequestRange;
+import com.bytequay.core.domain.MergedPullRequest;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.hosting.HostingFailure;
+import com.bytequay.core.hosting.HostingIntegration;
+import com.bytequay.core.hosting.HostingTarget;
 import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -44,20 +48,23 @@ public class MergedPullRequestResolver
     private final WorkspaceRepositoryService workspaces;
     private final WorkspaceRemoteSourceService remotes;
     private final CredentialService credentials;
-    private final GitHubPullRequestReadClient pullRequests;
+    private final WorkspaceHostingService hosting;
+    private final HostingIntegrations integrations;
     private final GitCommandRunner git;
 
     public MergedPullRequestResolver(
             WorkspaceRepositoryService workspaces,
             WorkspaceRemoteSourceService remotes,
             CredentialService credentials,
-            GitHubPullRequestReadClient pullRequests,
+            WorkspaceHostingService hosting,
+            HostingIntegrations integrations,
             GitCommandRunner git)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.remotes = requireNonNull(remotes, "remotes is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
-        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.hosting = requireNonNull(hosting, "hosting is null");
+        this.integrations = requireNonNull(integrations, "integrations is null");
         this.git = requireNonNull(git, "git is null");
     }
 
@@ -68,22 +75,25 @@ public class MergedPullRequestResolver
         Path repository = context.repository();
         WorkspaceRemote remote = remotes.list(workspaceId).stream().filter(value -> value.name().equals(sourceRemote)).findFirst()
                 .orElseThrow(() -> hold("The source remote is not configured"));
-        String expectedUrl = "https://github.com/" + pullRequest.repoFullName();
-        requireEvidence(remote.url().equalsIgnoreCase(expectedUrl) || remote.url().equalsIgnoreCase(expectedUrl + ".git"),
-                "The source remote does not name the pull request's GitHub repository");
+        HostingTarget target = hosting.repositoryTarget(workspaceId, pullRequest.repoFullName());
+        HostingIntegration integration = integrations.of(target);
+        String webUrl = target.repository().webUrl().toASCIIString();
+        requireEvidence(remote.url().equalsIgnoreCase(webUrl) || remote.url().equalsIgnoreCase(webUrl + ".git")
+                        || remote.url().equalsIgnoreCase(target.repository().httpCloneUrl().toASCIIString()),
+                "The source remote does not name the pull request's repository");
         requireEvidence(read(repository, "config", "--get", "remote." + sourceRemote + ".url").strip().equals(remote.url()),
                 "The source remote changed from saved workspace routing");
         requireEvidence(read(repository, "rev-parse", "--is-shallow-repository").strip().equals("false"), "The repository is shallow; fetch complete history first");
 
         MergedPullRequest merged;
         try {
-            merged = pullRequests.fetchMergedPullRequest(credentials.resolveGitHubToken(workspaceId), pullRequest);
+            merged = integration.contents().merged(target, pullRequest.number());
         }
-        catch (IllegalArgumentException | IllegalStateException invalid) {
+        catch (IllegalArgumentException | IllegalStateException | HostingFailure invalid) {
             throw hold(invalid.getMessage());
         }
         catch (ResponseStatusException unavailable) {
-            throw hold(Optional.ofNullable(unavailable.getReason()).orElse("GitHub merge evidence is unavailable"));
+            throw hold(Optional.ofNullable(unavailable.getReason()).orElse("Merge evidence is unavailable"));
         }
         context.sourceRepositoryId(sourceRemote).ifPresent(id -> requireEvidence(id == merged.repositoryId(), "The source repository ID changed"));
 
@@ -95,7 +105,7 @@ public class MergedPullRequestResolver
             Result fetch = git.run(repository, Duration.ofMinutes(10), credentials.gitAuthenticationEnvironment(workspaceId, ImmutableList.of(remote.url())),
                     ImmutableList.of("fetch", "--quiet", "--no-tags", "--no-write-fetch-head", sourceRemote,
                             "+refs/heads/" + branch + ":" + prefix + "/base",
-                            "+refs/pull/" + pullRequest.number() + "/head:" + prefix + "/head"));
+                            "+" + integration.contents().headRef(pullRequest.number()) + ":" + prefix + "/head"));
             requireEvidence(fetch.successful() && !fetch.truncated(), "Cannot fetch the pull request's base and original head; refresh the source repository");
             requireEvidence(read(repository, "rev-parse", prefix + "/head").strip().equals(merged.identity().headSha()), "The fetched pull-request head changed");
             requireEvidence(local(repository, "merge-base", "--is-ancestor", merged.mergeSha(), prefix + "/base").successful(),

@@ -15,7 +15,6 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.config.WriteVersion;
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.ModelSettingsService;
@@ -52,7 +51,7 @@ class TestWorkspaceIssueDevelopmentController
     private final IssueDevelopmentService development = mock(IssueDevelopmentService.class);
     private final MockMvc mvc = standaloneSetup(new WorkspaceController(
             mock(WorkspaceRepositoryService.class), mock(WorkspaceDeletionService.class), mock(PullRequestService.class), mock(PullRequestRefreshService.class),
-            mock(WorkspaceMetadataService.class), issues, mock(ModelSettingsService.class), mock(CredentialService.class), mock(WorkspaceCommitsSettingsService.class),
+            mock(WorkspaceMetadataService.class), issues, mock(ModelSettingsService.class), mock(WorkspaceCommitsSettingsService.class),
             development, mock(WorkspaceRelationships.class), new WriteVersion())).build();
 
     @Test
@@ -64,11 +63,12 @@ class TestWorkspaceIssueDevelopmentController
                 ImmutableList.of("bug"), ImmutableList.of("alice"), 0, now, now);
         when(issues.find("workspace", 7)).thenReturn(Optional.of(issue));
         when(development.metadata("workspace", 70))
-                .thenReturn(new IssueDevelopmentService.Metadata(false, Optional.of(new IssueDevelopmentService.TaskLink("task-id", "original-workspace"))));
+                .thenReturn(new IssueDevelopmentService.Metadata("ISSUE:github.com:70", false, Optional.of(new IssueDevelopmentService.TaskLink("task-id", "original-workspace"))));
         mvc.perform(get("/api/workspaces/workspace/issues/7"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(70))
                 .andExpect(jsonPath("$.title").value("Fix selection"))
+                .andExpect(jsonPath("$.epicId").value("ISSUE:github.com:70"))
                 .andExpect(jsonPath("$.isEpic").value(false))
                 .andExpect(jsonPath("$.developmentTask.taskId").value("task-id"))
                 .andExpect(jsonPath("$.developmentTask.workspaceId").value("original-workspace"))
@@ -89,7 +89,7 @@ class TestWorkspaceIssueDevelopmentController
     void epicUpdatesUseLocalSourceService()
             throws Exception
     {
-        when(development.setEpic("workspace", 7, true)).thenReturn(new IssueDevelopmentService.Metadata(true, Optional.empty()));
+        when(development.setEpic("workspace", 7, true)).thenReturn(new IssueDevelopmentService.Metadata("ISSUE:github.com:70", true, Optional.empty()));
         mvc.perform(patch("/api/workspaces/workspace/issues/7/epic").contentType(MediaType.APPLICATION_JSON).content("{\"isEpic\":true}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.isEpic").value(true));

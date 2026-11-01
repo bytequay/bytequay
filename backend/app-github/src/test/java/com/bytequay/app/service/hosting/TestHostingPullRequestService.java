@@ -21,12 +21,12 @@ import com.bytequay.core.hosting.HostingCredential;
 import com.bytequay.core.hosting.HostingCredential.Source;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
-import com.bytequay.core.hosting.HostingIntegration;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepositories;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.hosting.PullRequestReader;
@@ -48,6 +48,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.connections;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
 import static com.bytequay.core.domain.PullRequest.Origin.AUTHORED;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
@@ -93,7 +95,7 @@ class TestHostingPullRequestService
         when(snapshots.find(anyLong(), eq(30L), eq(7))).thenAnswer(call -> Optional.ofNullable(cache.get(call.<Long>getArgument(0))));
         when(snapshots.save(anyLong(), eq(30L), anyString(), any(), any(), any(), any())).thenAnswer(call -> {
             FetchedPullRequest summary = call.getArgument(3);
-            HostingPullRequestSnapshot snapshot = new HostingPullRequestSnapshot(new HostingPullRequest(40, 30, 7, summary.githubId().toString()),
+            HostingPullRequestSnapshot snapshot = new HostingPullRequestSnapshot(new HostingPullRequest(40, 30, 7),
                     call.getArgument(0), call.getArgument(2), summary, call.getArgument(4), call.getArgument(5), call.getArgument(6));
             cache.put(snapshot.accountId(), snapshot);
             return snapshot;
@@ -106,7 +108,7 @@ class TestHostingPullRequestService
             cache.clear();
             return null;
         }).when(snapshots).evictRepository(30, 7);
-        when(reader.fetch(any(), any(), anyInt(), any())).thenReturn(fetched("First", Optional.of("v1")));
+        when(reader.fetch(any(), anyInt(), any())).thenReturn(fetched("First", Optional.of("v1")));
         service = service(HostingProvider.GITLAB);
     }
 
@@ -116,7 +118,7 @@ class TestHostingPullRequestService
     {
         service = service(provider);
         HostingPullRequestSnapshot result = service.refresh(20, 30, 7);
-        assertThat(result.request()).isEqualTo(new HostingPullRequest(40, 30, 7, "99"));
+        assertThat(result.request()).isEqualTo(new HostingPullRequest(40, 30, 7));
         assertThat(result.pullRequest().title()).isEqualTo("First");
         assertThat(result.validatedAt()).isEqualTo(NOW);
         assertThat(service.cached(20, 30, 7)).contains(result);
@@ -130,14 +132,14 @@ class TestHostingPullRequestService
         HostingReadSession session = connections.readSession(20);
         HostingRepository repository = identities.findRepository(30).orElseThrow();
         FetchedPullRequest summary = fetched("Listed", Optional.empty()).pullRequest().orElseThrow();
-        when(reader.list(session.access(), repository, true, 2, 25)).thenReturn(new PullRequestListPage(ImmutableList.of(summary), true));
+        when(reader.list(new HostingTarget(session.access(), repository), true, 2, 25)).thenReturn(new PullRequestListPage(ImmutableList.of(summary), true));
 
         PullRequestListPage result = service.refreshPage(session, 30, true, 2, 25);
 
         assertThat(result.items()).containsExactly(summary.withViewerOrigin("alice"));
         assertThat(result.hasNext()).isTrue();
         verify(snapshots).savePage(20, 30, CONNECTED_ACCOUNT, result.items());
-        verify(reader, never()).fetch(any(), any(), anyInt(), any());
+        verify(reader, never()).fetch(any(), anyInt(), any());
         assertThat(cache).isEmpty();
     }
 
@@ -158,7 +160,7 @@ class TestHostingPullRequestService
     void failedListingDoesNotReplaceCachedSummaries()
     {
         HostingReadSession session = connections.readSession(20);
-        when(reader.list(any(), any(), eq(false), eq(1), eq(100))).thenThrow(new HostingFailure(UNAVAILABLE, "Offline"));
+        when(reader.list(any(), eq(false), eq(1), eq(100))).thenThrow(new HostingFailure(UNAVAILABLE, "Offline"));
 
         assertThatThrownBy(() -> service.refreshPage(session, 30, false, 1, 100)).isInstanceOf(HostingFailure.class);
 
@@ -177,13 +179,13 @@ class TestHostingPullRequestService
     void conditionalRefreshReturnsCompleteMetadataAndKeepsIdentity()
     {
         HostingPullRequestSnapshot first = service.refresh(20, 30, 7);
-        when(reader.fetch(any(), any(), eq(7), eq(Optional.of("v1"))))
+        when(reader.fetch(any(), eq(7), eq(Optional.of("v1"))))
                 .thenReturn(new PullRequestFetch(Optional.empty(), Optional.of("v2")));
         HostingPullRequestSnapshot validated = service.refresh(20, 30, 7);
         assertThat(validated.request()).isEqualTo(first.request());
         assertThat(validated.detail()).isEqualTo(first.detail());
         assertThat(validated.etag()).contains("v2");
-        verify(reader).fetch(any(), any(), eq(7), eq(Optional.of("v1")));
+        verify(reader).fetch(any(), eq(7), eq(Optional.of("v1")));
     }
 
     @Test
@@ -192,7 +194,7 @@ class TestHostingPullRequestService
         service.refresh(20, 30, 7);
         assertThat(service.cached(21, 30, 7)).isEmpty();
         reset(reader);
-        when(reader.fetch(any(), any(), eq(7), eq(Optional.empty()))).thenReturn(fetched("Second account", Optional.of("other")));
+        when(reader.fetch(any(), eq(7), eq(Optional.empty()))).thenReturn(fetched("Second account", Optional.of("other")));
         HostingPullRequestSnapshot second = service.refresh(21, 30, 7);
         assertThat(second.request()).isEqualTo(cache.get(20L).request());
         assertThat(service.cached(20, 30, 7).orElseThrow().pullRequest().title()).isEqualTo("First");
@@ -207,7 +209,7 @@ class TestHostingPullRequestService
         HostingReadSession desktop = new HostingReadSession(20, "github-global", connected.access());
         assertThat(service.cached(desktop, 30, 7)).isEmpty();
         reset(reader);
-        when(reader.fetch(any(), any(), eq(7), eq(Optional.empty()))).thenReturn(fetched("Desktop", Optional.of("desktop")));
+        when(reader.fetch(any(), eq(7), eq(Optional.empty()))).thenReturn(fetched("Desktop", Optional.of("desktop")));
 
         HostingPullRequestSnapshot result = service.refresh(desktop, 30, 7, false);
 
@@ -221,7 +223,7 @@ class TestHostingPullRequestService
     {
         service.refresh(20, 30, 7);
         reset(reader);
-        when(reader.fetch(any(), any(), eq(7), eq(Optional.empty()))).thenReturn(fetched("Forced", Optional.empty()));
+        when(reader.fetch(any(), eq(7), eq(Optional.empty()))).thenReturn(fetched("Forced", Optional.empty()));
 
         assertThat(service.refresh(connections.readSession(20), 30, 7, true).pullRequest().title()).isEqualTo("Forced");
         assertThat(cache.get(20L).credentialScope()).isEqualTo(CONNECTED_ACCOUNT);
@@ -246,7 +248,7 @@ class TestHostingPullRequestService
     {
         service.refresh(20, 30, 7);
         service.refresh(21, 30, 7);
-        when(reader.fetch(any(), any(), anyInt(), any())).thenThrow(new HostingFailure(kind, "Access unavailable"));
+        when(reader.fetch(any(), anyInt(), any())).thenThrow(new HostingFailure(kind, "Access unavailable"));
         assertThatThrownBy(() -> service.refresh(20, 30, 7)).isInstanceOf(HostingFailure.class);
         assertThat(cache).doesNotContainKey(20L).containsKey(21L);
     }
@@ -255,7 +257,7 @@ class TestHostingPullRequestService
     void temporaryFailurePreservesExplicitlyReadableCachedData()
     {
         HostingPullRequestSnapshot previous = service.refresh(20, 30, 7);
-        when(reader.fetch(any(), any(), anyInt(), any())).thenThrow(new HostingFailure(UNAVAILABLE, "Offline"));
+        when(reader.fetch(any(), anyInt(), any())).thenThrow(new HostingFailure(UNAVAILABLE, "Offline"));
         assertThatThrownBy(() -> service.refresh(20, 30, 7)).isInstanceOf(HostingFailure.class);
         assertThat(service.cached(20, 30, 7)).contains(previous);
     }
@@ -264,7 +266,7 @@ class TestHostingPullRequestService
     void incompleteResponseCannotReplaceACompleteSnapshot()
     {
         HostingPullRequestSnapshot previous = service.refresh(20, 30, 7);
-        when(reader.fetch(any(), any(), anyInt(), any())).thenReturn(new PullRequestFetch(Optional.of(previous.pullRequest()), Optional.empty()));
+        when(reader.fetch(any(), anyInt(), any())).thenReturn(new PullRequestFetch(Optional.of(previous.pullRequest()), Optional.empty()));
         assertThatThrownBy(() -> service.refresh(20, 30, 7))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
         assertThat(cache.get(20L)).isEqualTo(previous);
@@ -274,7 +276,7 @@ class TestHostingPullRequestService
     {
         when(identities.findInstance(10)).thenReturn(Optional.of(new HostingInstance(10, provider, URI.create("https://hosting.test"), URI.create("https://hosting.test/api"))));
         connections = new HostingConnectionService(identities, credentials,
-                ImmutableList.of(new HostingIntegration(provider, mock(HostingAccounts.class), mock(HostingRepositories.class), reader)), ImmutableList.of());
+                integrations(connections(provider, mock(HostingAccounts.class), mock(HostingRepositories.class), reader)), ImmutableList.of());
         return new HostingPullRequestService(connections, snapshots, identities, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

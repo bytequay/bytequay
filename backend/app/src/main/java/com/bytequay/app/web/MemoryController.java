@@ -37,7 +37,7 @@ import java.util.Optional;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** A workspace's repository memory. Every change answers with the page as it now is; nothing here reaches GitHub. */
+/** A workspace's repository memory. Every change answers with the page as it now is; nothing here reaches the provider. */
 @RestController
 @RequestMapping("/api/workspaces/{workspaceId}/memory")
 public class MemoryController

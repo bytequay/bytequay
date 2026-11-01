@@ -763,7 +763,7 @@ const ISSUE_NUMBER = /((?<![\p{L}\p{N}_&/])(?:[a-z0-9][a-z0-9-]*\/[a-z0-9_.-]+)?
 /**
  * Text with every `#1234` linked, with its hover card, to that issue or pull request in `repository`.
  * An explicit `owner/repo#1234` names its own repository.
- * Every surface showing GitHub or agent text goes through here. In prose the link reads as the item's
+ * Every surface showing provider or agent text goes through here. In prose the link reads as the item's
  * icon, title and number; a `compact` one, inside a title that is already a heading, stays `#1234`.
  */
 export function linkIssueNumbers(text: string, repository: string | null | undefined, compact = false): ReactNode[] {

@@ -25,9 +25,9 @@ import com.bytequay.app.workitem.WorkItemCatalog;
 import com.bytequay.app.workitem.WorkItemContextView;
 import com.bytequay.core.domain.Epic;
 import com.bytequay.core.domain.EpicChild;
-import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
+import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.IssueEpic;
 import com.bytequay.core.domain.IssueTask;
 import com.bytequay.core.domain.JiraIssueSource;
@@ -82,7 +82,7 @@ import static org.mockito.Mockito.withSettings;
 class TestIssueContextBridgeResolverImpl
 {
     private static final Instant NOW = Instant.parse("2026-09-16T00:00:00Z");
-    private static final GitHubIssueSource SOURCE = new GitHubIssueSource("github.com", 70, "upstream/repo", 7,
+    private static final HostedIssueSource SOURCE = new HostedIssueSource("github.com", 70, "upstream/repo", 7,
             "https://github.com/upstream/repo/issues/7", "Fix selection", "Accepted description", NOW);
     private final TaskId taskId = TaskId.random();
     private final AgentTaskStore tasks = mock(AgentTaskStore.class);
@@ -369,9 +369,9 @@ class TestIssueContextBridgeResolverImpl
                 WorkItem.Priority.NORMAL, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of(new WorkItemContextLink(targetId, "Linked background")));
         when(workItems.findByIdentity(WorkItemLink.taskIdentity(taskId.toString()))).thenReturn(Optional.of(item));
         when(catalog.contextLinks("workspace", "local")).thenReturn(ImmutableList.of(
-                new WorkItemContextView(targetId, "resolved-local", UnifiedWorkItem.Source.GITHUB, "Linked background", "Open", true, Optional.empty())));
-        for (String source : ImmutableList.of("LOCAL", "GITHUB", "JIRA")) {
-            when(sources.findByTaskId(taskId.toString())).thenReturn(source.equals("GITHUB")
+                new WorkItemContextView(targetId, "resolved-local", UnifiedWorkItem.Source.ISSUE, "Linked background", "Open", true, Optional.empty())));
+        for (String source : ImmutableList.of("LOCAL", "ISSUE", "JIRA")) {
+            when(sources.findByTaskId(taskId.toString())).thenReturn(source.equals("ISSUE")
                     ? Optional.of(new IssueTask(taskId.toString(), "workspace", SOURCE, Optional.empty(), NOW)) : Optional.empty());
             JiraIssueSource jiraSource = new JiraIssueSource("connection", "cloud", "10001", "APP-7", "https://company.atlassian.net/browse/APP-7",
                     "Jira assignment", "Jira body", NOW);

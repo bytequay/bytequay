@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { PullRequestWorkspaceProvider, readPullRequestViewer, usePullRequestBridge, usePullRequestWorkspace } from './PullRequestWorkspace';
+import { PullRequestWorkspaceProvider, readPullRequestViewer, useHostingPresentation, usePullRequestBridge, usePullRequestWorkspace } from './PullRequestWorkspace';
 import { shortSha } from '@bytequay/ui/displayText';
 import type { LucideIcon } from 'lucide-react';
 import { Bell, Bot, Check, CircleSlash, Code, Diff, Ellipsis, Eye, GitPullRequest, Maximize, MessageCircle, PanelRight, RefreshCw, UserRound, X } from 'lucide-react';
@@ -19,7 +19,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type Componen
 import { findConversationReview, followAgentReview } from '../agents/agentConversations';
 import { useTaskCardState } from '../agents/attention';
 import DevelopmentLearningPanel from '../agents/DevelopmentLearningPanel';
-import type { ReviewCardFocus } from '../agents/ReviewRequestCard';
+import type { ReviewCardFocus } from '../agents/InstructionCard';
 import TaskPaneDivider, { useTaskPane } from '../agents/TaskPaneDivider';
 import TaskHeader from '../agents/TaskHeader';
 import { ConfirmDialog } from '../ConfirmDialog';
@@ -33,7 +33,7 @@ import { completeAttentionVisit, recordAttentionAction, useAttentionVisit } from
 import type { NavigationMode } from '../navigationHistory';
 import { useRecentTouch } from '../recent/useRecentTouch';
 import Toast from '../Toast';
-import type { AgentTaskDto, Bridge, HostingServerDto, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, PullRequestTaskLink, PullRequestViewer } from '../types';
+import type { AgentTaskDto, Bridge, HostingCapabilitiesDto, HostingServerDto, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, PullRequestTaskLink, PullRequestViewer } from '../types';
 import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import UserAvatar from '../UserAvatar';
 import { useResizablePane } from '../useResizablePane';
@@ -332,7 +332,7 @@ export function PullFilterTabs({ tab, searching, counts, width, panelId, onSelec
 }
 
 export default function PullsScreen(props: Parameters<typeof PullsContent>[0]) {
-  return <PullRequestWorkspaceProvider workspaceId={props.repositoryScope?.workspaceId} server={props.repositoryScope?.server} repository={props.repositoryScope?.repository}><PullsContent {...props} /></PullRequestWorkspaceProvider>;
+  return <PullRequestWorkspaceProvider workspaceId={props.repositoryScope?.workspaceId} server={props.repositoryScope?.server} capabilities={props.repositoryScope?.capabilities} repository={props.repositoryScope?.repository}><PullsContent {...props} /></PullRequestWorkspaceProvider>;
 }
 
 function PullsContent({
@@ -350,7 +350,7 @@ function PullsContent({
   initialReviewId?: string;
   /** That review when the caller has just read it; only the first load uses it, so a retry reads it again. */
   initialReview?: AgentReviewDto;
-  repositoryScope?: { workspaceId: string; repository: string; server?: HostingServerDto };
+  repositoryScope?: { workspaceId: string; repository: string; server?: HostingServerDto; capabilities?: HostingCapabilitiesDto };
   browserOpen?: boolean;
   onSelectPullRequest?: (reference: { repo: string; number: number }, mode: NavigationMode) => void;
   /** Opens only initialPr over the current page, without list reads or navigation. */
@@ -360,6 +360,7 @@ function PullsContent({
   const bridge = usePullRequestBridge();
   const singlePullRequest = onClose !== undefined || reviewWorkspace !== undefined;
   const scopedWorkspaceId = repositoryScope?.workspaceId;
+  const { accountId } = useHostingPresentation();
   const scopedRepository = repositoryScope?.repository;
   const overlay = onClose !== undefined;
   const reviewPane = useTaskPane();
@@ -491,14 +492,14 @@ function PullsContent({
 
   useEffect(() => {
     let cancelled = false;
-    const read = readPullRequestViewer(bridge, { workspaceId: scopedWorkspaceId, repository: scopedRepository });
+    const read = readPullRequestViewer(bridge, { workspaceId: scopedWorkspaceId, accountId, repository: scopedRepository });
     void read.then(profile => {
       if (cancelled) return;
       setViewerLogin(profile?.login ?? null);
       setViewer(profile);
     }).catch(() => { if (!cancelled) setViewerLogin(null); });
     return () => { cancelled = true; };
-  }, [bridge, scopedRepository, scopedWorkspaceId]);
+  }, [accountId, bridge, scopedRepository, scopedWorkspaceId]);
 
   const applyPage = useCallback((result: PullRequestPageDto) => {
     const selected = selectedPullRequest.current;
@@ -1721,8 +1722,9 @@ export function ReviewDialog({
     onChange: text => { edited.current = true; setBody(text); }, textareaRef: bodyRef });
   const inFlight = useRef(false);
   const authored = pr.origin === 'AUTHORED';
+  const requestChanges = useHostingPresentation().capabilities?.requestChanges !== false;
   const [selectedEvent, setEvent] = useState<ReviewEvent>(authored ? 'COMMENT' : draft?.event ?? 'COMMENT');
-  const event = authored ? 'COMMENT' : selectedEvent;
+  const event = authored || (!requestChanges && selectedEvent === 'REQUEST_CHANGES') ? 'COMMENT' : selectedEvent;
   const [submitting, setSubmitting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [unsavedClose, setUnsavedClose] = useState(false);
@@ -1730,7 +1732,7 @@ export function ReviewDialog({
   const busy = submitting || saving || command.loading;
   const [error, setError] = useState<string | null>(null);
   const promoted = draft?.items.filter(item => !item.published && (item.included || item.publication !== null)) ?? [];
-  // Review text in a send stays as sent until the user says whether it reached GitHub.
+  // Review text in a send stays as sent until the user says whether it reached the provider.
   const reviewSend = draft?.reviewPublication?.state ?? null;
   const unconfirmed = reviewSend !== null || (draft?.items.some(item => item.publication?.state === 'UNCERTAIN' || item.publication?.state === 'RESERVED') ?? false);
   const earlierCommentsNeedText = event === 'REQUEST_CHANGES' && pendingComments.length + promoted.length > 0
@@ -2067,7 +2069,7 @@ export function ReviewDialog({
           title="Approve"
           description="Submit feedback and approve merging these changes."
           onChange={() => { edited.current = true; setEvent('APPROVE'); }} />}
-        {!authored && <ReviewChoice
+        {!authored && requestChanges && <ReviewChoice
           disabled={busy || reviewSend !== null}
           checked={event === 'REQUEST_CHANGES'}
           title="Request Changes"

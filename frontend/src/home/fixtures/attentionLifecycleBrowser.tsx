@@ -32,7 +32,7 @@ import '../../css/base.css';
 import '../../css/home.css';
 
 const noOp = () => {};
-const workspace = { id: 'ws-1', name: 'octo/app', monitoredOwner: 'octo', monitoredRepo: 'app', localRepositoryPath: '/managed/ws-1' } as WorkspaceDto;
+const workspace = { id: 'ws-1', name: 'octo/app', monitoredOwner: 'octo', monitoredRepo: 'app', hostingServer: { provider: 'GITHUB', webBaseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' }, localRepositoryPath: '/managed/ws-1' } as WorkspaceDto;
 
 function item(number: number): AttentionItem {
   const pr: PullRequestDto = {

@@ -45,6 +45,9 @@ import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingPullRequest;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.EpicStore;
@@ -64,6 +67,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockMakers;
 
+import java.net.URI;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Map;
@@ -73,6 +77,7 @@ import java.util.OptionalLong;
 
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -94,7 +99,7 @@ class TestAssistantRows
     private static final Workspace WORKSPACE = new Workspace("ws1", "Repository", 1, RepoRef.of("owner", "repository"), Optional.empty(), Optional.empty(), 1,
             RepoRef.of("owner", "repository"),
             Workspace.Topology.DIRECT, "master", "https://github.com/owner/repository.git", Optional.empty(), Optional.empty(), "/managed/repository", Optional.empty(),
-            Optional.empty(), 0, NOW, NOW);
+            Optional.empty(), 0, NOW, NOW, HostingServer.GITHUB_COM);
 
     private final PullRequestStore pullRequests = mock(PullRequestStore.class);
     private final PrDetailStore details = mock(PrDetailStore.class);
@@ -124,6 +129,8 @@ class TestAssistantRows
 
         when(pullRequests.findIdByRepoAndNumber("owner/repository", 31402)).thenReturn(Optional.of(7L));
         when(pullRequests.findById(7L)).thenReturn(Optional.of(pullRequest("clean")));
+        when(pullRequests.findHostingIdentity(7L)).thenReturn(Optional.of(new HostingPullRequest(7, 20, 31402)));
+        when(workspaces.findByHostingRepositoryId(20)).thenReturn(Optional.of(WORKSPACE));
         PrRawDetail raw = mock(PrRawDetail.class, withSettings().mockMaker(MockMakers.INLINE));
         when(raw.headSha()).thenReturn(HEAD);
         // A reviewer's later comment leaves their approval standing; GitHub counts verdicts only.
@@ -176,19 +183,19 @@ class TestAssistantRows
     void drawsEachRefFromTheStoresWithItsKindsFacts()
     {
         String waiting = "task:" + WAITING.id();
-        Map<String, AssistantRow> read = rows.rows(ImmutableList.of("pr:owner/repository#31402", "issue:owner/repository#77", "jira:cloud:10042", waiting, "review:r7", "work:w22",
-                "epic:LOCAL:w1", "pr:owner/repository#1", "task:not-a-task", "ws:ws1", "pr:owner/repository#31402"));
+        Map<String, AssistantRow> read = rows.rows(ImmutableList.of("pr:owner/repository#31402", "issue:ws1:owner/repository#77", "jira:cloud:10042", waiting, "review:r7",
+                "work:w22", "epic:LOCAL:w1", "pr:owner/repository#1", "task:not-a-task", "ws:ws1", "pr:owner/repository#31402", "issue:ws9:owner/repository#77"));
 
         // A ref that no longer resolves has no row, so the panel draws it as gone; a repeated ref is read once.
-        assertThat(read).containsOnlyKeys("pr:owner/repository#31402", "issue:owner/repository#77", "jira:cloud:10042", waiting, "review:r7", "work:w22", "epic:LOCAL:w1");
+        assertThat(read).containsOnlyKeys("pr:owner/repository#31402", "issue:ws1:owner/repository#77", "jira:cloud:10042", waiting, "review:r7", "work:w22", "epic:LOCAL:w1");
         assertThat(read.get("pr:owner/repository#31402")).isEqualTo(new AssistantRow("pr:owner/repository#31402", Kind.PULL, "Retry Iceberg commit on conflict",
                 Optional.of("#31402"), Optional.of("open"), Optional.of("failing"), Optional.of("changes_requested"), Optional.of(1), true, false, false, Optional.of(HEAD),
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(NOW.minusSeconds(60)), Optional.of(new Latest(Optional.of("bo-t"),
                         "requested changes: Please split the retry into its own commit", NOW.minusSeconds(300))),
-                        AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1"))));
-        assertThat(read.get("issue:owner/repository#77")).isEqualTo(new AssistantRow("issue:owner/repository#77", Kind.ISSUE, "Snapshot ids in $snapshots", Optional.of("#77"),
-                Optional.of("open"), Optional.empty(), Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.empty(), Optional.empty(),
-                Optional.empty(), Optional.empty(), Optional.of(NOW.minusSeconds(900)), Optional.empty(), AgendaTarget.issue("owner/repository", 77, "ws1")));
+                        AgendaTarget.pull(7, "owner/repository", 31402, Optional.of("ws1"))));
+        assertThat(read.get("issue:ws1:owner/repository#77")).isEqualTo(new AssistantRow("issue:ws1:owner/repository#77", Kind.ISSUE, "Snapshot ids in $snapshots",
+                Optional.of("#77"), Optional.of("open"), Optional.empty(), Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(NOW.minusSeconds(900)), Optional.empty(), AgendaTarget.issue("owner/repository", 77, "ws1")));
         AssistantRow ticket = read.get("jira:cloud:10042");
         assertThat(ticket.key()).contains("ICE-7");
         assertThat(ticket.state()).contains("In progress");
@@ -272,19 +279,46 @@ class TestAssistantRows
     @Test
     void namesAnItemByTheKeyItsNeedsAttentionRowUses()
     {
-        Workspace iceberg = new Workspace("ws2", "Iceberg", 2, RepoRef.of("Apache", "Iceberg"), Optional.empty(), Optional.empty(), 2, RepoRef.of("Apache", "Iceberg"),
-                Workspace.Topology.DIRECT, "main", "https://github.com/Apache/Iceberg.git", Optional.empty(), Optional.empty(), "/managed/iceberg", Optional.empty(),
-                Optional.empty(), 0, NOW, NOW);
-        when(workspaces.findAll()).thenReturn(ImmutableList.of(WORKSPACE, iceberg));
+        Workspace gitlab = gitLabWorkspace("ws2", "Group/Project");
+        when(workspaces.findAll()).thenReturn(ImmutableList.of(WORKSPACE, gitlab));
+        when(workspaces.findById("ws2")).thenReturn(Optional.of(gitlab));
 
-        assertThat(rows.attentionKey("pr:owner/repository#31402")).contains("owner/repository#31402");
-        // A ref is lowercase; the list keys an issue by its repository as the workspace spells it.
-        assertThat(rows.attentionKey("issue:apache/iceberg#12")).contains("Apache/Iceberg#12");
+        // The list keys a pull request by its row and an issue by its workspace's key.
+        assertThat(rows.attentionKey("pr:owner/repository#31402")).contains("pr:7");
+        assertThat(rows.attentionKey("issue:ws2:group/project#12")).contains("issue:ws2:group/project#12");
+        assertThat(rows.attentionKey("issue:group/project#12")).contains("issue:ws2:group/project#12");
         assertThat(rows.attentionKey("jira:cloud:10042")).contains("jira:cloud:10042");
         assertThat(rows.attentionKey("task:7d0e")).contains("task:7d0e");
         assertThat(rows.attentionKey("pr:owner/repository#1")).isEmpty();
         assertThat(rows.attentionKey("issue:apache/spark#3")).isEmpty();
+        assertThat(rows.attentionKey("issue:ws1:group/project#12")).isEmpty();
         assertThat(rows.attentionKey("work:w22")).isEmpty();
+    }
+
+    @Test
+    void readsAnIssueTypedWithoutItsWorkspaceFromTheOnlyWorkspaceOnThatPathOnAnyServer()
+    {
+        Workspace gitlab = gitLabWorkspace("ws2", "Group/Project");
+        when(workspaces.findAll()).thenReturn(ImmutableList.of(WORKSPACE, gitlab));
+        when(issues.find(any(), eq(gitlab), eq(77))).thenReturn(Optional.of(new RepositoryIssue(77, 77, "Merge train", "", "alice", "", "https://gitlab.example.com/group/project/-/issues/77",
+                ImmutableList.of(), ImmutableList.of(), 0, NOW, NOW)));
+
+        assertThat(rows.rows(ImmutableList.of("issue:group/project#77")).get("issue:group/project#77").ref()).isEqualTo("issue:ws2:group/project#77");
+        assertThat(rows.rows(ImmutableList.of("issue:other/project#77"))).isEmpty();
+
+        // Two workspaces on one path leave a typed ref ambiguous; the read names neither.
+        when(workspaces.findAll()).thenReturn(ImmutableList.of(WORKSPACE, gitlab, gitLabWorkspace("ws3", "owner/repository")));
+        assertThat(rows.rows(ImmutableList.of("issue:owner/repository#77"))).isEmpty();
+        assertThatThrownBy(() -> rows.attentionKey("issue:owner/repository#77")).hasMessageContaining("ambiguous").hasMessageContaining("name the workspace");
+        assertThat(rows.rows(ImmutableList.of("issue:ws1:owner/repository#77"))).containsOnlyKeys("issue:ws1:owner/repository#77");
+    }
+
+    private static Workspace gitLabWorkspace(String id, String path)
+    {
+        RepoRef repository = RepoRef.of(path.substring(0, path.lastIndexOf('/')), path.substring(path.lastIndexOf('/') + 1));
+        return new Workspace(id, path, 2, repository, Optional.empty(), Optional.empty(), 2, repository, Workspace.Topology.DIRECT, "main",
+                "https://gitlab.example.com/" + path + ".git", Optional.empty(), Optional.empty(), "/managed/" + id, Optional.empty(), Optional.empty(), 0, NOW, NOW,
+                new HostingServer(HostingProvider.GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4")));
     }
 
     @Test
@@ -292,7 +326,7 @@ class TestAssistantRows
     {
         when(issues.find(any(), any(), eq(77))).thenThrow(new IllegalStateException("database is locked"));
 
-        assertThat(rows.rows(ImmutableList.of("issue:owner/repository#77", "work:w22"))).containsOnlyKeys("work:w22");
+        assertThat(rows.rows(ImmutableList.of("issue:ws1:owner/repository#77", "work:w22"))).containsOnlyKeys("work:w22");
     }
 
     private String latestText(PrActivitySummary activity)

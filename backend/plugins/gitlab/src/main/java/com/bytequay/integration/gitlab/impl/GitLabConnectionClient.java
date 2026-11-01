@@ -19,9 +19,11 @@ import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingPermissions;
 import com.bytequay.core.hosting.HostingRepositories;
 import com.bytequay.core.hosting.HostingUrls;
+import com.bytequay.core.hosting.HostingVersion;
 import com.bytequay.core.hosting.RemoteHostingAccount;
 import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.bytequay.core.hosting.RepositoryVisibility;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 
@@ -36,15 +38,23 @@ import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
 import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.encode;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.util.Objects.requireNonNull;
 
 public final class GitLabConnectionClient
         implements HostingAccounts, HostingRepositories
 {
     private final GitLabHttpClient http;
+    private final GitLabRelease release;
 
     public GitLabConnectionClient(HttpClient http, ObjectMapper mapper)
     {
+        this(http, mapper, GitLabRelease.CURRENT);
+    }
+
+    public GitLabConnectionClient(HttpClient http, ObjectMapper mapper, GitLabRelease release)
+    {
         this.http = new GitLabHttpClient(http, mapper);
+        this.release = requireNonNull(release, "release is null");
     }
 
     @Override
@@ -63,7 +73,14 @@ public final class GitLabConnectionClient
     @Override
     public Optional<HostingPermissions> checkPermissions(HostingAccess access)
     {
-        return Optional.of(new GitLabPermissionReader(http).check(access));
+        return Optional.of(new GitLabPermissionReader(http, release.inspectsPersonalTokens()).check(access));
+    }
+
+    /** Every GitLab release names itself at /version to any signed-in token. */
+    @Override
+    public Optional<HostingVersion> serverVersion(HostingAccess access)
+    {
+        return HostingVersion.parse(http.get(access, "version", Optional.empty(), Version.class).body().orElseThrow().version());
     }
 
     @Override
@@ -128,4 +145,7 @@ public final class GitLabConnectionClient
             throw new HostingFailure(INVALID_RESPONSE, "GitLab returned invalid repository coordinates");
         }
     }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record Version(String version) {}
 }

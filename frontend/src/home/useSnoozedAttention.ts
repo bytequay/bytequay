@@ -73,7 +73,7 @@ function retainedItem(value: unknown, key: string): value is AttentionItem {
     return activity == null || (object(activity) && typeof activity.event === 'string'
       && ['actor', 'requestedReviewer', 'state', 'label', 'excerpt', 'path'].every(field => textOrNull(activity[field])));
   }
-  return value.type === 'issue' && value.pr === null && key === issueAttentionKey(value.repo, value.number, value.workspaceId);
+  return value.type === 'issue' && value.pr === null && value.workspaceId !== null && key === issueAttentionKey(value.repo, value.number, value.workspaceId);
 }
 
 /** Refresh the retained reminder even when the ordinary attention query no longer includes it. */
@@ -89,16 +89,14 @@ export async function refreshSnoozedItem(item: AttentionItem, bridge: Bridge): P
       const updated = await bridge.findStoredPullRequest(item.repo, item.number, item.workspaceId ?? undefined);
       return updated === null ? item : { ...pullRequestItem(updated, 'updated'), workspaceId: item.workspaceId };
     }
-    if (item.workspaceId !== null) {
-      try {
-        const updated = await bridge.fetchWorkspaceIssue(item.workspaceId, item.number);
-        if (updated !== null) return { ...issueAttentionItem(updated, item.repo, item.workspaceId), workspaceName: item.workspaceName };
-      }
-      catch { /* Closed issues leave the open-issue cache; their exact preview remains readable. */ }
+    // A retained issue always has its workspace, which its key names.
+    if (item.workspaceId === null) return item;
+    try {
+      const updated = await bridge.fetchWorkspaceIssue(item.workspaceId, item.number);
+      if (updated !== null) return { ...issueAttentionItem(updated, item.repo, item.workspaceId), workspaceName: item.workspaceName };
     }
-    const [owner, repo] = item.repo.split('/');
-    const updated = item.workspaceId === null ? await bridge.fetchGitHubIssuePreview(owner, repo, item.number)
-      : await bridge.fetchWorkspaceIssuePreview(item.workspaceId, item.number);
+    catch { /* Closed issues leave the open-issue cache; their exact preview remains readable. */ }
+    const updated = await bridge.fetchWorkspaceIssuePreview(item.workspaceId, item.number);
     return updated.pullRequest ? item : { ...item, title: updated.title, body: updated.body, author: updated.author,
       labels: updated.labels, updatedAt: updated.updatedAt, issueState: updated.state };
   }

@@ -113,7 +113,7 @@ export const ZOOM_REFERENCE = 'bytequay:zoom-reference';
 export type ZoomedReference =
   | { kind: 'work'; workspaceId: string; itemId: string }
   | { kind: 'task'; workspaceId: string; taskId: string }
-  | { kind: 'pull'; repo: string; number: number; workspaceId?: string }
+  | { kind: 'pull'; repo: string; number: number; workspaceId?: string; accountId?: number }
   | { kind: 'issue'; repo: string; number: number; workspaceId: string }
   /**
    * `start` also opens the development composer over the ticket, with `draft` as its instruction when given; `replaces` names

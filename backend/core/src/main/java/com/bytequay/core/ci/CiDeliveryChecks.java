@@ -1,0 +1,37 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.core.ci;
+
+import com.bytequay.core.domain.PullRequestIdentity;
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
+
+import static java.util.Objects.requireNonNull;
+
+/** Fresh check evidence for one exact request revision, separate from the CI repair result. */
+public record CiDeliveryChecks(PullRequestIdentity pullRequest, List<String> waiting, List<String> failures)
+{
+    public CiDeliveryChecks
+    {
+        requireNonNull(pullRequest, "pullRequest is null");
+        waiting = ImmutableList.copyOf(waiting);
+        failures = ImmutableList.copyOf(failures);
+    }
+
+    public boolean green()
+    {
+        return waiting.isEmpty() && failures.isEmpty();
+    }
+}

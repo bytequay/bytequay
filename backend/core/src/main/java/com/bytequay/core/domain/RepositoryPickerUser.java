@@ -19,7 +19,7 @@ import static com.bytequay.core.domain.Checks.checkOptionalText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** A locally cached GitHub account available to repository people pickers. */
+/** A locally cached hosting account available to repository people pickers. */
 public record RepositoryPickerUser(long id, String login, Optional<String> avatarKey, boolean bot)
 {
     public RepositoryPickerUser

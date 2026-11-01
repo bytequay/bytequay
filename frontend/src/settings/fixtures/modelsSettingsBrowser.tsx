@@ -349,7 +349,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     };
     window.bridge = bridge as Bridge;
     const render = (section: SettingsSection, id?: string) => {
-      const workspace = id === undefined ? null : { id, name: id, selectedOwner: 'owner', selectedRepo: id, localRepositoryPath: `/managed/${id}` } as WorkspaceDto;
+      const workspace = id === undefined ? null : { id, name: id, selectedOwner: 'owner', selectedRepo: id, localRepositoryPath: `/managed/${id}`,
+        hostingServer: { provider: 'GITHUB', webBaseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' } } as WorkspaceDto;
       flushSync(() => root.render(<SettingsWindow section={section} workspace={workspace} onWorkspacesChanged={() => {}} />));
     };
     try {

@@ -15,6 +15,7 @@ package com.bytequay.integration.gitlab.impl;
 
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.HostingVersion;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
@@ -131,6 +132,27 @@ class TestGitLabPermissionReader
 
         assertThat(permissions.status()).isEqualTo(MISSING);
         assertThat(permissions.scopes()).containsExactly("read_user");
+    }
+
+    @Test
+    void olderReleasesSayTheyCannotReportAPersonalTokensPermissions()
+    {
+        replies.put(OAUTH, new Reply(401, "{\"error\":\"invalid_token\"}"));
+        GitLabConnectionClient older = new GitLabConnectionClient(http, new ObjectMapper(), GitLabRelease.LEGACY);
+
+        var permissions = older.checkPermissions(access).orElseThrow();
+
+        assertThat(permissions.status()).isEqualTo(UNAVAILABLE);
+        assertThat(permissions.detail()).contains("before 15.5", "api");
+        assertThat(requests).containsExactly(OAUTH);
+    }
+
+    @Test
+    void readsTheServersRelease()
+    {
+        replies.put("/gitlab/api/v4/version", new Reply(200, "{\"version\":\"14.10.5\",\"revision\":\"02cdf459a13\"}"));
+
+        assertThat(client.serverVersion(access)).contains(new HostingVersion(14, 10, 5));
     }
 
     @Test

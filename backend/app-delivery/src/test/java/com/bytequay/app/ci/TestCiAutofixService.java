@@ -68,18 +68,12 @@ import com.bytequay.app.agent.runtime.AgentStartupRecovery;
 import com.bytequay.app.pr.PullRequestTimelineService;
 import com.bytequay.app.rebase.BranchRebaseService;
 import com.bytequay.app.rebase.StartBranchRebaseCommand;
-import com.bytequay.app.repository.github.GitHubDeliveryChecks;
-import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
-import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
-import com.bytequay.app.repository.github.actions.BoundedCiLog;
-import com.bytequay.app.repository.github.actions.CiHeadSnapshot;
-import com.bytequay.app.repository.github.actions.CiJob;
-import com.bytequay.app.repository.github.actions.CiRerunResult;
-import com.bytequay.app.repository.github.actions.CiStep;
-import com.bytequay.app.repository.github.actions.CiWorkflowRun;
-import com.bytequay.app.repository.github.actions.GitHubActionsClient;
-import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.ci.BoundedCiLog;
+import com.bytequay.app.service.ci.CiLogReader;
+import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
+import com.bytequay.app.workspace.WorkspaceHostingRead;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
@@ -94,14 +88,28 @@ import com.bytequay.core.ci.CiAutofixRun.PushJournal;
 import com.bytequay.core.ci.CiAutofixRun.RerunJournal;
 import com.bytequay.core.ci.CiAutofixRun.Status;
 import com.bytequay.core.ci.CiAutofixRunId;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
+import com.bytequay.core.ci.CiDeliveryChecks;
+import com.bytequay.core.ci.CiHeadSnapshot;
+import com.bytequay.core.ci.CiJob;
+import com.bytequay.core.ci.CiRerunResult;
+import com.bytequay.core.ci.CiRun;
+import com.bytequay.core.ci.CiStep;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.UserProfile;
+import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.PullRequestCi;
+import com.bytequay.core.hosting.PullRequestContentReader;
+import com.bytequay.core.hosting.PullRequestWriter;
 import com.bytequay.core.rebase.BranchRebase;
 import com.bytequay.core.rebase.BranchRebaseId;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.PullRequestTaskStore;
+import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
@@ -113,6 +121,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -133,9 +142,14 @@ import java.util.function.Consumer;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.ci;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.targeting;
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -159,14 +173,21 @@ class TestCiAutofixService
     private static final String HEAD = "a".repeat(40);
     private static final String BASE = "b".repeat(40);
     private static final String FIXED_HEAD = "c".repeat(40);
+    private static final URI WEB_BASE = URI.create("https://github.com");
+    private static final HostingInstance INSTANCE = new HostingInstance(1, GITHUB, WEB_BASE, URI.create("https://api.github.com"));
+    private static final HostingRepository HOSTED = new HostingRepository(3, INSTANCE.id(), "42", PULL_REQUEST.repoFullName(),
+            WEB_BASE.resolve("/" + PULL_REQUEST.repoFullName()), WEB_BASE.resolve("/" + PULL_REQUEST.repoFullName() + ".git"), Optional.empty(), Optional.of("main"));
 
     @TempDir
     private Path temporaryDirectory;
 
     private InMemoryCiAutofixStore store;
-    private GitHubActionsClient gitHub;
-    private final GitHubPullRequestWriteClient writes = mock(GitHubPullRequestWriteClient.class);
-    private final GitHubPullRequestReadClient pullRequestReads = mock(GitHubPullRequestReadClient.class);
+    private PullRequestCi ci;
+    private CiLogReader ciLogs;
+    private final PullRequestWriter writer = mock(PullRequestWriter.class);
+    private final PullRequestContentReader contents = mock(PullRequestContentReader.class);
+    private final WorkspaceHostingService hosting = mock(WorkspaceHostingService.class);
+    private final WorkspaceStore workspaceStore = mock(WorkspaceStore.class);
     private AgentTaskService taskService;
     private AgentTurnService turnService;
     private AgentCompletionService completionService;
@@ -179,7 +200,6 @@ class TestCiAutofixService
     private CiGitService gitService;
     private BranchRebaseService rebaseService;
     private PullRequestTimelineService timelineService;
-    private CredentialService credentials;
     private CiAutofixService service;
     private DevelopmentCiOwnership ownership;
     private AgentTaskStore taskStore;
@@ -201,7 +221,8 @@ class TestCiAutofixService
             throws Exception
     {
         store = new InMemoryCiAutofixStore();
-        gitHub = mock(GitHubActionsClient.class);
+        ci = mock(PullRequestCi.class);
+        ciLogs = mock(CiLogReader.class);
         taskService = mock(AgentTaskService.class);
         turnService = mock(AgentTurnService.class);
         completionService = mock(AgentCompletionService.class);
@@ -213,7 +234,6 @@ class TestCiAutofixService
         gitService = mock(CiGitService.class);
         rebaseService = mock(BranchRebaseService.class);
         timelineService = mock(PullRequestTimelineService.class);
-        credentials = mock(CredentialService.class);
         taskId = TaskId.random();
         worktree = Files.createDirectory(temporaryDirectory.resolve(taskId.toString())).toRealPath();
         taskWorktree = new TaskWorktree(taskId, "workspace-1", REPOSITORY, worktree, "bytequay/task/" + taskId, HEAD);
@@ -235,10 +255,10 @@ class TestCiAutofixService
         Path log = Files.writeString(blobs.resolve("ci.log"), "compile failed");
         resources = new TaskResources(runtime, runtime.resolve("events.jsonl"), blobs, Files.createDirectory(runtime.resolve("provider")));
 
-        when(credentials.resolveGitHubToken()).thenReturn("token");
-        when(credentials.resolveGitHubToken("workspace-1")).thenReturn("token");
-        when(pullRequestReads.fetchDeliveryChecks(eq("token"), any())).thenAnswer(_ -> deliveryChecks(true, ImmutableList.of(), ImmutableList.of()));
-        when(credentials.resolveGitHubCredential()).thenReturn(new CredentialService.GitHubCredential("token", profile("author")));
+        when(ci.deliveryChecks(any(), anyInt())).thenAnswer(_ -> deliveryChecks(true, ImmutableList.of(), ImmutableList.of()));
+        when(hosting.captureRead("workspace-1")).thenReturn(route("author"));
+        when(hosting.storedRead("workspace-1")).thenReturn(route("author"));
+        when(workspaceStore.findById("workspace-1")).thenReturn(Optional.of(workspace()));
         AgentDriver driver = mock(AgentDriver.class);
         AgentCapabilities capabilities = new AgentCapabilities(false, false, false, Set.of(AgentPermissionPolicy.CI_AUTOFIX), Set.of());
         AgentProviderStatus providerStatus = new AgentProviderStatus(AgentLaneId.CLAUDE_CLI, AgentProviderStatus.Readiness.READY, Optional.of("test"), "ready", capabilities);
@@ -247,9 +267,9 @@ class TestCiAutofixService
         when(driver.probe()).thenReturn(providerStatus);
         when(workspaces.requireReadyRepository("workspace-1")).thenReturn(workspaceContext());
         when(provisioning.synchronizeCode("workspace-1")).thenReturn(new WorkspaceCodeSyncResult("workspace-1", true, Optional.of(NOW), ImmutableSet.of()));
-        when(gitHub.inspect(any())).thenReturn(snapshot);
-        when(pullRequestReads.fetchPullRequestIdentity(eq("token"), any())).thenAnswer(_ -> identity(snapshot));
-        when(gitHub.readLog(any())).thenReturn(new BoundedCiLog(Optional.of(new com.bytequay.agent.core.BlobRef(
+        when(ci.inspect(any(), anyInt())).thenReturn(snapshot);
+        when(contents.identity(any(), anyInt())).thenAnswer(_ -> identity(snapshot));
+        when(ciLogs.read(any(), any(), any())).thenReturn(new BoundedCiLog(Optional.of(new com.bytequay.agent.core.BlobRef(
                 runtime.relativize(log).toString(),
                 "text/plain",
                 Files.size(log))), false, ImmutableList.of("error: compilation failed"), Optional.empty(), Optional.empty(), true));
@@ -277,7 +297,7 @@ class TestCiAutofixService
         when(gitService.removeSynchronizedBase(any())).thenReturn(true);
         when(rebaseService.start(any())).thenAnswer(invocation -> completedRebase(invocation.getArgument(0)));
         when(eventService.readAfter(any(), any(Long.class), any(Integer.class))).thenReturn(ImmutableList.of());
-        logReader = new CiAutofixLogReader(gitHub, eventService);
+        logReader = new CiAutofixLogReader(ciLogs, eventService);
 
         recoveryRequests = new AtomicInteger();
         recovery = new ObjectProvider<>()
@@ -336,7 +356,7 @@ class TestCiAutofixService
             assertThat(failure.summary()).contains("Build / compile failed at Compile");
             assertThat(failure.log()).isPresent();
         });
-        verify(gitHub, never()).rerunFailedJobs(any());
+        verify(ci, never()).rerunFailedJobs(any(), anyInt(), any());
         assertThat(service.get(run.id())).isEqualTo(run);
         assertThat(service.list(10)).containsExactly(run);
         assertThat(ownership.brief(openTask, runningTurn)).isEmpty();
@@ -347,7 +367,7 @@ class TestCiAutofixService
     @ValueSource(booleans = {false, true})
     void startsRepairWithFailedStepEvidenceWhenEveryLogIsUnavailable(boolean development)
     {
-        when(gitHub.readLog(any())).thenReturn(BoundedCiLog.unavailable("GitHub Actions log download failed after one retry"));
+        when(ciLogs.read(any(), any(), any())).thenReturn(BoundedCiLog.unavailable("GitHub Actions log download failed after one retry"));
         CiAutofixRun run;
         if (development) {
             AgentTask parent = developmentParent();
@@ -370,7 +390,7 @@ class TestCiAutofixService
         assertThat(turn.getValue().attachments()).isEmpty();
         assertThat(turn.getValue().message()).contains("read_pull_request_ci", "missing or omitted logs do not mean success")
                 .doesNotContain("Build / compile failed at Compile", "log download failed after one retry");
-        verify(gitHub, never()).rerunFailedJobs(any());
+        verify(ci, never()).rerunFailedJobs(any(), anyInt(), any());
     }
 
     @Test
@@ -411,7 +431,7 @@ class TestCiAutofixService
 
         String movedBase = "d".repeat(40);
         snapshot = failedSnapshot(HEAD, movedBase, 1);
-        when(gitHub.inspect(any())).thenReturn(snapshot);
+        when(ci.inspect(any(), anyInt())).thenReturn(snapshot);
         when(worktreeService.inspect(taskWorktree)).thenReturn(worktree(false, FIXED_HEAD));
         run = service.advance(run.id());
 
@@ -524,7 +544,7 @@ class TestCiAutofixService
         assertThatThrownBy(() -> service.start(startCommand("deepseek-model", lane)))
                 .isInstanceOf(AgentProviderUnavailableException.class).hasMessageContaining("deepseek-flash");
         assertThat(store.listRecent(10)).isEmpty();
-        verify(gitHub, never()).inspect(any());
+        verify(ci, never()).inspect(any(), anyInt());
         verify(provisioning, never()).synchronizeCode(any());
     }
 
@@ -552,13 +572,13 @@ class TestCiAutofixService
     @Test
     void rejectsClosedUnroutableForkAndUnauthoredPullRequests()
     {
-        when(gitHub.inspect(any())).thenReturn(snapshot(false, "author", true, HEAD, true));
+        when(ci.inspect(any(), anyInt())).thenReturn(snapshot(false, "author", true, HEAD, true));
         assertThatThrownBy(() -> service.start(startCommand("closed"))).hasMessageContaining("not open");
 
-        when(gitHub.inspect(any())).thenReturn(snapshot(true, "author", false, HEAD, true));
+        when(ci.inspect(any(), anyInt())).thenReturn(snapshot(true, "author", false, HEAD, true));
         assertThatThrownBy(() -> service.start(startCommand("fork"))).hasMessageContaining("fork");
 
-        when(gitHub.inspect(any())).thenReturn(snapshot(true, "another-user", true, HEAD, true));
+        when(ci.inspect(any(), anyInt())).thenReturn(snapshot(true, "another-user", true, HEAD, true));
         assertThatThrownBy(() -> service.start(startCommand("not-author"))).hasMessageContaining("author");
         verify(taskService, never()).create(any());
         verify(provisioning, never()).synchronizeCode(any());
@@ -586,16 +606,17 @@ class TestCiAutofixService
         assertThat(push.getValue().physicalRepository()).isEqualTo(new RepositoryIdentity(FORK.owner(), FORK.repo()));
         assertThat(push.getValue().remoteHeadRef()).isEqualTo(snapshot.headRef());
         assertThat(push.getValue().journal().expectedRemoteSha()).isEqualTo(HEAD);
+        assertThat(push.getValue().webBaseUrl()).isEqualTo(WEB_BASE);
         ArgumentCaptor<SynchronizeCiBaseCommand> synchronize = ArgumentCaptor.forClass(SynchronizeCiBaseCommand.class);
         verify(gitService, times(2)).synchronizeBase(synchronize.capture());
         assertThat(synchronize.getAllValues()).allSatisfy(command -> {
             assertThat(command.workspaceId()).isEqualTo("workspace-1");
             assertThat(command.sourceRemote()).isEqualTo("upstream");
             assertThat(command.remoteRepository()).isEqualTo(REPOSITORY);
+            assertThat(command.webBaseUrl()).isEqualTo(WEB_BASE);
         });
-        ArgumentCaptor<PullRequestRef> inspect = ArgumentCaptor.forClass(PullRequestRef.class);
-        verify(gitHub, times(4)).inspect(inspect.capture());
-        assertThat(inspect.getAllValues()).containsOnly(PULL_REQUEST);
+        verify(ci, times(4)).inspect(targeting(HOSTED), eq(PULL_REQUEST.number()));
+        verify(ci, times(4)).inspect(any(), anyInt());
     }
 
     @ParameterizedTest
@@ -606,7 +627,7 @@ class TestCiAutofixService
         CiAutofixRun run = service.start(startCommand("fork-changed-before-push"));
         run = finishRepair(run, "fingerprint");
         assertThat(run.pushJournal()).isPresent();
-        when(gitHub.inspect(any())).thenReturn(changedScopeSnapshot(baseRetarget));
+        when(ci.inspect(any(), anyInt())).thenReturn(changedScopeSnapshot(baseRetarget));
 
         CiAutofixRun rejected = service.advance(run.id());
 
@@ -622,7 +643,7 @@ class TestCiAutofixService
         CiAutofixRun run = service.start(startCommand("fork-changed-before-message"));
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.FAILED, Optional.of("repair failed")));
         CiAutofixRun paused = service.advance(run.id());
-        when(pullRequestReads.fetchPullRequestIdentity(eq("token"), any())).thenReturn(identity(changedScopeSnapshot(baseRetarget)));
+        when(contents.identity(any(), anyInt())).thenReturn(identity(changedScopeSnapshot(baseRetarget)));
 
         assertThatThrownBy(() -> service.sendMessage(new SendCiAutofixMessageCommand(paused.id(), "Retry", "fork-resume", Optional.empty())))
                 .isInstanceOf(CiAutofixConflictException.class).hasMessageContaining("head or base branch changed");
@@ -633,7 +654,7 @@ class TestCiAutofixService
     @ValueSource(ints = {1, 7})
     void watchesPendingCiForDaysWithoutRebasingAndStartsFixingAfterAFailure(int days)
     {
-        when(gitHub.inspect(any())).thenReturn(pendingSnapshot(HEAD, BASE));
+        when(ci.inspect(any(), anyInt())).thenReturn(pendingSnapshot(HEAD, BASE));
 
         CiAutofixRun run = service.start(startCommand("pending-to-failed"));
         service = service(store, Clock.fixed(NOW.plus(Duration.ofDays(days)), ZoneOffset.UTC));
@@ -649,7 +670,7 @@ class TestCiAutofixService
         verify(rebaseService, never()).start(any());
         verify(turnService, never()).start(any());
 
-        when(gitHub.inspect(any())).thenReturn(failedSnapshot(HEAD, BASE, 1));
+        when(ci.inspect(any(), anyInt())).thenReturn(failedSnapshot(HEAD, BASE, 1));
         run = service.advance(run.id());
 
         assertThat(run.attempts()).singleElement();
@@ -665,14 +686,14 @@ class TestCiAutofixService
     @ValueSource(ints = {1, 7})
     void finishesADaysLongPendingWatchWhenCiBecomesGreenWithoutStartingAFix(int days)
     {
-        when(gitHub.inspect(any())).thenReturn(pendingSnapshot(HEAD, BASE));
+        when(ci.inspect(any(), anyInt())).thenReturn(pendingSnapshot(HEAD, BASE));
         CiAutofixRun run = service.start(startCommand("pending-to-green"));
         service = service(store, Clock.fixed(NOW.plus(Duration.ofDays(days)), ZoneOffset.UTC));
         run = service.advance(run.id());
         assertThat(run.status()).isEqualTo(Status.ACTIVE);
         assertThat(run.attempts()).isEmpty();
 
-        when(gitHub.inspect(any())).thenReturn(greenSnapshot(HEAD, BASE));
+        when(ci.inspect(any(), anyInt())).thenReturn(greenSnapshot(HEAD, BASE));
         when(gitService.checkFixupPositions(any())).thenReturn(FixupPositionCheck.valid(HEAD));
         run = service.advance(run.id());
 
@@ -693,9 +714,9 @@ class TestCiAutofixService
     @Test
     void persistsGreenBeforeCleanupAndReplaysTerminalEventDeliveryOnRetry()
     {
-        when(gitHub.inspect(any())).thenReturn(pendingSnapshot(HEAD, BASE));
+        when(ci.inspect(any(), anyInt())).thenReturn(pendingSnapshot(HEAD, BASE));
         CiAutofixRun run = service.start(startCommand("green-cleanup-retry"));
-        when(gitHub.inspect(any())).thenReturn(greenSnapshot(HEAD, BASE));
+        when(ci.inspect(any(), anyInt())).thenReturn(greenSnapshot(HEAD, BASE));
         when(gitService.checkFixupPositions(any())).thenReturn(FixupPositionCheck.valid(HEAD));
         run = service.advance(run.id());
         CiAutofixRunId runId = run.id();
@@ -726,9 +747,9 @@ class TestCiAutofixService
     @Test
     void reconcilesCompletedGreenTaskAfterFinishedRunWriteFails()
     {
-        when(gitHub.inspect(any())).thenReturn(pendingSnapshot(HEAD, BASE));
+        when(ci.inspect(any(), anyInt())).thenReturn(pendingSnapshot(HEAD, BASE));
         CiAutofixRun run = service.start(startCommand("green-finish-reconcile"));
-        when(gitHub.inspect(any())).thenReturn(greenSnapshot(HEAD, BASE));
+        when(ci.inspect(any(), anyInt())).thenReturn(greenSnapshot(HEAD, BASE));
         when(gitService.checkFixupPositions(any())).thenReturn(FixupPositionCheck.valid(HEAD));
         run = service.advance(run.id());
         doReturn(completion(HEAD)).when(completionService).complete(any());
@@ -767,7 +788,7 @@ class TestCiAutofixService
     @Test
     void recoversThePreassignedTaskAfterAStartCrash()
     {
-        when(gitHub.inspect(any())).thenReturn(pendingSnapshot(HEAD, BASE));
+        when(ci.inspect(any(), anyInt())).thenReturn(pendingSnapshot(HEAD, BASE));
         doThrow(new AssertionError("simulated process death")).when(taskService).create(any());
 
         assertThatThrownBy(() -> service.start(startCommand("start-crash")))
@@ -776,7 +797,8 @@ class TestCiAutofixService
         CiAutofixRun persisted = store.listRecent(10).getFirst();
         TaskId reserved = TaskId.valueOf(persisted.agentTaskId().orElseThrow());
 
-        when(credentials.resolveGitHubCredential()).thenReturn(new CredentialService.GitHubCredential("token", profile("another-user")));
+        when(hosting.captureRead("workspace-1")).thenReturn(route("another-user"));
+        when(hosting.storedRead("workspace-1")).thenReturn(route("another-user"));
         doAnswer(invocation -> task(invocation.getArgument(0))).when(taskService).create(any());
         CiAutofixRun recovered = service.advance(persisted.id());
 
@@ -789,7 +811,7 @@ class TestCiAutofixService
     @Test
     void pausedAdvanceRecoversThePreassignedTaskAfterAStartCrash()
     {
-        when(gitHub.inspect(any())).thenReturn(pendingSnapshot(HEAD, BASE));
+        when(ci.inspect(any(), anyInt())).thenReturn(pendingSnapshot(HEAD, BASE));
         doThrow(new AssertionError("simulated process death")).when(taskService).create(any());
         assertThatThrownBy(() -> service.start(startCommand("paused-start-crash")))
                 .isInstanceOf(AssertionError.class);
@@ -807,7 +829,7 @@ class TestCiAutofixService
     @Test
     void cancellationRecoversThePreassignedTaskAfterAStartCrash()
     {
-        when(gitHub.inspect(any())).thenReturn(pendingSnapshot(HEAD, BASE));
+        when(ci.inspect(any(), anyInt())).thenReturn(pendingSnapshot(HEAD, BASE));
         doThrow(new AssertionError("simulated process death")).when(taskService).create(any());
         assertThatThrownBy(() -> service.start(startCommand("cancel-start-crash")))
                 .isInstanceOf(AssertionError.class);
@@ -827,7 +849,7 @@ class TestCiAutofixService
     @Test
     void cancellationPreservesTheStartCrashGapUntilItsTaskCanBeVerified()
     {
-        when(gitHub.inspect(any())).thenReturn(pendingSnapshot(HEAD, BASE));
+        when(ci.inspect(any(), anyInt())).thenReturn(pendingSnapshot(HEAD, BASE));
         doThrow(new AssertionError("simulated process death")).when(taskService).create(any());
         assertThatThrownBy(() -> service.start(startCommand("cancel-routing-crash")))
                 .isInstanceOf(AssertionError.class);
@@ -849,7 +871,7 @@ class TestCiAutofixService
     @Test
     void refusesToProvisionACrashedStartInANewRepositorySelection()
     {
-        when(gitHub.inspect(any())).thenReturn(pendingSnapshot(HEAD, BASE));
+        when(ci.inspect(any(), anyInt())).thenReturn(pendingSnapshot(HEAD, BASE));
         doThrow(new AssertionError("simulated process death")).when(taskService).create(any());
         assertThatThrownBy(() -> service.start(startCommand("start-routing-crash")))
                 .isInstanceOf(AssertionError.class);
@@ -868,7 +890,7 @@ class TestCiAutofixService
     @Test
     void adoptsTheTaskCreatedByAConcurrentMonitor()
     {
-        when(gitHub.inspect(any())).thenReturn(pendingSnapshot(HEAD, BASE));
+        when(ci.inspect(any(), anyInt())).thenReturn(pendingSnapshot(HEAD, BASE));
         AtomicReference<AgentTask> winner = new AtomicReference<>();
         doAnswer(invocation -> {
             TaskId requested = invocation.getArgument(0);
@@ -893,17 +915,17 @@ class TestCiAutofixService
     void repeatsStartIdempotentlyAndDoesNotAllocateAfterAnInsertRace()
     {
         CiAutofixRun first = service.start(startCommand("repeat"));
-        reset(gitHub, taskService, turnService);
+        reset(ci, taskService, turnService);
         when(taskService.get(taskId)).thenReturn(openTask);
 
         assertThat(service.start(startCommand("repeat"))).isEqualTo(first);
-        verify(gitHub, never()).inspect(any());
+        verify(ci, never()).inspect(any(), anyInt());
         verify(taskService, never()).create(any());
 
         InMemoryCiAutofixStore racingStore = new InMemoryCiAutofixStore();
         racingStore.conflict = first;
         CiAutofixService racing = service(racingStore);
-        when(gitHub.inspect(any())).thenReturn(snapshot);
+        when(ci.inspect(any(), anyInt())).thenReturn(snapshot);
         when(taskService.get(taskId)).thenReturn(openTask);
 
         assertThat(racing.start(startCommand("repeat"))).isEqualTo(first);
@@ -1019,7 +1041,7 @@ class TestCiAutofixService
                 HEAD,
                 BASE,
                 ImmutableList.of(workflow(100, 1, "Compile", HEAD, "completed", Optional.of("failure")), workflow(101, 1, "Slow tests", HEAD, "in_progress", Optional.empty())));
-        when(gitHub.inspect(any())).thenReturn(snapshot);
+        when(ci.inspect(any(), anyInt())).thenReturn(snapshot);
 
         CiAutofixRun run = service.start(startCommand("early-failure"));
 
@@ -1054,7 +1076,7 @@ class TestCiAutofixService
         run = service.advance(run.id());
         assertThat(run.attempts().getFirst().timelineEventKey()).isPresent();
 
-        when(gitHub.inspect(any())).thenReturn(greenSnapshot(FIXED_HEAD, BASE));
+        when(ci.inspect(any(), anyInt())).thenReturn(greenSnapshot(FIXED_HEAD, BASE));
         run = service.advance(run.id());
         assertThat(run.attempts().getFirst().observedCiResult()).isEqualTo(CiResult.PASSED);
         verify(completionService, never()).complete(any());
@@ -1083,21 +1105,21 @@ class TestCiAutofixService
         run = service.advance(run.id());
         run = service.advance(run.id());
         assertThat(run.attempts().getFirst().descriptionChange().orElseThrow().writeStartedAt()).isPresent();
-        verify(writes).updatePullRequestDescription("token", PULL_REQUEST, "- Fixes #31178.");
-        when(gitHub.readDescription(PULL_REQUEST)).thenReturn("- Fixes #31178.");
+        verify(writer).updateDescription(targeting(HOSTED), eq(PULL_REQUEST.number()), eq("- Fixes #31178."));
+        when(contents.description(any(), eq(PULL_REQUEST.number()))).thenReturn("- Fixes #31178.");
         run = service.advance(run.id());
         assertThat(run.attempts().getFirst().descriptionChange().orElseThrow().appliedAt()).isPresent();
         // Even a passing rerun of the original event is not proof of the edited description.
-        when(gitHub.inspect(any())).thenReturn(greenSnapshot(HEAD, BASE));
+        when(ci.inspect(any(), anyInt())).thenReturn(greenSnapshot(HEAD, BASE));
         assertThat(service.advance(run.id())).isEqualTo(run);
-        when(gitHub.inspect(any())).thenReturn(snapshot(HEAD, BASE,
-                ImmutableList.of(snapshot.workflowRuns().getFirst(), descriptionSnapshot("completed", Optional.of("success"), false).workflowRuns().getFirst())));
+        when(ci.inspect(any(), anyInt())).thenReturn(snapshot(HEAD, BASE,
+                ImmutableList.of(snapshot.runs().getFirst(), descriptionSnapshot("completed", Optional.of("success"), false).runs().getFirst())));
         assertThat(service.advance(run.id())).isEqualTo(run);
-        when(gitHub.inspect(any())).thenReturn(descriptionSnapshot("in_progress", Optional.empty(), true));
+        when(ci.inspect(any(), anyInt())).thenReturn(descriptionSnapshot("in_progress", Optional.empty(), true));
         assertThat(service.advance(run.id())).isEqualTo(run);
-        when(gitHub.inspect(any())).thenReturn(descriptionSnapshot("completed", Optional.of("success"), true));
+        when(ci.inspect(any(), anyInt())).thenReturn(descriptionSnapshot("completed", Optional.of("success"), true));
         assertThat(service.advance(run.id())).isEqualTo(run);
-        when(gitHub.inspect(any())).thenReturn(descriptionSnapshot("completed", Optional.of("success"), false));
+        when(ci.inspect(any(), anyInt())).thenReturn(descriptionSnapshot("completed", Optional.of("success"), false));
         when(gitService.checkFixupPositions(any())).thenReturn(FixupPositionCheck.valid(HEAD));
         run = service.advance(run.id());
         doReturn(completion(HEAD)).when(completionService).complete(any());
@@ -1106,8 +1128,8 @@ class TestCiAutofixService
         assertThat(run.finishReason()).contains(FinishReason.GREEN);
         assertThat(run.attemptsUsed()).isEqualTo(1);
         assertThat(run.rerunCounter().used()).isZero();
-        verify(writes, times(1)).updatePullRequestDescription(any(), any(), any());
-        verify(gitHub, never()).rerunFailedJobs(any());
+        verify(writer, times(1)).updateDescription(any(), anyInt(), any());
+        verify(ci, never()).rerunFailedJobs(any(), anyInt(), any());
         verify(gitService, never()).push(any());
     }
 
@@ -1121,11 +1143,11 @@ class TestCiAutofixService
                 .hasMessageContaining("not part of this repair");
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
         run = service.advance(run.id());
-        when(gitHub.readDescription(PULL_REQUEST)).thenReturn("A concurrent user edit");
+        when(contents.description(any(), eq(PULL_REQUEST.number()))).thenReturn("A concurrent user edit");
         run = service.advance(run.id());
         assertThat(run.pauseReason()).contains(PauseReason.ERROR);
         assertThat(run.summary()).hasValueSatisfying(summary -> assertThat(summary).contains("description changed"));
-        verify(writes, never()).updatePullRequestDescription(any(), any(), any());
+        verify(writer, never()).updateDescription(any(), anyInt(), any());
     }
 
     @Test
@@ -1135,17 +1157,17 @@ class TestCiAutofixService
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
         run = service.advance(run.id());
         doAnswer(_ -> {
-            when(gitHub.readDescription(PULL_REQUEST)).thenReturn("- Fixes #31178.");
+            when(contents.description(any(), eq(PULL_REQUEST.number()))).thenReturn("- Fixes #31178.");
             throw new IllegalStateException("response lost");
-        }).when(writes).updatePullRequestDescription(any(), any(), any());
+        }).when(writer).updateDescription(any(), anyInt(), any());
         CiAutofixRun current = run;
         assertThatThrownBy(() -> service.advance(current.id())).hasMessageContaining("response lost");
         CiAutofixService restarted = service(store);
         run = restarted.advance(run.id());
         assertThat(run.attempts().getFirst().descriptionChange().orElseThrow().appliedAt()).isPresent();
         restarted.advance(run.id());
-        verify(writes, times(1)).updatePullRequestDescription(any(), any(), any());
-        verify(gitHub, never()).rerunFailedJobs(any());
+        verify(writer, times(1)).updateDescription(any(), anyInt(), any());
+        verify(ci, never()).rerunFailedJobs(any(), anyInt(), any());
     }
 
     @Test
@@ -1157,11 +1179,11 @@ class TestCiAutofixService
         run = service.advance(run.id());
         run = service.advance(run.id());
         assertThat(run.pauseReason()).contains(PauseReason.ERROR);
-        verify(writes, times(1)).updatePullRequestDescription(any(), any(), any());
-        reset(writes);
+        verify(writer, times(1)).updateDescription(any(), anyInt(), any());
+        reset(writer);
         run = service.cancel(run.id());
         service.advance(run.id());
-        verify(writes, never()).updatePullRequestDescription(any(), any(), any());
+        verify(writer, never()).updateDescription(any(), anyInt(), any());
     }
 
     @Test
@@ -1171,12 +1193,13 @@ class TestCiAutofixService
         service = service(store, Clock.fixed(NOW.plus(Duration.ofDays(3)), ZoneOffset.UTC));
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
         run = service.advance(run.id());
-        when(credentials.resolveGitHubCredential()).thenReturn(new CredentialService.GitHubCredential("another-token", profile("another-user")));
+        when(hosting.captureRead("workspace-1")).thenReturn(route("another-user"));
+        when(hosting.storedRead("workspace-1")).thenReturn(route("another-user"));
         CiAutofixRun current = run;
         assertThatThrownBy(() -> service.advance(current.id())).hasMessageContaining("account changed");
         service.cancel(run.id());
         service.advance(run.id());
-        verify(writes, never()).updatePullRequestDescription(any(), any(), any());
+        verify(writer, never()).updateDescription(any(), anyInt(), any());
     }
 
     @Test
@@ -1186,31 +1209,31 @@ class TestCiAutofixService
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
         run = service.advance(run.id());
         run = service.advance(run.id());
-        when(gitHub.readDescription(PULL_REQUEST)).thenReturn("- Fixes #31178.");
+        when(contents.description(any(), eq(PULL_REQUEST.number()))).thenReturn("- Fixes #31178.");
         run = service.advance(run.id());
-        when(gitHub.inspect(any())).thenReturn(descriptionSnapshot("completed", Optional.of("failure"), false));
+        when(ci.inspect(any(), anyInt())).thenReturn(descriptionSnapshot("completed", Optional.of("failure"), false));
         run = service.advance(run.id());
         run = service.advance(run.id());
         assertThat(run.status()).isEqualTo(Status.ACTIVE);
         assertThat(run.attempts()).hasSize(2);
         assertThat(run.attempts().getLast().descriptionChange()).isEmpty();
-        verify(gitHub, never()).rerunFailedJobs(any());
+        verify(ci, never()).rerunFailedJobs(any(), anyInt(), any());
     }
 
     private CiAutofixRun descriptionProposal()
     {
         CiAutofixRun run = service.start(startCommand("description"));
-        when(gitHub.readDescription(PULL_REQUEST)).thenReturn("Fixes #31178.");
+        when(contents.description(any(), eq(PULL_REQUEST.number()))).thenReturn("Fixes #31178.");
         when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.noChange());
         service.proposeDescription(taskId, turnId, new CiDescriptionProposal(200, "Fixes #31178.", "- Fixes #31178."));
-        verify(writes, never()).updatePullRequestDescription(any(), any(), any());
+        verify(writer, never()).updateDescription(any(), anyInt(), any());
         return service.get(run.id());
     }
 
     private CiHeadSnapshot descriptionSnapshot(String status, Optional<String> conclusion, boolean otherPending)
     {
-        CiWorkflowRun fresh = workflow(300, 1, "Description", HEAD, status, conclusion);
-        fresh = new CiWorkflowRun(fresh.id(), 10, fresh.name(), fresh.attempt(), fresh.status(), fresh.conclusion(), fresh.headSha(), fresh.url(), fresh.jobs());
+        CiRun fresh = workflow(300, 1, "Description", HEAD, status, conclusion);
+        fresh = new CiRun(fresh.id(), 10, fresh.name(), fresh.attempt(), fresh.status(), fresh.conclusion(), fresh.headSha(), fresh.url(), fresh.jobs());
         return snapshot(HEAD, BASE, otherPending ? ImmutableList.of(fresh, workflow(400, 1, "Integration tests", HEAD, "in_progress", Optional.empty())) : ImmutableList.of(fresh));
     }
 
@@ -1226,7 +1249,7 @@ class TestCiAutofixService
         assertThat(run.status()).isEqualTo(Status.PAUSED);
         assertThat(run.summary()).contains("Maybe flaky. Rerun it.");
         assertThat(run.rerunCounter().used()).isZero();
-        verify(gitHub, never()).rerunFailedJobs(any());
+        verify(ci, never()).rerunFailedJobs(any(), anyInt(), any());
     }
 
     @Test
@@ -1265,7 +1288,7 @@ class TestCiAutofixService
         assertThatThrownBy(() -> service.requestRerun(taskId, TurnId.random(), 200, "Transient network failure")).isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> service.requestRerun(taskId, turnId, 999, "Transient network failure")).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.requestRerun(taskId, turnId, 200, " ")).isInstanceOf(IllegalArgumentException.class);
-        verify(gitHub, never()).rerunFailedJobs(any());
+        verify(ci, never()).rerunFailedJobs(any(), anyInt(), any());
     }
 
     @Test
@@ -1276,9 +1299,9 @@ class TestCiAutofixService
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
         run = service.advance(run.id());
         when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.noChange());
-        when(gitHub.rerunFailedJobs(any())).thenReturn(new CiRerunResult(CiRerunResult.Outcome.ACCEPTED, "accepted"));
+        when(ci.rerunFailedJobs(any(), anyInt(), any())).thenReturn(new CiRerunResult(CiRerunResult.Outcome.ACCEPTED, "accepted"));
         run = service.advance(run.id());
-        when(gitHub.inspect(any())).thenReturn(failedSnapshot(HEAD, BASE, 2));
+        when(ci.inspect(any(), anyInt())).thenReturn(failedSnapshot(HEAD, BASE, 2));
         run = service.advance(run.id());
         run = service.advance(run.id());
         assertThat(run.rerunJournal()).isEmpty();
@@ -1286,7 +1309,7 @@ class TestCiAutofixService
         assertThat(run.status()).isEqualTo(Status.ACTIVE);
         assertThat(run.attempts()).hasSize(2);
         assertThat(run.attempts().getLast().agentTurnId()).isEmpty();
-        verify(gitHub).rerunFailedJobs(any());
+        verify(ci).rerunFailedJobs(any(), anyInt(), any());
         verify(gitService, never()).push(any());
         run = service.advance(run.id());
         assertThat(run.currentTurnId()).isPresent();
@@ -1301,12 +1324,12 @@ class TestCiAutofixService
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
         run = service.advance(run.id());
         when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.noChange());
-        when(gitHub.rerunFailedJobs(any())).thenReturn(new CiRerunResult(CiRerunResult.Outcome.ACCEPTED, "accepted"));
+        when(ci.rerunFailedJobs(any(), anyInt(), any())).thenReturn(new CiRerunResult(CiRerunResult.Outcome.ACCEPTED, "accepted"));
         run = service.advance(run.id());
 
-        CiWorkflowRun earlier = failedSnapshot(HEAD, BASE, 1).workflowRuns().getFirst();
-        when(gitHub.inspect(any())).thenReturn(snapshot(HEAD, BASE, ImmutableList.of(new CiWorkflowRun(
-                earlier.id(), earlier.workflowId(), earlier.name(), 2, "completed", Optional.of("failure"), HEAD, earlier.url(), earlier.jobs()))));
+        CiRun earlier = failedSnapshot(HEAD, BASE, 1).runs().getFirst();
+        when(ci.inspect(any(), anyInt())).thenReturn(snapshot(HEAD, BASE, ImmutableList.of(new CiRun(
+                earlier.id(), earlier.definitionId(), earlier.name(), 2, "completed", Optional.of("failure"), HEAD, earlier.url(), earlier.jobs()))));
         run = service.advance(service.advance(run.id()).id());
         assertThat(run.rerunJournal()).isPresent();
 
@@ -1325,7 +1348,7 @@ class TestCiAutofixService
         run = service.advance(run.id());
         assertThat(run.status()).isEqualTo(Status.PAUSED);
 
-        when(gitHub.inspect(any())).thenReturn(greenSnapshot(HEAD, BASE));
+        when(ci.inspect(any(), anyInt())).thenReturn(greenSnapshot(HEAD, BASE));
         doReturn(worktree(true, HEAD)).when(worktreeService).inspect(any());
         assertThat(service.advance(run.id()).status()).isEqualTo(Status.PAUSED);
 
@@ -1348,21 +1371,21 @@ class TestCiAutofixService
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
         run = service.advance(run.id());
         when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.noChange());
-        CiWorkflowRun failed = snapshot.workflowRuns().getFirst();
-        CiWorkflowRun running = new CiWorkflowRun(
-                failed.id(), failed.workflowId(), failed.name(), failed.attempt(), "in_progress", Optional.empty(), failed.headSha(), failed.url(), failed.jobs());
-        when(gitHub.inspect(any())).thenReturn(snapshot(HEAD, BASE, ImmutableList.of(running)));
+        CiRun failed = snapshot.runs().getFirst();
+        CiRun running = new CiRun(
+                failed.id(), failed.definitionId(), failed.name(), failed.attempt(), "in_progress", Optional.empty(), failed.headSha(), failed.url(), failed.jobs());
+        when(ci.inspect(any(), anyInt())).thenReturn(snapshot(HEAD, BASE, ImmutableList.of(running)));
 
         run = service.advance(run.id());
         assertThat(run.status()).isEqualTo(Status.ACTIVE);
         assertThat(run.rerunJournal()).isEmpty();
-        verify(gitHub, never()).rerunFailedJobs(any());
+        verify(ci, never()).rerunFailedJobs(any(), anyInt(), any());
 
-        when(gitHub.inspect(any())).thenReturn(snapshot);
-        when(gitHub.rerunFailedJobs(any())).thenReturn(new CiRerunResult(CiRerunResult.Outcome.ACCEPTED, "accepted"));
+        when(ci.inspect(any(), anyInt())).thenReturn(snapshot);
+        when(ci.rerunFailedJobs(any(), anyInt(), any())).thenReturn(new CiRerunResult(CiRerunResult.Outcome.ACCEPTED, "accepted"));
         run = service.advance(run.id());
         assertThat(run.rerunJournal()).isPresent();
-        verify(gitHub).rerunFailedJobs(any());
+        verify(ci).rerunFailedJobs(any(), anyInt(), any());
     }
 
     @Test
@@ -1373,7 +1396,7 @@ class TestCiAutofixService
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
         run = service.advance(run.id());
         when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.noChange());
-        when(gitHub.rerunFailedJobs(any())).thenReturn(new CiRerunResult(CiRerunResult.Outcome.ACCEPTED, "accepted"));
+        when(ci.rerunFailedJobs(any(), anyInt(), any())).thenReturn(new CiRerunResult(CiRerunResult.Outcome.ACCEPTED, "accepted"));
         run = service.advance(run.id());
         assertThat(run.rerunJournal()).isPresent();
 
@@ -1384,7 +1407,7 @@ class TestCiAutofixService
         assertThat(paused.pauseReason()).contains(PauseReason.RERUN_UNAVAILABLE);
         assertThat(paused.summary()).hasValueSatisfying(summary -> assertThat(summary).contains("blindly"));
         assertThat(paused.rerunJournal()).isEmpty();
-        verify(gitHub, times(1)).rerunFailedJobs(any());
+        verify(ci, times(1)).rerunFailedJobs(any(), anyInt(), any());
     }
 
     @Test
@@ -1420,7 +1443,52 @@ class TestCiAutofixService
         assertThat(paused.summary()).hasValueSatisfying(summary -> assertThat(summary).contains("conflict"));
         assertThat(paused.finishReason()).isEmpty();
         verify(gitService, never()).push(any());
-        verify(gitHub, never()).rerunFailedJobs(any());
+        verify(ci, never()).rerunFailedJobs(any(), anyInt(), any());
+    }
+
+    @Test
+    void runThatFailedBeforeAnyJobPausesWithItsNameAndLink()
+    {
+        when(ci.inspect(any(), anyInt())).thenReturn(pendingSnapshot(HEAD, BASE));
+        CiAutofixRun run = service.start(startCommand("failed-before-any-job"));
+
+        // Another run still going may yet give a result.
+        when(ci.inspect(any(), anyInt())).thenReturn(snapshot(HEAD, BASE, ImmutableList.of(
+                stoppedBeforeAnyJob(HEAD), workflow(100, 1, "Build", HEAD, "in_progress", Optional.empty()))));
+        run = service.advance(run.id());
+        assertThat(run.status()).isEqualTo(Status.ACTIVE);
+
+        when(ci.inspect(any(), anyInt())).thenReturn(snapshot(HEAD, BASE, ImmutableList.of(stoppedBeforeAnyJob(HEAD))));
+        run = service.advance(run.id());
+
+        assertThat(run.status()).isEqualTo(Status.PAUSED);
+        assertThat(run.pauseReason()).contains(PauseReason.ERROR);
+        assertThat(run.summary()).hasValueSatisfying(summary -> assertThat(summary)
+                .contains("user not being verified", "failed before any job", "https://gitlab.example.com/group/project/-/pipelines/300"));
+        assertThat(run.attempts()).isEmpty();
+        verify(turnService, never()).start(any());
+    }
+
+    @Test
+    void fixWhosePipelineFailsBeforeAnyJobPausesInsteadOfWaiting()
+    {
+        CiAutofixRun run = service.start(startCommand("fix-then-failed-before-any-job"));
+        String fixedHead = "c".repeat(40);
+        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
+        run = service.advance(run.id());
+        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(fixedHead, "fingerprint", ImmutableList.of("src/Main.java"), ImmutableList.of("Fix feature")));
+        run = service.advance(run.id());
+        when(gitService.push(any())).thenReturn(CiPushResult.pushed(fixedHead));
+        run = service.advance(run.id());
+        run = service.advance(run.id());
+
+        when(ci.inspect(any(), anyInt())).thenReturn(snapshot(fixedHead, BASE, ImmutableList.of(stoppedBeforeAnyJob(fixedHead))));
+        run = service.advance(run.id());
+        run = service.advance(run.id());
+
+        assertThat(run.status()).isEqualTo(Status.PAUSED);
+        assertThat(run.pauseReason()).contains(PauseReason.ERROR);
+        verify(turnService, times(1)).start(any());
     }
 
     @Test
@@ -1445,7 +1513,7 @@ class TestCiAutofixService
             run = service.advance(run.id());
             run = service.advance(run.id());
 
-            when(gitHub.inspect(any())).thenReturn(failedSnapshot(fixedHead, BASE, 1));
+            when(ci.inspect(any(), anyInt())).thenReturn(failedSnapshot(fixedHead, BASE, 1));
             run = service.advance(run.id());
             assertThat(run.attempts().getLast().observedCiResult()).isEqualTo(CiResult.FAILED);
             if (index < fixedHeads.length - 1) {
@@ -1489,7 +1557,7 @@ class TestCiAutofixService
 
         CiAutofixRun cancelled = service.cancel(run.id());
         assertThat(service.advance(run.id())).isEqualTo(cancelled);
-        verify(gitHub, never()).rerunFailedJobs(any());
+        verify(ci, never()).rerunFailedJobs(any(), anyInt(), any());
     }
 
     @Test
@@ -1501,7 +1569,7 @@ class TestCiAutofixService
         assertThat(run.status()).isEqualTo(Status.ACTIVE);
         assertThat(run.currentTurnId()).contains(turnId.toString());
         verify(turnService, never()).cancel(any());
-        when(gitHub.inspect(any())).thenReturn(failedSnapshot(FIXED_HEAD, BASE, 1));
+        when(ci.inspect(any(), anyInt())).thenReturn(failedSnapshot(FIXED_HEAD, BASE, 1));
 
         CiAutofixRun stale = service.advance(run.id());
         assertThat(stale.finishReason()).contains(FinishReason.STALE_HEAD);
@@ -1517,7 +1585,7 @@ class TestCiAutofixService
         when(gitService.push(any())).thenReturn(CiPushResult.pushed(FIXED_HEAD));
         run = service.advance(run.id());
         run = service.advance(run.id());
-        when(gitHub.inspect(any())).thenReturn(greenSnapshot(FIXED_HEAD, BASE));
+        when(ci.inspect(any(), anyInt())).thenReturn(greenSnapshot(FIXED_HEAD, BASE));
         run = service.advance(run.id());
         when(gitService.checkFixupPositions(any())).thenReturn(FixupPositionCheck.valid(FIXED_HEAD));
         run = service.advance(run.id());
@@ -1550,7 +1618,7 @@ class TestCiAutofixService
         when(gitService.push(any())).thenReturn(CiPushResult.pushed(FIXED_HEAD));
         run = service.advance(run.id());
         run = service.advance(run.id());
-        when(gitHub.inspect(any())).thenReturn(greenSnapshot(FIXED_HEAD, BASE));
+        when(ci.inspect(any(), anyInt())).thenReturn(greenSnapshot(FIXED_HEAD, BASE));
         run = service.advance(run.id());
         when(gitService.checkFixupPositions(any())).thenReturn(FixupPositionCheck.invalid(FIXED_HEAD, "fixup is not immediately after its target"));
         run = service.advance(run.id());
@@ -1771,9 +1839,9 @@ class TestCiAutofixService
         when(worktreeService.inspect(taskWorktree)).thenReturn(worktree(true, "c".repeat(40)));
 
         SendCiAutofixMessageCommand command = new SendCiAutofixMessageCommand(paused.id(), "Please finish resolving the conflict", "message-key", Optional.empty());
-        clearInvocations(gitHub);
+        clearInvocations(ci);
         CiAutofixRun resumed = service.sendMessage(command);
-        verify(gitHub, never()).inspect(any());
+        verify(ci, never()).inspect(any(), anyInt());
         assertThat(resumed.status()).isEqualTo(Status.ACTIVE);
         assertThat(resumed.currentTurnId()).contains(recoveryId.toString());
         assertThat(resumed.attemptsUsed()).isEqualTo(1);
@@ -1842,7 +1910,7 @@ class TestCiAutofixService
 
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.FAILED, Optional.of("failed")));
         CiAutofixRun paused = service.advance(active.id());
-        when(pullRequestReads.fetchPullRequestIdentity(eq("token"), any())).thenReturn(identity(snapshot(true, "author", true, "c".repeat(40), true)));
+        when(contents.identity(any(), anyInt())).thenReturn(identity(snapshot(true, "author", true, "c".repeat(40), true)));
         assertThatThrownBy(() -> service.sendMessage(new SendCiAutofixMessageCommand(paused.id(), "retry", "stale-key", Optional.empty())))
                 .isInstanceOf(CiAutofixConflictException.class)
                 .hasMessageContaining("head or base branch changed");
@@ -2064,7 +2132,7 @@ class TestCiAutofixService
         assertThat(store.run.scope().pullRequest()).isEqualTo(run.scope().pullRequest());
         verify(completionService).delete(taskId);
         verify(rebaseService, never()).cancel(any());
-        verify(gitHub, never()).rerunFailedJobs(any());
+        verify(ci, never()).rerunFailedJobs(any(), anyInt(), any());
     }
 
     @Test
@@ -2220,8 +2288,8 @@ class TestCiAutofixService
         AgentTask parent = developmentParent();
         reserveParent(parent);
         when(taskStore.find(parent.id())).thenReturn(Optional.of(parent));
-        when(gitHub.inspect(any())).thenReturn(new CiHeadSnapshot(snapshot.pullRequest(), true, snapshot.author(), snapshot.headRepository(), snapshot.headRef(),
-                HEAD, snapshot.baseRef(), snapshot.baseSha(), snapshot.url(), greenSnapshot(HEAD, BASE).workflowRuns()));
+        when(ci.inspect(any(), anyInt())).thenReturn(new CiHeadSnapshot(snapshot.pullRequest(), true, snapshot.author(), snapshot.headRepository(), snapshot.headRef(),
+                HEAD, snapshot.baseRef(), snapshot.baseSha(), snapshot.url(), greenSnapshot(HEAD, BASE).runs()));
         when(gitService.checkFixupPositions(any())).thenReturn(FixupPositionCheck.valid(HEAD));
         doReturn(completion(HEAD)).when(completionService).complete(any());
 
@@ -2229,7 +2297,7 @@ class TestCiAutofixService
         run = service.advance(service.advance(run.id()).id());
 
         assertThat(run.finishReason()).contains(FinishReason.GREEN);
-        verify(writes).markReadyForReview("token", "pr-node");
+        verify(writer).markReady(targeting(HOSTED), eq(PULL_REQUEST.number()));
         verify(turnService, never()).start(any());
     }
 
@@ -2237,60 +2305,60 @@ class TestCiAutofixService
     void greenDevelopmentRunWaitsForEveryPullRequestCheckBeforeMarkingTheDraftReady()
     {
         CiAutofixRun run = greenDevelopmentRun("owned-ready");
-        when(pullRequestReads.fetchDeliveryChecks(eq("token"), any())).thenAnswer(_ -> deliveryChecks(true, ImmutableList.of("external-ci"), ImmutableList.of()));
+        when(ci.deliveryChecks(any(), anyInt())).thenAnswer(_ -> deliveryChecks(true, ImmutableList.of("external-ci"), ImmutableList.of()));
         run = service.advance(service.advance(run.id()).id());
         assertThat(run.status()).isEqualTo(Status.ACTIVE);
-        verify(writes, never()).markReadyForReview(any(), any());
+        verify(writer, never()).markReady(any(), anyInt());
 
-        when(pullRequestReads.fetchDeliveryChecks(eq("token"), any())).thenAnswer(_ -> deliveryChecks(true, ImmutableList.of(), ImmutableList.of()));
+        when(ci.deliveryChecks(any(), anyInt())).thenAnswer(_ -> deliveryChecks(true, ImmutableList.of(), ImmutableList.of()));
         run = service.advance(run.id());
 
         assertThat(run.finishReason()).contains(FinishReason.GREEN);
-        verify(writes).markReadyForReview("token", "pr-node");
+        verify(writer).markReady(targeting(HOSTED), eq(PULL_REQUEST.number()));
     }
 
     @Test
     void failedChecksOutsideActionsPauseTheRunAndKeepTheDraft()
     {
         CiAutofixRun run = greenDevelopmentRun("owned-blocked");
-        when(pullRequestReads.fetchDeliveryChecks(eq("token"), any())).thenAnswer(_ -> deliveryChecks(true, ImmutableList.of(), ImmutableList.of("license/cla")));
+        when(ci.deliveryChecks(any(), anyInt())).thenAnswer(_ -> deliveryChecks(true, ImmutableList.of(), ImmutableList.of("license/cla")));
 
         run = service.advance(service.advance(run.id()).id());
 
         assertThat(run.status()).isEqualTo(Status.PAUSED);
         assertThat(run.summary()).contains("Other pull request checks failed, so the draft stays a draft: license/cla");
-        verify(writes, never()).markReadyForReview(any(), any());
+        verify(writer, never()).markReady(any(), anyInt());
     }
 
     @Test
     void readyPullRequestNeedsNoMarking()
     {
         CiAutofixRun run = greenDevelopmentRun("owned-ready-already");
-        when(pullRequestReads.fetchDeliveryChecks(eq("token"), any())).thenAnswer(_ -> deliveryChecks(false, ImmutableList.of(), ImmutableList.of()));
+        when(ci.deliveryChecks(any(), anyInt())).thenAnswer(_ -> deliveryChecks(false, ImmutableList.of(), ImmutableList.of()));
 
         run = service.advance(service.advance(run.id()).id());
 
         assertThat(run.finishReason()).contains(FinishReason.GREEN);
-        verify(writes, never()).markReadyForReview(any(), any());
+        verify(writer, never()).markReady(any(), anyInt());
     }
 
     private CiAutofixRun greenDevelopmentRun(String key)
     {
         AgentTask parent = developmentParent();
         reserveParent(parent);
-        when(gitHub.inspect(any())).thenReturn(new CiHeadSnapshot(snapshot.pullRequest(), true, snapshot.author(), snapshot.headRepository(), snapshot.headRef(),
-                HEAD, snapshot.baseRef(), snapshot.baseSha(), snapshot.url(), greenSnapshot(HEAD, BASE).workflowRuns()));
+        when(ci.inspect(any(), anyInt())).thenReturn(new CiHeadSnapshot(snapshot.pullRequest(), true, snapshot.author(), snapshot.headRepository(), snapshot.headRef(),
+                HEAD, snapshot.baseRef(), snapshot.baseSha(), snapshot.url(), greenSnapshot(HEAD, BASE).runs()));
         when(gitService.checkFixupPositions(any())).thenReturn(FixupPositionCheck.valid(HEAD));
         doReturn(completion(HEAD)).when(completionService).complete(any());
         return service.startDevelopment(startCommand(key), parent.id(), publishedPr(), NOW);
     }
 
-    private GitHubDeliveryChecks deliveryChecks(boolean draft, List<String> waiting, List<String> failures)
+    private CiDeliveryChecks deliveryChecks(boolean draft, List<String> waiting, List<String> failures)
     {
-        GitHubPullRequestIdentity published = publishedPr();
-        GitHubPullRequestIdentity current = new GitHubPullRequestIdentity(published.pullRequest(), published.url(), published.headRepository(), published.headBranch(),
+        PullRequestIdentity published = publishedPr();
+        PullRequestIdentity current = new PullRequestIdentity(published.pullRequest(), published.url(), published.headRepository(), published.headBranch(),
                 store.run.expectedRemoteHead(), published.baseRepository(), published.baseBranch(), published.baseSha(), published.state(), draft, published.author());
-        return new GitHubDeliveryChecks("pr-node", current, waiting, failures);
+        return new CiDeliveryChecks(current, waiting, failures);
     }
 
     @Test
@@ -2370,7 +2438,7 @@ class TestCiAutofixService
     @Test
     void failuresTheBaseAlsoHasLeaveTheRunWaitingWithOneWarning()
     {
-        when(gitHub.failedJobsOnBranch(PULL_REQUEST, 10, "main")).thenReturn(ImmutableSet.of("compile"));
+        when(ci.failedJobsOnBranch(targeting(HOSTED), eq(10L), eq("main"))).thenReturn(ImmutableSet.of("compile"));
 
         CiAutofixRun run = service.start(startCommand("base-only"));
         run = service.advance(service.advance(run.id()).id());
@@ -2384,7 +2452,7 @@ class TestCiAutofixService
         });
         verify(turnService, never()).start(any());
         verify(rebaseService, never()).start(any());
-        verify(gitHub, times(1)).failedJobsOnBranch(any(), anyLong(), anyString());
+        verify(ci, times(1)).failedJobsOnBranch(any(), anyLong(), anyString());
     }
 
     @Test
@@ -2393,8 +2461,8 @@ class TestCiAutofixService
         snapshot = snapshot(HEAD, BASE, ImmutableList.of(
                 workflow(100, 1, "Build", HEAD, "completed", Optional.of("failure")),
                 workflow(300, 1, "Test", HEAD, "completed", Optional.of("failure"))));
-        when(gitHub.inspect(any())).thenReturn(snapshot);
-        when(gitHub.failedJobsOnBranch(PULL_REQUEST, 1300, "main")).thenReturn(ImmutableSet.of("test"));
+        when(ci.inspect(any(), anyInt())).thenReturn(snapshot);
+        when(ci.failedJobsOnBranch(targeting(HOSTED), eq(1300L), eq("main"))).thenReturn(ImmutableSet.of("test"));
 
         CiAutofixRun run = service.start(startCommand("base-also"));
         assertThat(run.warnings()).singleElement().satisfies(warning -> {
@@ -2417,12 +2485,12 @@ class TestCiAutofixService
         reserveParent(parent);
         assertThatThrownBy(() -> service.startDevelopment(startCommand("future-owned"), parent.id(), publishedPr(), NOW.plusSeconds(1)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("future");
-        GitHubPullRequestIdentity expected = publishedPr();
-        GitHubPullRequestIdentity moved = new GitHubPullRequestIdentity(expected.pullRequest(), expected.url(), expected.headRepository(), expected.headBranch(),
+        PullRequestIdentity expected = publishedPr();
+        PullRequestIdentity moved = new PullRequestIdentity(expected.pullRequest(), expected.url(), expected.headRepository(), expected.headBranch(),
                 FIXED_HEAD, expected.baseRepository(), expected.baseBranch(), expected.baseSha(), expected.state(), expected.draft(), expected.author());
         assertThatThrownBy(() -> service.startDevelopment(startCommand("moved-owned"), parent.id(), moved, NOW))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("changed");
-        GitHubPullRequestIdentity differentFork = new GitHubPullRequestIdentity(expected.pullRequest(), expected.url(), FORK, expected.headBranch(),
+        PullRequestIdentity differentFork = new PullRequestIdentity(expected.pullRequest(), expected.url(), FORK, expected.headBranch(),
                 expected.headSha(), expected.baseRepository(), expected.baseBranch(), expected.baseSha(), expected.state(), expected.draft(), expected.author());
         assertThatThrownBy(() -> service.startDevelopment(startCommand("fork-owned"), parent.id(), differentFork, NOW))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("changed");
@@ -2433,8 +2501,8 @@ class TestCiAutofixService
     @Test
     void deliveryCannotAdoptARetargetedPullRequestDuringCiAdmission()
     {
-        GitHubPullRequestIdentity expected = publishedPr();
-        when(gitHub.inspect(any())).thenReturn(changedScopeSnapshot(true));
+        PullRequestIdentity expected = publishedPr();
+        when(ci.inspect(any(), anyInt())).thenReturn(changedScopeSnapshot(true));
 
         assertThatThrownBy(() -> service.start(startCommand("delivery-retarget"), expected))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("changed before CI attachment");
@@ -2446,7 +2514,7 @@ class TestCiAutofixService
     @Test
     void deliveryStartsCiForItsVerifiedPullRequest()
     {
-        GitHubPullRequestIdentity expected = publishedPr();
+        PullRequestIdentity expected = publishedPr();
         CiAutofixRun run = service.start(startCommand("delivery"), expected);
 
         assertThat(run.scope().baseRef()).isEqualTo(snapshot.baseRef());
@@ -2465,7 +2533,7 @@ class TestCiAutofixService
         doThrow(new IllegalArgumentException("Accepted CI repair agent is unavailable")).when(drivers).require(AgentLaneId.CLAUDE_CLI);
         assertThatThrownBy(() -> service.startDevelopment(startCommand("unavailable-owned"), parent.id(), publishedPr(), NOW))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("unavailable");
-        verify(gitHub, never()).inspect(any());
+        verify(ci, never()).inspect(any(), anyInt());
         verify(taskService, never()).create(any());
     }
 
@@ -2474,8 +2542,8 @@ class TestCiAutofixService
         TaskId parent = TaskId.random();
         String branch = "bytequay/task/" + parent;
         snapshot = new CiHeadSnapshot(snapshot.pullRequest(), snapshot.open(), snapshot.author(), snapshot.headRepository(), branch, snapshot.headSha(),
-                snapshot.baseRef(), snapshot.baseSha(), snapshot.url(), snapshot.workflowRuns());
-        when(gitHub.inspect(any())).thenReturn(snapshot);
+                snapshot.baseRef(), snapshot.baseSha(), snapshot.url(), snapshot.runs());
+        when(ci.inspect(any(), anyInt())).thenReturn(snapshot);
         TaskWorktree source = new TaskWorktree(parent, "workspace-1", REPOSITORY, temporaryDirectory.resolve(parent.toString()), branch, HEAD);
         return created(parent, true, "Development", TitleSource.USER, AgentLaneId.CLAUDE_CLI, source,
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW).withDevelopmentContinuation(true, NOW);
@@ -2512,11 +2580,11 @@ class TestCiAutofixService
                 new AgentEventPayload.UserMessage(text, ImmutableList.of(), deliveryKind));
     }
 
-    private GitHubPullRequestIdentity publishedPr()
+    private PullRequestIdentity publishedPr()
     {
         RepoRef repository = RepoRef.of(PULL_REQUEST.owner(), PULL_REQUEST.repo());
-        return new GitHubPullRequestIdentity(PULL_REQUEST, snapshot.url(), repository, snapshot.headRef(), HEAD, repository,
-                snapshot.baseRef(), snapshot.baseSha(), GitHubPullRequestIdentity.State.OPEN, true, snapshot.author());
+        return new PullRequestIdentity(PULL_REQUEST, snapshot.url(), repository, snapshot.headRef(), HEAD, repository,
+                snapshot.baseRef(), snapshot.baseSha(), PullRequestIdentity.State.OPEN, true, snapshot.author());
     }
 
     private CiAutofixService service(InMemoryCiAutofixStore requestedStore)
@@ -2534,9 +2602,9 @@ class TestCiAutofixService
     {
         return new CiAutofixService(
                 requestedStore,
-                gitHub,
-                writes,
-                pullRequestReads,
+                hosting,
+                integrations(ci(GITHUB, contents, writer, ci)),
+                workspaceStore,
                 taskService,
                 turnService,
                 completionService,
@@ -2548,7 +2616,6 @@ class TestCiAutofixService
                 gitService,
                 rebaseService,
                 timelineService,
-                credentials,
                 requestedClock,
                 requestedOwnership,
                 recovery);
@@ -2633,7 +2700,7 @@ class TestCiAutofixService
         if (forkHead) {
             snapshot = withHeadRepository(snapshot, FORK);
         }
-        when(gitHub.inspect(any())).thenReturn(snapshot);
+        when(ci.inspect(any(), anyInt())).thenReturn(snapshot);
         when(workspaces.requireReadyRepository("workspace-1")).thenReturn(new WorkspaceRepositoryContext(
                 "workspace-1", temporaryDirectory, 1, FORK, OptionalLong.of(2), RepoRef.of(PULL_REQUEST.owner(), PULL_REQUEST.repo()),
                 "upstream", "origin", "main", ImmutableList.of()));
@@ -2642,21 +2709,21 @@ class TestCiAutofixService
     private static CiHeadSnapshot withHeadRepository(CiHeadSnapshot snapshot, RepoRef repository)
     {
         return new CiHeadSnapshot(snapshot.pullRequest(), snapshot.open(), snapshot.author(), repository, snapshot.headRef(), snapshot.headSha(),
-                snapshot.baseRef(), snapshot.baseSha(), snapshot.url(), snapshot.workflowRuns());
+                snapshot.baseRef(), snapshot.baseSha(), snapshot.url(), snapshot.runs());
     }
 
-    private static GitHubPullRequestIdentity identity(CiHeadSnapshot head)
+    private static PullRequestIdentity identity(CiHeadSnapshot head)
     {
-        return new GitHubPullRequestIdentity(head.pullRequest(), head.url(), head.headRepository(), head.headRef(), head.headSha(),
+        return new PullRequestIdentity(head.pullRequest(), head.url(), head.headRepository(), head.headRef(), head.headSha(),
                 RepoRef.of(head.pullRequest().owner(), head.pullRequest().repo()), head.baseRef(), head.baseSha(),
-                head.open() ? GitHubPullRequestIdentity.State.OPEN : GitHubPullRequestIdentity.State.CLOSED, false, head.author());
+                head.open() ? PullRequestIdentity.State.OPEN : PullRequestIdentity.State.CLOSED, false, head.author());
     }
 
     private CiHeadSnapshot changedScopeSnapshot(boolean baseRetarget)
     {
         return new CiHeadSnapshot(snapshot.pullRequest(), snapshot.open(), snapshot.author(),
                 baseRetarget ? snapshot.headRepository() : RepoRef.of("another-owner", "sample"), snapshot.headRef(), snapshot.headSha(),
-                baseRetarget ? "release" : snapshot.baseRef(), snapshot.baseSha(), snapshot.url(), snapshot.workflowRuns());
+                baseRetarget ? "release" : snapshot.baseRef(), snapshot.baseSha(), snapshot.url(), snapshot.runs());
     }
 
     private WorkspaceRepositoryContext workspaceContext(RepositoryIdentity selectedRepository)
@@ -2772,7 +2839,7 @@ class TestCiAutofixService
                 Optional.of(failed ? "failure" : "success"),
                 "https://github.com/bytequay/sample/actions/runs/100/job/200",
                 ImmutableList.of(step));
-        CiWorkflowRun workflow = new CiWorkflowRun(
+        CiRun workflow = new CiRun(
                 100,
                 10,
                 "Build",
@@ -2810,7 +2877,7 @@ class TestCiAutofixService
         return snapshot(head, base, ImmutableList.of(workflow(100, 1, "Build", head, "in_progress", Optional.empty())));
     }
 
-    private CiHeadSnapshot snapshot(String head, String base, List<CiWorkflowRun> workflows)
+    private CiHeadSnapshot snapshot(String head, String base, List<CiRun> workflows)
     {
         return new CiHeadSnapshot(
                 PULL_REQUEST,
@@ -2825,7 +2892,13 @@ class TestCiAutofixService
                 workflows);
     }
 
-    private static CiWorkflowRun workflow(long id, int attempt, String name, String head, String status, Optional<String> conclusion)
+    private static CiRun stoppedBeforeAnyJob(String head)
+    {
+        return new CiRun(300, 1300, "Pipeline #300: The pipeline failed due to the user not being verified.", 1, "completed", Optional.of("failure"), head,
+                "https://gitlab.example.com/group/project/-/pipelines/300", ImmutableList.of());
+    }
+
+    private static CiRun workflow(long id, int attempt, String name, String head, String status, Optional<String> conclusion)
     {
         CiStep step = new CiStep(1, name, status, conclusion);
         CiJob job = new CiJob(
@@ -2837,7 +2910,7 @@ class TestCiAutofixService
                 conclusion,
                 "https://github.com/bytequay/sample/actions/runs/" + id + "/job/" + id * 2,
                 ImmutableList.of(step));
-        return new CiWorkflowRun(id, id + 1000, name, attempt, status, conclusion, head, "https://github.com/bytequay/sample/actions/runs/" + id, ImmutableList.of(job));
+        return new CiRun(id, id + 1000, name, attempt, status, conclusion, head, "https://github.com/bytequay/sample/actions/runs/" + id, ImmutableList.of(job));
     }
 
     private TaskCompletion completion(String head)
@@ -2846,8 +2919,16 @@ class TestCiAutofixService
         return new TaskCompletion(taskId, summary, NOW, NOW.plus(Duration.ofDays(7)));
     }
 
-    private static UserProfile profile(String login)
+    private static WorkspaceHostingRead route(String login)
     {
-        return new UserProfile(login, login, "", "", 0, 0, 0, null, null, null, null);
+        return new WorkspaceHostingRead(new HostingReadSession(1, "workspace", new HostingAccess(INSTANCE, "token")), HOSTED, login);
+    }
+
+    private static Workspace workspace()
+    {
+        RepoRef repository = RepoRef.of(PULL_REQUEST.owner(), PULL_REQUEST.repo());
+        return new Workspace("workspace-1", "Sample", 42, repository, Optional.empty(), Optional.empty(), 42, repository, Workspace.Topology.DIRECT, "main",
+                WEB_BASE + "/" + repository.fullName() + ".git", Optional.empty(), Optional.empty(), "/workspaces/workspace-1", Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW,
+                HostingServer.GITHUB_COM);
     }
 }

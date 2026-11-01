@@ -293,7 +293,7 @@ public class ReviewPublicationService
         try {
             PullRequestService.Posted posted;
             try {
-                posted = pullRequests.createReviewComment(route, comment(reservation.items().getFirst()));
+                posted = pullRequests.createReviewComment(route, comment(reservation.items().getFirst(), route));
             }
             catch (RuntimeException failure) {
                 return releaseAfterFailure(route, reservation, failure, false);
@@ -339,7 +339,7 @@ public class ReviewPublicationService
         try {
             PullRequestService.Posted posted;
             try {
-                posted = pullRequests.createReviewComment(route, comment(sending.items().getFirst()));
+                posted = pullRequests.createReviewComment(route, comment(sending.items().getFirst(), route));
             }
             catch (RuntimeException failure) {
                 throw failedPost(route, sending, failure);
@@ -436,7 +436,7 @@ public class ReviewPublicationService
                 PullRequestService.Posted posted;
                 try {
                     posted = pullRequests.submitReview(route, prId, last ? chosen : "COMMENT", last ? text : "",
-                            batch.stream().map(this::comment).collect(toImmutableList()),
+                            batch.stream().map(item -> comment(item, route)).collect(toImmutableList()),
                             batch.stream().filter(item -> item.replyToCommentId().isEmpty()).flatMap(item -> item.commitId().stream()).findFirst().orElse(headSha));
                 }
                 catch (RuntimeException failure) {
@@ -589,10 +589,10 @@ public class ReviewPublicationService
         List<Remote> matches = posted.threads().stream()
                 .filter(thread -> item.replyToCommentId().isPresent() || item.path().equals(thread.payload().path()))
                 .flatMap(thread -> thread.payload().comments().stream())
-                .filter(comment -> comment.githubId() != null && item.body().equals(comment.body()))
+                .filter(comment -> comment.remoteId() != null && item.body().equals(comment.body()))
                 .filter(comment -> posted.reviewId().isEmpty() || Objects.equals(comment.reviewId(), posted.reviewId().getAsLong()))
                 .filter(comment -> item.replyToCommentId().isEmpty() || Objects.equals(comment.inReplyToId(), item.replyToCommentId().getAsLong()))
-                .map(comment -> new Remote(comment.githubId(), comment.reviewId() == null ? OptionalLong.empty() : OptionalLong.of(comment.reviewId()),
+                .map(comment -> new Remote(comment.remoteId(), comment.reviewId() == null ? OptionalLong.empty() : OptionalLong.of(comment.reviewId()),
                         Optional.ofNullable(comment.htmlUrl())))
                 .collect(toImmutableList());
         return matches.size() == 1 ? Optional.of(matches.getFirst()) : Optional.empty();
@@ -673,15 +673,17 @@ public class ReviewPublicationService
         }
     }
 
-    private InlineReviewComment comment(ReviewDraftItem item)
+    /** A provider without multi-line comments receives a range anchored on its last line. */
+    private InlineReviewComment comment(ReviewDraftItem item, PullRequestRead route)
     {
+        OptionalInt startLine = pullRequests.capabilities(route).multiLineComments() ? item.startLine() : OptionalInt.empty();
         return new InlineReviewComment(
                 item.path(),
                 item.body(),
                 item.line(),
                 item.side(),
-                item.startLine().isPresent() ? item.startLine().getAsInt() : null,
-                item.startLine().isPresent() ? item.side() : null,
+                startLine.isPresent() ? startLine.getAsInt() : null,
+                startLine.isPresent() ? item.side() : null,
                 item.commitId().orElse(null), item.replyToCommentId());
     }
 

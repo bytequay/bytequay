@@ -58,10 +58,11 @@ function list(candidates: AttentionItem[], handled: Handled = {}, variant: 'home
       onHandledChange={() => {}} onOpen={() => {}} onStartIssue={() => {}} />);
 }
 
-function mockCircle(repositories: string[] = [], member = { githubId: 1, login: 'alice', name: 'Alice', avatarUrl: '' }): void {
-  vi.spyOn(teamHooks, 'useTeams').mockReturnValue({ directory: { accountLogin: 'viewer', circles: [{
-    id: 'trusted', name: 'Maintainers', description: '', avatar: { color: 'gray', shape: 'square' }, repositories, members: [member],
-  }] }, loading: false, error: null });
+function mockCircle(repositories: string[] = [], member = { remoteId: 1, login: 'alice', name: 'Alice', avatarUrl: '' }): void {
+  vi.spyOn(teamHooks, 'useTeams').mockReturnValue({ directories: [{ accountId: 1, accountLogin: 'viewer',
+    server: { provider: 'GITHUB', webBaseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' }, circles: [{
+      id: 'trusted', name: 'Maintainers', description: '', avatar: { color: 'gray', shape: 'square' }, repositories, members: [member],
+    }] }], loading: false, error: null });
 }
 
 describe('AttentionList', () => {
@@ -118,7 +119,7 @@ describe('AttentionList', () => {
   });
 
   it('explains a member review request independently of the PR author', () => {
-    mockCircle([], { githubId: 2, login: 'bob', name: 'Bob', avatarUrl: '' });
+    mockCircle([], { remoteId: 2, login: 'bob', name: 'Bob', avatarUrl: '' });
     const html = list([prItem(1, 'review', {
       event: 'review_requested', actor: 'bob', timestamp: '2026-08-28T00:00:00Z', state: null, label: null, requestedReviewer: 'viewer',
     })]);

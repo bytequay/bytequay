@@ -20,10 +20,18 @@ import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingIntegration;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
+import com.bytequay.core.hosting.IssueClient;
+import com.bytequay.core.hosting.PullRequestCi;
+import com.bytequay.core.hosting.PullRequestContentReader;
+import com.bytequay.core.hosting.PullRequestDiscovery;
 import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.hosting.PullRequestListPage;
+import com.bytequay.core.hosting.PullRequestWriter;
 import com.bytequay.core.hosting.RemoteHostingRepository;
+import com.bytequay.core.hosting.RepositoryMetadataReader;
 import com.bytequay.core.hosting.RepositoryVisibility;
+import com.bytequay.core.hosting.TeamActivityReader;
 import com.bytequay.integration.github.GitHubIntegration;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
@@ -58,6 +66,7 @@ import static com.bytequay.core.hosting.HostingFailure.Kind.UNAVAILABLE;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 class TestGitHubIntegration
 {
@@ -93,12 +102,17 @@ class TestGitHubIntegration
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.start();
         http = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
-        integration = GitHubIntegration.create(http, new ObjectMapper().findAndRegisterModules());
+        integration = connections(http, new ObjectMapper().findAndRegisterModules());
         URI base = URI.create("http://127.0.0.1:" + server.getAddress().getPort());
         URI webBase = URI.create("https://github.example");
         access = new HostingAccess(new HostingInstance(1, HostingProvider.GITHUB, webBase, base.resolve("/api/v3")), "private-token");
         repository = new HostingRepository(2, 1, "42", "bytequay/bytequay", webBase.resolve("/bytequay/bytequay"),
                 webBase.resolve("/bytequay/bytequay.git"), Optional.empty(), Optional.of("main"));
+    }
+
+    private HostingTarget target()
+    {
+        return new HostingTarget(access, repository);
     }
 
     @AfterEach
@@ -254,7 +268,7 @@ class TestGitHubIntegration
             throws IOException
     {
         ObjectMapper shared = new ObjectMapper().findAndRegisterModules();
-        HostingIntegration strict = GitHubIntegration.create(http, shared);
+        HostingIntegration strict = connections(http, shared);
         serve("/api/v3/user", 200, "{\"id\":\"123\",\"login\":\"alice\"}", ImmutableMap.of());
 
         assertThatThrownBy(() -> strict.accounts().verify(access))
@@ -267,13 +281,13 @@ class TestGitHubIntegration
     void normalizesMetadataAndDetailFromOneConditionalRead()
     {
         serve(METADATA_PATH, 200, PULL_REQUEST, ImmutableMap.of("ETag", "\"v2\""));
-        PullRequestFetch fetched = integration.pullRequests().fetch(access, repository, 7, Optional.of("\"v1\""));
+        PullRequestFetch fetched = integration.pullRequests().fetch(target(), 7, Optional.of("\"v1\""));
 
         assertThat(request.get().validator()).contains("\"v1\"");
         assertThat(request.get().authorization()).isEqualTo("Bearer private-token");
         assertThat(fetched.etag()).contains("\"v2\"");
         assertThat(fetched.pullRequest()).hasValueSatisfying(value -> {
-            assertThat(value.githubId()).isEqualTo(1007);
+            assertThat(value.remoteId()).isEqualTo(1007);
             assertThat(value.number()).isEqualTo(7);
             assertThat(value.repo()).isEqualTo("bytequay/bytequay");
             assertThat(value.author()).isEqualTo("alice");
@@ -309,12 +323,12 @@ class TestGitHubIntegration
         String path = "/api/v3/repos/bytequay/bytequay/pulls";
         serve(path, 200, "[" + PULL_REQUEST + "]", ImmutableMap.of("Link", "<https://github.example/unused?page=2>; rel=\"next\""));
 
-        PullRequestListPage first = integration.pullRequests().list(access, repository, true, 1, 1);
+        PullRequestListPage first = integration.pullRequests().list(target(), true, 1, 1);
 
         assertThat(first.hasNext()).isTrue();
         assertThat(first.items()).singleElement().satisfies(item -> {
             assertThat(item.number()).isEqualTo(7);
-            assertThat(item.githubId()).isEqualTo(1007);
+            assertThat(item.remoteId()).isEqualTo(1007);
             assertThat(item.repo()).isEqualTo("bytequay/bytequay");
             assertThat(item.title()).isEqualTo("Preserve request context");
             assertThat(item.author()).isEqualTo("alice");
@@ -333,7 +347,7 @@ class TestGitHubIntegration
                 .replace("\"state\": \"open\"", "\"state\": \"closed\", \"merged_at\": \"2026-10-02T10:00:00Z\"") + "]",
                 ImmutableMap.of("Link", "<https://github.example/unused?page=1>; rel=\"prev\""));
 
-        PullRequestListPage last = integration.pullRequests().list(access, repository, false, 2, 1);
+        PullRequestListPage last = integration.pullRequests().list(target(), false, 2, 1);
 
         assertThat(last.hasNext()).isFalse();
         assertThat(last.items()).singleElement().satisfies(item -> {
@@ -348,7 +362,7 @@ class TestGitHubIntegration
     {
         serve("/api/v3/repos/bytequay/bytequay/pulls", 200, "[]", ImmutableMap.of());
 
-        PullRequestListPage page = integration.pullRequests().list(access, repository, false, 1, 100);
+        PullRequestListPage page = integration.pullRequests().list(target(), false, 1, 100);
 
         assertThat(page.items()).isEmpty();
         assertThat(page.hasNext()).isFalse();
@@ -360,7 +374,7 @@ class TestGitHubIntegration
     {
         serve("/api/v3/repos/bytequay/bytequay/pulls", 200, body, ImmutableMap.of());
 
-        assertThatThrownBy(() -> integration.pullRequests().list(access, repository, false, 1, 100))
+        assertThatThrownBy(() -> integration.pullRequests().list(target(), false, 1, 100))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
     }
 
@@ -369,7 +383,7 @@ class TestGitHubIntegration
     {
         serve("/api/v3/repos/bytequay/bytequay/pulls", 200, "[" + PULL_REQUEST.replace("\"id\": 42", "\"id\": 43") + "]", ImmutableMap.of());
 
-        assertThatThrownBy(() -> integration.pullRequests().list(access, repository, false, 1, 100))
+        assertThatThrownBy(() -> integration.pullRequests().list(target(), false, 1, 100))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
     }
 
@@ -377,7 +391,7 @@ class TestGitHubIntegration
     @CsvSource({"0,1", "1,0", "1,101"})
     void rejectsInvalidPaginationBeforeSending(int page, int pageSize)
     {
-        assertThatThrownBy(() -> integration.pullRequests().list(access, repository, false, page, pageSize)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> integration.pullRequests().list(target(), false, page, pageSize)).isInstanceOf(IllegalArgumentException.class);
         assertThat(request.get()).isNull();
     }
 
@@ -394,7 +408,7 @@ class TestGitHubIntegration
     {
         serve(METADATA_PATH, 200, PULL_REQUEST.replace(original, replacement), ImmutableMap.of());
 
-        assertThatThrownBy(() -> integration.pullRequests().fetch(access, repository, 7, Optional.empty()))
+        assertThatThrownBy(() -> integration.pullRequests().fetch(target(), 7, Optional.empty()))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE)).hasNoCause();
     }
 
@@ -403,7 +417,7 @@ class TestGitHubIntegration
     {
         serve(METADATA_PATH, 200, PULL_REQUEST + " {}", ImmutableMap.of());
 
-        assertThatThrownBy(() -> integration.pullRequests().fetch(access, repository, 7, Optional.empty()))
+        assertThatThrownBy(() -> integration.pullRequests().fetch(target(), 7, Optional.empty()))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE)).hasNoCause();
     }
 
@@ -412,7 +426,7 @@ class TestGitHubIntegration
     {
         serve(METADATA_PATH, 200, PULL_REQUEST.replace("\"body\": \"Details\"", "\"body\": \"\""), ImmutableMap.of());
 
-        assertThat(integration.pullRequests().fetch(access, repository, 7, Optional.empty()).detail())
+        assertThat(integration.pullRequests().fetch(target(), 7, Optional.empty()).detail())
                 .hasValueSatisfying(value -> assertThat(value.body()).isEmpty());
     }
 
@@ -426,7 +440,7 @@ class TestGitHubIntegration
                 "created_at":"2026-10-01T10:00:00Z","updated_at":"2026-10-02T10:00:00Z","base":{"repo":{"id":42}},
                 "closed_at":"2026-10-02T10:00:00Z","merged_at":"2026-10-02T10:00:00Z"}
                 """, ImmutableMap.of());
-        PullRequestFetch fetched = integration.pullRequests().fetch(access, repository, 7, Optional.empty());
+        PullRequestFetch fetched = integration.pullRequests().fetch(target(), 7, Optional.empty());
         assertThat(fetched.pullRequest()).hasValueSatisfying(value -> {
             assertThat(value.author()).isEqualTo(FetchedPullRequest.GHOST_AUTHOR);
             assertThat(value.state()).isEqualTo("merged");
@@ -445,7 +459,7 @@ class TestGitHubIntegration
     {
         serve(METADATA_PATH, 200, PULL_REQUEST.replace("\"id\": 42", "\"id\": 43"), ImmutableMap.of());
 
-        assertThatThrownBy(() -> integration.pullRequests().fetch(access, repository, 7, Optional.empty()))
+        assertThatThrownBy(() -> integration.pullRequests().fetch(target(), 7, Optional.empty()))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
     }
 
@@ -455,7 +469,7 @@ class TestGitHubIntegration
     {
         serve(METADATA_PATH, 200, PULL_REQUEST.replace("{\"id\": 42}", targetRepository), ImmutableMap.of());
 
-        assertThatThrownBy(() -> integration.pullRequests().fetch(access, repository, 7, Optional.empty()))
+        assertThatThrownBy(() -> integration.pullRequests().fetch(target(), 7, Optional.empty()))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
     }
 
@@ -465,7 +479,7 @@ class TestGitHubIntegration
     {
         serve(METADATA_PATH, 200, PULL_REQUEST.replace("\"state\": \"open\"", "\"state\": \"" + state + "\""), ImmutableMap.of());
 
-        assertThatThrownBy(() -> integration.pullRequests().fetch(access, repository, 7, Optional.empty()))
+        assertThatThrownBy(() -> integration.pullRequests().fetch(target(), 7, Optional.empty()))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
     }
 
@@ -475,7 +489,7 @@ class TestGitHubIntegration
     {
         serve(METADATA_PATH, 200, PULL_REQUEST.replace("\"" + field + "\":", "\"ignored\":"), ImmutableMap.of());
 
-        assertThatThrownBy(() -> integration.pullRequests().fetch(access, repository, 7, Optional.empty()))
+        assertThatThrownBy(() -> integration.pullRequests().fetch(target(), 7, Optional.empty()))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
     }
 
@@ -483,11 +497,11 @@ class TestGitHubIntegration
     void rejectsBlankTitlesAndMalformedTimestamps()
     {
         serve(METADATA_PATH, 200, PULL_REQUEST.replace("Preserve request context", " "), ImmutableMap.of());
-        assertThatThrownBy(() -> integration.pullRequests().fetch(access, repository, 7, Optional.empty()))
+        assertThatThrownBy(() -> integration.pullRequests().fetch(target(), 7, Optional.empty()))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
         server.removeContext(METADATA_PATH);
         serve(METADATA_PATH, 200, PULL_REQUEST.replace("2026-10-01T10:00:00Z", "invalid-timestamp"), ImmutableMap.of());
-        assertThatThrownBy(() -> integration.pullRequests().fetch(access, repository, 7, Optional.empty()))
+        assertThatThrownBy(() -> integration.pullRequests().fetch(target(), 7, Optional.empty()))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
     }
 
@@ -496,7 +510,7 @@ class TestGitHubIntegration
     {
         serve(METADATA_PATH, 200, PULL_REQUEST.replace("https://github.example/", "https://other.example/"), ImmutableMap.of());
 
-        assertThatThrownBy(() -> integration.pullRequests().fetch(access, repository, 7, Optional.empty()))
+        assertThatThrownBy(() -> integration.pullRequests().fetch(target(), 7, Optional.empty()))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
     }
 
@@ -509,7 +523,7 @@ class TestGitHubIntegration
                 .replace("\"requested_teams\":", "\"ignored_requested_teams\":");
         serve(METADATA_PATH, 200, payload, ImmutableMap.of());
 
-        assertThat(integration.pullRequests().fetch(access, repository, 7, Optional.empty()).detail()).hasValueSatisfying(value -> {
+        assertThat(integration.pullRequests().fetch(target(), 7, Optional.empty()).detail()).hasValueSatisfying(value -> {
             assertThat(value.additions()).isEqualTo(UNKNOWN_COUNT);
             assertThat(value.deletions()).isEqualTo(UNKNOWN_COUNT);
             assertThat(value.changedFiles()).isEqualTo(UNKNOWN_COUNT);
@@ -523,7 +537,7 @@ class TestGitHubIntegration
         serve(METADATA_PATH, 200, PULL_REQUEST.replace("\"additions\": 12, \"deletions\": 3, \"changed_files\": 2",
                 "\"additions\": 0, \"deletions\": 0, \"changed_files\": 0"), ImmutableMap.of());
 
-        assertThat(integration.pullRequests().fetch(access, repository, 7, Optional.empty()).detail()).hasValueSatisfying(value -> {
+        assertThat(integration.pullRequests().fetch(target(), 7, Optional.empty()).detail()).hasValueSatisfying(value -> {
             assertThat(value.additions()).isZero();
             assertThat(value.deletions()).isZero();
             assertThat(value.changedFiles()).isZero();
@@ -535,7 +549,7 @@ class TestGitHubIntegration
     {
         serve(METADATA_PATH, 200, PULL_REQUEST.replace("\"repo\": {}", "\"repo\": null"), ImmutableMap.of());
 
-        PullRequestFetch fetched = integration.pullRequests().fetch(access, repository, 7, Optional.empty());
+        PullRequestFetch fetched = integration.pullRequests().fetch(target(), 7, Optional.empty());
         assertThat(fetched.pullRequest()).isPresent();
         assertThat(fetched.detail()).hasValueSatisfying(value -> assertThat(value.headSha()).isEqualTo("head-sha"));
     }
@@ -544,11 +558,11 @@ class TestGitHubIntegration
     void preservesTheValidatorWhenAnUnchangedResponseOmitsIt()
     {
         serve(METADATA_PATH, 304, "", ImmutableMap.of());
-        PullRequestFetch fetched = integration.pullRequests().fetch(access, repository, 7, Optional.of("\"v1\""));
+        PullRequestFetch fetched = integration.pullRequests().fetch(target(), 7, Optional.of("\"v1\""));
         assertThat(fetched.pullRequest()).isEmpty();
         assertThat(fetched.detail()).isEmpty();
         assertThat(fetched.etag()).contains("\"v1\"");
-        assertThatThrownBy(() -> integration.pullRequests().fetch(access, repository, 7, Optional.empty()))
+        assertThatThrownBy(() -> integration.pullRequests().fetch(target(), 7, Optional.empty()))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
     }
 
@@ -557,7 +571,7 @@ class TestGitHubIntegration
     {
         serve(METADATA_PATH, 200, PULL_REQUEST, ImmutableMap.of());
 
-        PullRequestFetch fetched = integration.pullRequests().fetch(access, repository, 7, Optional.of("\"v1\""));
+        PullRequestFetch fetched = integration.pullRequests().fetch(target(), 7, Optional.of("\"v1\""));
 
         assertThat(fetched.pullRequest()).isPresent();
         assertThat(fetched.detail()).isPresent();
@@ -578,7 +592,7 @@ class TestGitHubIntegration
     void reportsRateLimitsWithTheirRetryDelay()
     {
         serve(METADATA_PATH, 403, "", ImmutableMap.of("X-RateLimit-Remaining", "0", "Retry-After", "12"));
-        assertThatThrownBy(() -> integration.pullRequests().fetch(access, repository, 7, Optional.empty()))
+        assertThatThrownBy(() -> integration.pullRequests().fetch(target(), 7, Optional.empty()))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> {
                     assertThat(failure.kind()).isEqualTo(RATE_LIMITED);
                     assertThat(failure.retryAfter()).contains(Duration.ofSeconds(12));
@@ -589,7 +603,7 @@ class TestGitHubIntegration
     void rejectsRedirectingClientsAndDoesNotFollowResponses()
     {
         try (HttpClient redirecting = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.ALWAYS).build()) {
-            assertThatThrownBy(() -> GitHubIntegration.create(redirecting, new ObjectMapper())).isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> connections(redirecting, new ObjectMapper())).isInstanceOf(IllegalArgumentException.class);
         }
         AtomicInteger redirected = new AtomicInteger();
         server.createContext("/unexpected", exchange -> {
@@ -598,7 +612,7 @@ class TestGitHubIntegration
             exchange.close();
         });
         serve(METADATA_PATH, 302, "", ImmutableMap.of("Location", "/unexpected"));
-        assertThatThrownBy(() -> integration.pullRequests().fetch(access, repository, 7, Optional.empty()))
+        assertThatThrownBy(() -> integration.pullRequests().fetch(target(), 7, Optional.empty()))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
         assertThat(redirected).hasValue(0);
     }
@@ -643,7 +657,7 @@ class TestGitHubIntegration
     void rejectsMalformedMetadata(String body)
     {
         serve(METADATA_PATH, 200, body, ImmutableMap.of());
-        assertThatThrownBy(() -> integration.pullRequests().fetch(access, repository, 7, Optional.empty()))
+        assertThatThrownBy(() -> integration.pullRequests().fetch(target(), 7, Optional.empty()))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
     }
 
@@ -651,7 +665,7 @@ class TestGitHubIntegration
     void refusesWrongInstancesAndUnsafeCredentialsBeforeSending()
     {
         HostingAccess other = new HostingAccess(new HostingInstance(3, HostingProvider.GITHUB, access.server().webBaseUrl(), access.server().apiBaseUrl()), "token");
-        assertThatThrownBy(() -> integration.pullRequests().fetch(other, repository, 7, Optional.empty())).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> integration.pullRequests().fetch(new HostingTarget(other, repository), 7, Optional.empty())).isInstanceOf(IllegalArgumentException.class);
         HostingAccess unsafe = new HostingAccess(access.server(), "secret\r\nheader");
         assertThatThrownBy(() -> integration.accounts().verify(unsafe))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(AUTHENTICATION_REQUIRED))
@@ -699,4 +713,10 @@ class TestGitHubIntegration
     }
 
     private record Request(String path, Optional<String> query, String authorization, Optional<String> validator) {}
+
+    private static HostingIntegration connections(HttpClient http, ObjectMapper mapper)
+    {
+        return GitHubIntegration.create(http, mapper, mock(PullRequestContentReader.class), mock(PullRequestWriter.class), mock(IssueClient.class),
+                mock(RepositoryMetadataReader.class), mock(PullRequestDiscovery.class), mock(PullRequestCi.class), mock(TeamActivityReader.class));
+    }
 }

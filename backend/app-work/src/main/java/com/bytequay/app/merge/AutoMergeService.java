@@ -61,7 +61,7 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Auto-merge: once a task's pull request can merge at one head, waits for the delay set in Settings, then rebase-merges
- * it or joins the base branch's merge queue. GitHub's own merge state decides required checks, approvals, conflicts and
+ * it or joins the base branch's merge queue. The provider's own merge state decides required checks, approvals, conflicts and
  * whether the branch is behind; the task's own CI fix and review fix must also have nothing left. The merge names the
  * head it checked, so nothing newer can be merged, and a merge that was started is never sent again.
  */
@@ -108,7 +108,7 @@ public class AutoMergeService
         this.clock = requireNonNull(clock, "clock is null");
     }
 
-    /** The scheduler thread also times out approvals, so the GitHub calls run on this service's own thread. */
+    /** The scheduler thread also times out approvals, so the provider calls run on this service's own thread. */
     @Scheduled(initialDelayString = "PT1M", fixedDelayString = "PT1M")
     public void monitor()
     {
@@ -193,7 +193,7 @@ public class AutoMergeService
 
     /**
      * Where the task's merge stands, for its automation status; empty before the pull request is first checked. A queued merge
-     * ends with its linked pull request, which is the merged one or none once GitHub merges or closes it, and a task whose
+     * ends with its linked pull request, which is the merged one or none once it is merged or closed, and a task whose
      * pull request ended is no longer checked.
      */
     public Optional<AutoMergeSummary> summary(String taskId, Optional<PullRequest> linked)
@@ -249,7 +249,7 @@ public class AutoMergeService
         }
         String state = Optional.ofNullable(raw.mergeableState()).orElse("unknown").toLowerCase(Locale.ROOT);
         if (!MERGEABLE.contains(state)) {
-            return Optional.of("Waiting for GitHub to allow the merge (" + state + ")");
+            return Optional.of("Waiting until the pull request can merge (" + state + ")");
         }
         Optional<CiAutofixRun> ci = ciRuns.listByParentTaskId(task.id().toString()).stream().max(comparing(CiAutofixRun::createdAt));
         if (ci.isPresent() && !(ci.get().status() == CiAutofixRun.Status.FINISHED && ci.get().finishReason().filter(reason -> reason == CiAutofixRun.FinishReason.GREEN).isPresent()
@@ -277,7 +277,7 @@ public class AutoMergeService
                 store.save(started.ended(AutoMerge.Outcome.QUEUED, Optional.ofNullable(result.message()).orElse("In the merge queue")));
             }
             else {
-                store.save(started.ended(AutoMerge.Outcome.FAILED, Optional.ofNullable(result.message()).orElse("GitHub did not merge the pull request")));
+                store.save(started.ended(AutoMerge.Outcome.FAILED, Optional.ofNullable(result.message()).orElse("The pull request was not merged")));
             }
         }
         catch (RuntimeException failure) {

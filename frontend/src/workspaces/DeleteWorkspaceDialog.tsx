@@ -15,6 +15,7 @@ import { useAsyncAction } from '../useAsyncAction';
 import { useState } from 'react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import type { WorkspaceDto } from '../types';
+import { providerName } from '../pulls/PullRequestWorkspace';
 
 export default function DeleteWorkspaceDialog({ workspace, onDeleted, onCancel }: {
   workspace: WorkspaceDto;
@@ -40,6 +41,7 @@ export default function DeleteWorkspaceDialog({ workspace, onDeleted, onCancel }
 
   return <DeleteWorkspaceConfirmation
     repositoryName={repositoryName}
+    provider={providerName(workspace.hostingServer)}
     finalConfirmation={finalConfirmation}
     confirmation={confirmation}
     busy={busy}
@@ -52,9 +54,11 @@ export default function DeleteWorkspaceDialog({ workspace, onDeleted, onCancel }
 }
 
 export function DeleteWorkspaceConfirmation({
-  repositoryName, finalConfirmation, confirmation, busy, error, onContinue, onConfirmationChange, onDelete, onCancel,
+  repositoryName, provider, finalConfirmation, confirmation, busy, error, onContinue, onConfirmationChange, onDelete, onCancel,
 }: {
   repositoryName: string;
+  /** Where the repository lives, which deleting never touches. */
+  provider: string;
   finalConfirmation: boolean;
   confirmation: string;
   busy: boolean;
@@ -100,7 +104,7 @@ export function DeleteWorkspaceConfirmation({
           <p>To hide it and keep your local data, choose Unwatch instead.</p>
         </>
       )}
-      <p>Your GitHub repository and fork will be kept.</p>
+      <p>Nothing on {provider} is deleted.</p>
       {error && <p className="ws-error" role="alert">{error}</p>}
     </ConfirmDialog>
   );

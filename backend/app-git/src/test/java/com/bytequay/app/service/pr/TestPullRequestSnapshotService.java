@@ -16,11 +16,10 @@ package com.bytequay.app.service.pr;
 import com.bytequay.app.repository.github.ConditionalList;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubActionsClient;
+import com.bytequay.app.repository.github.GitHubNotificationClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.service.hosting.GitHubPullRequestContentReader;
-import com.bytequay.app.service.hosting.HostingPullRequestContents;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
-import com.bytequay.app.service.hosting.HostingPullRequestWrites;
 import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
@@ -37,7 +36,9 @@ import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.PullRequestContentReader;
+import com.bytequay.core.hosting.PullRequestWriter;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrDiffStore;
 import com.google.common.collect.ImmutableList;
@@ -60,6 +61,9 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.pullRequests;
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -90,8 +94,10 @@ class TestPullRequestSnapshotService
     private final PrDetailStore details = mock(PrDetailStore.class);
     private final PrDiffStore diffs = mock(PrDiffStore.class);
     private final GitHubActionsClient actions = mock(GitHubActionsClient.class);
-    private final PullRequestSnapshotService snapshots = new PullRequestSnapshotService(new HostingPullRequestContents(ImmutableList.of(
-            new GitHubPullRequestContentReader(gitHub, actions, mock(GitHubAccountClient.class), Runnable::run))), mock(HostingPullRequestWrites.class), requests, details, diffs);
+    private final GitHubPullRequestContentReader contents = new GitHubPullRequestContentReader(gitHub, actions, mock(GitHubAccountClient.class),
+            mock(GitHubNotificationClient.class), Runnable::run);
+    private final PullRequestSnapshotService snapshots = new PullRequestSnapshotService(integrations(pullRequests(GITHUB, contents, mock(PullRequestWriter.class))),
+            requests, details, diffs);
 
     @BeforeEach
     void setUp()
@@ -118,9 +124,7 @@ class TestPullRequestSnapshotService
     void checkResultsRemainUnavailableUntilComplete(boolean complete, boolean previouslyUnavailable)
     {
         var reader = mock(PullRequestContentReader.class);
-        when(reader.provider()).thenReturn(GITHUB_SERVER.provider());
-        var service = new PullRequestSnapshotService(new HostingPullRequestContents(ImmutableList.of(reader)),
-                mock(HostingPullRequestWrites.class), requests, details, diffs);
+        var service = new PullRequestSnapshotService(integrations(pullRequests(GITHUB, reader, mock(PullRequestWriter.class))), requests, details, diffs);
         var previous = new PrCheckRunState(1L, "test", "completed", "failure", null, "job", null, null);
         var current = new PrCheckRunState(2L, "test", "completed", "success", null, "job", null, null);
         StoredPrDetail existing = new StoredPrDetail(raw(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(previous),
@@ -128,7 +132,7 @@ class TestPullRequestSnapshotService
         when(details.find(1L)).thenReturn(Optional.of(existing));
         when(details.findCheckRunsEtag(1L)).thenReturn(Optional.of("old-checks"));
         when(details.findCommitStatusesEtag(1L)).thenReturn(Optional.of("old-statuses"));
-        when(reader.checks(session.access(), route.repository(), 7, HEAD, existing.checkRuns(),
+        when(reader.checks(new HostingTarget(session.access(), route.repository()), 7, HEAD, existing.checkRuns(),
                 previouslyUnavailable ? Optional.empty() : Optional.of("old-checks"), previouslyUnavailable ? Optional.empty() : Optional.of("old-statuses")))
                 .thenReturn(new PullRequestContentReader.Checks(ImmutableList.of(current), Optional.of("new-checks"), Optional.of("new-statuses"), complete));
 
@@ -262,20 +266,18 @@ class TestPullRequestSnapshotService
     void fileContentReaderDistinguishesDefaultDiffFromAnExplicitRangeWithTheSameEndpoints(boolean fullDiff)
     {
         var reader = mock(PullRequestContentReader.class);
-        when(reader.provider()).thenReturn(GITHUB_SERVER.provider());
-        var service = new PullRequestSnapshotService(new HostingPullRequestContents(ImmutableList.of(reader)),
-                mock(HostingPullRequestWrites.class), requests, details, diffs);
+        var service = new PullRequestSnapshotService(integrations(pullRequests(GITHUB, reader, mock(PullRequestWriter.class))), requests, details, diffs);
         String base = fullDiff ? null : BASE;
         String head = fullDiff ? null : HEAD;
         var stored = new StoredPrDiff(diff().files(), ImmutableList.of(), ImmutableMap.of(), Optional.of(BASE), Optional.of(HEAD), Optional.of(UPDATED));
         var content = new DiffFileContent("before", "after");
         when(diffs.find(1L, base, head)).thenReturn(Optional.of(stored));
-        when(reader.fileContent(route.session().access(), route.repository(), 7, "a.txt", BASE, HEAD, fullDiff)).thenReturn(content);
+        when(reader.fileContent(route.target(), 7, "a.txt", BASE, HEAD, fullDiff)).thenReturn(content);
         when(diffs.saveDefaultFileContent(1L, BASE, HEAD, "a.txt", content)).thenReturn(true);
 
         service.refreshFileContent(route, 1L, "a.txt", base, head);
 
-        verify(reader).fileContent(route.session().access(), route.repository(), 7, "a.txt", BASE, HEAD, fullDiff);
+        verify(reader).fileContent(route.target(), 7, "a.txt", BASE, HEAD, fullDiff);
         if (fullDiff) {
             verify(diffs).saveDefaultFileContent(1L, BASE, HEAD, "a.txt", content);
         }
@@ -447,7 +449,7 @@ class TestPullRequestSnapshotService
         PrRawDetail detail = raw(base, head);
         FetchedPullRequest summary = new FetchedPullRequest(77L, REF.repoFullName(), REF.number(), detail.title(), detail.author(), detail.htmlUrl(), UPDATED, UPDATED,
                 PullRequest.Origin.OTHER, ImmutableList.of(), ImmutableMap.of(), false, "open", null, null, ImmutableList.of(), true, "clean", "feature");
-        return new HostingPullRequestSnapshot(new HostingPullRequest(100, 200, REF.number(), "77"), 300, "desktop-scope", summary, detail, Optional.empty(), UPDATED);
+        return new HostingPullRequestSnapshot(new HostingPullRequest(100, 200, REF.number()), 300, "desktop-scope", summary, detail, Optional.empty(), UPDATED);
     }
 
     private static StoredPrDetail stored()

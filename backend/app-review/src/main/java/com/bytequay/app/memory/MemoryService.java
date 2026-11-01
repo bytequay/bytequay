@@ -48,7 +48,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
-/** A workspace's repository memory. Nothing here reaches GitHub or starts work. */
+/** A workspace's repository memory. Nothing here reaches the provider or starts work. */
 @Service
 public class MemoryService
 {

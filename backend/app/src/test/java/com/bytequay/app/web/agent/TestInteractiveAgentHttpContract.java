@@ -35,7 +35,7 @@ import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.agent.IssueSourceInput;
 import com.bytequay.app.agent.JiraSourceInput;
 import com.bytequay.app.web.DevelopmentAutomationDto;
-import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -130,7 +130,7 @@ class TestInteractiveAgentHttpContract
     @Test
     void exposesStructuredIssueRequestProvenanceWithoutAWrappedPrompt()
     {
-        GitHubIssueSource source = new GitHubIssueSource("github.com", 70, "owner/repo", 7, "https://github.com/owner/repo/issues/7",
+        HostedIssueSource source = new HostedIssueSource("github.com", 70, "owner/repo", 7, "https://github.com/owner/repo/issues/7",
                 "Fix selection", "Accepted Markdown description", Instant.parse("2026-09-16T00:00:00Z"));
         JsonNode json = objectMapper.valueToTree(new InteractiveAgentHttpContract.IssueSourceResponse(source, Optional.of("initial-turn"), "Implement using the existing model"));
         assertThat(json.path("title").asText()).isEqualTo("Fix selection");

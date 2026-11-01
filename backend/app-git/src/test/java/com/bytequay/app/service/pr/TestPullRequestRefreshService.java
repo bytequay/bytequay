@@ -22,6 +22,7 @@ import com.bytequay.core.domain.PullRequestDetailRefresh;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
@@ -70,7 +71,7 @@ class TestPullRequestRefreshService
     void directDetailRefreshReturnsTheRefreshedResultWithoutRereading()
     {
         PullRequestRefreshService service = service(pullRequests);
-        when(pullRequests.refreshPullRequestDetailFromGitHub(route))
+        when(pullRequests.refreshPullRequestDetailFromRemote(route))
                 .thenReturn(new PullRequestService.DetailRefresh(false, detail()));
 
         PullRequestDetailRefresh result = service.refreshDetail("owner/repo", 7);
@@ -79,7 +80,7 @@ class TestPullRequestRefreshService
         assertThat(result.status().ciStatus()).isEqualTo(PullRequestDetail.CiStatus.PASSING);
 
         verify(pullRequests).prepareRead("owner/repo", 7);
-        verify(pullRequests).refreshPullRequestDetailFromGitHub(route);
+        verify(pullRequests).refreshPullRequestDetailFromRemote(route);
         verify(pullRequests).findHeadSha(route);
     }
 
@@ -90,30 +91,30 @@ class TestPullRequestRefreshService
         List<Object> published = new ArrayList<>();
         PullRequestRefreshService service = new PullRequestRefreshService(pullRequests, credentials(credential("token-a", "alice")), noWorkspaces(), published::add);
 
-        when(pullRequests.refreshPullRequestDetailFromGitHub(route, Duration.ofMinutes(10)))
+        when(pullRequests.refreshPullRequestDetailFromRemote(route, Duration.ofMinutes(10)))
                 .thenReturn(new PullRequestService.DetailRefresh(false, detail()));
 
         service.warmDetail("workspace", "owner/repo", 7);
 
         verify(pullRequests).prepareRead("workspace", "owner/repo", 7);
 
-        verify(pullRequests).refreshPullRequestDetailFromGitHub(route, Duration.ofMinutes(10));
-        verify(pullRequests, never()).refreshPullRequestDetailFromGitHub(route);
+        verify(pullRequests).refreshPullRequestDetailFromRemote(route, Duration.ofMinutes(10));
+        verify(pullRequests, never()).refreshPullRequestDetailFromRemote(route);
         assertThat(published).containsExactly(new PullRequestDetailRefreshed(12L, "owner/repo", 7, Optional.of("head")));
     }
 
     @Test
     void openingReturnsFullDiscussionEvenWhenAnotherViewAlreadyRefreshedTheCache()
     {
-        when(pullRequests.refreshOpenedPullRequestDetailFromGitHub(route))
+        when(pullRequests.refreshOpenedPullRequestDetailFromRemote(route))
                 .thenReturn(new PullRequestService.DetailRefresh(false, detail()));
 
         PullRequestDetailRefresh result = service(pullRequests).refreshOpenedDetail("owner/repo", 7);
 
         assertThat(result.full()).isTrue();
         assertThat(result.detail()).isEqualTo(detail());
-        verify(pullRequests).refreshOpenedPullRequestDetailFromGitHub(route);
-        verify(pullRequests, never()).refreshAllPullRequestDetailFromGitHub(route);
+        verify(pullRequests).refreshOpenedPullRequestDetailFromRemote(route);
+        verify(pullRequests, never()).refreshAllPullRequestDetailFromRemote(route);
     }
 
     @Test
@@ -129,7 +130,7 @@ class TestPullRequestRefreshService
 
         InOrder order = inOrder(pullRequests);
         order.verify(pullRequests).prepareRead("owner/repo", 7);
-        order.verify(pullRequests).refreshPullRequestDiffFromGitHub(route, "base", "head");
+        order.verify(pullRequests).refreshPullRequestDiffFromRemote(route, "base", "head");
         order.verify(pullRequests).getPullRequestDiffFiles(route, "base", "head");
     }
 
@@ -140,7 +141,7 @@ class TestPullRequestRefreshService
 
         service.refreshDashboard();
 
-        verify(pullRequests).syncFromGitHub();
+        verify(pullRequests).discoverAccountPullRequests();
     }
 
     @Test
@@ -163,7 +164,7 @@ class TestPullRequestRefreshService
         service.refreshDashboardRows();
 
         InOrder order = inOrder(pullRequests);
-        order.verify(pullRequests).syncFromGitHub();
+        order.verify(pullRequests).discoverAccountPullRequests();
         order.verify(pullRequests).syncWorkspace(first.id());
         order.verify(pullRequests).syncWorkspace(duplicate.id());
         order.verify(pullRequests).syncWorkspace(second.id());
@@ -267,7 +268,7 @@ class TestPullRequestRefreshService
             entered.countDown();
             assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
             return null;
-        }).when(pullRequests).syncFromGitHub();
+        }).when(pullRequests).discoverAccountPullRequests();
 
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             PullRequestRefreshService service = service(pullRequests, workspaces);
@@ -287,7 +288,7 @@ class TestPullRequestRefreshService
             fullRefresh.get(5, TimeUnit.SECONDS);
         }
 
-        verify(pullRequests).syncFromGitHub();
+        verify(pullRequests).discoverAccountPullRequests();
         verify(workspaces, never()).findAll();
     }
 
@@ -299,7 +300,7 @@ class TestPullRequestRefreshService
         service.refreshDashboard();
         service.refreshDashboard();
 
-        verify(pullRequests).syncFromGitHub();
+        verify(pullRequests).discoverAccountPullRequests();
     }
 
     @Test
@@ -311,7 +312,7 @@ class TestPullRequestRefreshService
         service.refreshScheduledDashboard();
         service.refreshDashboard();
 
-        verify(pullRequests, times(2)).syncFromGitHub();
+        verify(pullRequests, times(2)).discoverAccountPullRequests();
     }
 
     @Test
@@ -324,7 +325,7 @@ class TestPullRequestRefreshService
             entered.countDown();
             assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
             return null;
-        }).when(pullRequests).syncFromGitHub();
+        }).when(pullRequests).discoverAccountPullRequests();
 
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             PullRequestRefreshService service = service(pullRequests);
@@ -338,7 +339,7 @@ class TestPullRequestRefreshService
             duplicate.get(5, TimeUnit.SECONDS);
         }
 
-        verify(pullRequests).syncFromGitHub();
+        verify(pullRequests).discoverAccountPullRequests();
     }
 
     @Test
@@ -349,13 +350,14 @@ class TestPullRequestRefreshService
         GitHubCredential secondCredential = credential("token-b", "bob");
         AtomicReference<GitHubCredential> current = new AtomicReference<>(firstCredential);
         when(credentials.resolveGitHubCredential()).thenAnswer(invocation -> current.get());
+        when(credentials.isGitHubAccountConfigured()).thenReturn(true);
         PullRequestRefreshService service = new PullRequestRefreshService(pullRequests, credentials, noWorkspaces(), event -> {});
 
         service.refreshDashboard();
         current.set(secondCredential);
         service.refreshDashboard();
 
-        verify(pullRequests, times(2)).syncFromGitHub();
+        verify(pullRequests, times(2)).discoverAccountPullRequests();
     }
 
     @Test
@@ -367,13 +369,14 @@ class TestPullRequestRefreshService
         GitHubCredential secondCredential = credential("token-b", "bob");
         AtomicReference<GitHubCredential> current = new AtomicReference<>(firstCredential);
         when(credentials.resolveGitHubCredential()).thenAnswer(invocation -> current.get());
+        when(credentials.isGitHubAccountConfigured()).thenReturn(true);
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         doAnswer(invocation -> {
             entered.countDown();
             assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
             return null;
-        }).when(pullRequests).syncFromGitHub();
+        }).when(pullRequests).discoverAccountPullRequests();
         PullRequestRefreshService service = new PullRequestRefreshService(pullRequests, credentials, noWorkspaces(), event -> {});
 
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -388,7 +391,7 @@ class TestPullRequestRefreshService
             second.get(5, TimeUnit.SECONDS);
         }
 
-        verify(pullRequests, times(2)).syncFromGitHub();
+        verify(pullRequests, times(2)).discoverAccountPullRequests();
     }
 
     @Test
@@ -414,7 +417,7 @@ class TestPullRequestRefreshService
             repositoryRefresh.get(5, TimeUnit.SECONDS);
         }
 
-        verify(pullRequests).syncFromGitHub();
+        verify(pullRequests).discoverAccountPullRequests();
         verify(pullRequests).syncRepository(repository);
     }
 
@@ -434,7 +437,7 @@ class TestPullRequestRefreshService
     {
         doThrow(new IllegalStateException("provider unavailable"))
                 .doNothing()
-                .when(pullRequests).syncFromGitHub();
+                .when(pullRequests).discoverAccountPullRequests();
         PullRequestRefreshService service = service(pullRequests);
 
         assertThatThrownBy(service::refreshDashboard)
@@ -442,7 +445,7 @@ class TestPullRequestRefreshService
                 .hasMessage("provider unavailable");
         service.refreshDashboard();
 
-        verify(pullRequests, times(2)).syncFromGitHub();
+        verify(pullRequests, times(2)).discoverAccountPullRequests();
     }
 
     @Test
@@ -456,7 +459,7 @@ class TestPullRequestRefreshService
             entered.countDown();
             assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
             return null;
-        }).when(pullRequests).syncFromGitHub();
+        }).when(pullRequests).discoverAccountPullRequests();
         RepoRef repository = RepoRef.of("owner", "repo");
         doAnswer(invocation -> {
             repositoryRefreshed.countDown();
@@ -475,7 +478,7 @@ class TestPullRequestRefreshService
             assertThat(repositoryRefreshed.await(5, TimeUnit.SECONDS)).isTrue();
         }
 
-        verify(pullRequests).syncFromGitHub();
+        verify(pullRequests).discoverAccountPullRequests();
         verify(pullRequests).syncRepository(repository);
     }
 
@@ -554,12 +557,14 @@ class TestPullRequestRefreshService
                 Optional.empty(),
                 displayOrder,
                 now,
-                now);
+                now,
+                HostingServer.GITHUB_COM);
     }
 
     private static CredentialService credentials(GitHubCredential credential)
     {
         CredentialService credentials = mock(CredentialService.class);
+        when(credentials.isGitHubAccountConfigured()).thenReturn(true);
         when(credentials.resolveGitHubCredential()).thenReturn(credential);
         return credentials;
     }

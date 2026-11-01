@@ -21,16 +21,17 @@ import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.git.command.GitCommandRunner.Result;
 import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.hosting.HostingPullRequestContents;
+import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.WorkspaceHostingService;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
 import com.bytequay.core.domain.PullRequestDetail;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 import com.google.common.io.MoreFiles;
@@ -46,7 +47,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
 
-import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static com.bytequay.core.domain.Checks.checkSha;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
@@ -55,11 +55,19 @@ import static java.util.Objects.requireNonNull;
 /** Git evidence and checked source synchronization for the live development coordinator. */
 public class DevelopmentGitInspector
 {
+    private static final ImmutableMap<String, String> OPEN_OPERATIONS = ImmutableMap.of(
+            "CHERRY_PICK_HEAD", "cherry-pick",
+            "MERGE_HEAD", "merge",
+            "REVERT_HEAD", "revert",
+            "rebase-merge", "rebase",
+            "rebase-apply", "rebase",
+            "BISECT_LOG", "bisect");
+
     private final WorktreeService worktrees;
     private final WorkspaceStore workspaces;
     private final GitCommandRunner git;
     private final CredentialService credentials;
-    private final HostingPullRequestContents pullRequests;
+    private final HostingIntegrations integrations;
     private final WorkspaceHostingService hosting;
     private final PullRequestTaskStore assignments;
     private final PullRequestService cachedPullRequests;
@@ -69,7 +77,7 @@ public class DevelopmentGitInspector
             WorkspaceStore workspaces,
             GitCommandRunner git,
             CredentialService credentials,
-            HostingPullRequestContents pullRequests, WorkspaceHostingService hosting,
+            HostingIntegrations integrations, WorkspaceHostingService hosting,
             PullRequestTaskStore assignments,
             PullRequestService cachedPullRequests)
     {
@@ -77,13 +85,22 @@ public class DevelopmentGitInspector
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.git = requireNonNull(git, "git is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
-        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.integrations = requireNonNull(integrations, "integrations is null");
         this.hosting = requireNonNull(hosting, "hosting is null");
         this.assignments = requireNonNull(assignments, "assignments is null");
         this.cachedPullRequests = requireNonNull(cachedPullRequests, "cachedPullRequests is null");
     }
 
-    /** Captures only local Git and persisted workspace routing; no fetch or GitHub read occurs. */
+    /** The Git operation left open in the task's worktree, named for the user, such as "cherry-pick"; a generic name once its marker is gone. */
+    public String openOperation(TaskWorktree worktree)
+    {
+        return git.openMarkers(worktree.canonicalWorktree(), OPEN_OPERATIONS.keySet().asList()).stream()
+                .findFirst()
+                .map(OPEN_OPERATIONS::get)
+                .orElse("Git operation");
+    }
+
+    /** Captures only local Git and persisted workspace routing; no fetch or provider read occurs. */
     public DevelopmentBaseline capture(AgentTask task)
     {
         TaskWorktree worktree = task.taskWorktree().orElseThrow(() -> new IllegalStateException("Development task has no managed worktree"));
@@ -102,7 +119,7 @@ public class DevelopmentGitInspector
         String baseSha = output(worktree, "rev-parse", "--verify", "refs/remotes/" + sourceRemote + "/" + baseBranch + "^{commit}").strip();
         checkSha(baseSha, "sha");
         DevelopmentPublicationRoute route = new DevelopmentPublicationRoute(
-                workspace.hostingServer().orElse(GITHUB_SERVER), workspace.selectedRepository(), workspace.monitoredRepository(), workspace.originCloneUrl(), sourceRemote,
+                workspace.server(), workspace.selectedRepository(), workspace.monitoredRepository(), workspace.originCloneUrl(), sourceRemote,
                 baseBranch, baseSha, headBranch, assigned);
         return new DevelopmentBaseline(worktree, route, inspectLocal(worktree, route, snapshot));
     }
@@ -175,7 +192,9 @@ public class DevelopmentGitInspector
             return worktree;
         }
         WorktreeSnapshot before = verify(worktree, route);
-        checkState(!before.gitOperationInProgress(), "Finish the current Git operation before renaming the branch");
+        if (before.gitOperationInProgress()) {
+            throw new IllegalStateException("Finish the " + openOperation(worktree) + " before renaming the branch");
+        }
         DevelopmentPublicationFacts published = inspectPublication(worktree, route);
         if (published.remoteHeadSha().isPresent() || !published.matchingPullRequests().isEmpty()
                 || !output(worktree, "for-each-ref", "--format=%(upstream)", "refs/heads/" + worktree.generatedBranch()).isBlank()) {
@@ -185,7 +204,7 @@ public class DevelopmentGitInspector
                 "refs/heads/" + branch, "refs/remotes/origin/" + branch, "refs/remotes/upstream/" + branch).isBlank(), "The proposed branch name is already in use");
         DevelopmentPublicationRoute renamedRoute = route.withHeadBranch(branch);
         DevelopmentPublicationFacts target = readPublication(worktree, renamedRoute);
-        checkState(target.remoteHeadSha().isEmpty() && target.matchingPullRequests().isEmpty(), "The proposed branch name is already in use on GitHub");
+        checkState(target.remoteHeadSha().isEmpty() && target.matchingPullRequests().isEmpty(), "The proposed branch name is already in use on the remote");
         WorktreeSnapshot checked = verify(worktree, route);
         checkState(checked.head().equals(before.head()) && !checked.gitOperationInProgress(), "Task changed while checking its branch name");
         recordIntent.accept(new DevelopmentBranchRename(worktree.generatedBranch(), branch, checked.head()));
@@ -245,10 +264,10 @@ public class DevelopmentGitInspector
     private DevelopmentPublicationFacts readPublication(TaskWorktree worktree, DevelopmentPublicationRoute route)
     {
         var selected = hosting.captureRead(worktree.workspaceId());
-        var reader = pullRequests.reader(selected.session());
-        Optional<GitHubPullRequestIdentity> assigned = route.assignedPullRequest().map(pr -> {
-            GitHubPullRequestIdentity current = reader.identity(selected.session().access(), selected.repository(), pr.number());
-            checkState(current.pullRequest().equals(pr) && current.state() != GitHubPullRequestIdentity.State.CLOSED
+        var reader = integrations.of(selected.target()).contents();
+        Optional<PullRequestIdentity> assigned = route.assignedPullRequest().map(pr -> {
+            PullRequestIdentity current = reader.identity(selected.target(), pr.number());
+            checkState(current.pullRequest().equals(pr) && current.state() != PullRequestIdentity.State.CLOSED
                             && current.headRepository().equals(route.headRepository()) && current.headBranch().equals(route.headBranch())
                             && current.baseRepository().equals(route.baseRepository()) && current.baseBranch().equals(route.baseBranch()),
                     "Assigned pull request destination changed or is unavailable; reload the PR before continuing");
@@ -264,14 +283,14 @@ public class DevelopmentGitInspector
             remoteHead = Optional.empty();
         }
         else {
-            checkState(result.successful(), "Cannot verify the remote development branch; check GitHub access");
+            checkState(result.successful(), "Cannot verify the remote development branch; check repository access");
             String[] values = result.output().strip().split("\\s+", -1);
             checkState(values.length == 2 && values[1].equals(ref), "Remote development branch response was ambiguous");
             checkSha(values[0], "remote SHA");
             remoteHead = Optional.of(values[0]);
         }
-        List<GitHubPullRequestIdentity> matches = assigned.<List<GitHubPullRequestIdentity>>map(ImmutableList::of)
-                .orElseGet(() -> reader.identitiesByHead(selected.session().access(), selected.repository(), route.headRepository(), route.headBranch()));
+        List<PullRequestIdentity> matches = assigned.<List<PullRequestIdentity>>map(ImmutableList::of)
+                .orElseGet(() -> reader.identitiesByHead(selected.target(), route.headRepository(), route.headBranch()));
         return new DevelopmentPublicationFacts(remoteHead, matches);
     }
 
@@ -342,7 +361,7 @@ public class DevelopmentGitInspector
         checkState(snapshot.worktree().equals(worktree), "Development worktree ownership changed");
         Workspace workspace = workspace(worktree);
         String sourceRemote = workspace.upstreamRepositoryId().isPresent() ? "upstream" : "origin";
-        checkState(workspace.hostingServer().orElse(GITHUB_SERVER).equals(route.server())
+        checkState(workspace.server().equals(route.server())
                         && workspace.selectedRepository().equals(route.headRepository()) && workspace.monitoredRepository().equals(route.baseRepository())
                         && workspace.originCloneUrl().equals(route.pushUrl()) && sourceRemote.equals(route.sourceRemote())
                         && assignedPullRequest(worktree).equals(route.assignedPullRequest())

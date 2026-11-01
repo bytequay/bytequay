@@ -13,19 +13,19 @@
  */
 package com.bytequay.integration.gitlab.impl;
 
-import com.bytequay.core.domain.GitHubIssuePreview;
-import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.HostedIssuePreview;
+import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryLabel;
-import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.ChildIssue;
+import com.bytequay.core.hosting.ChildIssues;
 import com.bytequay.core.hosting.HostingFailure;
-import com.bytequay.core.hosting.HostingProvider;
-import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingRepositoryUser;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.HostingUrls;
 import com.bytequay.core.hosting.IssueActivity;
 import com.bytequay.core.hosting.IssueClient;
@@ -51,7 +51,8 @@ import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
-import static com.bytequay.core.hosting.HostingProvider.GITLAB;
+import static com.bytequay.core.hosting.HostingFailure.Kind.MISSING_OR_INACCESSIBLE;
+import static com.bytequay.core.hosting.HostingFailure.Kind.UNAVAILABLE;
 import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.encode;
 import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.issuePath;
 import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.mapped;
@@ -64,30 +65,48 @@ import static java.util.Objects.requireNonNull;
 public final class GitLabIssueClient
         implements IssueClient, RepositoryMetadataReader
 {
+    private static final String CHILDREN = """
+            query($path: ID!, $iid: String!) {
+              namespace(fullPath: $path) {
+                workItem(iid: $iid) {
+                  widgets {
+                    ... on WorkItemWidgetHierarchy {
+                      children(first: 100) {
+                        nodes { id iid title state webUrl namespace { fullPath } }
+                        pageInfo { hasNextPage }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            """;
+
     private final GitLabHttpClient http;
+    private final GitLabRelease release;
 
     public GitLabIssueClient(HttpClient http, ObjectMapper mapper)
     {
-        this.http = new GitLabHttpClient(http, mapper);
+        this(http, mapper, GitLabRelease.CURRENT);
     }
 
-    @Override
-    public HostingProvider provider()
+    public GitLabIssueClient(HttpClient http, ObjectMapper mapper, GitLabRelease release)
     {
-        return GITLAB;
+        this.http = new GitLabHttpClient(http, mapper);
+        this.release = requireNonNull(release, "release is null");
     }
 
     @Override
-    public IssueSyncPage list(HostingAccess access, HostingRepository repository, Optional<Instant> since, int page)
+    public IssueSyncPage list(HostingTarget target, Optional<Instant> since, int page)
     {
         checkArgument(page > 0, "page must be positive");
-        String path = projectPath(access, repository) + "/issues?scope=all&state=" + (since.isPresent() ? "all" : "opened")
+        String path = projectPath(target) + "/issues?scope=all&state=" + (since.isPresent() ? "all" : "opened")
                 + "&order_by=updated_at&sort=asc&per_page=100&page=" + page + since.map(value -> "&updated_after=" + encode(value.toString())).orElse("");
-        var response = http.get(access, path, Optional.empty(), GitLabIssueResponse[].class);
+        var response = http.get(target.access(), path, Optional.empty(), GitLabIssueResponse[].class);
         ImmutableList.Builder<RepositoryIssue> open = ImmutableList.builder();
         ImmutableList.Builder<Integer> closed = ImmutableList.builder();
         for (GitLabIssueResponse issue : response.body().orElseThrow()) {
-            RepositoryIssue card = card(access, repository, issue);
+            RepositoryIssue card = card(target, issue);
             if ("closed".equals(issue.state())) {
                 closed.add(card.number());
             }
@@ -99,35 +118,35 @@ public final class GitLabIssueClient
     }
 
     @Override
-    public Optional<RepositoryIssue> find(HostingAccess access, HostingRepository repository, int number)
+    public Optional<RepositoryIssue> find(HostingTarget target, int number)
     {
-        GitLabIssueResponse issue = read(access, repository, number);
-        RepositoryIssue card = card(access, repository, issue);
+        GitLabIssueResponse issue = read(target, number);
+        RepositoryIssue card = card(target, issue);
         return "closed".equals(issue.state()) ? Optional.empty() : Optional.of(card);
     }
 
     @Override
-    public GitHubIssuePreview preview(HostingAccess access, HostingRepository repository, int number)
+    public HostedIssuePreview preview(HostingTarget target, int number)
     {
-        GitLabIssueResponse response = read(access, repository, number);
-        RepositoryIssue issue = card(access, repository, response);
-        return new GitHubIssuePreview(issue.title(), issue.body(), issue.author(), issue.labels(), issue.updatedAt(),
+        GitLabIssueResponse response = read(target, number);
+        RepositoryIssue issue = card(target, response);
+        return new HostedIssuePreview(issue.title(), issue.body(), issue.author(), issue.labels(), issue.updatedAt(),
                 "closed".equals(response.state()) ? "closed" : "open", false, issue.htmlUrl(), issue.authorAvatarUrl());
     }
 
     @Override
-    public RepositoryIssueDetail detail(HostingAccess access, HostingRepository repository, int number)
+    public RepositoryIssueDetail detail(HostingTarget target, int number)
     {
-        GitLabIssueResponse issue = read(access, repository, number);
-        String path = issuePath(access, repository, number);
+        GitLabIssueResponse issue = read(target, number);
+        String path = issuePath(target, number);
         ImmutableList.Builder<PrTimelineEvent> events = ImmutableList.builder();
-        for (GitLabNote note : http.pages(access, path + "/notes?sort=asc&order_by=created_at", GitLabNote[].class)) {
+        for (GitLabNote note : http.pages(target.access(), path + "/notes?sort=asc&order_by=created_at", GitLabNote[].class)) {
             events.add(mapped("note", () -> event(note, issue.webUrl())));
         }
-        for (ResourceEvent event : http.pages(access, path + "/resource_state_events", ResourceEvent[].class)) {
+        for (ResourceEvent event : http.pages(target.access(), path + "/resource_state_events", ResourceEvent[].class)) {
             events.add(mapped("state event", () -> event.event("closed".equals(event.state()) ? "closed" : "reopened", PrTimelinePayload.empty())));
         }
-        for (ResourceEvent event : http.pages(access, path + "/resource_label_events", ResourceEvent[].class)) {
+        for (ResourceEvent event : http.pages(target.access(), path + "/resource_label_events", ResourceEvent[].class)) {
             // GitLab retains these events after the label has been deleted.
             if (event.label() == null) {
                 continue;
@@ -135,136 +154,136 @@ public final class GitLabIssueClient
             events.add(mapped("label event", () -> event.event("add".equals(event.action()) ? "labeled" : "unlabeled",
                     PrTimelinePayload.builder().label(event.label().name()).labelColor(color(event.label().color())).build())));
         }
-        for (ResourceEvent event : http.pages(access, path + "/resource_milestone_events", ResourceEvent[].class)) {
+        for (ResourceEvent event : http.pages(target.access(), path + "/resource_milestone_events", ResourceEvent[].class)) {
             events.add(mapped("milestone event", () -> event.event("add".equals(event.action()) ? "milestoned" : "demilestoned",
                     PrTimelinePayload.builder().milestoneTitle(event.milestone().title()).build())));
         }
         List<String> types = "test_case".equals(issue.issueType()) ? ImmutableList.of("issue", "incident", "test_case") : ImmutableList.of("issue", "incident");
-        return new RepositoryIssueDetail(repository.id(), number, events.build().stream()
+        return new RepositoryIssueDetail(target.repository().id(), number, events.build().stream()
                 .sorted(Comparator.comparing(PrTimelineEvent::timestamp)).collect(toImmutableList()), issue.issueType(), types, Optional.empty());
     }
 
     @Override
-    public GitHubIssueSource source(HostingAccess access, HostingRepository repository, int number, boolean requireOpen)
+    public HostedIssueSource source(HostingTarget target, int number, boolean requireOpen)
     {
-        GitLabIssueResponse issue = read(access, repository, number);
+        GitLabIssueResponse issue = read(target, number);
         checkArgument(!requireOpen || "opened".equals(issue.state()), "Issue is closed");
-        return source(access, repository, issue);
+        return source(target, issue);
     }
 
     @Override
-    public GitHubIssueSource create(HostingAccess access, HostingRepository repository, String title, String body)
+    public HostedIssueSource create(HostingTarget target, String title, String body)
     {
-        GitLabIssueResponse issue = http.post(access, projectPath(access, repository) + "/issues", new CreateIssue(checkText(title, "title"), requireNonNull(body, "body is null")),
+        GitLabIssueResponse issue = http.post(target.access(), projectPath(target) + "/issues", new CreateIssue(checkText(title, "title"), requireNonNull(body, "body is null")),
                 GitLabIssueResponse.class).body().orElseThrow();
-        return source(access, repository, issue);
+        return source(target, issue);
     }
 
     @Override
-    public PrTimelineEvent comment(HostingAccess access, HostingRepository repository, int number, String body)
+    public PrTimelineEvent comment(HostingTarget target, int number, String body)
     {
-        GitLabNote note = http.post(access, issuePath(access, repository, number) + "/notes", new Comment(checkText(body, "body")), GitLabNote.class).body().orElseThrow();
-        return mapped("note", () -> event(note, repository.webUrl() + "/-/issues/" + number));
+        GitLabNote note = http.post(target.access(), issuePath(target, number) + "/notes", new Comment(checkText(body, "body")), GitLabNote.class).body().orElseThrow();
+        return mapped("note", () -> event(note, target.repository().webUrl() + "/-/issues/" + number));
     }
 
     @Override
-    public void close(HostingAccess access, HostingRepository repository, int number)
+    public void close(HostingTarget target, int number)
     {
-        http.put(access, issuePath(access, repository, number), new StateChange("close"), GitLabIssueResponse.class);
+        http.put(target.access(), issuePath(target, number), new StateChange("close"), GitLabIssueResponse.class);
     }
 
     @Override
-    public String updateType(HostingAccess access, HostingRepository repository, int number, String type)
+    public String updateType(HostingTarget target, int number, String type)
     {
         String value = type == null ? "issue" : type;
         checkArgument(ImmutableList.of("issue", "incident", "test_case").contains(value), "Unsupported issue type");
-        return http.put(access, issuePath(access, repository, number), new TypeChange(value), GitLabIssueResponse.class).body().orElseThrow().issueType();
+        return http.put(target.access(), issuePath(target, number), new TypeChange(value), GitLabIssueResponse.class).body().orElseThrow().issueType();
     }
 
     @Override
-    public IssueMetadata updateMetadata(HostingAccess access, HostingRepository repository, int number, List<String> assignees, List<String> labels)
+    public IssueMetadata updateMetadata(HostingTarget target, int number, List<String> assignees, List<String> labels)
     {
-        List<Long> ids = assignees == null ? null : assignees.stream().map(login -> http.user(access, login).id()).collect(toImmutableList());
-        GitLabIssueResponse updated = http.put(access, issuePath(access, repository, number),
+        List<Long> ids = assignees == null ? null : assignees.stream().map(login -> http.user(target.access(), login).id()).collect(toImmutableList());
+        GitLabIssueResponse updated = http.put(target.access(), issuePath(target, number),
                 new MetadataChange(ids, labels == null ? null : String.join(",", labels)), GitLabIssueResponse.class).body().orElseThrow();
-        RepositoryIssue card = card(access, repository, updated);
+        RepositoryIssue card = card(target, updated);
         return new IssueMetadata(card.assignees(), card.labels(), card.updatedAt());
     }
 
     @Override
-    public IssueActivity activity(HostingAccess access, HostingRepository repository, int number)
+    public IssueActivity activity(HostingTarget target, int number)
     {
-        RepositoryIssue issue = card(access, repository, read(access, repository, number));
+        RepositoryIssue issue = card(target, read(target, number));
         return new IssueActivity(issue.commentCount(), issue.updatedAt());
     }
 
     @Override
-    public RepositoryOverview overview(HostingAccess access, HostingRepository repository)
+    public RepositoryOverview overview(HostingTarget target)
     {
-        String project = projectPath(access, repository);
-        ProjectOverview overview = http.get(access, project, Optional.empty(), ProjectOverview.class).body().orElseThrow();
-        if (!repository.remoteId().equals(Long.toString(overview.id()))) {
+        String project = projectPath(target);
+        ProjectOverview overview = http.get(target.access(), project, Optional.empty(), ProjectOverview.class).body().orElseThrow();
+        if (!target.repository().remoteId().equals(Long.toString(overview.id()))) {
             throw new HostingFailure(INVALID_RESPONSE, "GitLab returned another project");
         }
-        Languages languages = http.get(access, project + "/languages", Optional.empty(), Languages.class).body().orElseThrow();
+        Languages languages = http.get(target.access(), project + "/languages", Optional.empty(), Languages.class).body().orElseThrow();
         return mapped("project", () -> new RepositoryOverview(overview.description(), overview.stars(), overview.topics(), languages.values().entrySet().stream()
                 .collect(ImmutableMap.toImmutableMap(Map.Entry::getKey, entry -> Math.round(entry.getValue() * 1000)))));
     }
 
     @Override
-    public Optional<List<RepositoryContributor>> contributors(HostingAccess access, HostingRepository repository)
+    public Optional<List<RepositoryContributor>> contributors(HostingTarget target)
     {
-        projectPath(access, repository);
+        projectPath(target);
         // GitLab commit authors have names/emails, not the account IDs required by this projection.
         return Optional.empty();
     }
 
     @Override
-    public List<HostingRepositoryUser> repositoryUsers(HostingAccess access, HostingRepository repository)
+    public List<HostingRepositoryUser> repositoryUsers(HostingTarget target)
     {
-        List<GitLabUser> users = http.pages(access, projectPath(access, repository) + "/users", GitLabUser[].class);
+        List<GitLabUser> users = http.pages(target.access(), projectPath(target) + "/users", GitLabUser[].class);
         return mapped("project member", () -> users.stream()
                 .map(user -> new HostingRepositoryUser(user.id(), user.username(), user.avatarUrl(), user.bot())).collect(toImmutableList()));
     }
 
     @Override
-    public List<String> repositoryTeams(HostingAccess access, HostingRepository repository)
+    public List<String> repositoryTeams(HostingTarget target)
     {
-        projectPath(access, repository);
+        projectPath(target);
         // GitLab's reviewer field accepts users, not GitHub-style team review requests.
         return ImmutableList.of();
     }
 
     @Override
-    public List<RepositoryLabel> repositoryLabels(HostingAccess access, HostingRepository repository)
+    public List<RepositoryLabel> repositoryLabels(HostingTarget target)
     {
-        List<Label> labels = http.pages(access, projectPath(access, repository) + "/labels", Label[].class);
+        List<Label> labels = http.pages(target.access(), projectPath(target) + "/labels", Label[].class);
         return mapped("label", () -> labels.stream().map(label -> new RepositoryLabel(label.id(), label.name(), color(label.color()))).collect(toImmutableList()));
     }
 
-    private GitLabIssueResponse read(HostingAccess access, HostingRepository repository, int number)
+    private GitLabIssueResponse read(HostingTarget target, int number)
     {
-        GitLabIssueResponse issue = http.get(access, issuePath(access, repository, number), Optional.empty(), GitLabIssueResponse.class).body().orElseThrow();
+        GitLabIssueResponse issue = http.get(target.access(), issuePath(target, number), Optional.empty(), GitLabIssueResponse.class).body().orElseThrow();
         if (!Integer.valueOf(number).equals(issue.iid())) {
             throw new HostingFailure(INVALID_RESPONSE, "GitLab returned another issue");
         }
-        card(access, repository, issue);
+        card(target, issue);
         return issue;
     }
 
-    private static GitHubIssueSource source(HostingAccess access, HostingRepository repository, GitLabIssueResponse response)
+    private static HostedIssueSource source(HostingTarget target, GitLabIssueResponse response)
     {
-        RepositoryIssue issue = card(access, repository, response);
-        return new GitHubIssueSource(access.server().webBaseUrl().toASCIIString(), issue.id(), repository.fullPath(), issue.number(), issue.htmlUrl(),
+        RepositoryIssue issue = card(target, response);
+        return new HostedIssueSource(target.access().server().host(), issue.id(), target.repository().fullPath(), issue.number(), issue.htmlUrl(),
                 issue.title(), issue.body(), issue.updatedAt());
     }
 
-    private static RepositoryIssue card(HostingAccess access, HostingRepository repository, GitLabIssueResponse issue)
+    private static RepositoryIssue card(HostingTarget target, GitLabIssueResponse issue)
     {
         return mapped("issue", () -> {
-            checkArgument(repository.remoteId().equals(requireNonNull(issue.projectId(), "projectId is null").toString()), "Issue belongs to another project");
+            checkArgument(target.repository().remoteId().equals(requireNonNull(issue.projectId(), "projectId is null").toString()), "Issue belongs to another project");
             checkArgument("opened".equals(issue.state()) || "closed".equals(issue.state()), "Unknown GitLab issue state");
-            String url = HostingUrls.requireWithinBase(URI.create(issue.webUrl()), access.server().webBaseUrl()).toASCIIString();
+            String url = HostingUrls.requireWithinBase(URI.create(issue.webUrl()), target.access().server().webBaseUrl()).toASCIIString();
             return new RepositoryIssue(issue.id(), issue.iid(), issue.title(), Optional.ofNullable(issue.description()).orElse(""),
                     issue.author().username(), Optional.ofNullable(issue.author().avatarUrl()).orElse(""), url, issue.labels(),
                     issue.assignees().stream().map(GitLabUser::username).collect(toImmutableList()), issue.commentCount(),
@@ -277,7 +296,7 @@ public final class GitLabIssueClient
         if (note.id() == null && note.summary() != null) {
             return new PrTimelineEvent(null, "system", null, null, String.join("\n", note.summary()), PrTimelinePayload.empty(), Optional.empty());
         }
-        return new PrTimelineEvent(note.id(), note.system() ? "system" : "commented", note.author().username(), Instant.parse(note.createdAt()), note.body(),
+        return new PrTimelineEvent(note.id(), note.system() ? "system" : "commented", note.author().username(), Instant.parse(note.createdAt()), note.timelineBody(),
                 PrTimelinePayload.builder().actorAvatarUrl(note.author().avatarUrl()).htmlUrl(issueUrl + "#note_" + note.id()).build(), Optional.empty());
     }
 
@@ -324,4 +343,58 @@ public final class GitLabIssueClient
                     payload.toBuilder().actorAvatarUrl(user.avatarUrl()).build(), Optional.of("gitlab:" + kind + ":" + id));
         }
     }
+
+    /** The children GitLab's work-item hierarchy lists for the issue, such as its tasks; work items arrived in GitLab 16.11. */
+    @Override
+    public ChildIssues children(HostingTarget target, int number)
+    {
+        checkArgument(number > 0, "number must be positive");
+        if (!release.capabilities().issueChildren()) {
+            throw new HostingFailure(UNAVAILABLE, "GitLab before 16.11 cannot list an issue's child items");
+        }
+        Children response = http.graphql(target.access(), CHILDREN, ImmutableMap.of("path", target.repository().fullPath(), "iid", Integer.toString(number)),
+                Children.class).body().orElseThrow();
+        if (response.errors() != null && !response.errors().isEmpty()) {
+            throw new HostingFailure(UNAVAILABLE, "GitLab could not list the issue's child items: " + response.errors().getFirst().message());
+        }
+        WorkItem item = Optional.ofNullable(response.data()).map(Children.Data::namespace).map(Children.Namespace::workItem)
+                .orElseThrow(() -> new HostingFailure(MISSING_OR_INACCESSIBLE, "GitLab has no issue #" + number + " here"));
+        Optional<Hierarchy> hierarchy = Optional.ofNullable(item.widgets()).orElse(ImmutableList.of()).stream()
+                .map(Widget::children).filter(children -> children != null).findFirst();
+        return mapped("child item", () -> new ChildIssues(hierarchy.map(Hierarchy::nodes).orElse(ImmutableList.of()).stream()
+                .map(child -> new ChildIssue(Long.parseLong(child.id().substring(child.id().lastIndexOf('/') + 1)), Integer.parseInt(child.iid()), child.title(),
+                        "CLOSED".equals(child.state()), Optional.ofNullable(child.webUrl()), child.namespace().fullPath()))
+                .collect(toImmutableList()), hierarchy.map(Hierarchy::pageInfo).map(PageInfo::hasNextPage).orElse(false)));
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record Children(Data data, List<GraphQlError> errors)
+    {
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        private record Data(Namespace namespace) {}
+
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        private record Namespace(WorkItem workItem) {}
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record GraphQlError(String message) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record WorkItem(List<Widget> widgets) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record Widget(Hierarchy children) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record Hierarchy(List<Child> nodes, PageInfo pageInfo) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record PageInfo(boolean hasNextPage) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record Child(String id, String iid, String title, String state, String webUrl, ChildNamespace namespace) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record ChildNamespace(String fullPath) {}
 }

@@ -31,8 +31,7 @@ it('sends a short fix request with a tool lookup instead of the saved evidence a
   for (const evidence of finding.evidence) expect(message).not.toContain(evidence.excerpt);
   for (const reply of review.messages) expect(message).not.toContain(reply.body);
   expect(findingFixRequest(message, 'developer')).toEqual({
-    action: 'ByteQuay · Request fix', topic: '#F-1 Fix the analyzer and preserve ordering', body: instruction,
-    detail: `${review.task.laneLabel} · F-1 · revision 2`, target: { kind: 'finding', findingId: finding.id },
+    action: 'ByteQuay · Request fix', topic: '#F-1 Fix the analyzer and preserve ordering', target: { kind: 'finding', findingId: finding.id },
   });
   expect(findingFixRequest(message, 'another-task')).toBeNull();
   const expanded = { ...finding, body: finding.body.repeat(100), evidence: Array.from({ length: 100 }, () => finding.evidence[0]) };
@@ -59,7 +58,6 @@ it('projects saved fix requests without depending on the current finding title o
   const message = `${instruction}\n\n${findingConversation(review, finding)}`;
   expect(findingFixRequest(message, 'developer')).toEqual({
     action: 'ByteQuay · Fix the agent review', topic: `#${finding.label} Fix the analyzer and preserve ordering`,
-    body: instruction, detail: `${review.task.laneLabel} · ${finding.label} · revision 2`,
     target: { kind: 'finding', findingId: finding.id, runId: review.runs[0].id },
   });
   expect(findingFixRequest(message)).not.toBeNull();

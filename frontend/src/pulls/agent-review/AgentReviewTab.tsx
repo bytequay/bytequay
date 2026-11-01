@@ -17,7 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, typ
 import { flushSync } from 'react-dom';
 import AddRepoModal from '../../AddRepoModal';
 import { ConfirmDialog } from '../../ConfirmDialog';
-import type { ReviewCardFocus, ReviewRequestTarget } from '../../agents/ReviewRequestCard';
+import type { ReviewCardFocus, ReviewRequestTarget } from '../../agents/InstructionCard';
 import {
   agentTaskReducer,
   createDraftSubmissionTracker,
@@ -548,7 +548,7 @@ export default function AgentReviewTab({
             <button type="button" className="agr-action is-primary" disabled={busy} onClick={() => { void run_(async () => {
               const repositories = await window.bridge.searchRepositories(repository, 30);
               const match = repositories.find(candidate => candidate.fullName.toLowerCase() === repository.toLowerCase());
-              if (!match) throw new Error(`Could not find ${repository}. Check your GitHub access and try again.`);
+              if (!match) throw new Error(`Could not find ${repository}. Check your access and try again.`);
               setWatchRepositoryId(match.id);
             }); }}>
               {busy ? 'Loading repository…' : 'Watch repository'}
@@ -581,7 +581,7 @@ export default function AgentReviewTab({
         <div className="agr-empty__title">No agent review yet</div>
         <p>
           ByteQuay checks out this pull request&apos;s exact head into a managed worktree and starts a private review
-          task. Nothing is posted to GitHub — you decide what, if anything, becomes a comment.
+          task. Nothing is posted — you decide what, if anything, becomes a comment.
         </p>
         <div className="agr-empty__actions">
           <button type="button" className="agr-action is-primary" disabled={starting} onClick={start}>
@@ -775,7 +775,7 @@ export default function AgentReviewTab({
                 {finished ? elapsed.charAt(0).toUpperCase() + elapsed.slice(1)
                   : status.label === 'Reviewing' && pass >= 0 ? `Running · ${PASSES[pass][0]}` : status.chip ?? status.label}
               </span>}
-              <span className="agr-review__note">Local · never posted to GitHub</span>
+              <span className="agr-review__note">Local · never posted</span>
               {run?.worktreeTreeSha != null && <span className="agr-review__note">Includes uncommitted changes</span>}
               <span className="agr-spacer" />
               {running && (

@@ -21,9 +21,9 @@ import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.TaskPullRequestOwnership;
-import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
+import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RepositoryIssue;
@@ -139,7 +139,7 @@ public class GoalReferenceReader
         };
         if (kind == GoalItemKind.ISSUE) {
             RepositoryIssue issue = issues.find(workspaces, workspace, NumberedKey.parse(canonical).number()).orElseThrow();
-            return issueLink(new GitHubIssueSource(workspace.issueHost(), issue.id(), workspace.monitoredRepository().fullName(), issue.number(), issue.htmlUrl(),
+            return issueLink(new HostedIssueSource(workspace.issueHost(), issue.id(), workspace.monitoredRepository().fullName(), issue.number(), issue.htmlUrl(),
 
                     issue.title(), issue.body(), issue.updatedAt()), clock.instant());
         }
@@ -202,7 +202,7 @@ public class GoalReferenceReader
         return new WorkItemLink(WorkItemLink.taskIdentity(task.id().toString()), new GoalItem(GoalItemKind.TASK, task.id().toString(), "Task", task.title(), task.createdAt()));
     }
 
-    public static WorkItemLink issueLink(GitHubIssueSource source, Instant at)
+    public static WorkItemLink issueLink(HostedIssueSource source, Instant at)
     {
         return new WorkItemLink(WorkItemLink.issueIdentity(source.host(), source.issueId()),
                 new GoalItem(GoalItemKind.ISSUE, GoalItem.numberedKey(source.repo(), source.number()), "#" + source.number(), source.title(), at),
@@ -257,7 +257,7 @@ public class GoalReferenceReader
         }
     }
 
-    /** Reads items of one workspace from local stores; never from GitHub or Jira. */
+    /** Reads items of one workspace from local stores; never from the provider or Jira. */
     private final class Resolver
     {
         private final Workspace workspace;

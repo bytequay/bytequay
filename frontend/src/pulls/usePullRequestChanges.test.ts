@@ -19,13 +19,13 @@ import { EMPTY_TIMELINE_PAYLOAD } from './model';
 import { pullRequestDiffRevision } from './usePullRequestChanges';
 
 const payload = { ...EMPTY_TIMELINE_PAYLOAD, commitSha: 'first-sha' };
-const commit: PullRequestDetailDto['recentActivity'][number] = timelineActivity({ actor: 'developer', eventType: 'committed', timestamp: '2026-01-01T12:00:00Z', githubId: null }, payload);
+const commit: PullRequestDetailDto['recentActivity'][number] = timelineActivity({ actor: 'developer', eventType: 'committed', timestamp: '2026-01-01T12:00:00Z', remoteId: null }, payload);
 const detail = { baseRef: 'main', headRef: 'feature', additions: 5, deletions: 3, changedFiles: 1, recentActivity: [commit] };
 
 it('keeps selected code stable when discussion, reviews, or reactions update', () => {
   const expected = pullRequestDiffRevision(detail);
   for (const eventType of ['commented', 'reviewed', 'review_thread', 'labeled', 'renamed']) {
-    expect(pullRequestDiffRevision({ ...detail, recentActivity: [...detail.recentActivity, { ...commit, eventType, githubId: 10 }] })).toBe(expected);
+    expect(pullRequestDiffRevision({ ...detail, recentActivity: [...detail.recentActivity, { ...commit, eventType, remoteId: 10 }] })).toBe(expected);
   }
   expect(pullRequestDiffRevision({ ...detail, recentActivity: [{ ...commit, payload: { ...payload, resolved: true, actorAvatarUrl: 'https://example.test/avatar' } }] }))
     .toBe(expected);
@@ -36,8 +36,8 @@ it('keeps selected code stable when discussion, reviews, or reactions update', (
 it('detects rewritten commits and force pushes with identical timestamps and diff statistics', () => {
   expect(pullRequestDiffRevision({ ...detail, recentActivity: [{ ...commit, payload: { ...payload, commitSha: 'rewritten-sha' } }] }))
     .not.toBe(pullRequestDiffRevision(detail));
-  const forcePush: PullRequestDetailDto['recentActivity'][number] = { ...commit, eventType: 'head_ref_force_pushed', githubId: 20, payload: { ...payload, commitSha: null } };
-  expect(pullRequestDiffRevision({ ...detail, recentActivity: [commit, { ...forcePush, githubId: 21 }] }))
+  const forcePush: PullRequestDetailDto['recentActivity'][number] = { ...commit, eventType: 'head_ref_force_pushed', remoteId: 20, payload: { ...payload, commitSha: null } };
+  expect(pullRequestDiffRevision({ ...detail, recentActivity: [commit, { ...forcePush, remoteId: 21 }] }))
     .not.toBe(pullRequestDiffRevision({ ...detail, recentActivity: [commit, forcePush] }));
   expect(pullRequestDiffRevision({ ...detail, recentActivity: [forcePush, commit] }))
     .toBe(pullRequestDiffRevision({ ...detail, recentActivity: [commit, forcePush] }));

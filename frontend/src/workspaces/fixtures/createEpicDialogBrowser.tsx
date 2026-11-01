@@ -24,14 +24,14 @@ import '../../css/base.css';
 import '../../css/agents.css';
 
 const DRAFT: EpicDraftDto = { title: 'Cache Iceberg REST catalog metadata', description: 'Cache table metadata per catalog.', context: 'Hive keeps its own cache.' };
-const remote = (id: string, source: 'GITHUB' | 'JIRA', key: string, label: string, title: string, closed = false): UnifiedWorkItem => ({
+const remote = (id: string, source: 'ISSUE' | 'JIRA', key: string, label: string, title: string, closed = false): UnifiedWorkItem => ({
   id, source, title, description: '', status: closed ? 'Closed' : 'Open', closed, updatedAt: '2026-10-01T08:00:00Z',
-  reference: { kind: source === 'GITHUB' ? 'ISSUE' : 'JIRA', key, label, title, addedAt: '2026-10-01T08:00:00Z' }, work: null,
+  reference: { kind: source === 'ISSUE' ? 'ISSUE' : 'JIRA', key, label, title, addedAt: '2026-10-01T08:00:00Z' }, work: null,
 });
 const CATALOG = [
-  remote('ISSUE:github.com:500', 'GITHUB', 'owner/repository#12', '#12', 'Iceberg metadata cache'),
-  remote('ISSUE:github.com:501', 'GITHUB', 'owner/repository#13', '#13', 'Closed issue', true),
-  remote('ISSUE:github.com:502', 'GITHUB', 'owner/repository#14', '#14', 'Already an Epic'),
+  remote('ISSUE:github.com:500', 'ISSUE', 'owner/repository#12', '#12', 'Iceberg metadata cache'),
+  remote('ISSUE:github.com:501', 'ISSUE', 'owner/repository#13', '#13', 'Closed issue', true),
+  remote('ISSUE:github.com:502', 'ISSUE', 'owner/repository#14', '#14', 'Already an Epic'),
   remote('JIRA:5:cloud:77', 'JIRA', 'conn:cloud:77', 'ENG-7', 'Parquet reader'),
 ];
 
@@ -169,7 +169,7 @@ export async function run(): Promise<boolean> {
     assert(JSON.stringify(markedTickets) === JSON.stringify(['conn|cloud|77']) && JSON.stringify(created[3]) === JSON.stringify({ kind: 'remote', epicId: 'JIRA:5:cloud:77' }),
       `The ticket is marked by its location and opens by its Epic identity: ${JSON.stringify(markedTickets)}`);
     // GitLab uses the shared issue catalog and marking endpoint, while Jira remains independently available.
-    catalog = [remote('ISSUE:https://gitlab.example.com:600', 'GITHUB', 'group/subgroup/repository#21', '#21', 'GitLab request'), CATALOG[3]];
+    catalog = [remote('ISSUE:gitlab.example.com:600', 'ISSUE', 'group/subgroup/repository#21', '#21', 'GitLab request'), CATALOG[3]];
     const server: HostingServerDto = { provider: 'GITLAB', webBaseUrl: 'https://gitlab.example.com', apiBaseUrl: 'https://gitlab.example.com/api/v4' };
     close(); render(true, server); await settle();
     button('Create yourself').click(); await settle();
@@ -183,7 +183,7 @@ export async function run(): Promise<boolean> {
     button('GitLab issue').click(); await settle();
     button('Mark as Epic').click();
     await until(() => created.length === 5, 'Marking a GitLab issue creates the Epic');
-    assert(markedIssues.at(-1) === 21 && JSON.stringify(created[4]) === JSON.stringify({ kind: 'remote', epicId: 'ISSUE:https://gitlab.example.com:600' }),
+    assert(markedIssues.at(-1) === 21 && JSON.stringify(created[4]) === JSON.stringify({ kind: 'remote', epicId: 'ISSUE:gitlab.example.com:600' }),
       'The GitLab issue is marked by its number and opens by its server-scoped Epic identity');
     return true;
   }

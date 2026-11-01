@@ -327,7 +327,7 @@ public record CiAutofixRun(
         checkArgument(observedAttempt > journal.previousAttempt(), "observed rerun attempt must be later than the previous attempt");
         RerunJournal observed = new RerunJournal(
                 journal.attemptId(),
-                journal.workflowRunId(),
+                journal.runId(),
                 journal.headSha(),
                 journal.previousAttempt(),
                 journal.startedAt(),
@@ -642,12 +642,12 @@ public record CiAutofixRun(
         }
     }
 
-    public record RerunJournal(CiAutofixAttemptId attemptId, long workflowRunId, String headSha, int previousAttempt, Instant startedAt, Optional<Integer> observedAttempt)
+    public record RerunJournal(CiAutofixAttemptId attemptId, long runId, String headSha, int previousAttempt, Instant startedAt, Optional<Integer> observedAttempt)
     {
         public RerunJournal
         {
             requireNonNull(attemptId, "attemptId is null");
-            checkArgument(workflowRunId > 0 && previousAttempt > 0, "workflow run and previous attempt must be positive");
+            checkArgument(runId > 0 && previousAttempt > 0, "run and previous attempt must be positive");
             checkSha(headSha, "headSha");
             requireNonNull(startedAt, "startedAt is null");
             requireNonNull(observedAttempt, "observedAttempt is null");

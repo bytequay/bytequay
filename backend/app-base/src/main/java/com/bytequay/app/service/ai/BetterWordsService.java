@@ -32,7 +32,7 @@ public class BetterWordsService
     private static final int MAXIMUM_INPUT_CHARACTERS = 20_000;
     private static final String FAILURE = "The selected model could not write the comment";
     private static final String INSTRUCTIONS = """
-            Rewrite the developer-authored comment for a code review or issue discussion in GitHub or Jira.
+            Rewrite the developer-authored comment for a code review or issue discussion in GitHub, GitLab or Jira.
             Use natural, precise, professional, friendly, and concise wording. Focus feedback on the code or behavior,
             not the person. Make the existing question, concern, or requested change clear without inventing details.
             Preserve technical meaning, certainty, urgency, language, Markdown, code identifiers, links, and @mentions.
@@ -51,7 +51,7 @@ public class BetterWordsService
             </review-comment>
             """;
     private static final String DRAFT_INSTRUCTIONS = """
-            Draft a reply that the pull request author will post on a reviewer's GitHub
+            Draft a reply that the pull request author will post on a reviewer's
             comment. The context is JSON: the reviewer's comment and the author's private
             notes with an assistant about it. Reply to the reviewer in the author's voice
             with what the notes concluded: agree and say what will change, or explain
@@ -62,7 +62,7 @@ public class BetterWordsService
             """;
     private static final String REVIEWER_DRAFT_INSTRUCTIONS = """
             Draft a reply that a reviewer of this pull request will post on another
-            person's GitHub comment. The context is JSON: that comment and the reviewer's
+            person's review comment. The context is JSON: that comment and the reviewer's
             private notes with an assistant about it. Reply in the reviewer's voice with
             what the notes concluded: agree and add what supports the point, or explain
             briefly and politely why it does not hold. Be concise, specific, and friendly;
@@ -108,7 +108,7 @@ public class BetterWordsService
         return improved;
     }
 
-    /** Drafts a GitHub reply from a private thread; {@code context} is untrusted JSON. Same model, lane, scratch and limit as {@link #improve}. */
+    /** Drafts a reply from a private thread; {@code context} is untrusted JSON. Same model, lane, scratch and limit as {@link #improve}. */
     public String draftReply(String context, String repository, Optional<String> workspaceId, ReplyVoice voice)
     {
         requireNonNull(workspaceId, "workspaceId is null");

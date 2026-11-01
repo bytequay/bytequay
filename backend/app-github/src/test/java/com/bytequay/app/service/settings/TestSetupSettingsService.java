@@ -23,7 +23,7 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
-import com.bytequay.core.store.CredentialStore;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.google.common.collect.ImmutableSet;
@@ -46,13 +46,12 @@ class TestSetupSettingsService
     private static final AgentLaneId LANE = new AgentLaneId("claude");
 
     private final InMemoryAppSettingsStore store = new InMemoryAppSettingsStore();
-    private final CredentialStore credentials = mock(CredentialStore.class);
     private final ModelSettingsService models = mock(ModelSettingsService.class);
     private final AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
     private final AgentDriver driver = mock(AgentDriver.class);
     private final ObjectMapper mapper = new ObjectMapper().registerModule(new Jdk8Module());
     private final AppSettingsService appSettings = new AppSettingsService(store, mapper, Clock.systemUTC(), drivers);
-    private final SetupSettingsService setup = new SetupSettingsService(store, credentials, appSettings, models, drivers, mapper);
+    private final SetupSettingsService setup = new SetupSettingsService(store, appSettings, models, drivers, mapper);
 
     @Test
     void newInstallResumesAfterSigningInAndNeverRestartsAfterCompletion()
@@ -62,21 +61,21 @@ class TestSetupSettingsService
         assertThat(appSettings.developmentAutomation()).isEqualTo(DevelopmentAutomation.DEFAULT);
 
         setup.save(new SetupPreferences(SetupPreferences.Step.GITHUB, false));
-        when(credentials.exists()).thenReturn(true);
-        SetupSettingsService restarted = new SetupSettingsService(store, credentials, appSettings, models, drivers, mapper);
+        store.put(CredentialService.GITHUB_ACCOUNT_SETTING, "7");
+        SetupSettingsService restarted = new SetupSettingsService(store, appSettings, models, drivers, mapper);
         restarted.initialize();
         assertThat(restarted.preferences()).isEqualTo(new SetupPreferences(SetupPreferences.Step.GITHUB, false));
 
         restarted.save(new SetupPreferences(SetupPreferences.Step.COMPLETE, false));
-        when(credentials.exists()).thenReturn(false);
-        assertThat(new SetupSettingsService(store, credentials, appSettings, models, drivers, mapper).preferences())
+        store.delete(CredentialService.GITHUB_ACCOUNT_SETTING);
+        assertThat(new SetupSettingsService(store, appSettings, models, drivers, mapper).preferences())
                 .isEqualTo(new SetupPreferences(SetupPreferences.Step.COMPLETE, false));
     }
 
     @Test
     void existingInstallKeepsAssistantAndPreviousAutomationDefaults()
     {
-        when(credentials.exists()).thenReturn(true);
+        store.put(CredentialService.GITHUB_ACCOUNT_SETTING, "7");
         setup.initialize();
 
         assertThat(setup.preferences()).isEqualTo(new SetupPreferences(SetupPreferences.Step.COMPLETE, true));
@@ -88,7 +87,7 @@ class TestSetupSettingsService
     {
         DevelopmentAutomation saved = new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.empty());
         appSettings.saveDevelopmentAutomation(saved);
-        when(credentials.exists()).thenReturn(true);
+        store.put(CredentialService.GITHUB_ACCOUNT_SETTING, "7");
 
         setup.initialize();
 

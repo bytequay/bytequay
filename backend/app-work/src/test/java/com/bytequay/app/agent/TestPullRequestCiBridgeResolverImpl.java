@@ -27,19 +27,22 @@ import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.PullRequestCiBridge;
-import com.bytequay.app.repository.github.actions.BoundedCiLog;
-import com.bytequay.app.repository.github.actions.CiHeadSnapshot;
-import com.bytequay.app.repository.github.actions.CiJob;
-import com.bytequay.app.repository.github.actions.CiRawLogPage;
-import com.bytequay.app.repository.github.actions.CiRawLogStore;
-import com.bytequay.app.repository.github.actions.CiStep;
-import com.bytequay.app.repository.github.actions.CiWorkflowRun;
-import com.bytequay.app.repository.github.actions.GitHubActionsClient;
-import com.bytequay.app.repository.github.actions.ReadCiLogQuery;
+import com.bytequay.app.service.ci.BoundedCiLog;
+import com.bytequay.app.service.ci.CiLogReader;
+import com.bytequay.app.service.ci.CiRawLogPage;
+import com.bytequay.app.service.ci.CiRawLogStore;
+import com.bytequay.app.service.ci.ReadCiLogQuery;
+import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.ManagedWorktreeService;
+import com.bytequay.app.workspace.WorkspaceHostingRead;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixStore;
+import com.bytequay.core.ci.CiHeadSnapshot;
+import com.bytequay.core.ci.CiJob;
+import com.bytequay.core.ci.CiRun;
+import com.bytequay.core.ci.CiStep;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequest;
@@ -49,6 +52,13 @@ import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.PullRequestCi;
+import com.bytequay.core.hosting.PullRequestContentReader;
+import com.bytequay.core.hosting.PullRequestWriter;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.PullRequestTaskStore;
@@ -65,6 +75,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.MockMakers;
 import org.springframework.beans.factory.ObjectProvider;
 
+import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -74,6 +85,10 @@ import java.util.Optional;
 import java.util.stream.IntStream;
 
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.ci;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.targeting;
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -97,6 +112,9 @@ class TestPullRequestCiBridgeResolverImpl
     private static final RepoRef FORK = new RepoRef("alice", "repository");
     private static final RepoRef UPSTREAM = new RepoRef("owner", "repository");
     private static final PullRequestRef PR = new PullRequestRef("owner", "repository", 42);
+    private static final HostingInstance INSTANCE = new HostingInstance(1, GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
+    private static final HostingRepository HOSTED = new HostingRepository(3, INSTANCE.id(), "2", UPSTREAM.fullName(), URI.create("https://github.com/owner/repository"),
+            URI.create("https://github.com/owner/repository.git"), Optional.empty(), Optional.of("master"));
     private static final String COMMIT_FAILURE = """
             Complete job name: check-commit-messages
             Commit subjects must not start with a lowercase letter or end with a period.
@@ -116,13 +134,17 @@ class TestPullRequestCiBridgeResolverImpl
     private final PullRequestStore pullRequests = mock(PullRequestStore.class);
     private final PullRequestService catalog = mock(PullRequestService.class);
     private final PrDetailStore details = mock(PrDetailStore.class);
-    private final GitHubActionsClient actions = mock(GitHubActionsClient.class);
+    private final PullRequestCi ci = mock(PullRequestCi.class);
+    private final PullRequestContentReader contents = mock(PullRequestContentReader.class);
+    private final CiLogReader ciLogs = mock(CiLogReader.class);
+    private final WorkspaceHostingService hosting = mock(WorkspaceHostingService.class);
     private final TaskLogStore logs = mock(TaskLogStore.class);
     private final CiRawLogStore rawLogs = mock(CiRawLogStore.class);
     private final CiAutofixStore ciRuns = mock(CiAutofixStore.class);
     private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
     private final PullRequestCiBridgeResolverImpl resolver = new PullRequestCiBridgeResolverImpl(
-            tasks, workspaces, worktrees, pullRequests, catalog, details, actions, logs, mapper, rawLogs, ciRuns, mock(AgentTurnStore.class), mock(ObjectProvider.class), assignments);
+            tasks, workspaces, worktrees, pullRequests, catalog, details, hosting, integrations(ci(GITHUB, contents, mock(PullRequestWriter.class), ci)), ciLogs, logs, mapper,
+            rawLogs, ciRuns, mock(AgentTurnStore.class), mock(ObjectProvider.class), assignments);
     private final TaskId taskId = TaskId.random();
     private final TaskWorktree worktree = new TaskWorktree(taskId, "workspace", RepositoryIdentity.valueOf(FORK.fullName()),
             Path.of("/tmp", taskId.toString()), "bytequay/task/" + taskId, BASE);
@@ -137,11 +159,12 @@ class TestPullRequestCiBridgeResolverImpl
         when(workspaces.findById("workspace")).thenReturn(Optional.of(new Workspace(
                 "workspace", "Repository", 1, FORK, Optional.of(2L), Optional.of(UPSTREAM), 2, UPSTREAM, Workspace.Topology.FORK,
                 "master", "https://github.com/alice/repository.git", Optional.of("master"), Optional.of("https://github.com/owner/repository.git"),
-                "/tmp/repository", Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW)));
+                "/tmp/repository", Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW, HostingServer.GITHUB_COM)));
         when(worktrees.currentBranch(worktree)).thenReturn(Optional.of(BRANCH));
         when(worktrees.inspect(worktree)).thenReturn(new WorktreeSnapshot(worktree, HEAD, false, false, false));
         when(pullRequests.findByHeadRef(UPSTREAM.fullName(), BRANCH)).thenReturn(ImmutableList.of(row(PR)));
-        when(actions.inspect(PR)).thenReturn(failing);
+        when(hosting.storedRead("workspace")).thenReturn(new WorkspaceHostingRead(new HostingReadSession(1, "workspace", new HostingAccess(INSTANCE, "token")), HOSTED, "alice"));
+        when(ci.inspect(targeting(HOSTED), eq(PR.number()))).thenReturn(failing);
     }
 
     @Test
@@ -153,11 +176,11 @@ class TestPullRequestCiBridgeResolverImpl
         PullRequestCiBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
         assertThat(read(bridge, Optional.empty()).at("/pullRequest/headSha").asText()).isEqualTo(HEAD);
         verifyNoInteractions(catalog);
-        verify(actions, never()).readDescription(any());
+        verify(contents, never()).description(any(), anyInt());
         assertThat(bridge.requestRerun()).isEmpty();
         storeLog(COMMIT_FAILURE);
         assertThat(read(bridge, Optional.of(201L)).toString()).contains("check-commit-messages");
-        when(actions.inspect(PR)).thenReturn(snapshot(new PullRequestRef("owner", "repository", 9), HEAD, 1, "job", "failure"));
+        when(ci.inspect(targeting(HOSTED), eq(PR.number()))).thenReturn(snapshot(new PullRequestRef("owner", "repository", 9), HEAD, 1, "job", "failure"));
         assertThat(read(bridge, Optional.empty()).path("status").asText()).isEqualTo("stale");
     }
 
@@ -167,7 +190,7 @@ class TestPullRequestCiBridgeResolverImpl
     {
         storeLog(COMMIT_FAILURE);
         PullRequestCiBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
-        verifyNoInteractions(actions);
+        verifyNoInteractions(ci, ciLogs);
 
         JsonNode summary = read(bridge, Optional.empty());
         assertThat(summary.path("status").asText()).isEqualTo("available");
@@ -176,13 +199,13 @@ class TestPullRequestCiBridgeResolverImpl
         assertThat(summary.at("/pullRequest/headRepository").asText()).isEqualTo(FORK.fullName());
         assertThat(summary.at("/pullRequest/number").asInt()).isEqualTo(PR.number());
         assertThat(summary.at("/pullRequest/headSha").asText()).isEqualTo(HEAD);
-        assertThat(summary.at("/actions/green").asBoolean()).isFalse();
-        assertThat(summary.at("/actions/requiredChecksVerified").asBoolean()).isFalse();
-        assertThat(summary.at("/actions/workflows/0/jobs/0/name").asText()).isEqualTo("check-commit-messages");
-        assertThat(summary.at("/actions/workflows/0/jobs/0/failedSteps").toString()).contains("Check commit messages");
-        verify(actions, never()).readLog(any());
+        assertThat(summary.at("/ci/green").asBoolean()).isFalse();
+        assertThat(summary.at("/ci/requiredChecksVerified").asBoolean()).isFalse();
+        assertThat(summary.at("/ci/runs/0/jobs/0/name").asText()).isEqualTo("check-commit-messages");
+        assertThat(summary.at("/ci/runs/0/jobs/0/failedSteps").toString()).contains("Check commit messages");
+        verify(ciLogs, never()).read(any(), any(), any());
 
-        long jobId = summary.at("/actions/workflows/0/jobs/0/id").asLong();
+        long jobId = summary.at("/ci/runs/0/jobs/0/id").asLong();
         JsonNode detail = read(bridge, Optional.of(jobId));
         assertThat(detail.path("status").asText()).isEqualTo("available");
         assertThat(detail.at("/log/excerpt").asText()).contains(
@@ -190,20 +213,21 @@ class TestPullRequestCiBridgeResolverImpl
                 "0123456789ab Improve sample validation messages and cover missing log retries", "subject: 64 characters");
         assertThat(detail.at("/log/terminalErrorLines").toString()).contains("Process completed with exit code 1");
         ArgumentCaptor<ReadCiLogQuery> query = ArgumentCaptor.forClass(ReadCiLogQuery.class);
-        verify(actions).readLog(query.capture());
+        verify(ciLogs).read(targeting(HOSTED), eq(ci), query.capture());
         assertThat(query.getValue().taskId()).isEqualTo(taskId);
         assertThat(query.getValue().pullRequest()).isEqualTo(PR);
-        assertThat(query.getValue().workflowRun().headSha()).isEqualTo(HEAD);
+        assertThat(query.getValue().run().headSha()).isEqualTo(HEAD);
         assertThat(query.getValue().job().attempt()).isEqualTo(1);
         assertThat(query.getValue().maximumBytes()).isLessThanOrEqualTo(1024 * 1024);
-        verify(actions, never()).rerunFailedJobs(any());
+        verify(ci, never()).rerunFailedJobs(any(), anyInt(), any());
     }
 
     @Test
     void repositoryCapitalizationDoesNotHideTheTasksForkPullRequest()
             throws Exception
     {
-        when(actions.inspect(PR)).thenReturn(new CiHeadSnapshot(PR, true, "alice", new RepoRef("ALIce", "RePoSitory"), BRANCH, HEAD, "master", BASE, url(PR), failing.workflowRuns()));
+        when(ci.inspect(targeting(HOSTED), eq(PR.number())))
+                .thenReturn(new CiHeadSnapshot(PR, true, "alice", new RepoRef("ALIce", "RePoSitory"), BRANCH, HEAD, "master", BASE, url(PR), failing.runs()));
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.empty());
 
@@ -219,7 +243,7 @@ class TestPullRequestCiBridgeResolverImpl
         PullRequestCiBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
         assertThat(read(bridge, Optional.empty()).path("status").asText()).isEqualTo("no_pull_request");
         verify(catalog).syncRepositoryBranch("workspace", FORK.owner(), BRANCH);
-        verifyNoInteractions(actions);
+        verifyNoInteractions(ci, ciLogs);
 
         when(pullRequests.findByHeadRef(UPSTREAM.fullName(), BRANCH)).thenReturn(ImmutableList.of(row(PR)));
         assertThat(read(bridge, Optional.empty()).at("/pullRequest/number").asInt()).isEqualTo(PR.number());
@@ -240,7 +264,7 @@ class TestPullRequestCiBridgeResolverImpl
         assertThat(result.path("status").asText()).isEqualTo("available");
         assertThat(result.at("/pullRequest/number").asInt()).isEqualTo(PR.number());
         verify(catalog).syncRepositoryBranch("workspace", FORK.owner(), BRANCH);
-        verify(actions).inspect(PR);
+        verify(ci).inspect(targeting(HOSTED), eq(PR.number()));
     }
 
     @Test
@@ -249,12 +273,12 @@ class TestPullRequestCiBridgeResolverImpl
     {
         PullRequestRef other = new PullRequestRef(UPSTREAM.owner(), UPSTREAM.repo(), PR.number() + 1);
         when(pullRequests.findByHeadRef(UPSTREAM.fullName(), BRANCH)).thenReturn(ImmutableList.of(row(PR), row(other)));
-        when(actions.inspect(other)).thenReturn(snapshot(other, HEAD, 1, "checks", "failure"));
+        when(ci.inspect(targeting(HOSTED), eq(other.number()))).thenReturn(snapshot(other, HEAD, 1, "checks", "failure"));
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.of(201L));
 
         assertThat(result.path("status").asText()).isEqualTo("ambiguous_pull_request");
-        verify(actions, never()).readLog(any());
+        verify(ciLogs, never()).read(any(), any(), any());
     }
 
     @Test
@@ -266,12 +290,12 @@ class TestPullRequestCiBridgeResolverImpl
             when(pullRequests.findByHeadRef(UPSTREAM.fullName(), BRANCH)).thenReturn(ImmutableList.of(row(PR), row(other)));
             return null;
         }).when(catalog).syncRepositoryBranch("workspace", FORK.owner(), BRANCH);
-        when(actions.inspect(other)).thenReturn(snapshot(other, HEAD, 1, "checks", "failure"));
+        when(ci.inspect(targeting(HOSTED), eq(other.number()))).thenReturn(snapshot(other, HEAD, 1, "checks", "failure"));
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.of(201L));
 
         assertThat(result.path("status").asText()).isEqualTo("ambiguous_pull_request");
-        verify(actions, never()).readLog(any());
+        verify(ciLogs, never()).read(any(), any(), any());
     }
 
     @ParameterizedTest
@@ -279,12 +303,12 @@ class TestPullRequestCiBridgeResolverImpl
     void onlyAnObservedFailedJobCanDownloadALog(long jobId)
             throws Exception
     {
-        when(actions.inspect(PR)).thenReturn(snapshot(PR, HEAD, 1, "passing-check", "success"));
+        when(ci.inspect(targeting(HOSTED), eq(PR.number()))).thenReturn(snapshot(PR, HEAD, 1, "passing-check", "success"));
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.of(jobId));
 
         assertThat(result.path("status").asText()).isEqualTo("unknown_job");
-        verify(actions, never()).readLog(any());
+        verify(ciLogs, never()).read(any(), any(), any());
         verifyNoInteractions(logs);
     }
 
@@ -296,12 +320,12 @@ class TestPullRequestCiBridgeResolverImpl
         storeLog(COMMIT_FAILURE);
         CiHeadSnapshot after = switch (change) {
             case "head" -> snapshot(PR, NEXT, 1, "check-commit-messages", "failure");
-            case "base" -> new CiHeadSnapshot(PR, true, "alice", FORK, BRANCH, HEAD, "master", NEXT, url(PR), failing.workflowRuns());
+            case "base" -> new CiHeadSnapshot(PR, true, "alice", FORK, BRANCH, HEAD, "master", NEXT, url(PR), failing.runs());
             case "attempt" -> snapshot(PR, HEAD, 2, "check-commit-messages", "failure");
-            case "closed" -> new CiHeadSnapshot(PR, false, "alice", FORK, BRANCH, HEAD, "master", BASE, url(PR), failing.workflowRuns());
+            case "closed" -> new CiHeadSnapshot(PR, false, "alice", FORK, BRANCH, HEAD, "master", BASE, url(PR), failing.runs());
             default -> throw new AssertionError(change);
         };
-        when(actions.inspect(PR)).thenReturn(failing, after);
+        when(ci.inspect(targeting(HOSTED), eq(PR.number()))).thenReturn(failing, after);
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.of(201L));
 
@@ -316,14 +340,15 @@ class TestPullRequestCiBridgeResolverImpl
     {
         storeLog(COMMIT_FAILURE);
         CiJob rerun = snapshot(PR, HEAD, 2, "rerun-check", "success").jobs().getFirst();
-        CiWorkflowRun current = new CiWorkflowRun(100, 10, "Build", 2, "completed", Optional.of("failure"), HEAD,
+        CiRun current = new CiRun(100, 10, "Build", 2, "completed", Optional.of("failure"), HEAD,
                 "https://github.com/owner/repository/actions/runs/100", ImmutableList.of(failing.jobs().getFirst(), rerun));
-        when(actions.inspect(PR)).thenReturn(new CiHeadSnapshot(PR, true, "alice", FORK, BRANCH, HEAD, "master", BASE, url(PR), ImmutableList.of(current)));
+        when(ci.inspect(targeting(HOSTED), eq(PR.number())))
+                .thenReturn(new CiHeadSnapshot(PR, true, "alice", FORK, BRANCH, HEAD, "master", BASE, url(PR), ImmutableList.of(current)));
 
         PullRequestCiBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
         JsonNode summary = read(bridge, Optional.empty());
-        assertThat(summary.at("/actions/workflows/0/attempt").asInt()).isEqualTo(2);
-        long jobId = summary.at("/actions/workflows/0/jobs/0/id").asLong();
+        assertThat(summary.at("/ci/runs/0/attempt").asInt()).isEqualTo(2);
+        long jobId = summary.at("/ci/runs/0/jobs/0/id").asLong();
         JsonNode result = read(bridge, Optional.of(jobId));
 
         assertThat(result.path("status").asText()).isEqualTo("available");
@@ -331,8 +356,8 @@ class TestPullRequestCiBridgeResolverImpl
         assertThat(result.at("/log/attempt").asInt()).isEqualTo(1);
         assertThat(result.at("/log/excerpt").asText()).contains("subject: 64 characters");
         ArgumentCaptor<ReadCiLogQuery> query = ArgumentCaptor.forClass(ReadCiLogQuery.class);
-        verify(actions).readLog(query.capture());
-        assertThat(query.getValue().workflowRun().attempt()).isEqualTo(2);
+        verify(ciLogs).read(targeting(HOSTED), eq(ci), query.capture());
+        assertThat(query.getValue().run().attempt()).isEqualTo(2);
         assertThat(query.getValue().job().attempt()).isEqualTo(1);
     }
 
@@ -341,15 +366,15 @@ class TestPullRequestCiBridgeResolverImpl
             throws Exception
     {
         storeLog(COMMIT_FAILURE);
-        CiWorkflowRun current = new CiWorkflowRun(100, 10, "Build", 2, "in_progress", Optional.empty(), HEAD,
+        CiRun current = new CiRun(100, 10, "Build", 2, "in_progress", Optional.empty(), HEAD,
                 "https://github.com/owner/repository/actions/runs/100", failing.jobs());
         CiHeadSnapshot before = new CiHeadSnapshot(PR, true, "alice", FORK, BRANCH, HEAD, "master", BASE, url(PR), ImmutableList.of(current));
         CiHeadSnapshot after = snapshot(PR, HEAD, 2, "check-commit-messages", "failure");
-        when(actions.inspect(PR)).thenReturn(before, after);
+        when(ci.inspect(targeting(HOSTED), eq(PR.number()))).thenReturn(before, after);
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.of(201L));
 
-        verify(actions).readLog(any());
+        verify(ciLogs).read(any(), any(), any());
         assertThat(result.path("status").asText()).isEqualTo("stale");
         assertThat(result.has("log")).isFalse();
         assertThat(result.toString()).doesNotContain("0123456789ab", "subject: 64 characters");
@@ -364,7 +389,7 @@ class TestPullRequestCiBridgeResolverImpl
 
         assertThat(resolver.resolve(taskId.toString())).isEmpty();
         assertThat(read(bridge, Optional.of(201L)).path("status").asText()).isEqualTo("unavailable");
-        verifyNoInteractions(actions, logs, catalog);
+        verifyNoInteractions(ci, ciLogs, hosting, logs, catalog);
     }
 
     @Test
@@ -375,7 +400,7 @@ class TestPullRequestCiBridgeResolverImpl
         doAnswer(ignored -> {
             when(tasks.find(taskId)).thenReturn(Optional.of(task.fail("Closed", NOW.plusSeconds(1), NOW.plus(Duration.ofDays(7)))));
             return BoundedCiLog.unavailable("Log expired");
-        }).when(actions).readLog(any());
+        }).when(ciLogs).read(any(), any(), any());
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.of(201L));
 
@@ -387,15 +412,15 @@ class TestPullRequestCiBridgeResolverImpl
     void preservesFailureAnnotationsWhenTheJobLogIsUnavailable()
             throws Exception
     {
-        when(actions.readLog(any())).thenReturn(BoundedCiLog.unavailable("This Actions log has expired"));
-        when(actions.readFailureAnnotations(PR, 201L)).thenReturn(ImmutableList.of("The self-hosted runner lost communication with the server."));
+        when(ciLogs.read(any(), any(), any())).thenReturn(BoundedCiLog.unavailable("This Actions log has expired"));
+        when(ci.failureNotes(targeting(HOSTED), eq(PR.number()), eq(201L))).thenReturn(ImmutableList.of("The self-hosted runner lost communication with the server."));
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.of(201L));
 
         assertThat(result.at("/log/unavailableReason").asText()).contains("expired");
         assertThat(result.path("status").asText()).isEqualTo("available");
         assertThat(result.at("/log/excerpt").asText()).isEmpty();
-        assertThat(result.at("/log/githubAnnotations/0").asText()).isEqualTo("The self-hosted runner lost communication with the server.");
+        assertThat(result.at("/log/failureNotes/0").asText()).isEqualTo("The self-hosted runner lost communication with the server.");
         verifyNoInteractions(logs);
     }
 
@@ -403,13 +428,13 @@ class TestPullRequestCiBridgeResolverImpl
     void doesNotExposeAuthenticatedProviderErrorsToTheAgent()
             throws Exception
     {
-        when(actions.inspect(PR)).thenThrow(new IllegalStateException("Request failed: https://token-secret@github.com/owner/repository"));
+        when(ci.inspect(targeting(HOSTED), eq(PR.number()))).thenThrow(new IllegalStateException("Request failed: https://token-secret@github.com/owner/repository"));
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.empty());
 
         assertThat(result.path("status").asText()).isEqualTo("unavailable");
         assertThat(result.toString()).doesNotContain("token-secret", "https://token-secret@", "Request failed");
-        verify(actions, never()).readLog(any());
+        verify(ciLogs, never()).read(any(), any(), any());
     }
 
     @Test
@@ -456,19 +481,19 @@ class TestPullRequestCiBridgeResolverImpl
     void boundsEscapedCheckNamesAndMarksOmittedWorkflows()
             throws Exception
     {
-        List<CiWorkflowRun> workflows = IntStream.range(1, 501).mapToObj(id -> {
+        List<CiRun> workflows = IntStream.range(1, 501).mapToObj(id -> {
             CiJob job = new CiJob(1000 + id, id, "\u0001".repeat(400), 1, "completed", Optional.of("failure"),
                     "https://github.com/owner/repository/actions/runs/" + id, ImmutableList.of());
-            return new CiWorkflowRun(id, id, "\u0001".repeat(400), 1, "completed", Optional.of("failure"), HEAD,
+            return new CiRun(id, id, "\u0001".repeat(400), 1, "completed", Optional.of("failure"), HEAD,
                     "https://github.com/owner/repository/actions/runs/" + id, ImmutableList.of(job));
         }).collect(ImmutableList.toImmutableList());
-        when(actions.inspect(PR)).thenReturn(new CiHeadSnapshot(PR, true, "alice", FORK, BRANCH, HEAD, "master", BASE, url(PR), workflows));
+        when(ci.inspect(targeting(HOSTED), eq(PR.number()))).thenReturn(new CiHeadSnapshot(PR, true, "alice", FORK, BRANCH, HEAD, "master", BASE, url(PR), workflows));
 
         String output = resolver.resolve(taskId.toString()).orElseThrow().read().apply(Optional.empty());
         JsonNode result = mapper.readTree(output);
 
         assertThat(output.length()).isLessThanOrEqualTo(PullRequestCiBridge.MAXIMUM_OUTPUT_LENGTH);
-        assertThat(result.at("/actions/workflowsOmitted").asInt()).isGreaterThan(0);
+        assertThat(result.at("/ci/runsOmitted").asInt()).isGreaterThan(0);
         assertThat(result.path("untrusted").asBoolean()).isTrue();
     }
 
@@ -479,18 +504,18 @@ class TestPullRequestCiBridgeResolverImpl
         List<CiJob> jobs = IntStream.range(1, 501).mapToObj(id -> new CiJob(10_000 + id, 99, "\u0001".repeat(400), 1,
                 "completed", Optional.of("success"), "https://github.com/owner/repository/actions/runs/99/job/" + id, ImmutableList.of()))
                 .collect(ImmutableList.toImmutableList());
-        CiWorkflowRun passing = new CiWorkflowRun(99, 9, "Passing workflow", 1, "completed", Optional.of("success"), HEAD,
+        CiRun passing = new CiRun(99, 9, "Passing workflow", 1, "completed", Optional.of("success"), HEAD,
                 "https://github.com/owner/repository/actions/runs/99", jobs);
-        when(actions.inspect(PR)).thenReturn(new CiHeadSnapshot(PR, true, "alice", FORK, BRANCH, HEAD, "master", BASE, url(PR),
-                ImmutableList.of(passing, failing.workflowRuns().getFirst())));
+        when(ci.inspect(targeting(HOSTED), eq(PR.number()))).thenReturn(new CiHeadSnapshot(PR, true, "alice", FORK, BRANCH, HEAD, "master", BASE, url(PR),
+                ImmutableList.of(passing, failing.runs().getFirst())));
 
         String output = resolver.resolve(taskId.toString()).orElseThrow().read().apply(Optional.empty());
         JsonNode result = mapper.readTree(output);
 
         assertThat(output.length()).isLessThanOrEqualTo(PullRequestCiBridge.MAXIMUM_OUTPUT_LENGTH);
-        assertThat(result.at("/actions/workflows/0/jobs/0/id").asLong()).isEqualTo(201);
-        assertThat(result.at("/actions/workflows/0/jobs/0/name").asText()).isEqualTo("check-commit-messages");
-        assertThat(result.at("/actions/jobsOmitted").asInt()).isGreaterThan(0);
+        assertThat(result.at("/ci/runs/0/jobs/0/id").asLong()).isEqualTo(201);
+        assertThat(result.at("/ci/runs/0/jobs/0/name").asText()).isEqualTo("check-commit-messages");
+        assertThat(result.at("/ci/jobsOmitted").asInt()).isGreaterThan(0);
     }
 
     @Test
@@ -528,7 +553,7 @@ class TestPullRequestCiBridgeResolverImpl
         assertThat(last.path("complete").asBoolean()).isTrue();
         assertThat(last.path("nextOffset").isNull()).isTrue();
         assertThat(last.path("text").asText()).isEqualTo("remaining original text");
-        verifyNoInteractions(actions, catalog, logs, pullRequests);
+        verifyNoInteractions(ci, ciLogs, hosting, catalog, logs, pullRequests);
         when(tasks.find(taskId)).thenReturn(Optional.of(task.fail("Closed", NOW.plusSeconds(1), NOW.plus(Duration.ofDays(7)))));
         assertThat(mapper.readTree(bridge.readRaw().apply(id, 0L)).path("status").asText()).isEqualTo("unavailable");
     }
@@ -548,9 +573,9 @@ class TestPullRequestCiBridgeResolverImpl
         PullRequestCiBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
         assertThat(read(bridge, Optional.empty()).path("status").asText()).isEqualTo("available");
         verifyNoInteractions(catalog, pullRequests, details);
-        when(actions.inspect(PR)).thenReturn(snapshot(PR, NEXT, 1, "test", "failure"));
+        when(ci.inspect(targeting(HOSTED), eq(PR.number()))).thenReturn(snapshot(PR, NEXT, 1, "test", "failure"));
         assertThat(read(bridge, Optional.of(201L)).path("status").asText()).isEqualTo("stale");
-        verify(actions, never()).readLog(any());
+        verify(ciLogs, never()).read(any(), any(), any());
     }
 
     @Test
@@ -560,14 +585,14 @@ class TestPullRequestCiBridgeResolverImpl
         String id = "a".repeat(64);
         String source = "original beginning\n" + "downloaded artifact\n".repeat(4000) + "command exited\n";
         BlobRef blob = new BlobRef("ci/excerpt.log", "text/plain", 0);
-        when(actions.readLog(any())).thenReturn(new BoundedCiLog(Optional.of(blob), true, ImmutableList.of(), Optional.empty(), Optional.of(id), false));
+        when(ciLogs.read(any(), any(), any())).thenReturn(new BoundedCiLog(Optional.of(blob), true, ImmutableList.of(), Optional.empty(), Optional.of(id), false));
         when(rawLogs.read(taskId, id)).thenReturn(source);
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.of(201L));
         assertThat(result.at("/log/diagnosticsMatched").asBoolean()).isFalse();
         assertThat(result.at("/log/rawLogId").asText()).isEqualTo(id);
         assertThat(result.at("/log/message").asText()).contains("No diagnostic", "tail", "32 KiB", "read_ci_raw_log");
         assertThat(result.at("/log/excerpt").asText()).isEqualTo(source.substring(source.length() - 32768));
-        assertThat(result.at("/log/githubAnnotations").isEmpty()).isTrue();
+        assertThat(result.at("/log/failureNotes").isEmpty()).isTrue();
         verifyNoInteractions(logs);
     }
 
@@ -576,13 +601,14 @@ class TestPullRequestCiBridgeResolverImpl
             throws Exception
     {
         String id = "a".repeat(64);
-        when(actions.readLog(any())).thenReturn(new BoundedCiLog(Optional.of(new BlobRef("ci/excerpt.log", "text/plain", 0)), false, ImmutableList.of(), Optional.empty(), Optional.of(id), false));
+        when(ciLogs.read(any(), any(), any()))
+                .thenReturn(new BoundedCiLog(Optional.of(new BlobRef("ci/excerpt.log", "text/plain", 0)), false, ImmutableList.of(), Optional.empty(), Optional.of(id), false));
         when(rawLogs.read(taskId, id)).thenReturn("[INFO] Running ExampleTest\n");
-        when(actions.readFailureAnnotations(PR, 201L)).thenReturn(ImmutableList.of("The self-hosted runner lost communication with the server."));
+        when(ci.failureNotes(targeting(HOSTED), eq(PR.number()), eq(201L))).thenReturn(ImmutableList.of("The self-hosted runner lost communication with the server."));
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.of(201L));
 
-        assertThat(result.at("/log/githubAnnotations/0").asText()).isEqualTo("The self-hosted runner lost communication with the server.");
+        assertThat(result.at("/log/failureNotes/0").asText()).isEqualTo("The self-hosted runner lost communication with the server.");
     }
 
     private JsonNode read(PullRequestCiBridge bridge, Optional<Long> jobId)
@@ -595,7 +621,7 @@ class TestPullRequestCiBridgeResolverImpl
     {
         byte[] bytes = text.getBytes(UTF_8);
         BlobRef blob = new BlobRef("ci/check-commit-messages.log", "text/plain", bytes.length);
-        when(actions.readLog(any())).thenReturn(new BoundedCiLog(
+        when(ciLogs.read(any(), any(), any())).thenReturn(new BoundedCiLog(
                 Optional.of(blob),
                 false,
                 ImmutableList.of("##[error]Process completed with exit code 1."),
@@ -611,7 +637,7 @@ class TestPullRequestCiBridgeResolverImpl
         CiJob job = new CiJob(200 + attempt, workflowId, name, attempt, "completed", Optional.of(conclusion),
                 "https://github.com/owner/repository/actions/runs/100/job/" + (200 + attempt),
                 ImmutableList.of(new CiStep(1, "Check commit messages", "completed", Optional.of(conclusion))));
-        CiWorkflowRun workflow = new CiWorkflowRun(workflowId, 10, "Build", attempt, "completed", Optional.of(conclusion), head,
+        CiRun workflow = new CiRun(workflowId, 10, "Build", attempt, "completed", Optional.of(conclusion), head,
                 "https://github.com/owner/repository/actions/runs/100", ImmutableList.of(job));
         return new CiHeadSnapshot(ref, true, "alice", FORK, BRANCH, head, "master", BASE, url(ref), ImmutableList.of(workflow));
     }

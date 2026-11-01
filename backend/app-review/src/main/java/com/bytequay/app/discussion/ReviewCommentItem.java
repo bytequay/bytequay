@@ -23,7 +23,7 @@ import static java.util.Objects.requireNonNull;
 /**
  * One keyable comment in a pull request's cached detail, with what the watcher filters on.
  *
- * @param author the commenter's login; empty when GitHub reported none
+ * @param author the commenter's login; empty when the provider reported none
  * @param createdAt the review's submission time, or the comment's creation time
  */
 record ReviewCommentItem(ReviewCommentAnchor anchor, String author, boolean bot, Optional<Instant> createdAt)

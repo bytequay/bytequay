@@ -13,10 +13,10 @@
  */
 package com.bytequay.app.repository.github;
 
-import com.bytequay.app.repository.github.actions.CiHeadSnapshot;
-import com.bytequay.app.repository.github.actions.CiRerunResult;
-import com.bytequay.app.repository.github.actions.CiWorkflowRun;
-import com.bytequay.app.repository.github.actions.RerunFailedJobsCommand;
+import com.bytequay.core.ci.CiHeadSnapshot;
+import com.bytequay.core.ci.CiRerunResult;
+import com.bytequay.core.ci.CiRun;
+import com.bytequay.core.ci.RerunFailedJobsCommand;
 import com.bytequay.core.domain.CreatedPullRequest;
 import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.MergePullRequestCommand;
@@ -25,10 +25,12 @@ import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.hosting.HostingAccess;
-import com.bytequay.core.hosting.HostingProvider;
-import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.CommentTarget;
+import com.bytequay.core.hosting.HostingTarget;
+import com.bytequay.core.hosting.MergeStrategy;
 import com.bytequay.core.hosting.PullRequestWriter;
+import com.bytequay.core.hosting.Reaction;
+import com.bytequay.core.hosting.ReviewVerdict;
 import com.bytequay.core.hosting.SubmittedReview;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
@@ -65,117 +67,115 @@ public class GitHubPullRequestWriter
         this.writes = requireNonNull(writes, "writes is null");
     }
 
-    @Override
-    public HostingProvider provider()
+    private static PullRequestRef ref(HostingTarget target, int number)
     {
-        return HostingProvider.GITHUB;
-    }
-
-    private static PullRequestRef ref(HostingAccess access, HostingRepository repository, int number)
-    {
-        checkArgument(access.server().equals(GITHUB_SERVER), "This adapter requires GitHub.com");
-        return parseRef(repository.fullPath(), number);
+        checkArgument(target.access().server().equals(GITHUB_SERVER), "This adapter requires GitHub.com");
+        return parseRef(target.repository().fullPath(), number);
     }
 
     @Override
-    public PrTimelineEvent comment(HostingAccess access, HostingRepository repository, int number, String body)
+    public PrTimelineEvent comment(HostingTarget target, int number, String body)
     {
-        return writes.createIssueComment(access.token(), ref(access, repository, number), body);
+        return writes.createIssueComment(target.access().token(), ref(target, number), body);
     }
 
     @Override
-    public PrTimelineEvent createReviewComment(HostingAccess access, HostingRepository repository, int number, InlineReviewComment comment)
+    public PrTimelineEvent createReviewComment(HostingTarget target, int number, InlineReviewComment comment)
     {
-        return writes.createReviewComment(access.token(), ref(access, repository, number), comment);
+        return writes.createReviewComment(target.access().token(), ref(target, number), comment);
     }
 
     @Override
-    public void replyToReviewComment(HostingAccess access, HostingRepository repository, int number, long commentId, String body)
+    public void replyToReviewComment(HostingTarget target, int number, long commentId, String body)
     {
-        writes.replyToReviewComment(access.token(), ref(access, repository, number), commentId, body);
+        writes.replyToReviewComment(target.access().token(), ref(target, number), commentId, body);
     }
 
     @Override
-    public void updateTitle(HostingAccess access, HostingRepository repository, int number, String title)
+    public void updateTitle(HostingTarget target, int number, String title)
     {
-        writes.updatePullRequestTitle(access.token(), ref(access, repository, number), title);
+        writes.updatePullRequestTitle(target.access().token(), ref(target, number), title);
     }
 
     @Override
-    public void updateDescription(HostingAccess access, HostingRepository repository, int number, String description)
+    public void updateDescription(HostingTarget target, int number, String description)
     {
-        writes.updatePullRequestDescription(access.token(), ref(access, repository, number), description);
+        writes.updatePullRequestDescription(target.access().token(), ref(target, number), description);
     }
 
     @Override
-    public void close(HostingAccess access, HostingRepository repository, int number)
+    public void close(HostingTarget target, int number)
     {
-        writes.closePullRequest(access.token(), ref(access, repository, number));
+        writes.closePullRequest(target.access().token(), ref(target, number));
     }
 
     @Override
-    public void markReady(HostingAccess access, HostingRepository repository, int number)
+    public void markReady(HostingTarget target, int number)
     {
-        writes.markReadyForReview(access.token(), node(access, repository, number));
+        writes.markReadyForReview(target.access().token(), node(target, number));
     }
 
     @Override
-    public void updateMetadata(HostingAccess access, HostingRepository repository, int number, List<String> assignees, List<String> labels)
+    public void updateMetadata(HostingTarget target, int number, List<String> assignees, List<String> labels)
     {
-        writes.updateIssueMetadata(access.token(), ref(access, repository, number), assignees, labels);
+        writes.updateIssueMetadata(target.access().token(), ref(target, number), assignees, labels);
     }
 
     @Override
-    public void updateReviewer(HostingAccess access, HostingRepository repository, int number, String login, boolean requested)
+    public void updateReviewer(HostingTarget target, int number, String login, boolean requested)
     {
-        writes.updateReviewerRequest(access.token(), ref(access, repository, number), login, requested);
+        writes.updateReviewerRequest(target.access().token(), ref(target, number), login, requested);
     }
 
     @Override
-    public void resolveThread(HostingAccess access, HostingRepository repository, int number, long commentId, boolean resolved)
+    public void resolveThread(HostingTarget target, int number, long commentId, boolean resolved)
     {
-        writes.setReviewThreadResolved(access.token(), reads.findReviewThreadId(access.token(), ref(access, repository, number), commentId), resolved);
+        writes.setReviewThreadResolved(target.access().token(), reads.findReviewThreadId(target.access().token(), ref(target, number), commentId), resolved);
     }
 
     @Override
-    public void editComment(HostingAccess access, HostingRepository repository, int number, String target, long commentId, String body)
+    public void editComment(HostingTarget target, int number, CommentTarget comment, long commentId, String body)
     {
-        PullRequestRef ref = ref(access, repository, number);
-        switch (target) {
-            case "issue_comment" -> writes.updateIssueComment(access.token(), ref, commentId, body);
-            case "review_comment" -> writes.updateReviewComment(access.token(), ref, commentId, body);
-            case "review" -> writes.updateReviewBody(access.token(), ref, commentId, body);
-            default -> throw new IllegalArgumentException("Unsupported comment target");
+        PullRequestRef ref = ref(target, number);
+        switch (comment) {
+            case ISSUE_COMMENT -> writes.updateIssueComment(target.access().token(), ref, commentId, body);
+            case REVIEW_COMMENT -> writes.updateReviewComment(target.access().token(), ref, commentId, body);
+            case REVIEW -> writes.updateReviewBody(target.access().token(), ref, commentId, body);
+            case PULL_REQUEST -> throw new IllegalArgumentException("Unsupported comment target");
         }
     }
 
     @Override
-    public boolean toggleReaction(HostingAccess access, HostingRepository repository, int number, String target, Long commentId, String content, Boolean viewerHasReacted)
+    public boolean toggleReaction(HostingTarget target, int number, CommentTarget comment, Long commentId, Reaction reaction, Boolean viewerHasReacted)
     {
-        PullRequestRef ref = ref(access, repository, number);
-        return switch (target) {
-            case "pull_request" -> writes.togglePullRequestReaction(access.token(), ref, content, viewerHasReacted);
-            case "issue_comment" -> writes.toggleIssueCommentReaction(access.token(), ref, commentId, content, viewerHasReacted);
-            case "review_comment" -> writes.toggleReviewCommentReaction(access.token(), ref, commentId, content, viewerHasReacted);
-            default -> throw new IllegalArgumentException("Unsupported reaction target");
+        PullRequestRef ref = ref(target, number);
+        // The app spells reactions as GitHub's API does.
+        String content = reaction.value();
+        return switch (comment) {
+            case PULL_REQUEST -> writes.togglePullRequestReaction(target.access().token(), ref, content, viewerHasReacted);
+            case ISSUE_COMMENT -> writes.toggleIssueCommentReaction(target.access().token(), ref, commentId, content, viewerHasReacted);
+            case REVIEW_COMMENT -> writes.toggleReviewCommentReaction(target.access().token(), ref, commentId, content, viewerHasReacted);
+            case REVIEW -> throw new IllegalArgumentException("Unsupported reaction target");
         };
     }
 
     @Override
-    public SubmittedReview submitReview(HostingAccess access, HostingRepository repository, int number, String event, String body,
+    public SubmittedReview submitReview(HostingTarget target, int number, ReviewVerdict verdict, String body,
             List<InlineReviewComment> comments, String commitId)
     {
-        PullRequestRef ref = ref(access, repository, number);
-        String token = access.token();
+        PullRequestRef ref = ref(target, number);
+        String token = target.access().token();
+        // GitHub's review events carry the verdict names.
+        String event = verdict.name();
         Map<Long, String> replies = new LinkedHashMap<>();
         comments.stream().map(InlineReviewComment::replyToCommentId).filter(OptionalLong::isPresent).mapToLong(OptionalLong::getAsLong).distinct()
                 .forEach(id -> replies.put(id, reads.findReviewThreadId(token, ref, id)));
         PrReviewState created = replies.isEmpty() ? writes.submitReview(token, ref, event, body, comments, commitId)
                 : writes.submitReviewWithReplies(token, ref, event, body, comments, replies, commitId);
         List<PrTimelineEvent> threads = ImmutableList.of();
-        if (!comments.isEmpty() && created.githubId() != null) {
+        if (!comments.isEmpty() && created.remoteId() != null) {
             try {
-                threads = replies.isEmpty() ? reads.fetchReviewComments(token, ref, created.githubId()) : reads.fetchPrReviewThreads(token, ref);
+                threads = replies.isEmpty() ? reads.fetchReviewComments(token, ref, created.remoteId()) : reads.fetchPrReviewThreads(token, ref);
             }
             catch (RuntimeException failure) {
                 log.warn("Review was posted but its threads could not be read: {}", failure.toString());
@@ -185,20 +185,20 @@ public class GitHubPullRequestWriter
     }
 
     @Override
-    public MergeResult merge(HostingAccess access, HostingRepository repository, int number, String strategy, String headSha)
+    public MergeResult merge(HostingTarget target, int number, MergeStrategy strategy, String headSha)
     {
-        PullRequestRef ref = ref(access, repository, number);
-        String token = access.token();
-        if ("when-ready".equalsIgnoreCase(strategy)) {
-            return writes.enablePullRequestAutoMerge(token, node(access, repository, number), headSha);
+        PullRequestRef ref = ref(target, number);
+        String token = target.access().token();
+        if (strategy == MergeStrategy.WHEN_READY) {
+            return writes.enablePullRequestAutoMerge(token, node(target, number), headSha);
         }
-        if ("queue".equalsIgnoreCase(strategy)) {
-            return writes.enqueuePullRequest(token, node(access, repository, number), headSha);
+        if (strategy == MergeStrategy.QUEUE) {
+            return writes.enqueuePullRequest(token, node(target, number), headSha);
         }
-        String requested = strategy == null || "default".equalsIgnoreCase(strategy) ? "rebase" : strategy.toLowerCase(Locale.ROOT);
-        String method = switch (requested) {
-            case "squash" -> "squash";
-            case "merge" -> "merge";
+        // The default GitHub merge is a rebase.
+        String method = switch (strategy) {
+            case SQUASH -> "squash";
+            case MERGE -> "merge";
             default -> "rebase";
         };
         try {
@@ -206,44 +206,45 @@ public class GitHubPullRequestWriter
         }
         catch (ResponseStatusException failure) {
             if (failure.getStatusCode().value() == 405 && failure.getReason() != null && failure.getReason().toLowerCase(Locale.ROOT).contains("merge queue")) {
-                return writes.enqueuePullRequest(token, node(access, repository, number), headSha);
+                return writes.enqueuePullRequest(token, node(target, number), headSha);
             }
             throw failure;
         }
     }
 
     @Override
-    public void removeFromMergeQueue(HostingAccess access, HostingRepository repository, int number, boolean autoMerge)
+    public void removeFromMergeQueue(HostingTarget target, int number, boolean autoMerge)
     {
-        String nodeId = node(access, repository, number);
+        String nodeId = node(target, number);
         if (autoMerge) {
-            writes.disablePullRequestAutoMerge(access.token(), nodeId);
+            writes.disablePullRequestAutoMerge(target.access().token(), nodeId);
         }
         else {
-            writes.dequeuePullRequest(access.token(), nodeId);
+            writes.dequeuePullRequest(target.access().token(), nodeId);
         }
     }
 
     @Override
-    public boolean hasMergeQueue(HostingAccess access, HostingRepository repository, String baseRef)
+    public boolean hasMergeQueue(HostingTarget target, String baseRef)
     {
-        PullRequestRef ref = ref(access, repository, 1);
-        return writes.hasMergeQueue(access.token(), RepoRef.of(ref.owner(), ref.repo()), baseRef);
+        PullRequestRef ref = ref(target, 1);
+        return writes.hasMergeQueue(target.access().token(), RepoRef.of(ref.owner(), ref.repo()), baseRef);
     }
 
     @Override
-    public CreatedPullRequest create(HostingAccess access, HostingRepository repository, String head, String base, String title, String body, boolean draft)
+    public CreatedPullRequest create(HostingTarget target, RepoRef headRepository, String branch, String base, String title, String body, boolean draft)
     {
-        PullRequestRef ref = ref(access, repository, 1);
-        return writes.createPullRequest(access.token(), RepoRef.of(ref.owner(), ref.repo()), head, base, title, body, draft);
+        PullRequestRef ref = ref(target, 1);
+        // GitHub names a fork's branch owner:branch.
+        String head = headRepository.fullName().equalsIgnoreCase(ref.repoFullName()) ? branch : headRepository.owner() + ":" + branch;
+        return writes.createPullRequest(target.access().token(), RepoRef.of(ref.owner(), ref.repo()), head, base, title, body, draft);
     }
 
     @Override
-    public void rerunFailedChecks(HostingAccess access, HostingRepository repository, int number)
+    public void rerunFailedChecks(HostingTarget target, int number)
     {
-        PullRequestRef pullRequest = ref(access, repository, number);
-        CiHeadSnapshot head = actions.inspect(access.token(), pullRequest);
-        List<CiWorkflowRun> failedRuns = head.workflowRuns().stream()
+        CiHeadSnapshot head = actions.inspect(target, number);
+        List<CiRun> failedRuns = head.runs().stream()
                 .filter(run -> run.jobs().stream().anyMatch(job -> job.actionableFailure()))
                 .collect(ImmutableList.toImmutableList());
         if (failedRuns.isEmpty()) {
@@ -251,8 +252,8 @@ public class GitHubPullRequestWriter
         }
         int accepted = 0;
         String rejection = "GitHub did not accept the failed-job rerun";
-        for (CiWorkflowRun run : failedRuns) {
-            CiRerunResult result = actions.rerunFailedJobs(access.token(), new RerunFailedJobsCommand(pullRequest, run.id(), head.headSha(), run.attempt(), true));
+        for (CiRun run : failedRuns) {
+            CiRerunResult result = actions.rerunFailedJobs(target, number, new RerunFailedJobsCommand(run.id(), head.headSha(), run.attempt(), true));
             if (result.outcome() == CiRerunResult.Outcome.ACCEPTED) {
                 accepted++;
             }
@@ -265,9 +266,9 @@ public class GitHubPullRequestWriter
         }
     }
 
-    private String node(HostingAccess access, HostingRepository repository, int number)
+    private String node(HostingTarget target, int number)
     {
-        return writes.pullRequestNodeId(access.token(), ref(access, repository, number))
+        return writes.pullRequestNodeId(target.access().token(), ref(target, number))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned no pull request node ID"));
     }
 }

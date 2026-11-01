@@ -34,6 +34,7 @@ import com.bytequay.agent.spi.SessionAccess;
 import com.bytequay.app.agenda.AgendaFixtures;
 import com.bytequay.app.agent.runtime.AgentProperties;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AppSettingsService;
@@ -49,7 +50,6 @@ import com.bytequay.core.domain.AssistantDraft;
 import com.bytequay.core.domain.AssistantItem;
 import com.bytequay.core.domain.AssistantList;
 import com.bytequay.core.domain.AssistantReceipt;
-import com.bytequay.core.store.CredentialStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.AfterEach;
@@ -193,9 +193,9 @@ class TestAssistantConversation
                 return now.get();
             }
         };
-        CredentialStore credentials = mock(CredentialStore.class);
-        when(credentials.exists()).thenReturn(true);
-        setup = new SetupSettingsService(new InMemoryAppSettingsStore(), credentials, mock(AppSettingsService.class), models, drivers, AgendaFixtures.mapper());
+        InMemoryAppSettingsStore settings = new InMemoryAppSettingsStore();
+        settings.put(CredentialService.GITHUB_ACCOUNT_SETTING, "7");
+        setup = new SetupSettingsService(settings, mock(AppSettingsService.class), models, drivers, AgendaFixtures.mapper());
         assistant = new AssistantService(store, reader, actions, show, rows, work, setup, drivers, resources,
                 new AgentProperties(runtime, Duration.ZERO, "", "codex", "0.159.3", temporaryDirectory.resolve("codex-home"), "claude", temporaryDirectory.resolve("claude-home")),
                 AgendaFixtures.mapper(), clock, executor);
@@ -465,7 +465,7 @@ class TestAssistantConversation
         assertThat(assistant.conversation(C1).rows()).isEmpty();
         verify(rows, never()).rows(any());
 
-        AgendaTarget pull = AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1"));
+        AgendaTarget pull = AgendaTarget.pull(1, "owner/repository", 31402, Optional.of("ws1"));
         AssistantRow row = new AssistantRow("pr:owner/repository#31402", AssistantRow.Kind.PULL, "Retry Iceberg commit on conflict", Optional.of("#31402"), Optional.of("open"),
                 Optional.of("failing"), Optional.empty(), Optional.of(0), false, false, false, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.empty(), Optional.empty(), pull);

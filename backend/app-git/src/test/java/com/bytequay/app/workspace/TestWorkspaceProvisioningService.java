@@ -22,7 +22,6 @@ import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.hosting.HostingAccess;
@@ -30,8 +29,7 @@ import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
-import com.bytequay.core.store.CredentialStore;
-import com.bytequay.core.store.WorkspaceCredentialStore;
+import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -61,6 +59,7 @@ import java.util.concurrent.Executors;
 
 import static com.bytequay.app.git.GitTestSupport.configureUser;
 import static com.bytequay.app.git.GitTestSupport.git;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.bothProviders;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -77,6 +76,8 @@ class TestWorkspaceProvisioningService
     private static final String ORIGIN_URL = "https://github.test/contributor/project.git";
     private static final String UPSTREAM_URL = "https://github.test/upstream/project.git";
     private static final String CUSTOM_URL = "https://github.test/other/project.git";
+    private static final HostingReadSession SESSION = new HostingReadSession(1, "hosting-account",
+            new HostingAccess(new HostingInstance(1, HostingProvider.GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com")), "token"));
 
     @TempDir
     private Path temporary;
@@ -90,8 +91,8 @@ class TestWorkspaceProvisioningService
         Path commandLog = temporary.resolve("git-commands.log");
         GitCommandRunner git = routedGit(ImmutableMap.of(ORIGIN_URL, origin.bare(), UPSTREAM_URL, upstream.bare()), commandLog);
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        Workspace direct = store.createOrGet(workspace("direct", false));
-        Workspace fork = store.createOrGet(workspace("fork", true));
+        Workspace direct = store.create(workspace("direct", false));
+        Workspace fork = store.create(workspace("fork", true));
         WorkspaceProvisioningService service = service(store, git);
 
         WorkspaceCodeSyncResult directResult = service.synchronizeCode(direct.id());
@@ -115,6 +116,8 @@ class TestWorkspaceProvisioningService
                 Optional.empty(),
                 Optional.empty(),
                 NOW));
+        // Dropping the upstream drops the binding; the workspace binds again without it.
+        store.bindHosting(fork.id(), 1, 200, Optional.empty());
 
         assertThat(service.synchronizeCode(fork.id()).successful()).isTrue();
         assertThat(git(directPath(fork), "remote").lines()).containsExactly("origin");
@@ -128,7 +131,7 @@ class TestWorkspaceProvisioningService
         Remote upstream = remote("upstream");
         GitCommandRunner routed = routedGit(ImmutableMap.of(ORIGIN_URL, origin.bare(), UPSTREAM_URL, upstream.bare()), temporary.resolve("git-commands.log"));
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        Workspace workspace = store.createOrGet(workspace("fork", true));
+        Workspace workspace = store.create(workspace("fork", true));
         assertThat(service(store, routed).synchronizeCode(workspace.id()).successful()).isTrue();
         Path repository = directPath(workspace);
         git(repository, "checkout", "-b", "contribution", "--track", "upstream/main");
@@ -148,7 +151,7 @@ class TestWorkspaceProvisioningService
         Remote origin = remote("origin");
         GitCommandRunner routed = routedGit(ImmutableMap.of(ORIGIN_URL, origin.bare()), temporary.resolve("remote-read.log"));
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        Workspace workspace = store.createOrGet(workspace("remote-read", false));
+        Workspace workspace = store.create(workspace("remote-read", false));
         assertThat(service(store, routed).synchronizeCode(workspace.id()).successful()).isTrue();
         var managed = new ManagedWorkspaceGit(new WorkspacePaths(temporary.resolve("workspaces").toString()), routed,
                 mock(CredentialService.class), new InMemoryRemoteSourceStore());
@@ -166,7 +169,7 @@ class TestWorkspaceProvisioningService
         Path commandLog = temporary.resolve("git-commands.log");
         GitCommandRunner git = routedGit(ImmutableMap.of(ORIGIN_URL, origin.bare()), commandLog);
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        Workspace workspace = store.createOrGet(workspace("concurrent", false));
+        Workspace workspace = store.create(workspace("concurrent", false));
         WorkspaceProvisioningService service = service(store, git);
         ImmutableList.Builder<Callable<WorkspaceCodeSyncResult>> calls = ImmutableList.builder();
         for (int index = 0; index < 8; index++) {
@@ -204,7 +207,7 @@ class TestWorkspaceProvisioningService
         Remote origin = remote("origin");
         GitCommandRunner git = routedGit(ImmutableMap.of(ORIGIN_URL, origin.bare()), temporary.resolve("git-commands.log"));
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        Workspace unknown = store.createOrGet(workspace("unknown", false));
+        Workspace unknown = store.create(workspace("unknown", false));
         Path unexpected = directPath(unknown).resolve("keep.txt");
         Files.createDirectories(unexpected.getParent());
         Files.writeString(unexpected, "keep", StandardCharsets.UTF_8);
@@ -214,7 +217,7 @@ class TestWorkspaceProvisioningService
         assertThat(unexpected).hasContent("keep");
 
         InMemoryWorkspaceStore mismatchStore = new InMemoryWorkspaceStore();
-        Workspace mismatch = mismatchStore.createOrGet(workspace("mismatch", false));
+        Workspace mismatch = mismatchStore.create(workspace("mismatch", false));
         WorkspaceProvisioningService mismatchService = service(mismatchStore, git);
         assertThat(mismatchService.synchronizeCode(mismatch.id()).successful()).isTrue();
         git(directPath(mismatch), "remote", "set-url", "origin", "https://github.test/other/project.git");
@@ -234,7 +237,7 @@ class TestWorkspaceProvisioningService
         Remote origin = remote("origin");
         GitCommandRunner git = routedGit(ImmutableMap.of(ORIGIN_URL, origin.bare()), temporary.resolve("git-commands.log"));
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        Workspace workspace = store.createOrGet(workspace("preserve", false));
+        Workspace workspace = store.create(workspace("preserve", false));
         WorkspaceProvisioningService service = service(store, git);
         assertThat(service.synchronizeCode(workspace.id()).successful()).isTrue();
         Path repository = directPath(workspace);
@@ -267,7 +270,7 @@ class TestWorkspaceProvisioningService
         Remote upstream = remote("upstream");
         GitCommandRunner git = routedGit(ImmutableMap.of(ORIGIN_URL, origin.bare(), UPSTREAM_URL, upstream.bare()), temporary.resolve("git-commands.log"));
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        Workspace workspace = store.createOrGet(workspace("preserve-fork", true));
+        Workspace workspace = store.create(workspace("preserve-fork", true));
         WorkspaceProvisioningService service = service(store, git);
         assertThat(service.synchronizeCode(workspace.id()).successful()).isTrue();
         Path repository = directPath(workspace);
@@ -308,14 +311,12 @@ class TestWorkspaceProvisioningService
         GitCommandRunner git = routedGit(ImmutableMap.of(ORIGIN_URL, origin.bare(), CUSTOM_URL, temporary.resolve("missing-custom.git")), temporary.resolve("git-commands.log"));
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         InMemoryRemoteSourceStore remoteSources = new InMemoryRemoteSourceStore();
-        WorkspaceRelationships relationships = new WorkspaceRelationships(store, new InMemoryAppSettingsStore(), new ObjectMapper());
-        Workspace workspace = store.createOrGet(workspace("broken-custom", false));
-        store.createOrGet(new Workspace("oss", "oss", 900, RepoRef.of("other", "project"), Optional.empty(), Optional.empty(), 900, RepoRef.of("other", "project"),
-                Topology.DIRECT, "main", CUSTOM_URL, Optional.empty(), Optional.empty(), "/managed/oss", Optional.empty(), Optional.empty(), 0, NOW, NOW));
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
-        when(gitHub.fetchRepository("token", 100L))
-                .thenReturn(Optional.of(direct("contributor", ORIGIN_URL)));
-        WorkspaceProvisioningService service = service(store, git, gitHub, remoteSources, relationships);
+        WorkspaceRelationships relationships = new WorkspaceRelationships(store, new InMemoryAppSettingsStore(), new ObjectMapper(), bothProviders());
+        Workspace workspace = store.create(workspace("broken-custom", false));
+        store.create(new Workspace("oss", "oss", 900, RepoRef.of("other", "project"), Optional.empty(), Optional.empty(), 900, RepoRef.of("other", "project"),
+                Topology.DIRECT, "main", CUSTOM_URL, Optional.empty(), Optional.empty(), "/managed/oss", Optional.empty(), Optional.empty(), 0, NOW, NOW,
+                HostingServer.GITHUB_COM));
+        WorkspaceProvisioningService service = service(store, git, hosting(), remoteSources, relationships);
         assertThat(service.synchronizeCode(workspace.id()).successful()).isTrue();
         remoteSources.save(new RemoteSource(workspace.id(), "hand-added", UPSTREAM_URL));
         relationships.save(workspace.id(), new WorkspaceRelationships.Relationship("oss", WorkspaceRelationships.Kind.FORK, "", false));
@@ -340,12 +341,12 @@ class TestWorkspaceProvisioningService
         Remote origin = remote("origin");
         GitCommandRunner git = routedGit(ImmutableMap.of(ORIGIN_URL, origin.bare(), renamedUrl, origin.bare()), temporary.resolve("git-commands.log"));
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        Workspace workspace = store.createOrGet(workspace("rename", false));
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
-        when(gitHub.fetchRepository("token", 100L))
-                .thenReturn(Optional.of(direct("contributor", ORIGIN_URL)))
-                .thenReturn(Optional.of(direct("new-owner", renamedUrl)));
-        WorkspaceProvisioningService service = service(store, git, gitHub);
+        Workspace workspace = store.create(workspace("rename", false));
+        HostingConnectionService hosting = hosting();
+        when(hosting.resolveRepositoryById(SESSION, "100"))
+                .thenReturn(repository(100, "contributor/project", ORIGIN_URL))
+                .thenReturn(repository(100, "new-owner/project", renamedUrl));
+        WorkspaceProvisioningService service = service(store, git, hosting);
         service.synchronizeCode(workspace.id());
 
         WorkspaceCodeSyncResult result = service.synchronizeCode(workspace.id());
@@ -389,28 +390,26 @@ class TestWorkspaceProvisioningService
         HostingRepository renamed = new HostingRepository(9, 1, "100", renamedPath, URI.create(base + "/" + renamedPath), URI.create(renamedUrl),
                 Optional.empty(), Optional.of("main"));
         RepoRef ref = WorkspaceHostingService.repositoryRef(original);
-        Workspace workspace = store.createOrGet(new Workspace("hosted", "Hosted", 100, ref, Optional.empty(), Optional.empty(), 100, ref, Topology.DIRECT,
+        Workspace workspace = store.createHosted(new Workspace("hosted", "Hosted", 100, ref, Optional.empty(), Optional.empty(), 100, ref, Topology.DIRECT,
                 "main", originalUrl, Optional.empty(), Optional.empty(), temporary.resolve("workspaces/hosted/repository").toString(),
-                Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.of(server)));
-        store.bindHosting(workspace.id(), 7, 9, Optional.empty());
+                Optional.empty(), Optional.empty(), 0, NOW, NOW, server), 7, 9, Optional.empty());
         HostingConnectionService hosting = mock(HostingConnectionService.class);
         when(hosting.readSession(7)).thenReturn(session);
         when(hosting.resolveRepositoryById(session, "100")).thenReturn(original, renamed);
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
-        CredentialStore global = mock(CredentialStore.class);
-        CredentialService credentials = new CredentialService(global, mock(WorkspaceCredentialStore.class), mock(GhCliService.class), gitHub, hosting, store);
+        AppSettingsStore global = mock(AppSettingsStore.class);
+        CredentialService credentials = new CredentialService(global, mock(GhCliService.class), gitHub, hosting, store);
         WorkspacePaths paths = new WorkspacePaths(temporary.resolve("workspaces").toString());
         InMemoryRemoteSourceStore remoteSources = new InMemoryRemoteSourceStore();
         WorkspaceProvisioningService service = new WorkspaceProvisioningService(store, new ManagedWorkspaceGit(paths, authenticated, credentials, remoteSources),
-                gitHub, credentials, new WorkspaceRelationships(store, new InMemoryAppSettingsStore(), new ObjectMapper()), remoteSources, hosting,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                new WorkspaceRelationships(store, new InMemoryAppSettingsStore(), new ObjectMapper(), bothProviders()), remoteSources, hosting, Clock.fixed(NOW, ZoneOffset.UTC));
 
         assertThat(service.synchronizeCode(workspace.id()).successful()).isTrue();
         assertThat(service.synchronizeCode(workspace.id()).successful()).isTrue();
 
         Workspace current = store.findById(workspace.id()).orElseThrow();
         assertThat(current.selectedRepository().fullName()).isEqualTo(renamedPath);
-        assertThat(current.hostingServer()).contains(server);
+        assertThat(current.server()).isEqualTo(server);
         assertThat(git(directPath(current), "remote", "get-url", "origin")).isEqualTo(renamedUrl);
         assertThat(git(directPath(current), "rev-parse", "origin/main")).isNotBlank();
         verifyNoInteractions(gitHub, global);
@@ -427,40 +426,45 @@ class TestWorkspaceProvisioningService
 
     private WorkspaceProvisioningService service(WorkspaceStore store, GitCommandRunner git)
     {
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
-        when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct("contributor", ORIGIN_URL)));
-        when(gitHub.fetchRepository("token", 200L)).thenReturn(Optional.of(fork()));
-        when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(upstream()));
-        return service(store, git, gitHub);
+        return service(store, git, hosting());
     }
 
-    private WorkspaceProvisioningService service(WorkspaceStore store, GitCommandRunner git, GitHubAccountClient gitHub)
+    private WorkspaceProvisioningService service(WorkspaceStore store, GitCommandRunner git, HostingConnectionService hosting)
     {
-        return service(store, git, gitHub, new InMemoryRemoteSourceStore());
+        return service(store, git, hosting, new InMemoryRemoteSourceStore(),
+                new WorkspaceRelationships(store, new InMemoryAppSettingsStore(), new ObjectMapper(), bothProviders()));
     }
 
-    private WorkspaceProvisioningService service(WorkspaceStore store, GitCommandRunner git, GitHubAccountClient gitHub, InMemoryRemoteSourceStore remoteSources)
-    {
-        return service(store, git, gitHub, remoteSources, new WorkspaceRelationships(store, new InMemoryAppSettingsStore(), new ObjectMapper()));
-    }
-
-    private WorkspaceProvisioningService service(WorkspaceStore store, GitCommandRunner git, GitHubAccountClient gitHub, InMemoryRemoteSourceStore remoteSources,
+    private WorkspaceProvisioningService service(WorkspaceStore store, GitCommandRunner git, HostingConnectionService hosting, InMemoryRemoteSourceStore remoteSources,
             WorkspaceRelationships relationships)
     {
         CredentialService credentials = mock(CredentialService.class);
         when(credentials.resolveGitHubToken()).thenReturn("token");
-        when(credentials.resolveGitHubToken(anyString())).thenReturn("token");
         when(credentials.gitAuthenticationEnvironment(anyString(), anyCollection())).thenReturn(ImmutableMap.of("GIT_CONFIG_COUNT", "0"));
         WorkspacePaths paths = new WorkspacePaths(temporary.resolve("workspaces").toString());
         return new WorkspaceProvisioningService(
                 store,
                 new ManagedWorkspaceGit(paths, git, credentials, remoteSources),
-                gitHub,
-                credentials,
                 relationships,
                 remoteSources,
-                mock(HostingConnectionService.class),
+                hosting,
                 Clock.fixed(NOW, ZoneOffset.UTC));
+    }
+
+    /** Account 1 reads the repositories that workspaces created through {@link InMemoryWorkspaceStore#create} bind. */
+    private static HostingConnectionService hosting()
+    {
+        HostingConnectionService hosting = mock(HostingConnectionService.class);
+        when(hosting.readSession(1)).thenReturn(SESSION);
+        when(hosting.resolveRepositoryById(SESSION, "100")).thenReturn(repository(100, "contributor/project", ORIGIN_URL));
+        when(hosting.resolveRepositoryById(SESSION, "200")).thenReturn(repository(200, "contributor/project", ORIGIN_URL));
+        when(hosting.resolveRepositoryById(SESSION, "300")).thenReturn(repository(300, "upstream/project", UPSTREAM_URL));
+        return hosting;
+    }
+
+    private static HostingRepository repository(long id, String path, String cloneUrl)
+    {
+        return new HostingRepository(id, 1, Long.toString(id), path, URI.create("https://github.test/" + path), URI.create(cloneUrl), Optional.empty(), Optional.of("main"));
     }
 
     private Workspace workspace(String id, boolean fork)
@@ -485,33 +489,8 @@ class TestWorkspaceProvisioningService
                 Optional.empty(),
                 0,
                 NOW,
-                NOW);
-    }
-
-    private static UserRepo direct(String owner, String cloneUrl)
-    {
-        return new UserRepo(100, owner, "project", owner + "/project", Optional.empty(), false, "private", true, "main", cloneUrl, Optional.empty());
-    }
-
-    private static UserRepo fork()
-    {
-        return new UserRepo(
-                200,
-                "contributor",
-                "project",
-                "contributor/project",
-                Optional.empty(),
-                true,
-                "public",
-                true,
-                "main",
-                ORIGIN_URL,
-                Optional.of(new UserRepo.Upstream(300, "upstream", "project", "main", UPSTREAM_URL)));
-    }
-
-    private static UserRepo upstream()
-    {
-        return new UserRepo(300, "upstream", "project", "upstream/project", Optional.empty(), false, "public", false, "main", UPSTREAM_URL, Optional.empty());
+                NOW,
+                HostingServer.GITHUB_COM);
     }
 
     private Remote remote(String name)

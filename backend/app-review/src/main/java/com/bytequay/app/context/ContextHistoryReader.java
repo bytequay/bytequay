@@ -20,7 +20,7 @@ import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.domain.DiffFile;
-import com.bytequay.core.domain.GitHubIssuePreview;
+import com.bytequay.core.domain.HostedIssuePreview;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.RepositoryIssueDetail;
@@ -49,10 +49,10 @@ public class ContextHistoryReader
     private static final int DIFF_FILES = 3;
     private static final Comparator<PullRequestDetail.ActivityItem> PR_ACTIVITY_ORDER = Comparator
             .comparing(PullRequestDetail.ActivityItem::timestamp, Comparator.nullsLast(Comparator.reverseOrder()))
-            .thenComparing(PullRequestDetail.ActivityItem::githubId, Comparator.nullsLast(Comparator.reverseOrder()));
+            .thenComparing(PullRequestDetail.ActivityItem::remoteId, Comparator.nullsLast(Comparator.reverseOrder()));
     private static final Comparator<PrTimelineEvent> ISSUE_ACTIVITY_ORDER = Comparator
             .comparing(PrTimelineEvent::timestamp, Comparator.nullsLast(Comparator.reverseOrder()))
-            .thenComparing(PrTimelineEvent::githubId, Comparator.nullsLast(Comparator.reverseOrder()));
+            .thenComparing(PrTimelineEvent::remoteId, Comparator.nullsLast(Comparator.reverseOrder()));
 
     private final SelectedPullRequestReader pullRequests;
     private final SelectedPullRequestDiffReader diffs;
@@ -115,7 +115,7 @@ public class ContextHistoryReader
         body.field("Body", detail.body(), 3000);
         body.activitySelection(detail.recentActivity().size(), gaps);
         for (PullRequestDetail.ActivityItem item : detail.recentActivity().stream().sorted(PR_ACTIVITY_ORDER).limit(ACTIVITY_ITEMS).collect(toImmutableList())) {
-            body.activity(item.githubId(), item.actor(), item.eventType(), item.timestamp(), item.body());
+            body.activity(item.remoteId(), item.actor(), item.eventType(), item.timestamp(), item.body());
         }
         boolean refreshFailed = read.refreshFailed();
         try {
@@ -144,7 +144,7 @@ public class ContextHistoryReader
     private Read issue(WorkspaceRepositoryContext workspace, int number)
     {
         // Open-only issue rows cannot prove terminal state, including when an old row survives a recent close.
-        GitHubIssuePreview preview = issues.preview(workspace.workspaceId(), number);
+        HostedIssuePreview preview = issues.preview(workspace.workspaceId(), number);
         checkArgument(!preview.pullRequest() && preview.state().equals("closed"), "History requires a closed issue, not an open issue or pull request");
         RepositoryIssueDetail detail = issues.detail(workspace.workspaceId(), number);
         long repositoryId = detail.repositoryId();
@@ -175,7 +175,7 @@ public class ContextHistoryReader
         body.field("Body", preview.body(), 3000);
         body.activitySelection(detail.timeline().size(), gaps);
         for (PrTimelineEvent item : detail.timeline().stream().sorted(ISSUE_ACTIVITY_ORDER).limit(ACTIVITY_ITEMS).collect(toImmutableList())) {
-            body.activity(item.githubId(), item.actor(), item.event(), item.timestamp(), item.body());
+            body.activity(item.remoteId(), item.actor(), item.event(), item.timestamp(), item.body());
         }
         String provenance = "preview=exact selected issue; activityRefreshedAt=" + detail.refreshedAt().map(Instant::toString).orElse("unknown")
                 + "; activityRefreshAttempted=" + refreshAttempted;

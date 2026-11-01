@@ -39,7 +39,7 @@ import com.bytequay.core.cherrypick.CherryPickLifecycle.Squash;
 import com.bytequay.core.cherrypick.CherryPickLifecycle.Stage;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.rebase.BranchRebase;
@@ -114,7 +114,7 @@ class TestCherryPickDelivery
         CherryPickExecution publishing = save(execution(copy).withLifecycle(lifecycle -> lifecycle.inStage(Stage.PUBLISH), CLOCK.instant()));
         when(publication.publish(publishing.id())).thenAnswer(invocation -> store.save(store.find(publishing.id()).orElseThrow()
                 .recordPush("origin", "work", copy, CLOCK.instant())
-                .recordPullRequest(7, 17, "https://github.com/acme/demo/pull/17", CLOCK.instant())));
+                .recordPullRequest(17, "https://github.com/acme/demo/pull/17", CLOCK.instant())));
 
         CherryPickExecution published = delivery.advance(publishing);
 
@@ -174,8 +174,8 @@ class TestCherryPickDelivery
         CiAutofixRun green = run(Optional.of(CiAutofixRun.FinishReason.GREEN), copy);
         CherryPickExecution merging = save(delivered(execution(copy), Stage.MERGE, green));
         RepoRef repository = RepoRef.of("acme", "demo");
-        when(publication.pullRequest(any())).thenReturn(new GitHubPullRequestIdentity(new PullRequestRef("acme", "demo", 17), "https://github.com/acme/demo/pull/17",
-                repository, WORK, copy, repository, "main", base, GitHubPullRequestIdentity.State.MERGED, false, "user"));
+        when(publication.pullRequest(any())).thenReturn(new PullRequestIdentity(new PullRequestRef("acme", "demo", 17), "https://github.com/acme/demo/pull/17",
+                repository, WORK, copy, repository, "main", base, PullRequestIdentity.State.MERGED, false, "user"));
         when(publication.withdraw(any(), eq(false))).thenReturn(ImmutableList.of());
 
         CherryPickExecution merged = delivery.advance(merging);
@@ -209,8 +209,8 @@ class TestCherryPickDelivery
         CiAutofixRun green = run(Optional.of(CiAutofixRun.FinishReason.GREEN), copy);
         CherryPickExecution merging = save(delivered(execution(copy), Stage.MERGE, green));
         RepoRef repository = RepoRef.of("acme", "demo");
-        when(publication.pullRequest(any())).thenReturn(new GitHubPullRequestIdentity(new PullRequestRef("acme", "demo", 17), "https://github.com/acme/demo/pull/17",
-                repository, WORK, copy, repository, "main", base, GitHubPullRequestIdentity.State.OPEN, true, "user"));
+        when(publication.pullRequest(any())).thenReturn(new PullRequestIdentity(new PullRequestRef("acme", "demo", 17), "https://github.com/acme/demo/pull/17",
+                repository, WORK, copy, repository, "main", base, PullRequestIdentity.State.OPEN, true, "user"));
 
         CherryPickExecution waiting = delivery.advance(merging);
 
@@ -335,7 +335,7 @@ class TestCherryPickDelivery
         when(ci.get(run.id())).thenReturn(run);
         return execution.withLifecycle(lifecycle -> lifecycle.inStage(Stage.PUBLISH), CLOCK.instant())
                 .recordPush("origin", "work", execution.currentTargetSha(), CLOCK.instant())
-                .recordPullRequest(7, 17, "https://github.com/acme/demo/pull/17", CLOCK.instant())
+                .recordPullRequest(17, "https://github.com/acme/demo/pull/17", CLOCK.instant())
                 .withLifecycle(lifecycle -> lifecycle.inStage(stage).withCiRun(run.id().toString()).withBranch(base, branchCommits()), CLOCK.instant());
     }
 

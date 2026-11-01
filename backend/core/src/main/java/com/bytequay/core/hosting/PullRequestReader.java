@@ -18,8 +18,8 @@ import java.util.Optional;
 public interface PullRequestReader
 {
     /** One-based pages of repository requests, ordered by most recently updated first. */
-    PullRequestListPage list(HostingAccess access, HostingRepository repository, boolean openOnly, int page, int pageSize);
+    PullRequestListPage list(HostingTarget target, boolean openOnly, int page, int pageSize);
 
     /** The validator belongs to this account, repository and request; it is never a cross-account cache key. */
-    PullRequestFetch fetch(HostingAccess access, HostingRepository repository, int number, Optional<String> validator);
+    PullRequestFetch fetch(HostingTarget target, int number, Optional<String> validator);
 }

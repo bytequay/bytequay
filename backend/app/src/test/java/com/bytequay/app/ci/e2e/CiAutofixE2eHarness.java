@@ -23,26 +23,38 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.StartCiAutofixCommand;
-import com.bytequay.app.repository.github.actions.CiHeadSnapshot;
-import com.bytequay.app.repository.github.actions.CiJob;
-import com.bytequay.app.repository.github.actions.CiRerunResult;
-import com.bytequay.app.repository.github.actions.CiStep;
-import com.bytequay.app.repository.github.actions.CiWorkflowRun;
-import com.bytequay.app.repository.github.actions.ReadCiLogQuery;
-import com.bytequay.app.repository.github.actions.RerunFailedJobsCommand;
 import com.bytequay.app.scheduler.WorkflowMonitorJob;
+import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.web.agent.AgentController;
+import com.bytequay.app.workspace.WorkspaceHostingRead;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
+import com.bytequay.core.ci.CiHeadSnapshot;
+import com.bytequay.core.ci.CiJob;
+import com.bytequay.core.ci.CiRerunResult;
+import com.bytequay.core.ci.CiRun;
+import com.bytequay.core.ci.CiStep;
+import com.bytequay.core.ci.RerunFailedJobsCommand;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingAccount;
+import com.bytequay.core.hosting.HostingCredential;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.RemoteHostingAccount;
+import com.bytequay.core.hosting.RemoteHostingRepository;
+import com.bytequay.core.store.HostingCredentialStore;
+import com.bytequay.core.store.HostingIdentityStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.bytequay.persistence.sqlite.entity.PullRequestEntity;
+import com.bytequay.persistence.sqlite.repository.HostingRepositoryJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -53,6 +65,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -64,6 +77,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
 
+import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.lang.Math.toIntExact;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -83,13 +97,16 @@ final class CiAutofixE2eHarness
     private final ObjectMapper objectMapper;
     private final CiAutofixService service;
     private final WorkflowMonitorJob monitor;
-    private final ScriptedGitHubActionsClient gitHub;
+    private final ScriptedPullRequestCi ci;
     private final ScriptedAgentDriver agent;
     private final AgentTaskService tasks;
     private final AgentTurnService turns;
     private final AgentEventService events;
     private final AgentResourceService resources;
     private final PullRequestJpaRepository pullRequests;
+    private final HostingIdentityStore identities;
+    private final HostingCredentialStore credentials;
+    private final HostingRepositoryJpaRepository repositories;
     private final PrDetailStore details;
     private final WorkspaceStore workspaces;
     private final WorkspacePaths workspacePaths;
@@ -101,13 +118,16 @@ final class CiAutofixE2eHarness
             ObjectMapper objectMapper,
             CiAutofixService service,
             WorkflowMonitorJob monitor,
-            ScriptedGitHubActionsClient gitHub,
+            ScriptedPullRequestCi ci,
             ScriptedAgentDriver agent,
             AgentTaskService tasks,
             AgentTurnService turns,
             AgentEventService events,
             AgentResourceService resources,
             PullRequestJpaRepository pullRequests,
+            HostingIdentityStore identities,
+            HostingCredentialStore credentials,
+            HostingRepositoryJpaRepository repositories,
             PrDetailStore details,
             WorkspaceStore workspaces,
             WorkspacePaths workspacePaths,
@@ -117,13 +137,16 @@ final class CiAutofixE2eHarness
         this.objectMapper = objectMapper;
         this.service = service;
         this.monitor = monitor;
-        this.gitHub = gitHub;
+        this.ci = ci;
         this.agent = agent;
         this.tasks = tasks;
         this.turns = turns;
         this.events = events;
         this.resources = resources;
         this.pullRequests = pullRequests;
+        this.identities = identities;
+        this.credentials = credentials;
+        this.repositories = repositories;
         this.details = details;
         this.workspaces = workspaces;
         this.workspacePaths = workspacePaths;
@@ -138,22 +161,15 @@ final class CiAutofixE2eHarness
         PullRequestRef pullRequest = PullRequestRef.of("bytequay", name + "-" + suffix, toIntExact(number));
         E2eGitRepository repository = E2eGitRepository.create(workspacePaths.workspace(workspaceId), pullRequest);
         seedWorkspace(workspaceId, name, number, repository);
-        long prId = seedPullRequest(repository);
+        long prId = seedPullRequest(number, repository);
         return new Fixture(workspaceId, prId, repository, number * 10 + 1, number * 10 + 2);
     }
 
     void scriptFailingCi(Fixture fixture, boolean blockAgent)
     {
         CiHeadSnapshot snapshot = failingSnapshot(fixture);
-        gitHub.setSnapshot(snapshot);
-        gitHub.setLog(
-                fixture.repository().pullRequest(),
-                fixture.workflowRunId(),
-                1,
-                fixture.jobId(),
-                1,
-                "compile failed: missing symbol\n",
-                ImmutableList.of("compile failed: missing symbol"));
+        ci.setSnapshot(snapshot);
+        ci.setLog(fixture.repository().pullRequest(), fixture.jobId(), "compile failed: missing symbol\n");
         agent.bind(fixture.repository().pullRequest());
         if (blockAgent) {
             agent.enqueueBlocked(fixture.repository().pullRequest());
@@ -162,15 +178,15 @@ final class CiAutofixE2eHarness
 
     void scriptPrimaryJourney(Fixture fixture)
     {
-        gitHub.setSnapshot(failingSnapshot(fixture, fixture.repository().initialHeadSha(), fixture.workflowRunId(), fixture.jobId(), "Backend compile", "Compile", true));
-        gitHub.setLog(fixture.repository().pullRequest(), fixture.workflowRunId(), 1, fixture.jobId(), 1, RAW_COMPILE_LOG, ImmutableList.of("cannot find symbol GeneratedValue"));
+        ci.setSnapshot(failingSnapshot(fixture, fixture.repository().initialHeadSha(), fixture.workflowRunId(), fixture.jobId(), "Backend compile", "Compile", true));
+        ci.setLog(fixture.repository().pullRequest(), fixture.jobId(), RAW_COMPILE_LOG);
         agent.bind(fixture.repository().pullRequest());
     }
 
     void scriptUnauthorizedCi(Fixture fixture, String author, RepoRef headRepository)
     {
         CiHeadSnapshot snapshot = failingSnapshot(fixture);
-        gitHub.setSnapshot(new CiHeadSnapshot(
+        ci.setSnapshot(new CiHeadSnapshot(
                 snapshot.pullRequest(),
                 snapshot.open(),
                 author,
@@ -180,27 +196,25 @@ final class CiAutofixE2eHarness
                 snapshot.baseRef(),
                 snapshot.baseSha(),
                 snapshot.url(),
-                snapshot.workflowRuns()));
+                snapshot.runs()));
     }
 
     RerunFailedJobsCommand allowRerun(Fixture fixture, int previousAttempt)
     {
         RerunFailedJobsCommand command = new RerunFailedJobsCommand(
-                fixture.repository().pullRequest(),
                 fixture.workflowRunId(),
                 fixture.repository().initialHeadSha(),
                 previousAttempt,
                 true);
-        gitHub.enqueueRerun(command, new CiRerunResult(CiRerunResult.Outcome.ACCEPTED, "accepted by test"));
+        ci.enqueueRerun(command, new CiRerunResult(CiRerunResult.Outcome.ACCEPTED, "accepted by test"));
         return command;
     }
 
     void scriptRerunCi(Fixture fixture, int attempt, boolean passing)
     {
-        gitHub.setSnapshot(rerunSnapshot(fixture, attempt, passing));
+        ci.setSnapshot(rerunSnapshot(fixture, attempt, passing));
         if (!passing) {
-            gitHub.setLog(fixture.repository().pullRequest(), fixture.workflowRunId(), attempt, fixture.jobId(), attempt,
-                    "Compile failed again", ImmutableList.of("Compile failed again"));
+            ci.setLog(fixture.repository().pullRequest(), fixture.jobId(), "Compile failed again");
         }
     }
 
@@ -211,8 +225,8 @@ final class CiAutofixE2eHarness
 
     void scriptTestFailure(Fixture fixture, String headSha, String headRef)
     {
-        gitHub.setSnapshot(withHeadRef(failingSnapshot(fixture, headSha, fixture.workflowRunId() + 100, fixture.jobId() + 100, "Backend tests", "Unit tests", false), headRef));
-        gitHub.setLog(fixture.repository().pullRequest(), fixture.workflowRunId() + 100, 1, fixture.jobId() + 100, 1, RAW_TEST_LOG, ImmutableList.of("expected repaired value"));
+        ci.setSnapshot(withHeadRef(failingSnapshot(fixture, headSha, fixture.workflowRunId() + 100, fixture.jobId() + 100, "Backend tests", "Unit tests", false), headRef));
+        ci.setLog(fixture.repository().pullRequest(), fixture.jobId() + 100, RAW_TEST_LOG);
     }
 
     void scriptGreenCi(Fixture fixture, String headSha)
@@ -222,13 +236,13 @@ final class CiAutofixE2eHarness
 
     void scriptGreenCi(Fixture fixture, String headSha, String headRef)
     {
-        gitHub.setSnapshot(withHeadRef(greenSnapshot(fixture, headSha), headRef));
+        ci.setSnapshot(withHeadRef(greenSnapshot(fixture, headSha), headRef));
     }
 
     private static CiHeadSnapshot withHeadRef(CiHeadSnapshot snapshot, String headRef)
     {
         return new CiHeadSnapshot(snapshot.pullRequest(), snapshot.open(), snapshot.author(), snapshot.headRepository(), headRef, snapshot.headSha(),
-                snapshot.baseRef(), snapshot.baseSha(), snapshot.url(), snapshot.workflowRuns());
+                snapshot.baseRef(), snapshot.baseSha(), snapshot.url(), snapshot.runs());
     }
 
     StartResult start(Fixture fixture, String idempotencyKey)
@@ -313,9 +327,9 @@ final class CiAutofixE2eHarness
                 run,
                 task.map(value -> value.state().name()),
                 turn.map(value -> value.state().name()),
-                gitHub.inspectCalls(),
-                gitHub.logCalls(),
-                gitHub.rerunCalls(),
+                ci.inspectCalls(),
+                ci.logCalls(),
+                ci.rerunCalls(),
                 agent.turns(),
                 agent.memoryReads(),
                 agent.gitActions(),
@@ -361,10 +375,33 @@ final class CiAutofixE2eHarness
         }
     }
 
-    private long seedPullRequest(E2eGitRepository repository)
+    WorkspaceHostingRead route(String workspaceId)
     {
+        return route(workspaces, identities, workspaceId);
+    }
+
+    /** The workspace's route as its sign-in would resolve it, without a network read. */
+    static WorkspaceHostingRead route(WorkspaceStore workspaces, HostingIdentityStore identities, String workspaceId)
+    {
+        Workspace workspace = workspaces.findById(workspaceId).orElseThrow();
+        HostingRepository repository = identities.findRepositories(GITHUB_SERVER, workspace.monitoredRepository().fullName()).getFirst();
+        HostingInstance instance = identities.findInstance(repository.instanceId()).orElseThrow();
+        return new WorkspaceHostingRead(new HostingReadSession(1, "ci-e2e", new HostingAccess(instance, "test-token")), repository, "author");
+    }
+
+    private HostingRepository hostedRepository(long repositoryId, String path)
+    {
+        return identities.upsertRepository(identities.upsertInstance(GITHUB_SERVER).id(), new RemoteHostingRepository(Long.toString(repositoryId), path,
+                URI.create("https://github.com/" + path), URI.create("https://github.com/" + path + ".git"), Optional.empty(), Optional.of("main")));
+    }
+
+    private long seedPullRequest(long repositoryId, E2eGitRepository repository)
+    {
+        String path = repository.pullRequest().repoFullName();
+        HostingRepository hosted = hostedRepository(repositoryId, path);
         PullRequestEntity entity = new PullRequestEntity();
-        entity.setRepo(repository.pullRequest().repoFullName());
+        entity.setHostingRepository(repositories.getReferenceById(hosted.id()));
+        entity.setRepo(path);
         entity.setNumber(repository.pullRequest().number());
         entity.setTitle("CI Autofix E2E");
         entity.setAuthor("author");
@@ -406,8 +443,12 @@ final class CiAutofixE2eHarness
                 Optional.of(now),
                 0,
                 now,
-                now);
-        workspaces.createOrGet(workspace);
+                now,
+                HostingServer.GITHUB_COM);
+        HostingRepository hosted = hostedRepository(repositoryId, repo.fullName());
+        HostingAccount account = identities.upsertAccount(hosted.instanceId(), new RemoteHostingAccount("1", "author"));
+        credentials.save(account.id(), "test-token", HostingCredential.Source.TOKEN);
+        workspaces.createHosted(workspace, account.id(), hosted.id(), Optional.empty());
         try {
             Files.writeString(workspacePaths.workspace(workspaceId).resolve(".bytequay-workspace"), workspaceId + "\n" + repositoryId + "\n");
         }
@@ -435,7 +476,7 @@ final class CiAutofixE2eHarness
                 "https://github.com/" + repository.pullRequest().repoFullName() + "/actions/jobs/"
                         + jobId,
                 ImmutableList.of(step));
-        CiWorkflowRun workflow = new CiWorkflowRun(
+        CiRun workflow = new CiRun(
                 workflowRunId,
                 workflowRunId + 1,
                 "CI",
@@ -446,7 +487,7 @@ final class CiAutofixE2eHarness
                 "https://github.com/" + repository.pullRequest().repoFullName() + "/actions/runs/"
                         + workflowRunId,
                 ImmutableList.of(job));
-        ImmutableList.Builder<CiWorkflowRun> workflows = ImmutableList.builder();
+        ImmutableList.Builder<CiRun> workflows = ImmutableList.builder();
         workflows.add(workflow);
         if (includePendingSlowJob) {
             long slowWorkflowId = workflowRunId + 10;
@@ -461,7 +502,7 @@ final class CiAutofixE2eHarness
                     "https://github.com/" + repository.pullRequest().repoFullName() + "/actions/jobs/"
                             + slowJobId,
                     ImmutableList.of(new CiStep(1, "Integration tests", "in_progress", Optional.empty())));
-            workflows.add(new CiWorkflowRun(
+            workflows.add(new CiRun(
                     slowWorkflowId,
                     slowWorkflowId + 1,
                     "Slow CI",
@@ -500,7 +541,7 @@ final class CiAutofixE2eHarness
                 Optional.of("success"),
                 "https://github.com/" + repository.pullRequest().repoFullName() + "/actions/jobs/" + jobId,
                 ImmutableList.of(new CiStep(1, "Checks", "completed", Optional.of("success"))));
-        CiWorkflowRun workflow = new CiWorkflowRun(
+        CiRun workflow = new CiRun(
                 workflowRunId,
                 workflowRunId + 1,
                 "CI",
@@ -538,7 +579,7 @@ final class CiAutofixE2eHarness
                 "https://github.com/" + repository.pullRequest().repoFullName() + "/actions/jobs/"
                         + fixture.jobId(),
                 ImmutableList.of(new CiStep(1, "Compile", "completed", Optional.of(conclusion))));
-        CiWorkflowRun workflow = new CiWorkflowRun(
+        CiRun workflow = new CiRun(
                 fixture.workflowRunId(),
                 fixture.workflowRunId() + 1,
                 "CI",
@@ -576,7 +617,7 @@ final class CiAutofixE2eHarness
             Optional<String> taskState,
             Optional<String> turnState,
             List<PullRequestRef> inspectCalls,
-            List<ReadCiLogQuery> logCalls,
+            List<ScriptedPullRequestCi.LogCall> logCalls,
             List<RerunFailedJobsCommand> rerunCalls,
             List<ScriptedAgentDriver.TurnCall> agentTurns,
             List<ScriptedAgentDriver.MemoryRead> memoryReads,

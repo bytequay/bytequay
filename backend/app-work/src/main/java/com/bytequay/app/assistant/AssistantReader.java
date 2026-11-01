@@ -81,7 +81,7 @@ import static java.util.Objects.requireNonNull;
  * Reads what the assistant's {@code assistant_context} answers, fresh on every call: the agenda's pages over the stores as they are
  * now, the tasks at work, the cards a message lists as visible, the page it was sent from, any item named by its ref or found by its
  * title, number or key, what a task said last, and what a new task can start with. Like the agenda's reader, it reads only what
- * ByteQuay stores: no GitHub, Jira, calendar or provider request is made here.
+ * ByteQuay stores: no hosting, Jira, calendar or provider request is made here.
  */
 @Component
 class AssistantReader
@@ -324,14 +324,13 @@ class AssistantReader
     {
         return AgendaRefs.numbered(ref).flatMap(number -> pullRequests.findIdByRepoAndNumber(number.repo(), number.number())).flatMap(pullRequests::findById).map(pr -> {
             String canonical = AgendaRefs.pull(pr.repo(), pr.number());
-            Optional<String> workspace = workspaces.findAll().stream().filter(Workspace::isGitHub)
-                    .filter(watched -> watched.monitoredRepository().fullName().equalsIgnoreCase(pr.repo()))
-                    .map(Workspace::id).findFirst();
+            Optional<String> workspace = pullRequests.findHostingIdentity(pr.id())
+                    .flatMap(identity -> workspaces.findByHostingRepositoryId(identity.repositoryId())).map(Workspace::id);
             PullRequestFacts facts = new PullRequestFacts(canonical, AgendaReader.clip(pr.title(), TITLE), pr.author(), pr.mine(credentials.cachedLogin()),
                     AssistantRows.state(pr), Optional.ofNullable(pr.ciStatus()).map(AssistantReader::lower),
                     Optional.ofNullable(pr.reviewDecision()).map(decision -> decision.toLowerCase(Locale.ROOT)), pr.mergeBlocked(), pr.requestedReviewers(),
                     Optional.ofNullable(pr.activityAt()).or(() -> Optional.ofNullable(pr.updatedAt())));
-            return new Page(new Entries(kind, ImmutableList.of(facts)), ImmutableMap.of(canonical, Optional.of(AgendaTarget.pull(pr.repo(), pr.number(), workspace))));
+            return new Page(new Entries(kind, ImmutableList.of(facts)), ImmutableMap.of(canonical, Optional.of(AgendaTarget.pull(pr.id(), pr.repo(), pr.number(), workspace))));
         });
     }
 
@@ -410,7 +409,7 @@ class AssistantReader
 
     /**
      * @param mine whether the signed-in user opened it, as the pull request list decides
-     * @param mergeBlocked whether GitHub blocks merging it for now, such as for a missing approval or a failing required check
+     * @param mergeBlocked whether the provider blocks merging it for now, such as for a missing approval or a failing required check
      */
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     record PullRequestFacts(String ref, String title, String author, boolean mine, String state, Optional<String> ci, Optional<String> review, boolean mergeBlocked,

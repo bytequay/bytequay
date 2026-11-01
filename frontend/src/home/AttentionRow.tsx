@@ -18,6 +18,7 @@ import Avatar from '../Avatar';
 import { CardActions, CardAge, IconButton, ItemRow, LinkKey, Pill, SourceIcon } from '../cards/Card';
 import { jiraIssueLocation } from '../jira/contracts';
 import MarkdownBody from '../pulls/MarkdownBody';
+import { AccountPullRequestScope, WorkspacePullRequestScope } from '../pulls/PullRequestWorkspace';
 import ReferenceCard, { previewMarkdown, toneChip, useHoverCard, type HoverCard, type ReferenceCardItem } from '../ReferenceCard';
 import { ago, relativeTime } from '@bytequay/ui/relativeTime';
 import { firstWords } from '../teams/activity';
@@ -32,6 +33,8 @@ import {
   attentionSource,
   attentionSummary,
   attentionTime,
+  pullReferenceRoute,
+  pullRoute,
   type AttentionCommit,
   type AttentionDetail,
   type AttentionItem,
@@ -52,7 +55,7 @@ export type RowCircle = {
   /** Whether a login is outside every circle, which the row says beside it. */
   outside?: (login: string | null) => boolean;
   /** Opens the person; without it the name is plain text. */
-  onPerson?: (githubId: number) => void;
+  onPerson?: (remoteId: number) => void;
 };
 
 type Props = {
@@ -88,7 +91,7 @@ export function itemRelation(item: AttentionItem, match?: TeamAttentionMatch | n
 function pinTarget(item: AttentionItem): PinnedItem['target'] | null {
   if (item.task) return { kind: 'task', workspaceId: item.task.dto.workspaceId, taskId: item.task.dto.id };
   if (item.jira) return { kind: 'jira', ...jiraIssueLocation(item.jira) };
-  if (item.type === 'pr') return { kind: 'pull', repo: item.repo, number: item.number, workspaceId: item.workspaceId ?? undefined };
+  if (item.type === 'pr') return { kind: 'pull', repo: item.repo, number: item.number, ...pullReferenceRoute(item) };
   return item.workspaceId === null ? null : { kind: 'issue', repo: item.repo, number: item.number, workspaceId: item.workspaceId };
 }
 
@@ -138,7 +141,7 @@ export default function AttentionRow({
   </>;
   const onPerson = circle?.onPerson;
   const who = name !== null && (member !== null && onPerson !== undefined
-    ? <button type="button" className="item-person" title="Circle member · open person" onClick={event => { event.stopPropagation(); onPerson(member.githubId); }}>{name}</button>
+    ? <button type="button" className="item-person" title="Circle member · open person" onClick={event => { event.stopPropagation(); onPerson(member.remoteId); }}>{name}</button>
     : <span className="item-person">{name}</span>);
   const circlePill = circles.length > 0 && (
     <Pill tone="blue" title={`Your private circle${circles.length > 1 ? 's' : ''}: ${circles.map(value => value.name).join(', ')}`}>
@@ -361,20 +364,21 @@ function previewItem(item: AttentionItem, summary: AttentionSummary): ReferenceC
 
 /**
  * A pull request's description as its last detail read stored it; undefined while reading and null when none has. The list
- * carries no PR bodies, and the detail read itself would reach GitHub on a miss and mark the pull request viewed.
+ * carries no PR bodies, and the detail read itself would reach the provider on a miss and mark the pull request viewed.
  */
 function useStoredDescription(item: AttentionItem): string | null | undefined {
   const [description, setDescription] = useState<string | null>();
   const pull = item.pr !== null;
+  const { workspaceId, accountId } = item;
   useEffect(() => {
     if (!pull) return;
     let current = true;
-    Promise.resolve().then(() => window.bridge.findStoredPullRequestDescription(item.repo, item.number, item.workspaceId ?? undefined))
+    Promise.resolve().then(() => window.bridge.findStoredPullRequestDescription(item.repo, item.number, pullRoute({ workspaceId, accountId })))
       .then(stored => { if (current) setDescription(stored?.body ?? null); })
       .catch(() => { if (current) setDescription(null); });
     return () => { current = false; };
     // An update may come with a newly stored description, so an open card reads again.
-  }, [pull, item.repo, item.number, item.updatedAt, item.workspaceId]);
+  }, [pull, item.repo, item.number, item.updatedAt, workspaceId, accountId]);
   return description;
 }
 
@@ -385,7 +389,10 @@ function previewBody(item: AttentionItem, description: string | null | undefined
   const text = item.task !== undefined ? item.task.activity?.lastMessage?.text : item.jira !== undefined ? item.jira.body : item.pr !== null ? description : item.body;
   const markdown = previewMarkdown(text);
   if (markdown === '') return <span className="ref-card__muted">{item.task === undefined ? 'No description.' : 'No messages yet.'}</span>;
-  return <MarkdownBody body={markdown} repository={item.jira === undefined && item.task === undefined ? item.repo : undefined} />;
+  const body = <MarkdownBody body={markdown} repository={item.jira === undefined && item.task === undefined ? item.repo : undefined} />;
+  return item.workspaceId !== null
+    ? <WorkspacePullRequestScope workspaceId={item.workspaceId}>{body}</WorkspacePullRequestScope>
+    : <AccountPullRequestScope accountId={item.accountId ?? undefined}>{body}</AccountPullRequestScope>;
 }
 
 function Preview({ item, summary, hover, onOpen, onAcknowledge, onSnooze, onStart }: {

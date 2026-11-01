@@ -37,7 +37,7 @@ const preview: WatchRepositoryPreviewDto = {
 };
 const workspace = workspaceFixture({
   id: 'workspace', name: 'project', selectedRepositoryId: 1, selectedOwner: 'octocat',
-  monitoredRepositoryId: 1, monitoredOwner: 'octocat', localRepositoryPath: '/managed/project',
+  monitoredRepositoryId: 1, monitoredOwner: 'octocat', hostingServer: { provider: 'GITHUB', webBaseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' }, localRepositoryPath: '/managed/project',
 });
 
 export async function run(): Promise<string[]> {

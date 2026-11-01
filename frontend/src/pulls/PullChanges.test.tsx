@@ -68,9 +68,9 @@ function reviewComment(overrides: Partial<InlineReviewCommentDto> = {}): InlineR
 }
 
 function reviewActivity(id: number, body: string, payload: Partial<PullTimelinePayloadDto> = {}): PullRequestDetailDto['recentActivity'][number] {
-  return timelineActivity({ timestamp: '2026-08-25T10:00:00Z', githubId: id }, {
+  return timelineActivity({ timestamp: '2026-08-25T10:00:00Z', remoteId: id }, {
       path: file.filename, diffHunk: file.patch, line: 96, originalLine: 96, side: 'RIGHT',
-      comments: [timelineComment({ githubId: id, actorAvatarUrl: 'https://example.com/bob.png', timestamp: '2026-08-25T10:00:00Z', body })],
+      comments: [timelineComment({ remoteId: id, actorAvatarUrl: 'https://example.com/bob.png', timestamp: '2026-08-25T10:00:00Z', body })],
       ...payload,
     });
 }
@@ -270,7 +270,7 @@ describe('DiffViewer', () => {
   it('places existing threads at the matching side and range endpoint with replies and avatars', () => {
     const rightThread = reviewActivity(102, 'New-side discussion');
     rightThread.payload.comments.push({
-      ...rightThread.payload.comments[0], githubId: 103, actor: 'carol', actorAvatarUrl: 'https://example.com/carol.png',
+      ...rightThread.payload.comments[0], remoteId: 103, actor: 'carol', actorAvatarUrl: 'https://example.com/carol.png',
       body: 'A reply in this discussion', inReplyToId: 102,
     });
     const html = renderToStaticMarkup(<DiffViewer files={[file]} reviewThreads={reviewThreads([

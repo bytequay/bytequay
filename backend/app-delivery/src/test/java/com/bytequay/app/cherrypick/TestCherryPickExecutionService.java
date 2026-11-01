@@ -34,6 +34,7 @@ import com.bytequay.app.git.GitSequencerDriver;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.rebase.BranchRebaseService;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
@@ -152,7 +153,8 @@ class TestCherryPickExecutionService
         when(remoteSources.list(WORKSPACE_ID)).thenReturn(ImmutableList.of(
                 new WorkspaceRemote("origin", "https://github.com/owner/repository.git", Role.ORIGIN),
                 new WorkspaceRemote("downstream", "https://github.com/downstream/repository.git", Role.CUSTOM)));
-        previews = new CherryPickPreviewService(GIT, new CherryPickConflictScout(GIT), mock(CommitHistoryStore.class), credentials, remoteSources, CLOCK, relationships);
+        previews = new CherryPickPreviewService(GIT, new CherryPickConflictScout(GIT), mock(CommitHistoryStore.class), credentials, remoteSources,
+                mock(WorkspaceHostingService.class), CLOCK, relationships);
         agent = new ScriptedCherryPickAgent(new TestWorktreeService(clone, worktreeParent));
         AgentCapabilities capabilities = new AgentCapabilities(false, false, false, ImmutableSet.of(AgentPermissionPolicy.CHERRY_PICK), ImmutableSet.of());
         driver = mock(AgentDriver.class);
@@ -706,7 +708,7 @@ class TestCherryPickExecutionService
                 .contains("ByteQuay has already committed")
                 .contains("git commit --fixup=")
                 .contains("Do not run git cherry-pick --continue, --skip, or --abort")
-                .contains("push, use gh, or")
+                .contains("push, use gh or glab, or")
                 .contains("Your final message is for the user")
                 .contains("Conflict files:")
                 .contains("seed.txt")

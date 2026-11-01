@@ -21,7 +21,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
- * A child an Epic's source reports, a GitHub sub-issue or a Jira child ticket, as ByteQuay last read it.
+ * A child an Epic's source reports, a provider's child issue or a Jira child ticket, as ByteQuay last read it.
  *
  * @param identity the canonical identity work items use for the child
  * @param status the source's own words for where the child stands, such as Open or In Progress

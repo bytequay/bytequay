@@ -16,7 +16,7 @@ import { requestTaskFix } from '../../agents/taskFix';
 import { recordAttentionAction, recordPullRequestAttentionAction, type AttentionAction } from '../../home/useAttentionVisit';
 import { remoteErrorMessage } from '../../remoteError';
 import { findingFixPrompt } from '../local-review/conversation';
-import { workspacePullRequestBridge } from '../PullRequestWorkspace';
+import { routedPullRequestBridge } from '../PullRequestWorkspace';
 import { findingReviewText } from './model';
 import type { FindingActions } from './ReviewFindingCard';
 import type { AgentReviewDto, ReviewFindingDto } from './contracts';
@@ -31,8 +31,8 @@ export function recordReviewAttentionAction(review: AgentReviewDto, action: Atte
  * The private and outgoing actions a finding offers, defined once so the Agent review tab and the
  * Changes projection cannot drift.
  *
- * <p>None of these reuses a GitHub reply, resolve or submit callback: Ask agent and Resolve locally
- * are review-service calls that never reach GitHub, and only Post now crosses that line,
+ * <p>None of these reuses a provider reply, resolve or submit callback: Ask agent and Resolve locally
+ * are review-service calls that never reach the provider, and only Post now crosses that line,
  * through the durable draft so a single item can never be sent twice.
  */
 export function useFindingActions({
@@ -44,7 +44,7 @@ export function useFindingActions({
   onReviewChange: (review: AgentReviewDto) => void;
   onNavigate: (finding: ReviewFindingDto) => void;
 }): { actions: FindingActions; busy: boolean; error: string | null; clearError: () => void } {
-  const bridge = workspacePullRequestBridge(globalThis.window?.bridge, review.workspaceId);
+  const bridge = routedPullRequestBridge(globalThis.window?.bridge, review.workspaceId);
   const fixKeys = useRef(new Map<string, string>());
   const askKeys = useRef(new Map<string, string>());
   const [busy, setBusy] = useState(false);

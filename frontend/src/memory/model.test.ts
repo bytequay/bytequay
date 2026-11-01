@@ -41,7 +41,7 @@ describe('memory model', () => {
   it('labels sources as the page and the drawer state them', () => {
     expect(sourceChip(memory())).toEqual({ kind: 'PR', label: '#31201 @alice', more: '2 PRs' });
     expect(sourceChip(memory({ sources: [review(31007, { merged: false, part: 'CLOSE' })] }))).toEqual({ kind: 'PR', label: '#31007 @alice', more: 'closed' });
-    expect(sourceHead(review(31201))).toEqual({ head: 'PR #31201 · review comment · @alice, maintainer · merged', note: 'Applied: thread resolved', link: 'Open on GitHub' });
+    expect(sourceHead(review(31201))).toEqual({ head: 'PR #31201 · review comment · @alice, maintainer · merged', note: 'Applied: thread resolved', link: 'Open pull request' });
     expect(sourceHead(review(31007, { merged: false, part: 'CLOSE', resolved: false })).note).toBe('A maintainer explained the close');
     const page: MemorySourceDto = { kind: 'PAGE', url: 'https://github.com/delta-io/delta/blob/master/PROTOCOL.md', quote: '', at: '2026-10-01T00:00:00Z',
       section: 'Checkpoints', pullRequest: null, user: null, command: null };

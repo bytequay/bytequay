@@ -64,7 +64,7 @@ const SETTINGS_ICONS: Record<SettingsSection, ReactNode> = {
   github: <CircleUser size={16} strokeWidth={1.7} aria-hidden="true" />,
   'ws-repository': <Tags size={16} strokeWidth={1.7} aria-hidden="true" />,
   'ws-agents': <Bot size={16} strokeWidth={1.7} aria-hidden="true" />,
-  'ws-token': <KeyRound size={16} strokeWidth={1.7} aria-hidden="true" />,
+  'ws-account': <KeyRound size={16} strokeWidth={1.7} aria-hidden="true" />,
   'ws-advanced': <TriangleAlert size={16} strokeWidth={1.7} aria-hidden="true" />,
 };
 
@@ -229,7 +229,6 @@ export default function AppSidebar({
   };
 
   const workspaceItem = ({ tab, label, icon }: typeof WORKSPACE_TABS[number]) => {
-    if (tab === 'prs' && workspace?.hostingServer?.provider === 'GITLAB') label = 'Merge requests';
     const reason = disabledReason(tab);
     return row({
       key: tab,
@@ -288,7 +287,7 @@ export default function AppSidebar({
                     >
                       {picked === null
                         ? <span className="setw-avatar" aria-hidden="true">?</span>
-                        : <RepoAvatar github={picked.hostingServer?.provider !== 'GITLAB'} owner={picked.selectedOwner} repo={picked.selectedRepo} size={19} />}
+                        : <RepoAvatar github={picked.hostingServer.provider !== 'GITLAB'} owner={picked.selectedOwner} repo={picked.selectedRepo} size={19} />}
                       <span className="setw-ws-name">
                         {picked === null ? 'No workspace' : `${picked.selectedOwner}/${picked.selectedRepo}`}
                       </span>
@@ -305,7 +304,7 @@ export default function AppSidebar({
                             className="setw-menu-item"
                             onClick={() => { setPickerOpen(false); settings.onWorkspace(candidate.id); }}
                           >
-                            <RepoAvatar github={candidate.hostingServer?.provider !== 'GITLAB'} owner={candidate.selectedOwner} repo={candidate.selectedRepo} size={19} />
+                            <RepoAvatar github={candidate.hostingServer.provider !== 'GITLAB'} owner={candidate.selectedOwner} repo={candidate.selectedRepo} size={19} />
                             <span className="setw-menu-label">{candidate.selectedOwner}/{candidate.selectedRepo}</span>
                           </button>
                         ))}
@@ -315,7 +314,7 @@ export default function AppSidebar({
                 )}
                 {entries.map(entry => row({
                   key: entry.section,
-                  label: entry.section === 'ws-token' && picked?.hostingServer?.provider === 'GITLAB' ? 'Account' : entry.label,
+                  label: entry.label,
                   icon: SETTINGS_ICONS[entry.section],
                   active: entry.section === settings.section,
                   onClick: () => settings.onSection(entry.section),
@@ -381,8 +380,8 @@ export default function AppSidebar({
             title={workspace.localRepositoryPath}
             onClick={() => onWorkspaceTab('home')}
           >
-            <HostMark className="app-sidebar__label" gitlab={workspace.hostingServer?.provider === 'GITLAB'} />
-            <RepoAvatar github={workspace.hostingServer?.provider !== 'GITLAB'} owner={workspace.monitoredOwner} repo={workspace.monitoredRepo} size={18} />
+            <HostMark className="app-sidebar__label" gitlab={workspace.hostingServer.provider === 'GITLAB'} />
+            <RepoAvatar github={workspace.hostingServer.provider !== 'GITLAB'} owner={workspace.monitoredOwner} repo={workspace.monitoredRepo} size={18} />
             <span className="app-sidebar__ws-name app-sidebar__label" title={workspace.name}>{shortWorkspaceName(workspace.name)}</span>
           </button>
           <nav className="app-sidebar__nav" aria-label="Workspace navigation">

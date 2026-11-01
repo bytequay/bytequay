@@ -55,7 +55,7 @@ export function ActorLine({ event, people, viewerLogin, names }: {
 /** One row per PR or issue, headed by its latest update, with the earlier updates a click away. */
 export default function CircleActivity({ snapshot, people, viewerLogin, days, personLogin, metricLabel, filtered, canLoadMore, onLoadMore, onWiden, onClear }: {
   snapshot: TeamActivitySnapshot;
-  /** Everyone in any circle, by GitHub ID. */
+  /** Everyone in any circle, by user ID. */
   people: ReadonlyMap<number, TeamMember>;
   viewerLogin: string | null;
   days: number;

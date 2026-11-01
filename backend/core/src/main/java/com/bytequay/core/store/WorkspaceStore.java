@@ -14,9 +14,10 @@
 package com.bytequay.core.store;
 
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.hosting.HostingCacheTarget;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
@@ -41,34 +42,35 @@ public interface WorkspaceStore
     /** Finds a workspace by its ByteQuay-owned identifier. */
     Optional<Workspace> findById(String workspaceId);
 
-    /** Finds a workspace by the selected repository's stable GitHub identifier. */
-    Optional<Workspace> findBySelectedRepositoryId(long selectedRepositoryId);
+    /** Finds a workspace by the selected repository's stable remote identifier. */
+    Optional<Workspace> findBySelectedRepository(HostingServer server, long selectedRepositoryId);
 
     Optional<Workspace> findBySelectedHostingRepositoryId(long repositoryId);
 
     Optional<WorkspaceHostingBinding> findHostingBinding(String workspaceId);
 
-    Optional<HostingCacheTarget> findHostingCacheTarget(String workspaceId);
-
     default Optional<Long> findHostingRepositoryId(String workspaceId)
     {
-        return findHostingBinding(workspaceId).map(WorkspaceHostingBinding::monitoredRepositoryId)
-                .or(() -> findHostingCacheTarget(workspaceId).map(HostingCacheTarget::repositoryId));
+        return findHostingBinding(workspaceId).map(WorkspaceHostingBinding::monitoredRepositoryId);
     }
 
-    void saveHostingCacheTarget(String workspaceId, HostingCacheTarget target);
+    /** The workspace that monitors this hosting repository, a watched one first. */
+    default Optional<Workspace> findByHostingRepositoryId(long repositoryId)
+    {
+        return findAllRetained().stream()
+                .filter(workspace -> findHostingRepositoryId(workspace.id()).filter(id -> id == repositoryId).isPresent())
+                .sorted(Comparator.comparing(workspace -> !isWatched(workspace.id())))
+                .findFirst();
+    }
 
     /** Selects an account and retained repository identities on the workspace's hosting server. */
     WorkspaceHostingBinding bindHosting(String workspaceId, long accountId, long selectedRepositoryId, Optional<Long> upstreamRepositoryId);
 
     /**
-     * Creates a workspace or returns the row that already owns the selected GitHub repository.
+     * Creates a workspace and its account binding together, or binds the row that already owns the selected repository on that server.
      * The database unique constraint is the final concurrency guard.
      */
-    Workspace createOrGet(Workspace workspace);
-
-    /** Creates a hosted workspace and its account binding together. */
-    Workspace createHosted(Workspace workspace, long accountId, long selectedRepositoryId);
+    Workspace createHosted(Workspace workspace, long accountId, long selectedRepositoryId, Optional<Long> upstreamRepositoryId);
 
     /** Saves an existing workspace without changing its watch-list membership. */
     Workspace save(Workspace workspace);

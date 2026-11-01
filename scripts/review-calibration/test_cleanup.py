@@ -206,7 +206,7 @@ class TestRepositories(unittest.TestCase):
 
 class TestApply(Data):
     def database(self):
-        path = self.data / "bytequay-1.0.db"
+        path = self.data / "bytequay-055.db"
         with sqlite3.connect(path) as connection:
             connection.executescript("CREATE TABLE agent_task (id TEXT, state TEXT, updated_at TEXT, worktree TEXT); CREATE TABLE branch_rebase (worktree TEXT);"
                                      "CREATE TABLE cherry_pick_execution (worktree TEXT);")

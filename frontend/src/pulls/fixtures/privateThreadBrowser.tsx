@@ -34,11 +34,11 @@ const detail = prDetail({
   mergeable: null, mergeableState: null, author: 'alice', createdAt: AT, updatedAt: AT,
   body: 'Resolves owners.', deletions: 1,
   recentActivity: [
-    timelineActivity({ eventType: 'reviewed', timestamp: AT, githubId: 50 }, { state: 'COMMENTED' }),
-    timelineActivity({ timestamp: AT, githubId: 70 }, {
+    timelineActivity({ eventType: 'reviewed', timestamp: AT, remoteId: 50 }, { state: 'COMMENTED' }),
+    timelineActivity({ timestamp: AT, remoteId: 70 }, {
       path: 'src/Owner.java', line: 3, originalLine: 3, side: 'RIGHT',
-      comments: [timelineComment({ githubId: ROOT, timestamp: AT, body: 'Rename `helper` to `resolveOwner`.', reviewId: 50 })] }),
-    timelineActivity({ actor: 'alice', eventType: 'commented', timestamp: AT, body: 'Thanks, renaming it now.', githubId: 80 }),
+      comments: [timelineComment({ remoteId: ROOT, timestamp: AT, body: 'Rename `helper` to `resolveOwner`.', reviewId: 50 })] }),
+    timelineActivity({ actor: 'alice', eventType: 'commented', timestamp: AT, body: 'Thanks, renaming it now.', remoteId: 80 }),
   ],
 });
 const pr = remotePullRequest(detail, 'alice');

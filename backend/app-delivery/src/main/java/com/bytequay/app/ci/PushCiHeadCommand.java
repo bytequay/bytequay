@@ -16,12 +16,18 @@ package com.bytequay.app.ci;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.core.ci.CiAutofixRun.PushJournal;
 
+import java.net.URI;
 import java.nio.file.Path;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
+/**
+ * A journaled CI repair push and the routing it must still match.
+ *
+ * @param webBaseUrl the workspace hosting server's web base URL, which the checkout's remotes must point into
+ */
 public record PushCiHeadCommand(
         String workspaceId,
         Path worktree,
@@ -29,6 +35,7 @@ public record PushCiHeadCommand(
         String localBranch,
         String remote,
         RepositoryIdentity remoteRepository,
+        URI webBaseUrl,
         String remoteHeadRef,
         PushJournal journal)
 {
@@ -42,6 +49,7 @@ public record PushCiHeadCommand(
         checkText(remote, "remote", 255);
         checkArgument(!remote.startsWith("-"), "remote is invalid");
         requireNonNull(remoteRepository, "remoteRepository is null");
+        requireNonNull(webBaseUrl, "webBaseUrl is null");
         checkText(remoteHeadRef, "remoteHeadRef", 255);
         requireNonNull(journal, "journal is null");
     }

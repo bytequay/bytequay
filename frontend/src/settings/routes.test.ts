@@ -75,9 +75,9 @@ describe('settings routes', () => {
   });
 
   it('escapes a workspace id that would otherwise split the path', () => {
-    expect(settingsRoute('ws-token', 'a/b')).toBe('#/settings/workspace/a%2Fb/token');
-    expect(settingsLocationFromRoute(settingsRoute('ws-token', 'a/b')))
-      .toEqual({ section: 'ws-token', workspaceId: 'a/b' });
+    expect(settingsRoute('ws-account', 'a/b')).toBe('#/settings/workspace/a%2Fb/account');
+    expect(settingsLocationFromRoute(settingsRoute('ws-account', 'a/b')))
+      .toEqual({ section: 'ws-account', workspaceId: 'a/b' });
   });
 
   it('leaves the section unset for a bare hash so the last-open page can be restored', () => {

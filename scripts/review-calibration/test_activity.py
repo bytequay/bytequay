@@ -695,7 +695,7 @@ class TestTurns(Logs):
 
 class TestReviewTable(Logs):
     def test_review_table_is_what_the_database_holds_and_the_example_the_dashboard_tests_read(self):
-        path = reviewed(self.runtime.parent / "bytequay-1.0.db")
+        path = reviewed(self.runtime.parent / "bytequay-055.db")
         made = activity.review_table(activity.records.reviews(path, activity.records.read(path)), WHEN)
         matches_example(self, "saved-reviews.json", made)
         self.assertEqual((made["version"], made["savedAt"], made["since"], made["task"], len(made["runs"]), len(made["findings"])), (1, "2026-01-02T03:04:05Z", None, None, 3, 4))
@@ -757,7 +757,7 @@ class TestCommandLine(Logs):
 
     def test_save_adds_what_the_database_beside_the_runtime_folder_knows_and_never_changes_it(self):
         self.log("aaaa-1111", TEN_MINUTES)
-        beside = database(self.runtime.parent / "bytequay-1.0.db", tasks=[("aaaa-1111", "codex", "owner", "repository"), ("zzzz-9999", "claude", "o", "n")], turns=[
+        beside = database(self.runtime.parent / "bytequay-055.db", tasks=[("aaaa-1111", "codex", "owner", "repository"), ("zzzz-9999", "claude", "o", "n")], turns=[
             ("aaaa-1111", "t1", at(0), 600_000, None, "gpt-6-astra", "Max", "COMPLETED", 900, 800, 40, None, 7, 0),
             ("zzzz-9999", "t1", at(50), 30_000, None, "opus", "high", "FAILED", 100, 0, 10, 0.25, 1, 0)])
         before = beside.read_bytes()
@@ -784,7 +784,7 @@ class TestCommandLine(Logs):
     def test_save_writes_the_review_runs_and_findings_under_the_same_choices_as_the_turn_table(self):
         self.log("aaaa-0001", turn(0, 60, "t1"))
         self.log("bbbb-0002", turn(3 * 3600, 3 * 3600 + 60, "u1"))
-        reviewed(self.runtime.parent / "bytequay-1.0.db")
+        reviewed(self.runtime.parent / "bytequay-055.db")
         folder = self.runtime.parent / "saved"
         everything = self.run_script("--save", str(folder))
         self.assertEqual((everything.returncode, everything.stderr), (0, ""))

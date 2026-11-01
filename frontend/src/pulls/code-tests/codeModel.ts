@@ -98,12 +98,12 @@ export type CommentAnchorFacts = {
   draft: boolean;
   /** Saved changes to this file that its committed revision does not have. */
   uncommitted: boolean;
-  /** The displayed revision is the pull request head GitHub comments land on. */
+  /** The displayed revision is the pull request head line comments land on. */
   atPrHead: boolean;
 };
 
 /**
- * Why a GitHub line comment cannot anchor to this range, or null when it can. GitHub accepts line comments only on
+ * Why a line comment cannot anchor to this range, or null when it can. Line comments go only on
  * lines of the pull request diff, so a range must be new-side lines of one hunk in the file's patch.
  */
 export function githubCommentBlocker(facts: CommentAnchorFacts): string | null {
@@ -116,7 +116,7 @@ export function githubCommentBlocker(facts: CommentAnchorFacts): string | null {
     }
     return true;
   });
-  return inOneHunk ? null : "GitHub accepts line comments only on lines in this pull request's diff";
+  return inOneHunk ? null : "Line comments go only on lines in this pull request's diff";
 }
 
 export { shortSha } from '@bytequay/ui/displayText';

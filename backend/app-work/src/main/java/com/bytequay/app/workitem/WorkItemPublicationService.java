@@ -58,10 +58,10 @@ public class WorkItemPublicationService
     {
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
         WorkItem item = work.requireItem(workspaceId, id);
-        checkArgument(request.source() == UnifiedWorkItem.Source.GITHUB || request.source() == UnifiedWorkItem.Source.JIRA, "Choose GitHub or Jira");
-        checkArgument(item.links().stream().noneMatch(link -> request.source() == UnifiedWorkItem.Source.GITHUB ? link.issueSource().isPresent()
+        checkArgument(request.source() == UnifiedWorkItem.Source.ISSUE || request.source() == UnifiedWorkItem.Source.JIRA, "Choose an issue or a Jira ticket");
+        checkArgument(item.links().stream().noneMatch(link -> request.source() == UnifiedWorkItem.Source.ISSUE ? link.issueSource().isPresent()
                 : link.jiraSource().isPresent()), "This work already has a source on that provider");
-        checkArgument(item.title().length() <= (request.source() == UnifiedWorkItem.Source.GITHUB ? 256 : 255), "Shorten the title before publishing");
+        checkArgument(item.title().length() <= (request.source() == UnifiedWorkItem.Source.ISSUE ? 256 : 255), "Shorten the title before publishing");
         if (request.source() == UnifiedWorkItem.Source.JIRA) {
             checkArgument(jira.publicationTypes(request.connectionId().orElseThrow(), request.cloudId().orElseThrow(), request.project().orElseThrow()).stream()
                     .anyMatch(type -> type.id().equals(request.issueTypeId().orElseThrow())), "Choose an available Jira work type");
@@ -71,7 +71,7 @@ public class WorkItemPublicationService
         item = work.beginPublication(workspaceId, id, request.expectedRevision(), operation, destination(workspace, request));
         WorkItemLink source;
         try {
-            source = request.source() == UnifiedWorkItem.Source.GITHUB
+            source = request.source() == UnifiedWorkItem.Source.ISSUE
                     ? GoalReferenceReader.issueLink(issues.create(workspaceId,
                             item.title(), item.acceptanceCriteria()), clock.instant())
                     : GoalReferenceReader.jiraLink(jira.publishWorkItem(request.connectionId().orElseThrow(), request.cloudId().orElseThrow(), request.project().orElseThrow(),
@@ -104,11 +104,11 @@ public class WorkItemPublicationService
         pending.ifPresent(event -> checkArgument(event.detail().equals(destination(workspace, request)),
                 "Choose the same destination as the pending publication: " + event.detail()));
         WorkItemLink source;
-        if (request.source() == UnifiedWorkItem.Source.GITHUB) {
+        if (request.source() == UnifiedWorkItem.Source.ISSUE) {
             source = GoalReferenceReader.issueLink(issues.source(workspaceId, Integer.parseInt(key.replace("#", "")), false), clock.instant());
         }
         else {
-            checkArgument(request.source() == UnifiedWorkItem.Source.JIRA, "Choose GitHub or Jira");
+            checkArgument(request.source() == UnifiedWorkItem.Source.JIRA, "Choose an issue or a Jira ticket");
             JiraIssue issue = jira.refreshIssueByKey(request.connectionId().orElseThrow(), request.cloudId().orElseThrow(), key);
             pending.ifPresent(event -> checkArgument(issue.key().startsWith(request.project().orElseThrow().toUpperCase(Locale.ROOT) + "-"),
                     "The ticket must belong to the project of the pending publication"));
@@ -121,8 +121,8 @@ public class WorkItemPublicationService
 
     private static String destination(Workspace workspace, Publication request)
     {
-        return request.source() == UnifiedWorkItem.Source.GITHUB
-                ? (workspace.isGitHub() ? "GITHUB" : workspace.issueHost()) + " " + workspace.monitoredRepository().fullName().toLowerCase(Locale.ROOT)
+        return request.source() == UnifiedWorkItem.Source.ISSUE
+                ? workspace.server().host() + " " + workspace.monitoredRepository().fullName().toLowerCase(Locale.ROOT)
                 : "JIRA " + request.connectionId().orElseThrow() + "/" + request.cloudId().orElseThrow() + "/" + request.project().orElseThrow().toUpperCase(Locale.ROOT);
     }
 

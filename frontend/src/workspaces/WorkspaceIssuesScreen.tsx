@@ -64,7 +64,7 @@ import { useResizablePane } from '../useResizablePane';
 import { workItemRoute } from '../workitems/contracts';
 import { EpicTabs, workProgress } from './EpicTabs';
 import { EpicWork } from './EpicView';
-import { epicIdentity, issueEpicId, useWorkItems } from './epics';
+import { epicIdentity, useWorkItems } from './epics';
 import { issueDevelopmentAction, notifyIssueDevelopmentChanged } from './issueDevelopment';
 import { useUnmarkEpic } from './useUnmarkEpic';
 
@@ -148,7 +148,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     if (preview.pullRequest) throw new Error('This reference is a pull request, not an issue.');
     const commentCount = loadHandled()[issueAttentionKey(repository, number, workspaceId)]?.snoozedItem?.commentCount ?? 0;
     // The read-only preview has no cache-row identity; its negative key stays in this component.
-    return { ...preview, id: -number, number,
+    return { ...preview, id: -number, number, epicId: '',
       assignees: [], commentCount, createdAt: '' };
   }, [repository, workspaceId]);
 
@@ -267,7 +267,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   const unmarkEpic = useUnmarkEpic();
   // Unmarking also removes the Epic's view, so an Epic with work asks first.
   const requestEpic = (issue: Issue): void => {
-    if (issue.isEpic) unmarkEpic.request(workspaceId, issueEpicId(issue.id), () => { void toggleEpic(issue); });
+    if (issue.isEpic) unmarkEpic.request(workspaceId, issue.epicId, () => { void toggleEpic(issue); });
     else void toggleEpic(issue);
   };
 
@@ -468,7 +468,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     }
   }, [loadDetail, selectedNumber, selectedId, previewIssue?.id]);
 
-  // A reread row that changed on GitHub brings its timeline up to date.
+  // A reread row that changed on the provider brings its timeline up to date.
   const selectedVersion = selected !== null && selected !== previewIssue ? `${selected.id}:${selected.updatedAt}` : null;
   const seenVersion = useRef(selectedVersion);
   useEffect(() => {
@@ -922,8 +922,8 @@ export function IssueOverview({
           {visibleTimeline.map((event, index) => event.event === 'commented'
             ? <IssueComment event={event} fallbackUrl={issue.htmlUrl} repository={repository}
               onQuote={body => setQuotedReply(current => ({ id: (current?.id ?? 0) + 1, body }))}
-              key={event.githubId ?? `comment-${index}`} />
-            : <IssueEvent event={event} colors={colors} key={event.githubId ?? `${event.event}-${index}`} />)}
+              key={event.remoteId ?? `comment-${index}`} />
+            : <IssueEvent event={event} colors={colors} key={event.remoteId ?? `${event.event}-${index}`} />)}
           {timelineLoading && (timeline.length === 0
             // A first read has no activity to append to, so the pane shows the shape it is about to fill.
             ? <SkeletonTimeline label="Loading activity…" />

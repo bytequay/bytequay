@@ -184,7 +184,7 @@ public class SelectedPullRequestReader
     /**
      * One projected stored snapshot and the outcome of this selected read.
      *
-     * @param rowUpdatedAt GitHub update time from the captured list row
+     * @param rowUpdatedAt provider update time from the captured list row
      * @param cacheUpdatedAt local cache write time, which can include status-only saves; not full discussion freshness
      * @param observedHeadSha head identity from the same stored raw detail used to construct {@code detail}
      * @param refreshAttempted whether this read attempted one existing selected refresh

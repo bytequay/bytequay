@@ -57,9 +57,6 @@ final class SqliteSchemaCleanup
                 for (Table table : metadata.collectTableMappings()) {
                     if (table.isPhysicalTable()) {
                         dropUnmappedRequiredColumns(connection, table);
-                        if (table.getName().equals("watched_repo_workspaces")) {
-                            dropUnscopedRepositoryIndexes(connection);
-                        }
                     }
                 }
             }
@@ -69,30 +66,6 @@ final class SqliteSchemaCleanup
         }
         catch (SQLException e) {
             log.warn("Could not check for obsolete schema constraints", e);
-        }
-    }
-
-    private static void dropUnscopedRepositoryIndexes(Connection connection)
-            throws SQLException
-    {
-        ImmutableList.Builder<String> indexes = ImmutableList.builder();
-        // Older workspaces made the remote number globally unique; different hosting servers can reuse it.
-        try (Statement query = connection.createStatement();
-                ResultSet rows = query.executeQuery("""
-                        SELECT indexes.name FROM pragma_index_list('watched_repo_workspaces') indexes
-                        WHERE indexes."unique" = 1 AND indexes.origin = 'c' AND indexes.partial = 0
-                        AND (SELECT count(*) FROM pragma_index_info(indexes.name)) = 1
-                        AND (SELECT name FROM pragma_index_info(indexes.name)) = 'selected_repository_id'
-                        """)) {
-            while (rows.next()) {
-                indexes.add(rows.getString(1));
-            }
-        }
-        for (String index : indexes.build()) {
-            try (Statement statement = connection.createStatement()) {
-                statement.execute("DROP INDEX \"" + index.replace("\"", "\"\"") + "\"");
-                log.info("Dropped unscoped workspace repository index {}", index);
-            }
         }
     }
 

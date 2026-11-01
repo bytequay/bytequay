@@ -18,6 +18,7 @@ import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PullRequestDetail.CiStatus;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.hosting.PullRequestCardSummary;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
@@ -128,13 +129,13 @@ public class GitHubPullRequestSummaryClient
     }
 
     /** Missing or partially failed entries are omitted, so their existing local facts remain intact. */
-    public List<GitHubPullRequestSummary> fetchSummaries(String pat, List<PullRequestRef> refs, String login)
+    public List<PullRequestCardSummary> fetchSummaries(String pat, List<PullRequestRef> refs, String login)
     {
         requirePat(pat);
         requireNonNull(login, "login is null");
         checkArgument(!login.isBlank(), "login is blank");
         List<PullRequestRef> unique = ImmutableSet.copyOf(refs).asList();
-        ImmutableList.Builder<GitHubPullRequestSummary> summaries = ImmutableList.builder();
+        ImmutableList.Builder<PullRequestCardSummary> summaries = ImmutableList.builder();
         for (int offset = 0; offset < unique.size(); offset += QUERY_SIZE) {
             List<PullRequestRef> batch = unique.subList(offset, Math.min(unique.size(), offset + QUERY_SIZE));
             Map<String, Object> variables = new LinkedHashMap<>();
@@ -290,7 +291,7 @@ public class GitHubPullRequestSummaryClient
         return failed;
     }
 
-    private static GitHubPullRequestSummary summary(JsonNode value, PullRequestRef expected, String login)
+    private static PullRequestCardSummary summary(JsonNode value, PullRequestRef expected, String login)
     {
         Row row = read(value, Row.class);
         String repository = text(row.repository().nameWithOwner());
@@ -361,7 +362,7 @@ public class GitHubPullRequestSummaryClient
                         Optional.ofNullable(mergeable), pullRequest.mergeableState(), reviewers.stream().sorted().collect(toImmutableList()),
                         activity.updatedAt(), count(activity.totalCount()), checkVersion(rollup))
                         .toString(), StandardCharsets.UTF_8).toString();
-        return new GitHubPullRequestSummary(pullRequest, ciStatus(rollup), count(row.additions()), count(row.deletions()),
+        return new PullRequestCardSummary(pullRequest, ciStatus(rollup), count(row.additions()), count(row.deletions()),
                 count(row.comments().totalCount()), headSha, headCommittedAt, decision, viewerReview, requestedAt, activityVersion,
                 activity.updatedAt(), latestActivity(activity));
     }

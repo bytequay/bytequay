@@ -35,6 +35,7 @@ import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
@@ -97,7 +98,7 @@ class TestWorkspaceDeletionService
         workspace = new Workspace(
                 WORKSPACE_ID, "Project", 100, REPOSITORY, Optional.empty(), Optional.empty(), 100, REPOSITORY, Topology.DIRECT,
                 "main", "https://github.com/owner/project.git", Optional.empty(), Optional.empty(), repository.toString(),
-                Optional.of(NOW), Optional.empty(), 0, NOW, NOW);
+                Optional.of(NOW), Optional.empty(), 0, NOW, NOW, HostingServer.GITHUB_COM);
         Files.createDirectories(repository);
         Files.writeString(paths.workspace(WORKSPACE_ID).resolve(ManagedWorkspaceGit.OWNERSHIP_FILE), ManagedWorkspaceGit.ownership(workspace));
         run(repository, "init", "-q", "-b", "main");

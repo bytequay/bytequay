@@ -82,16 +82,16 @@ export type PullDetailUpdater = (
 /** The signed-in account, for review composers, local pending comments, and editing your own comments. */
 export function useViewer(enabled: boolean): PullRequestViewer | null {
   const bridge = usePullRequestBridge();
-  const { workspaceId, repository } = useHostingPresentation();
+  const { workspaceId, accountId, repository } = useHostingPresentation();
   const [viewer, setViewer] = useState<PullRequestViewer | null>(null);
   useEffect(() => {
     if (!enabled) return;
     let live = true;
-    readPullRequestViewer(bridge, { workspaceId, repository })
+    readPullRequestViewer(bridge, { workspaceId, accountId, repository })
       .then(profile => { if (live) setViewer(profile); })
       .catch(() => { /* the composer just falls back to an initial */ });
     return () => { live = false; };
-  }, [bridge, enabled, repository, workspaceId]);
+  }, [accountId, bridge, enabled, repository, workspaceId]);
   return viewer;
 }
 
@@ -135,7 +135,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, work
   const timeline: ({ kind: 'remote'; activities: Activity[]; key: string; at: string }
     | { kind: 'local'; thread: LocalReviewThreadDto; key: string; at: string })[] = [
     ...groupTimelineActivities(detail.recentActivity).map((activities, index) => ({
-      kind: 'remote' as const, activities, key: `remote-${activities[0].githubId ?? `${activities[0].eventType}-${index}`}`,
+      kind: 'remote' as const, activities, key: `remote-${activities[0].remoteId ?? `${activities[0].eventType}-${index}`}`,
       at: activities[0].timestamp ?? '',
     })),
     ...(localReview?.threads ?? []).filter(thread => thread.repo.toLowerCase() === pr.repo.toLowerCase() && thread.number === pr.number)
@@ -200,7 +200,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, work
           </div>
         ) : item.kind === 'remote' ? (
           <div className="pr-timeline__slot" key={item.key}
-            id={item.activities[0].githubId === null ? undefined : `pr-activity-${item.activities[0].githubId}`}>
+            id={item.activities[0].remoteId === null ? undefined : `pr-activity-${item.activities[0].remoteId}`}>
             <TimelineItem activities={item.activities} viewerLogin={viewerLogin} privateThreads={privateThreads}
               pr={pr} headRef={detail.headRef ?? pr.headRef} workspaceId={contributorsWorkspaceId} onRefresh={onRefresh} onDetailUpdate={onDetailUpdate}
               onQuote={body => setQuotedReply(current => ({ id: (current?.id ?? 0) + 1, body }))} />
@@ -885,8 +885,8 @@ function TimelineItem({ activities, viewerLogin, privateThreads, pr, headRef, wo
 export function groupTimelineActivities(activities: Activity[]) {
   const candidates = activities.filter(activity => !HIDDEN_TIMELINE_EVENTS.has(activity.eventType));
   const reviewIds = new Set(candidates
-    .filter(activity => activity.eventType === 'reviewed' && activity.githubId !== null)
-    .map(activity => activity.githubId));
+    .filter(activity => activity.eventType === 'reviewed' && activity.remoteId !== null)
+    .map(activity => activity.remoteId));
   const threadsByReview = new Map<number, Activity[]>();
   candidates.forEach((activity) => {
     const reviewId = reviewIdForThread(activity);
@@ -899,8 +899,8 @@ export function groupTimelineActivities(activities: Activity[]) {
   return candidates.filter(activity => isVisibleTimelineActivity(activity, threadsByReview)).reduce<Activity[][]>((groups, activity) => {
     const reviewId = reviewIdForThread(activity);
     if (reviewId !== null && threadsByReview.has(reviewId)) return groups;
-    if (activity.eventType === 'reviewed' && activity.githubId !== null) {
-      groups.push([activity, ...(threadsByReview.get(activity.githubId) ?? [])]);
+    if (activity.eventType === 'reviewed' && activity.remoteId !== null) {
+      groups.push([activity, ...(threadsByReview.get(activity.remoteId) ?? [])]);
       return groups;
     }
     const previous = groups.at(-1);
@@ -941,7 +941,7 @@ function isVisibleTimelineActivity(activity: Activity, threadsByReview: Map<numb
   return !(activity.eventType === 'reviewed'
     && activity.payload.state?.toUpperCase() === 'COMMENTED'
     && !activity.body?.trim()
-    && (activity.githubId === null || !threadsByReview.has(activity.githubId)));
+    && (activity.remoteId === null || !threadsByReview.has(activity.remoteId)));
 }
 
 function CommitEvent({ activity }: { activity: Activity }) {
@@ -970,17 +970,17 @@ function CommentCard({ activity, viewerLogin, privateThreads, pr, onDetailUpdate
   const actor = displayActor(activity.actor || 'github');
   const body = activity.body?.trim() ? activity.body : null;
   const [editDraft, setEditDraft] = useState<string | null>(null);
-  const commentId = activity.githubId;
+  const commentId = activity.remoteId;
   const canEdit = body !== null && commentId !== null && isViewerComment(activity.actor, viewerLogin);
   const reaction = useReactionAction(
     pr.repo,
     pr.number,
     'issue_comment',
-    activity.githubId,
+    activity.remoteId,
     activity.payload.reactions,
-    activity.eventType === 'commented' && activity.githubId !== null,
+    activity.eventType === 'commented' && activity.remoteId !== null,
     (reactions, onlyIf) => onDetailUpdate(pr.repo, pr.number, current =>
-      updatePullReactionDetail(current, 'issue_comment', activity.githubId, reactions, onlyIf)),
+      updatePullReactionDetail(current, 'issue_comment', activity.remoteId, reactions, onlyIf)),
   );
   // The backend resolves review: keys from the same reviewed event this card renders.
   const threadKey = privateThreads === undefined || body === null || commentId === null ? null
@@ -1051,7 +1051,7 @@ function ReviewGroup({ activities, viewerLogin, privateThreads, pr, workspaceId,
         <CommentCard activity={review} viewerLogin={viewerLogin} privateThreads={privateThreads} pr={pr} onDetailUpdate={onDetailUpdate} onQuote={onQuote} />
       )}
       {activities.slice(1).map(thread => (
-        <ReviewThread key={thread.githubId ?? `${thread.timestamp}-${thread.payload.path}`} activity={thread} privateThreads={privateThreads}
+        <ReviewThread key={thread.remoteId ?? `${thread.timestamp}-${thread.payload.path}`} activity={thread} privateThreads={privateThreads}
           viewerLogin={viewerLogin} pr={pr} workspaceId={workspaceId} onRefresh={onRefresh} onDetailUpdate={onDetailUpdate} />
       ))}
     </section>
@@ -1070,8 +1070,8 @@ export function updateReviewThreadResolution(
     recentActivity: detail.recentActivity.map(candidate => {
       const matches = candidate.eventType === 'review_thread'
         && (activityId !== null
-          ? candidate.githubId === activityId
-          : candidate.payload.comments.some(comment => comment.githubId === rootCommentId));
+          ? candidate.remoteId === activityId
+          : candidate.payload.comments.some(comment => comment.remoteId === rootCommentId));
       if (!matches || (onlyIfResolved !== undefined && candidate.payload.resolved !== onlyIfResolved)) {
         return candidate;
       }
@@ -1095,13 +1095,13 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
   const { payload } = activity;
   const hostPending = useContext(PendingReviewComments);
   const pending = pendingReview ?? hostPending;
-  const [replying, setReplying] = useReviewDraft(`github:${activity.githubId}:replying`, false);
-  const [body, setBody] = useReviewDraft(`github:${activity.githubId}:body`, '');
+  const [replying, setReplying] = useReviewDraft(`remote:${activity.remoteId}:replying`, false);
+  const [body, setBody] = useReviewDraft(`remote:${activity.remoteId}:body`, '');
   const [preview, setPreview] = useState(false);
   const [posting, setPosting] = useState(false);
   const [changingResolution, setChangingResolution] = useState(false);
   const [optimisticResolved, setOptimisticResolved] = useState<boolean | null>(null);
-  const [edit, setEdit] = useReviewDraft<{ commentId: number; draft: string } | null>(`github:${activity.githubId}:edit`, null);
+  const [edit, setEdit] = useReviewDraft<{ commentId: number; draft: string } | null>(`remote:${activity.remoteId}:edit`, null);
   const [error, setError] = useState('');
   const [drafting, setDrafting] = useState(false);
   // The editor holds the agent's draft until the user chooses to post it or add it to a review.
@@ -1111,8 +1111,8 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
   const targetLine = payload.line ?? payload.originalLine;
   const commentedLines = showCode ? threadCommentedLines(payload) : [];
   const suggestion = reviewThreadSuggestion(payload);
-  const rootCommentId = payload.comments.find(comment => comment.inReplyToId === null)?.githubId
-    ?? payload.comments[0]?.githubId;
+  const rootCommentId = payload.comments.find(comment => comment.inReplyToId === null)?.remoteId
+    ?? payload.comments[0]?.remoteId;
   const pendingReplies = pending?.comments.filter(comment => comment.replyToCommentId === rootCommentId) ?? [];
   const resolved = optimisticResolved ?? payload.resolved;
   const startLine = payload.line === null ? payload.originalStartLine : payload.startLine;
@@ -1152,16 +1152,16 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
     setOptimisticResolved(desired);
     setError('');
     onDetailUpdate(pr.repo, pr.number, current => updateReviewThreadResolution(
-      current, activity.githubId, rootCommentId, desired));
+      current, activity.remoteId, rootCommentId, desired));
     try {
       await bridge.setReviewThreadResolved(pr.repo, pr.number, rootCommentId, desired);
       recordAttentionAction(pullRequestAttentionKey(pr), 'update');
       onDetailUpdate(pr.repo, pr.number, current => updateReviewThreadResolution(
-        current, activity.githubId, rootCommentId, desired));
+        current, activity.remoteId, rootCommentId, desired));
     }
     catch (cause) {
       onDetailUpdate(pr.repo, pr.number, current => updateReviewThreadResolution(
-        current, activity.githubId, rootCommentId, previous, desired));
+        current, activity.remoteId, rootCommentId, previous, desired));
       setError(cause instanceof Error ? cause.message : `Could not ${previous ? 'unresolve' : 'resolve'} thread.`);
     }
     setOptimisticResolved(null);
@@ -1267,7 +1267,7 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
         privateThreads={privateThreads}
         onDraftReply={rootCommentId === undefined || rootCommentId === null ? undefined
           : thread => { void draftWithAgent(thread, displayActor(comment.actor ?? '')); }}
-        key={comment.githubId ?? comment.timestamp} />)}
+        key={comment.remoteId ?? comment.timestamp} />)}
       {pendingReplies.map((comment, index) => (
         <ReviewThreadMessage key={index} timestamp={null}
           author={viewerLogin ? <UserAvatar login={viewerLogin} size={22} showLogin /> : <strong>You</strong>}>
@@ -1293,18 +1293,18 @@ function ThreadComment({ comment, fallbackUrl, suggestion, viewerLogin, pr, onDe
   edit: { commentId: number; draft: string } | null;
   onEditChange: (edit: { commentId: number; draft: string } | null) => void;
 }) {
-  const commentId = comment.githubId;
+  const commentId = comment.remoteId;
   const canEdit = Boolean(comment.body) && commentId !== null && isViewerComment(comment.actor, viewerLogin);
   const editDraft = commentId !== null && edit?.commentId === commentId ? edit.draft : null;
   const reaction = useReactionAction(
     pr.repo,
     pr.number,
     'review_comment',
-    comment.githubId,
+    comment.remoteId,
     comment.reactions,
-    comment.githubId !== null,
+    comment.remoteId !== null,
     (reactions, onlyIf) => onDetailUpdate(pr.repo, pr.number, current =>
-      updatePullReactionDetail(current, 'review_comment', comment.githubId, reactions, onlyIf)),
+      updatePullReactionDetail(current, 'review_comment', comment.remoteId, reactions, onlyIf)),
   );
   const threadKey = privateThreads === undefined || commentId === null || !comment.body ? null : privateThreadKey('review_comment', commentId);
   if (privateThreads !== undefined && threadKey !== null && privateThreads.forward === threadKey) {
@@ -1460,7 +1460,7 @@ function CompactEvent({ activities, headRef, pr }: { activities: Activity[]; hea
           <span className="pr-label-event__labels">
             {activities.map(labelActivity => (
               <LabelBadge name={labelActivity.payload.label ?? 'label'} color={labelActivity.payload.labelColor}
-                key={labelActivity.githubId ?? labelActivity.payload.label} />
+                key={labelActivity.remoteId ?? labelActivity.payload.label} />
             ))}
           </span>
           {activities.length > 1 && <span>labels</span>}
@@ -1646,7 +1646,7 @@ function ChecksCard({ pr, detail, onRefresh }: {
           <details key={category} open={index === 0 && category === 'failing'}>
             <summary>{groupLabel(category)} ({checks.length}) <span>›</span></summary>
             {checks.map((check, checkIndex) => (
-              <CheckRow key={`${pr.repo}:${pr.number}:${pr.headPushedAt}:${check.source}:${check.githubId ?? checkIndex}:${check.detailsUrl}:${check.startedAt}:${check.completedAt}:${check.category}`}
+              <CheckRow key={`${pr.repo}:${pr.number}:${pr.headPushedAt}:${check.source}:${check.remoteId ?? checkIndex}:${check.detailsUrl}:${check.startedAt}:${check.completedAt}:${check.category}`}
                 pr={pr} check={check} />
             ))}
           </details>
@@ -1657,7 +1657,7 @@ function ChecksCard({ pr, detail, onRefresh }: {
 }
 
 export function checkJobId(check: PullRequestDetailDto['checkRuns'][number]): number | null {
-  return check.source === 'job' && Number.isSafeInteger(check.githubId) && (check.githubId ?? 0) > 0 ? check.githubId : null;
+  return check.source === 'job' && Number.isSafeInteger(check.remoteId) && (check.remoteId ?? 0) > 0 ? check.remoteId : null;
 }
 
 const CI_LOG_KEYWORDS = /(\b(?:errors?|exceptions?|failed|failures?|fatal|panic|traceback|assertion|assert|mismatch|\w*(?:Exception|Error))\b|\b(?:Caused by|Suppressed|timed out|segmentation fault|cannot find symbol)\b:?)/gi;
@@ -2000,7 +2000,7 @@ export function updatePullReactionDetail(
         eventType: 'description_reactions',
         timestamp: null,
         body: null,
-        githubId: null,
+        remoteId: null,
         payload: { ...EMPTY_TIMELINE_PAYLOAD, reactions },
       });
     }
@@ -2009,12 +2009,12 @@ export function updatePullReactionDetail(
   if (commentId === null) return detail;
   const recentActivity = detail.recentActivity.map(activity => {
     if (target === 'issue_comment') {
-      if (activity.eventType !== 'commented' || activity.githubId !== commentId
+      if (activity.eventType !== 'commented' || activity.remoteId !== commentId
           || (onlyIf !== undefined && activity.payload.reactions !== onlyIf)) return activity;
       return { ...activity, payload: { ...activity.payload, reactions } };
     }
     const comments = activity.payload.comments.map(comment => {
-      if (comment.githubId !== commentId || (onlyIf !== undefined && comment.reactions !== onlyIf)) return comment;
+      if (comment.remoteId !== commentId || (onlyIf !== undefined && comment.reactions !== onlyIf)) return comment;
       return { ...comment, reactions };
     });
     return comments.some((comment, index) => comment !== activity.payload.comments[index])
@@ -2025,9 +2025,9 @@ export function updatePullReactionDetail(
 }
 
 function reviewThreadKey(activity: Activity) {
-  const rootCommentId = activity.payload.comments.find(comment => comment.inReplyToId === null)?.githubId
-    ?? activity.payload.comments[0]?.githubId;
-  return activity.githubId !== null ? `thread:${activity.githubId}` : `comment:${rootCommentId ?? ''}`;
+  const rootCommentId = activity.payload.comments.find(comment => comment.inReplyToId === null)?.remoteId
+    ?? activity.payload.comments[0]?.remoteId;
+  return activity.remoteId !== null ? `thread:${activity.remoteId}` : `comment:${rootCommentId ?? ''}`;
 }
 
 /** Applies a write response without discarding independent optimistic fields. */
@@ -2041,14 +2041,14 @@ export function mergePullRequestWriteDetail(
   let descriptionReactions: PullReactionDto[] | undefined;
   current.recentActivity.forEach(activity => {
     if (activity.eventType === 'description_reactions') descriptionReactions = activity.payload.reactions;
-    if (activity.eventType === 'commented' && activity.githubId !== null) {
-      issueReactions.set(activity.githubId, activity.payload.reactions);
+    if (activity.eventType === 'commented' && activity.remoteId !== null) {
+      issueReactions.set(activity.remoteId, activity.payload.reactions);
     }
     if (activity.eventType === 'review_thread') {
       threadResolution.set(reviewThreadKey(activity), activity.payload.resolved);
     }
     activity.payload.comments.forEach(comment => {
-      if (comment.githubId !== null) reviewReactions.set(comment.githubId, comment.reactions);
+      if (comment.remoteId !== null) reviewReactions.set(comment.remoteId, comment.reactions);
     });
   });
   let merged = {
@@ -2065,14 +2065,14 @@ export function mergePullRequestWriteDetail(
         resolved: activity.eventType === 'review_thread'
           ? threadResolution.get(reviewThreadKey(activity)) ?? activity.payload.resolved
           : activity.payload.resolved,
-        reactions: activity.eventType === 'commented' && activity.githubId !== null
-          ? issueReactions.get(activity.githubId) ?? activity.payload.reactions
+        reactions: activity.eventType === 'commented' && activity.remoteId !== null
+          ? issueReactions.get(activity.remoteId) ?? activity.payload.reactions
           : activity.payload.reactions,
         comments: activity.payload.comments.map(comment => ({
           ...comment,
-          reactions: comment.githubId === null
+          reactions: comment.remoteId === null
             ? comment.reactions
-            : reviewReactions.get(comment.githubId) ?? comment.reactions,
+            : reviewReactions.get(comment.remoteId) ?? comment.reactions,
         })),
       },
     })),

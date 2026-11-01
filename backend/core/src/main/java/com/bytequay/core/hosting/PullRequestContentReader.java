@@ -16,15 +16,17 @@ package com.bytequay.core.hosting;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
+import com.bytequay.core.domain.MergedPullRequest;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrDiffEtags;
 import com.bytequay.core.domain.PullRequestCheckLog;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.StoredPrDiff;
 import com.google.common.collect.ImmutableList;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -32,33 +34,49 @@ import java.util.Optional;
 /** Remote content normalized to the existing desktop review contracts. */
 public interface PullRequestContentReader
 {
-    HostingProvider provider();
-
     String headRef(int number);
 
-    GitHubPullRequestIdentity identity(HostingAccess access, HostingRepository repository, int number);
+    PullRequestIdentity identity(HostingTarget target, int number);
 
-    List<GitHubPullRequestIdentity> identitiesByHead(HostingAccess access, HostingRepository repository, RepoRef sourceRepository, String branch);
+    /** The request's exact current description; an empty description is an empty string. */
+    String description(HostingTarget target, int number);
 
-    boolean viewerCanWrite(HostingAccess access, HostingRepository repository);
+    List<PullRequestIdentity> identitiesByHead(HostingTarget target, RepoRef sourceRepository, String branch);
 
-    default Optional<DiscussionProbe> probeDiscussion(HostingAccess access, HostingRepository repository, int number, Map<String, String> etags)
+    /** Fresh evidence that request {@code number} merged, read twice so a request that changed in between is refused. */
+    MergedPullRequest merged(HostingTarget target, int number);
+
+    /** Titles of at most {@code limit} requests merged into {@code baseBranch} since {@code since}, newest first. */
+    List<String> recentMergedTitles(HostingTarget target, String baseBranch, Instant since, int limit);
+
+    /** Merged requests that contain commit {@code sha}; a list the provider cannot return in full fails rather than returning part of it. */
+    List<PullRequestAssociation> mergedWithCommit(HostingTarget target, String sha);
+
+    boolean viewerCanWrite(HostingTarget target);
+
+    /** A provider signal that the viewer was asked to review, such as a team request the request's own reviewer list does not name. */
+    default boolean reviewRequested(HostingTarget target, int number, String login)
+    {
+        return false;
+    }
+
+    default Optional<DiscussionProbe> probeDiscussion(HostingTarget target, int number, Map<String, String> etags)
     {
         return Optional.empty();
     }
 
-    StoredPrDetail discussion(HostingAccess access, HostingRepository repository, int number, StoredPrDetail existing);
+    StoredPrDetail discussion(HostingTarget target, int number, StoredPrDetail existing);
 
-    Checks checks(HostingAccess access, HostingRepository repository, int number, String headSha,
+    Checks checks(HostingTarget target, int number, String headSha,
             List<PrCheckRunState> existing, Optional<String> checksEtag, Optional<String> statusesEtag);
 
-    Diff diff(HostingAccess access, HostingRepository repository, int number, Optional<String> baseSha, Optional<String> headSha,
+    Diff diff(HostingTarget target, int number, Optional<String> baseSha, Optional<String> headSha,
             StoredPrDiff existing, PrDiffEtags etags);
 
-    PullRequestCheckLog readCheckLog(HostingAccess access, HostingRepository repository, int number, long jobId);
+    PullRequestCheckLog readCheckLog(HostingTarget target, int number, long jobId);
 
     /** Full diff coordinates identify the request revision; explicit ranges always compare the supplied endpoints directly. */
-    DiffFileContent fileContent(HostingAccess access, HostingRepository repository, int number, String path, String baseSha, String headSha, boolean fullDiff);
+    DiffFileContent fileContent(HostingTarget target, int number, String path, String baseSha, String headSha, boolean fullDiff);
 
     record Checks(List<PrCheckRunState> checkRuns, Optional<String> checkRunsEtag, Optional<String> commitStatusesEtag, boolean complete)
     {

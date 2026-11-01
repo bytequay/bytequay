@@ -18,6 +18,7 @@ import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.git.command.GitCommandRunner.Result;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.ci.CiAutofixRun.PushJournal;
+import com.bytequay.core.hosting.HostingUrls;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.Hashing;
@@ -33,7 +34,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -67,8 +67,8 @@ public class CiGitService
     {
         requireNonNull(command, "command is null");
         try {
-            Path worktree = validateWorktree(command.worktree(), command.physicalRepository(), command.localBranch());
-            String remoteUrl = validateRemote(worktree, command.sourceRemote(), command.remoteRepository());
+            Path worktree = validateWorktree(command.worktree(), command.physicalRepository(), command.webBaseUrl(), command.localBranch());
+            String remoteUrl = validateRemote(worktree, command.sourceRemote(), command.remoteRepository(), command.webBaseUrl());
             requireCleanAndResolved(worktree);
             requireValidBranch(worktree, command.baseRef());
             requireValidBranch(worktree, command.localBaseBranch());
@@ -100,7 +100,7 @@ public class CiGitService
     {
         requireNonNull(command, "command is null");
         try {
-            Path worktree = validateWorktree(command.worktree(), command.physicalRepository(), command.localBranch());
+            Path worktree = validateWorktree(command.worktree(), command.physicalRepository(), command.webBaseUrl(), command.localBranch());
             requireValidBranch(worktree, command.localBaseBranch());
             Result current = runner.run(worktree, "rev-parse", "--verify", "--quiet", "refs/heads/" + command.localBaseBranch());
             if (!current.successful()) {
@@ -118,7 +118,7 @@ public class CiGitService
     {
         requireNonNull(command, "command is null");
         try {
-            Path worktree = validateWorktree(command.worktree(), command.repository(), command.localBranch());
+            Path worktree = validateWorktree(command.worktree(), command.repository(), command.webBaseUrl(), command.localBranch());
             String head = requiredOutput(worktree, "rev-parse", "HEAD");
             requireCommit(worktree, command.remoteHeadSha(), "attempt input");
             requireCommit(worktree, command.baseSha(), "pull request base");
@@ -153,8 +153,8 @@ public class CiGitService
         requireNonNull(command, "command is null");
         PushJournal journal = command.journal();
         try {
-            Path worktree = validateWorktree(command.worktree(), command.physicalRepository(), command.localBranch());
-            String remoteUrl = validateRemote(worktree, command.remote(), command.remoteRepository());
+            Path worktree = validateWorktree(command.worktree(), command.physicalRepository(), command.webBaseUrl(), command.localBranch());
+            String remoteUrl = validateRemote(worktree, command.remote(), command.remoteRepository(), command.webBaseUrl());
             Map<String, String> environment = authenticationEnvironment(command.workspaceId(), remoteUrl);
             requireValidBranch(worktree, command.remoteHeadRef());
             Optional<String> remote = remoteHead(worktree, command.remote(), command.remoteHeadRef(), environment);
@@ -177,14 +177,14 @@ public class CiGitService
                 return CiPushResult.failed(REJECTED, "Local Git fingerprint changed after inspection");
             }
 
-            worktree = validateWorktree(command.worktree(), command.physicalRepository(), command.localBranch());
+            worktree = validateWorktree(command.worktree(), command.physicalRepository(), command.webBaseUrl(), command.localBranch());
             requireCleanAndResolved(worktree);
             head = requiredOutput(worktree, "rev-parse", "HEAD");
             if (!head.equals(journal.localHeadSha())
                     || !fingerprint(worktree, command.localBranch(), head).equals(journal.localFingerprint())) {
                 return CiPushResult.failed(REJECTED, "Local Git history changed immediately before push");
             }
-            validateRemote(worktree, command.remote(), command.remoteRepository());
+            validateRemote(worktree, command.remote(), command.remoteRepository(), command.webBaseUrl());
             boolean descendant = isAncestor(worktree, journal.expectedRemoteSha(), head);
             Result push = runner.run(worktree, TRANSPORT_TIMEOUT, environment,
                     pushArguments(command.remote(), command.remoteHeadRef(), journal.expectedRemoteSha(), journal.localHeadSha(), descendant));
@@ -200,7 +200,7 @@ public class CiGitService
     {
         requireNonNull(command, "command is null");
         try {
-            Path worktree = validateWorktree(command.worktree(), command.repository(), command.localBranch());
+            Path worktree = validateWorktree(command.worktree(), command.repository(), command.webBaseUrl(), command.localBranch());
             // Commits are checked by SHA, so the development task's own edits in a shared checkout cannot fail the check.
             String head = command.remoteHeadSha();
             requireCommit(worktree, head, "pull request head");
@@ -252,7 +252,7 @@ public class CiGitService
         return CiPushResult.failed(REJECTED, "Push retry failed before changing the remote branch");
     }
 
-    private Path validateWorktree(Path requested, RepositoryIdentity repository, String headRef)
+    private Path validateWorktree(Path requested, RepositoryIdentity repository, URI webBaseUrl, String headRef)
     {
         Path worktree;
         try {
@@ -278,7 +278,7 @@ public class CiGitService
         if (!branch.successful() || !branch.output().strip().equals(headRef)) {
             throw problem("Worktree is detached or on another branch");
         }
-        RepositoryIdentity actual = parseRepository(requiredOutput(worktree, "config", "--get", "remote.origin.url"));
+        RepositoryIdentity actual = parseRepository(requiredOutput(worktree, "config", "--get", "remote.origin.url"), webBaseUrl);
         if (!actual.toString().equalsIgnoreCase(repository.toString())) {
             throw problem("Worktree repository does not match the authorized pull request");
         }
@@ -309,7 +309,7 @@ public class CiGitService
 
     /**
      * Returns where the pull request's own commits start. The observed base is the base branch tip, which moves on after the
-     * branch was cut or rebased, so the range starts at the fork point, as GitHub computes it, rather than at that tip.
+     * branch was cut or rebased, so the range starts at the fork point, as the provider computes it, rather than at that tip.
      */
     private String requireLinearRange(Path worktree, String baseSha, String headSha)
     {
@@ -443,7 +443,7 @@ public class CiGitService
                 .build();
     }
 
-    private String validateRemote(Path worktree, String remote, RepositoryIdentity expectedRepository)
+    private String validateRemote(Path worktree, String remote, RepositoryIdentity expectedRepository, URI webBaseUrl)
     {
         String configuredUrl = requiredOutput(worktree, "config", "--get-all", "remote." + remote + ".url");
         Result pushUrls = runner.run(worktree, "config", "--get-all", "remote." + remote + ".pushurl");
@@ -454,7 +454,7 @@ public class CiGitService
             throw problem("Git remote push routing could not be inspected");
         }
         rejectMatchingUrlRewrite(worktree, configuredUrl);
-        RepositoryIdentity actual = parseRepository(configuredUrl);
+        RepositoryIdentity actual = parseRepository(configuredUrl, webBaseUrl);
         if (!actual.toString().equalsIgnoreCase(expectedRepository.toString())) {
             throw problem("Git remote does not match the authorized pull request");
         }
@@ -463,7 +463,7 @@ public class CiGitService
 
     private Map<String, String> authenticationEnvironment(String workspaceId, String remoteUrl)
     {
-        // SSH uses the user's SSH identity; saved GitHub tokens authenticate HTTPS transport only.
+        // SSH uses the user's SSH identity; saved hosting tokens authenticate HTTPS transport only.
         return remoteUrl.regionMatches(true, 0, "https://", 0, "https://".length())
                 ? credentials.gitAuthenticationEnvironment(workspaceId, ImmutableList.of(remoteUrl))
                 : ImmutableMap.of();
@@ -500,28 +500,42 @@ public class CiGitService
         }
     }
 
-    private static RepositoryIdentity parseRepository(String remote)
+    /**
+     * Accepts {@code https://<web base>/<path>(.git)}, where the base may carry a path prefix, and SSH
+     * {@code git@<server host>:<path>} or {@code ssh://git@<server host>/<path>}, which omit that prefix.
+     */
+    private static RepositoryIdentity parseRepository(String remote, URI webBaseUrl)
     {
+        String host = webBaseUrl.getHost();
+        String scp = "git@" + host + ":";
         String path;
-        if (remote.startsWith("git@github.com:")) {
-            path = remote.substring("git@github.com:".length());
+        if (remote.regionMatches(true, 0, scp, 0, scp.length())) {
+            path = remote.substring(scp.length());
         }
         else {
+            URI uri;
             try {
-                URI uri = new URI(remote);
-                if (uri.getHost() == null || !uri.getHost().equalsIgnoreCase("github.com")) {
-                    throw problem("Origin is not a GitHub repository");
-                }
-                String scheme = Optional.ofNullable(uri.getScheme()).orElse("").toLowerCase(Locale.ROOT);
-                String user = uri.getUserInfo();
-                if (!(scheme.equals("https") && user == null)
-                        && !(scheme.equals("ssh") && "git".equals(user))) {
-                    throw problem("Origin URL contains unsupported credentials or transport");
-                }
-                path = uri.getPath();
+                uri = new URI(remote);
             }
             catch (URISyntaxException e) {
                 throw problem("Origin URL is invalid");
+            }
+            if (uri.getHost() == null || !uri.getHost().equalsIgnoreCase(host)) {
+                throw problem("Origin is not on the workspace's hosting server");
+            }
+            if ("ssh".equalsIgnoreCase(uri.getScheme()) && "git".equals(uri.getUserInfo())) {
+                path = uri.getPath();
+            }
+            else if (webBaseUrl.getScheme().equalsIgnoreCase(uri.getScheme()) && uri.getRawUserInfo() == null) {
+                try {
+                    path = HostingUrls.requireWithinBase(uri, webBaseUrl).getPath().substring(webBaseUrl.getPath().length());
+                }
+                catch (IllegalArgumentException e) {
+                    throw problem("Origin is not on the workspace's hosting server");
+                }
+            }
+            else {
+                throw problem("Origin URL contains unsupported credentials or transport");
             }
         }
         path = path.replaceFirst("^/+", "").replaceFirst("\\.git$", "");
@@ -529,7 +543,7 @@ public class CiGitService
             return RepositoryIdentity.valueOf(path);
         }
         catch (IllegalArgumentException e) {
-            throw problem("Origin URL does not identify one GitHub repository");
+            throw problem("Origin URL does not identify one repository");
         }
     }
 

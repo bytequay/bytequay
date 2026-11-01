@@ -26,8 +26,13 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.app.git.GitSequencerDriver;
 import com.bytequay.app.git.command.GitCommandRunner;
+import com.bytequay.app.repository.github.GitHubAccountClient;
+import com.bytequay.app.repository.github.GitHubActionsClient;
+import com.bytequay.app.repository.github.GitHubNotificationClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.GitHubPullRequestContentReader;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
@@ -41,6 +46,11 @@ import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
+import com.bytequay.core.hosting.PullRequestWriter;
 import com.bytequay.core.store.CommitHistoryStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -60,6 +70,7 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -74,6 +85,9 @@ import static com.bytequay.app.git.GitTestSupport.git;
 import static com.bytequay.app.git.GitTestSupport.head;
 import static com.bytequay.app.git.GitTestSupport.initRepository;
 import static com.bytequay.app.git.GitTestSupport.write;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.pullRequests;
+import static com.bytequay.core.hosting.HostingServer.GITHUB_COM;
 import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -107,6 +121,7 @@ class TestMergedPullRequestResolver
     private WorkspaceRepositoryService workspaces;
     private WorkspaceRemoteSourceService remotes;
     private CredentialService credentials;
+    private WorkspaceHostingService hosting;
     private MockRestServiceServer server;
     private GitHubPullRequestReadClient reader;
     private MergedPullRequestResolver resolver;
@@ -133,8 +148,11 @@ class TestMergedPullRequestResolver
         remotes = mock(WorkspaceRemoteSourceService.class);
         when(remotes.list(WORKSPACE)).thenReturn(ImmutableList.of(new WorkspaceRemote("source", SOURCE_URL, Role.CUSTOM), new WorkspaceRemote("origin", TARGET_URL, Role.ORIGIN)));
         credentials = mock(CredentialService.class);
-        when(credentials.resolveGitHubToken(WORKSPACE)).thenReturn("workspace-token");
         when(credentials.gitAuthenticationEnvironment(anyString(), anyCollection())).thenReturn(ImmutableMap.of());
+        hosting = mock(WorkspaceHostingService.class);
+        HostingAccess access = new HostingAccess(new HostingInstance(1, GITHUB_COM.provider(), GITHUB_COM.webBaseUrl(), GITHUB_COM.apiBaseUrl()), "workspace-token");
+        when(hosting.repositoryTarget(WORKSPACE, "internal/p3")).thenReturn(new HostingTarget(access, new HostingRepository(5, 1, "3", "internal/p3",
+                URI.create("https://github.com/internal/p3"), URI.create(SOURCE_URL), Optional.empty(), Optional.of("main"))));
         RestClient.Builder api = RestClient.builder().baseUrl("https://api.github.test");
         server = MockRestServiceServer.bindTo(api).build();
         reader = new GitHubPullRequestReadClient(api.build(), RestClient.create("https://api.github.test/graphql"));
@@ -577,13 +595,16 @@ class TestMergedPullRequestResolver
 
     private MergedPullRequestResolver resolver(GitCommandRunner runner)
     {
-        return new MergedPullRequestResolver(workspaces, remotes, credentials, reader, runner);
+        GitHubPullRequestContentReader contents = new GitHubPullRequestContentReader(reader, mock(GitHubActionsClient.class), mock(GitHubAccountClient.class),
+                mock(GitHubNotificationClient.class), Runnable::run);
+        return new MergedPullRequestResolver(workspaces, remotes, credentials, hosting, integrations(pullRequests(GITHUB_COM.provider(), contents, mock(PullRequestWriter.class))),
+                runner);
     }
 
     private CherryPickPreviewService previews()
     {
         return new CherryPickPreviewService(GIT, new CherryPickConflictScout(GIT), mock(CommitHistoryStore.class),
-                credentials, remotes, Clock.systemUTC(), mock(WorkspaceRelationships.class));
+                credentials, remotes, hosting, Clock.systemUTC(), mock(WorkspaceRelationships.class));
     }
 
     private PreviewCherryPickRangeCommand command(String base, String tip)

@@ -15,7 +15,6 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.config.WriteVersion;
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.AgentModelSetting;
@@ -33,12 +32,11 @@ import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRelationships.Relationship;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
-import com.bytequay.core.domain.GitHubIssuePreview;
+import com.bytequay.core.domain.HostedIssuePreview;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestPage;
 import com.bytequay.core.domain.RemoteSource;
-import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryMetadataSnapshot;
 import com.bytequay.core.domain.Workspace.Topology;
@@ -56,7 +54,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.WebRequest;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Files;
 import java.util.List;
@@ -64,7 +61,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -79,7 +75,6 @@ public class WorkspaceController
     private final WorkspaceMetadataService metadata;
     private final WorkspaceIssueService issues;
     private final ModelSettingsService models;
-    private final CredentialService credentials;
     private final WorkspaceCommitsSettingsService commitsSettings;
     private final IssueDevelopmentService issueDevelopment;
     private final WorkspaceRelationships relationships;
@@ -93,7 +88,6 @@ public class WorkspaceController
             WorkspaceMetadataService metadata,
             WorkspaceIssueService issues,
             ModelSettingsService models,
-            CredentialService credentials,
             WorkspaceCommitsSettingsService commitsSettings,
             IssueDevelopmentService issueDevelopment,
             WorkspaceRelationships relationships,
@@ -106,7 +100,6 @@ public class WorkspaceController
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.issues = requireNonNull(issues, "issues is null");
         this.models = requireNonNull(models, "models is null");
-        this.credentials = requireNonNull(credentials, "credentials is null");
         this.commitsSettings = requireNonNull(commitsSettings, "commitsSettings is null");
         this.issueDevelopment = requireNonNull(issueDevelopment, "issueDevelopment is null");
         this.relationships = requireNonNull(relationships, "relationships is null");
@@ -116,7 +109,7 @@ public class WorkspaceController
     @PostMapping
     public WorkspaceSummary watch(@RequestBody WatchRequest request)
     {
-        return WorkspaceSummary.of(workspaces.watch(new WatchRepositoryCommand(
+        return workspaces.summary(workspaces.watch(new WatchRepositoryCommand(
                 request.selectedRepositoryId(),
                 request.topology(),
                 request.previewFingerprint(),
@@ -157,9 +150,7 @@ public class WorkspaceController
     @GetMapping("/{workspaceId}/pull-requests/merged")
     public List<PullRequest> mergedPullRequests(@PathVariable String workspaceId, @RequestParam(defaultValue = "") String search, @RequestParam(defaultValue = "50") int limit)
     {
-        WorkspaceSummary workspace = workspaces.getWorkspace(workspaceId);
-        checkArgument(workspace.hostingServer() == null, "Use the hosting request list for GitLab workspaces");
-        return pullRequests.listMergedPullRequests(RepoRef.of(workspace.monitoredOwner(), workspace.monitoredRepo()), search, limit);
+        return pullRequests.listMergedPullRequests(workspaceId, search, limit);
     }
 
     @PostMapping("/{workspaceId}/pull-requests/sync")
@@ -188,7 +179,7 @@ public class WorkspaceController
     }
 
     @GetMapping("/{workspaceId}/issues/{issueNumber}/preview")
-    public GitHubIssuePreview issuePreview(@PathVariable String workspaceId, @PathVariable int issueNumber)
+    public HostedIssuePreview issuePreview(@PathVariable String workspaceId, @PathVariable int issueNumber)
     {
         return issues.preview(workspaceId, issueNumber);
     }
@@ -255,13 +246,13 @@ public class WorkspaceController
     @PostMapping("/{workspaceId}/sync")
     public WorkspaceSummary sync(@PathVariable String workspaceId)
     {
-        return WorkspaceSummary.of(workspaces.requestSync(workspaceId));
+        return workspaces.summary(workspaces.requestSync(workspaceId));
     }
 
-    @PutMapping("/{workspaceId}/upstream")
-    public WorkspaceSummary setUpstream(@PathVariable String workspaceId, @RequestBody UpstreamRequest request)
+    @DeleteMapping("/{workspaceId}/upstream")
+    public WorkspaceSummary unlinkUpstream(@PathVariable String workspaceId)
     {
-        return WorkspaceSummary.of(workspaces.setUpstream(workspaceId, Optional.ofNullable(request.upstreamRepositoryId())));
+        return workspaces.summary(workspaces.unlinkUpstream(workspaceId));
     }
 
     @DeleteMapping("/{workspaceId}")
@@ -280,7 +271,7 @@ public class WorkspaceController
     @PatchMapping("/{workspaceId}")
     public WorkspaceSummary rename(@PathVariable String workspaceId, @RequestBody RenameRequest request)
     {
-        return WorkspaceSummary.of(workspaces.rename(workspaceId, request.name()));
+        return workspaces.summary(workspaces.rename(workspaceId, request.name()));
     }
 
     @GetMapping("/{workspaceId}/settings")
@@ -290,7 +281,6 @@ public class WorkspaceController
                 Stream.of(AgentModelType.values())
                         .map(type -> models.agentModel(type, Optional.of(workspaceId)))
                         .collect(toImmutableList()),
-                credentials.workspaceGitHubToken(workspaceId).orElse(null),
                 commitsSettings.get(workspaceId));
     }
 
@@ -369,27 +359,6 @@ public class WorkspaceController
         return models.clearWorkspaceOverride(workspaceId, type);
     }
 
-    @PutMapping("/{workspaceId}/github-token")
-    public Map<String, String> saveGitHubToken(@PathVariable String workspaceId, @RequestBody TokenRequest request)
-    {
-        workspaces.getWorkspace(workspaceId);
-        return ImmutableMap.of("login", credentials.saveWorkspaceGitHubToken(workspaceId, request.value()));
-    }
-
-    @DeleteMapping("/{workspaceId}/github-token")
-    public void deleteGitHubToken(@PathVariable String workspaceId)
-    {
-        credentials.deleteWorkspaceGitHubToken(workspaceId);
-    }
-
-    /** Full workspace token for main-process clipboard copy; the renderer never displays it. */
-    @GetMapping("/{workspaceId}/github-token/value")
-    public Map<String, String> gitHubTokenValue(@PathVariable String workspaceId)
-    {
-        return ImmutableMap.of("value", credentials.workspaceGitHubTokenValue(workspaceId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "No workspace token is stored.")));
-    }
-
     public record DeleteWorkspaceRequest(boolean confirmed, String repositoryName) {}
 
     public record WatchRequest(long selectedRepositoryId, Topology topology, String previewFingerprint, String name, boolean allowForkCreation) {}
@@ -404,18 +373,13 @@ public class WorkspaceController
 
     public record IssueMetadataRequest(List<String> assignees, List<String> labels) {}
 
-    public record UpstreamRequest(Long upstreamRepositoryId) {}
-
     public record RenameRequest(String name) {}
 
     public record AgentModelRequest(String configId, String model, String effort) {}
 
     public record CommitsTargetRequest(String branch) {}
 
-    public record TokenRequest(String value) {}
-
     public record WorkspaceSettingsResponse(
             List<AgentModelSetting> agents,
-            CredentialService.WorkspaceToken githubToken,
             WorkspaceCommitsTarget commitsTarget) {}
 }

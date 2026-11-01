@@ -169,7 +169,7 @@ export function WatchRepositoryConfirmation({ preview, topology, ready, adding, 
 }
 
 export default function AddRepoModal({ defaultProvider = 'GITHUB', initialRepositoryId, initialWorkspace, onAdded, onOpenWorkspace, onClose }: Props) {
-  const [provider, setProvider] = useState<'GITHUB' | 'GITLAB'>(initialWorkspace?.hostingServer?.provider ?? defaultProvider);
+  const [provider, setProvider] = useState<'GITHUB' | 'GITLAB'>(initialWorkspace?.hostingServer.provider ?? defaultProvider);
   const [repos, setRepos] = useState<RepositorySearchResultDto[]>([]);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);

@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.workspace;
 
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
 import com.bytequay.app.service.hosting.HostingReadSession;
@@ -25,17 +24,16 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingAccounts;
-import com.bytequay.core.hosting.HostingCacheTarget;
 import com.bytequay.core.hosting.HostingCredential;
 import com.bytequay.core.hosting.HostingCredential.Source;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
-import com.bytequay.core.hosting.HostingIntegration;
 import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepositories;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.hosting.PullRequestReader;
@@ -58,6 +56,9 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
 
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.connections;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.targeting;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
 import static com.bytequay.core.hosting.HostingProvider.GITHUB;
@@ -88,23 +89,22 @@ class TestWorkspaceHostingService
     private final HostingRepositories repositories = mock(HostingRepositories.class);
     private final PullRequestReader requests = mock(PullRequestReader.class);
     private final HostingConnectionService connections = new HostingConnectionService(identities, credentials,
-            ImmutableList.of(new HostingIntegration(GITHUB, mock(HostingAccounts.class), repositories, requests),
-                    new HostingIntegration(GITLAB, mock(HostingAccounts.class), repositories, requests)), ImmutableList.of());
+            integrations(connections(GITHUB, mock(HostingAccounts.class), repositories, requests),
+                    connections(GITLAB, mock(HostingAccounts.class), repositories, requests)), ImmutableList.of());
     private final HostingPullRequestStore snapshots = mock(HostingPullRequestStore.class);
     private final HostingPullRequestService cache = new HostingPullRequestService(connections, snapshots, identities, Clock.fixed(NOW, ZoneOffset.UTC));
-    private final CredentialService desktop = mock(CredentialService.class);
     private final PullRequestStore legacy = mock(PullRequestStore.class);
-    private final WorkspaceHostingService service = new WorkspaceHostingService(workspaces, identities, connections, cache, desktop,
+    private final WorkspaceHostingService service = new WorkspaceHostingService(workspaces, identities, connections, cache,
             new WorkspacePaths("/tmp/managed-workspaces"), Clock.fixed(NOW, ZoneOffset.UTC), legacy);
 
     @BeforeEach
     void setUp()
     {
-        workspaces.createOrGet(workspace());
+        workspaces.save(workspace());
         when(snapshots.find(anyLong(), anyLong(), anyInt())).thenReturn(Optional.empty());
         when(snapshots.save(anyLong(), anyLong(), any(), any(), any(), any(), any())).thenAnswer(call -> {
             FetchedPullRequest summary = call.getArgument(3);
-            return new HostingPullRequestSnapshot(new HostingPullRequest(50, call.getArgument(1), summary.number(), summary.githubId().toString()),
+            return new HostingPullRequestSnapshot(new HostingPullRequest(50, call.getArgument(1), summary.number()),
                     call.getArgument(0), call.getArgument(2), summary, call.getArgument(4), call.getArgument(5), call.getArgument(6));
         });
         when(identities.findAccount(20)).thenReturn(Optional.of(new HostingAccount(20, 10, "42", "alice")));
@@ -114,7 +114,7 @@ class TestWorkspaceHostingService
         when(identities.upsertRepository(eq(10L), any())).thenAnswer(call -> retained(call.getArgument(1)));
         when(identities.findRepository(30)).thenReturn(Optional.of(retained(remote("100"))));
         when(identities.findRepository(31)).thenReturn(Optional.of(retained(remote("200"))));
-        when(requests.fetch(any(), any(), eq(7), eq(Optional.empty()))).thenReturn(fetched());
+        when(requests.fetch(any(), eq(7), eq(Optional.empty()))).thenReturn(fetched());
     }
 
     @Test
@@ -139,8 +139,7 @@ class TestWorkspaceHostingService
         assertThat(snapshot.accountId()).isEqualTo(20);
         assertThat(snapshot.request().repositoryId()).isEqualTo(31);
         assertThat(snapshot.pullRequest()).isEqualTo(fetched().pullRequest().orElseThrow().withViewerOrigin("alice"));
-        verify(requests).fetch(any(), eq(retained(remote("200"))), eq(7), eq(Optional.empty()));
-        verifyNoInteractions(desktop);
+        verify(requests).fetch(targeting(retained(remote("200"))), eq(7), eq(Optional.empty()));
     }
 
     @Test
@@ -155,72 +154,62 @@ class TestWorkspaceHostingService
         WorkspaceHostingRead route = service.captureRead("workspace");
 
         assertThat(route.repository().id()).isEqualTo(31);
-        assertThat(route.githubRepository()).isEqualTo(RepoRef.of("moved", "project"));
-        assertThat(route.githubToken()).isEqualTo("secret");
-        verifyNoInteractions(desktop);
+        assertThat(route.repositoryRef()).isEqualTo(RepoRef.of("moved", "project"));
+        assertThat(route.session().access().token()).isEqualTo("secret");
     }
 
     @Test
-    void unboundWorkspaceUsesItsCapturedCredentialAndStableRepositoryId()
+    void unboundWorkspaceAsksForAnAccount()
     {
-        when(desktop.captureWorkspaceHostingRead("workspace"))
-                .thenReturn(new HostingReadSession(20, "workspace-override", new HostingAccess(INSTANCE, "workspace-token")));
-
-        WorkspaceHostingRead route = service.captureRead("workspace");
-        HostingPullRequestSnapshot snapshot = service.readPullRequest(route, 7);
-
-        assertThat(route.githubToken()).isEqualTo("workspace-token");
-        assertThat(route.githubRepository()).isEqualTo(RepoRef.of("renamed", "project"));
-        assertThat(route.login()).isEqualTo("alice");
-        assertThat(snapshot.credentialScope()).isEqualTo("workspace-override");
-        verify(repositories).findById(any(), eq("200"));
-        verifyNoInteractions(credentials);
+        assertThatThrownBy(() -> service.captureRead("workspace"))
+                .isInstanceOfSatisfying(WorkspaceException.class, failure -> assertThat(failure.code()).isEqualTo("WORKSPACE_ACCOUNT_REQUIRED"));
+        assertThatThrownBy(() -> service.storedRead("workspace")).isInstanceOf(WorkspaceException.class);
+        assertThatThrownBy(() -> service.repositoryTarget("workspace", "owner/project")).isInstanceOf(WorkspaceException.class);
+        verifyNoInteractions(credentials, repositories);
     }
 
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
-    void readsTheExplicitBindingCacheLocallyAndKeepsGitHubEnrichment(boolean hasProjection)
+    void readsTheExplicitBindingCacheLocallyAndFillsAMissingRow(boolean hasProjection)
     {
         workspaces.bindHosting("workspace", 20, 30, Optional.of(31L));
-        workspaces.saveHostingCacheTarget("workspace", new HostingCacheTarget(21, 32, "old-workspace-scope"));
         FetchedPullRequest summary = fetched().pullRequest().orElseThrow();
         PullRequest github = new PullRequest(12, summary.repo(), summary.number(), "Old title", summary.author(), summary.htmlUrl(), NOW, NOW,
                 OTHER, ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), null, 4, 2, 3, "open", null, null,
                 null, null, null, "topic", NOW, null, null, null);
         when(snapshots.findPage(20, 31, CONNECTED_ACCOUNT, 2, 25)).thenReturn(new PullRequestListPage(ImmutableList.of(summary), true));
-        when(legacy.findIdByRepoAndNumber(summary.repo(), 7)).thenReturn(hasProjection ? Optional.of(12L) : Optional.empty());
-        if (hasProjection) {
-            when(legacy.findById(12)).thenReturn(Optional.of(github));
-        }
-        else {
-            when(legacy.saveObserved(summary)).thenReturn(github);
+        when(legacy.findByHostingRepository(31, 7)).thenReturn(hasProjection ? Optional.of(github) : Optional.empty());
+        if (!hasProjection) {
+            when(legacy.saveHosted(31, summary)).thenReturn(github);
         }
 
         assertThat(service.cachedPullRequests("workspace", 2, 25))
                 .isEqualTo(new WorkspacePullRequestPage(ImmutableList.of(new WorkspacePullRequestRow(summary, github)), true));
         verify(snapshots).findPage(20, 31, CONNECTED_ACCOUNT, 2, 25);
-        verify(legacy, times(hasProjection ? 0 : 1)).saveObserved(summary);
-        verifyNoInteractions(identities, credentials, repositories, requests, desktop);
+        verify(legacy, times(hasProjection ? 0 : 1)).saveHosted(31, summary);
+        verifyNoInteractions(identities, credentials, repositories, requests);
     }
 
     @Test
-    void keepsAnUnboundWorkspacesVerifiedCacheTargetForLocalReads()
+    void storedReadReusesTheVerifiedRepositoryWithoutReadingItAgain()
     {
-        when(desktop.captureWorkspaceHostingRead("workspace"))
-                .thenReturn(new HostingReadSession(20, "github-workspace:workspace", new HostingAccess(INSTANCE, "workspace-token")));
-        service.captureRead("workspace");
-        assertThat(workspaces.findHostingCacheTarget("workspace")).contains(new HostingCacheTarget(20, 31, "github-workspace:workspace"));
-        assertThat(workspaces.findHostingBinding("workspace")).isEmpty();
-        clearInvocations(identities, credentials, repositories, requests, desktop);
-        FetchedPullRequest summary = fetched().pullRequest().orElseThrow();
-        when(snapshots.findPage(20, 31, "github-workspace:workspace", 1, 50)).thenReturn(new PullRequestListPage(ImmutableList.of(summary), false));
+        service.bind("workspace", 20);
+        WorkspaceHostingRead verified = service.captureRead("workspace");
+        clearInvocations(repositories);
 
-        PullRequest projected = projected(summary);
-        when(legacy.findIdByRepoAndNumber(summary.repo(), summary.number())).thenReturn(Optional.of(12L));
-        when(legacy.findById(12L)).thenReturn(Optional.of(projected));
+        assertThat(service.storedRead("workspace")).usingRecursiveComparison().isEqualTo(verified);
+        verifyNoInteractions(repositories);
+    }
 
-        assertThat(service.cachedPullRequests("workspace", 1, 50).items()).containsExactly(new WorkspacePullRequestRow(summary, projected));
-        verifyNoInteractions(identities, credentials, repositories, requests, desktop);
+    @Test
+    void storedReadVerifiesWhenTheBoundRepositoryIsNotStored()
+    {
+        service.bind("workspace", 20);
+        when(identities.findRepository(31)).thenReturn(Optional.empty());
+        clearInvocations(repositories);
+
+        assertThat(service.storedRead("workspace").repository()).isEqualTo(retained(remote("200")));
+        verify(repositories).findById(any(), eq("200"));
     }
 
     @ParameterizedTest
@@ -230,7 +219,7 @@ class TestWorkspaceHostingService
         gitLab("https://git.company.test/gitlab");
         Workspace workspace = service.watch(40, 60, Optional.empty());
         when(credentials.find(40)).thenReturn(Optional.empty());
-        clearInvocations(identities, credentials, repositories, requests, desktop);
+        clearInvocations(identities, credentials, repositories, requests);
         FetchedPullRequest summary = fetched().pullRequest().orElseThrow();
         when(snapshots.findPage(40, 60, CONNECTED_ACCOUNT, 1, 50)).thenReturn(new PullRequestListPage(ImmutableList.of(summary), false));
 
@@ -243,7 +232,7 @@ class TestWorkspaceHostingService
         assertThat(service.cachedPullRequests(workspace.id(), 1, 50).items()).containsExactly(new WorkspacePullRequestRow(summary, projected));
         verify(legacy).findByHostingRepository(60, summary.number());
         verify(legacy, times(hasProjection ? 0 : 1)).saveHosted(60, summary);
-        verifyNoInteractions(identities, credentials, repositories, requests, desktop);
+        verifyNoInteractions(identities, credentials, repositories, requests);
     }
 
     @Test
@@ -251,28 +240,14 @@ class TestWorkspaceHostingService
     {
         gitLab("https://git.company.test/gitlab");
         Workspace workspace = service.watch(40, 60, Optional.empty());
-        workspaces.saveHostingCacheTarget(workspace.id(), new HostingCacheTarget(20, 31, "old-scope"));
         when(credentials.find(40)).thenReturn(Optional.empty());
-        clearInvocations(identities, credentials, repositories, requests, desktop);
+        clearInvocations(identities, credentials, repositories, requests);
         HostingPullRequestSnapshot snapshot = snapshot(40, 60, CONNECTED_ACCOUNT);
         when(snapshots.find(40, 60, 7)).thenReturn(Optional.of(snapshot));
 
         assertThat(service.cachedPullRequest(workspace.id(), 7)).contains(snapshot);
         verify(snapshots).find(40, 60, 7);
-        verifyNoInteractions(identities, credentials, repositories, requests, desktop, legacy);
-    }
-
-    @Test
-    void readsOnlyTheUnboundWorkspacesRetainedCredentialScope()
-    {
-        workspaces.saveHostingCacheTarget("workspace", new HostingCacheTarget(20, 31, "workspace-override"));
-        when(snapshots.find(20, 31, 7)).thenReturn(Optional.of(snapshot(20, 31, CONNECTED_ACCOUNT)));
-        assertThat(service.cachedPullRequest("workspace", 7)).isEmpty();
-
-        HostingPullRequestSnapshot snapshot = snapshot(20, 31, "workspace-override");
-        when(snapshots.find(20, 31, 7)).thenReturn(Optional.of(snapshot));
-        assertThat(service.cachedPullRequest("workspace", 7)).contains(snapshot);
-        verifyNoInteractions(identities, credentials, repositories, requests, desktop, legacy);
+        verifyNoInteractions(identities, credentials, repositories, requests, legacy);
     }
 
     @Test
@@ -286,9 +261,9 @@ class TestWorkspaceHostingService
         assertThat(snapshot.accountId()).isEqualTo(40);
         assertThat(snapshot.request().repositoryId()).isEqualTo(60);
         HostingRepository repository = identities.findRepository(60).orElseThrow();
-        verify(requests).fetch(argThat(access -> access.instanceId().orElseThrow() == 90 && access.token().equals("gitlab-token")),
-                eq(repository), eq(7), eq(Optional.empty()));
-        verifyNoInteractions(desktop, legacy);
+        verify(requests).fetch(argThat(target -> target.access().instanceId().orElseThrow() == 90 && target.access().token().equals("gitlab-token")
+                && target.repository().equals(repository)), eq(7), eq(Optional.empty()));
+        verifyNoInteractions(legacy);
     }
 
     @Test
@@ -300,20 +275,44 @@ class TestWorkspaceHostingService
         assertThatThrownBy(() -> service.cachedPullRequests("workspace", 1, 101)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.cachedPullRequest("workspace", 0)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.readPullRequest("workspace", 0)).isInstanceOf(IllegalArgumentException.class);
-        verifyNoInteractions(identities, credentials, repositories, requests, snapshots, desktop, legacy);
+        verifyNoInteractions(identities, credentials, repositories, requests, snapshots, legacy);
     }
 
     @Test
-    void nativeConsumersRejectOtherServers()
+    void namesANestedRepositoryByItsLastPathSegment()
     {
         HostingInstance other = new HostingInstance(90, GITLAB, URI.create("https://gitlab.com"), URI.create("https://gitlab.com/api/v4"));
         HostingReadSession session = new HostingReadSession(20, "scope", new HostingAccess(other, "secret"));
-        HostingRepository repository = new HostingRepository(30, 90, "42", "group/project", URI.create("https://gitlab.com/group/project"),
-                URI.create("https://gitlab.com/group/project.git"), Optional.empty(), Optional.of("main"));
-        WorkspaceHostingRead route = new WorkspaceHostingRead(session, repository, "alice");
+        HostingRepository repository = new HostingRepository(30, 90, "42", "group/sub/project", URI.create("https://gitlab.com/group/sub/project"),
+                URI.create("https://gitlab.com/group/sub/project.git"), Optional.empty(), Optional.of("main"));
 
-        assertThatThrownBy(route::githubToken).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(route::githubRepository).isInstanceOf(IllegalArgumentException.class);
+        assertThat(new WorkspaceHostingRead(session, repository, "alice").repositoryRef()).isEqualTo(RepoRef.of("group/sub", "project"));
+    }
+
+    @Test
+    void pushTargetIsTheSelectedForkWhileTheRoutingStillMatches()
+    {
+        for (String id : ImmutableList.of("100", "200")) {
+            String path = id.equals("100") ? "old-owner/fork" : "old-owner/project";
+            doReturn(new RemoteHostingRepository(id, path, URI.create("https://github.com/" + path), URI.create("https://github.com/" + path + ".git"), Optional.empty(),
+                    Optional.of("main"))).when(repositories).findById(any(), eq(id));
+        }
+        service.bind("workspace", 20);
+        WorkspaceHostingRead read = service.captureRead("workspace");
+
+        HostingTarget pushed = service.pushTarget("workspace", read);
+
+        assertThat(pushed.repository().fullPath()).isEqualTo("old-owner/fork");
+        assertThat(pushed.access()).isEqualTo(read.session().access());
+    }
+
+    @Test
+    void pushTargetWaitsForASyncAfterARename()
+    {
+        service.bind("workspace", 20);
+        WorkspaceHostingRead read = service.captureRead("workspace");
+
+        assertThatThrownBy(() -> service.pushTarget("workspace", read)).isInstanceOf(WorkspaceException.class).hasMessageContaining("Synchronize the workspace");
     }
 
     @Test
@@ -340,7 +339,7 @@ class TestWorkspaceHostingService
         assertThat(service.findBinding("workspace")).contains(binding);
         assertThatThrownBy(() -> service.readPullRequest("workspace", 7))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(AUTHENTICATION_REQUIRED));
-        verifyNoInteractions(requests, desktop);
+        verifyNoInteractions(requests);
     }
 
     @ParameterizedTest
@@ -354,14 +353,13 @@ class TestWorkspaceHostingService
         assertThat(workspace.name()).isEqualTo("Company project");
         assertThat(workspace.selectedRepositoryId()).isEqualTo(100);
         assertThat(workspace.selectedRepository()).isEqualTo(RepoRef.of("group/subgroup", "project"));
-        assertThat(workspace.hostingServer()).contains(new HostingServer(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl()));
+        assertThat(workspace.server()).isEqualTo(new HostingServer(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl()));
         assertThat(workspace.originCloneUrl()).isEqualTo(base + "/group/subgroup/project.git");
         assertThat(workspace.localRepositoryPath()).isEqualTo("/tmp/managed-workspaces/" + workspace.id() + "/repository");
-        assertThat(workspaces.findBySelectedRepositoryId(100)).contains(workspace());
+        assertThat(workspaces.findBySelectedRepository(HostingServer.GITHUB_COM, 100)).contains(workspace());
         assertThat(workspaces.findBySelectedHostingRepositoryId(60)).contains(workspace);
         assertThat(workspaces.findHostingBinding(workspace.id())).contains(new WorkspaceHostingBinding(workspace.id(), 40, 60, Optional.empty()));
         assertThat(service.captureRead(workspace.id()).session().access().token()).isEqualTo("gitlab-token");
-        verifyNoInteractions(desktop);
     }
 
     @Test
@@ -423,7 +421,7 @@ class TestWorkspaceHostingService
     {
         return new Workspace("workspace", "Project", 100, RepoRef.of("old-owner", "fork"), Optional.of(200L), Optional.of(RepoRef.of("old-owner", "project")),
                 200, RepoRef.of("old-owner", "project"), Workspace.Topology.FORK, "main", "https://github.com/old-owner/fork.git", Optional.of("main"),
-                Optional.of("https://github.com/old-owner/project.git"), "/tmp/retained-workspace", Optional.empty(), Optional.empty(), 0, NOW, NOW);
+                Optional.of("https://github.com/old-owner/project.git"), "/tmp/retained-workspace", Optional.empty(), Optional.empty(), 0, NOW, NOW, HostingServer.GITHUB_COM);
     }
 
     private static RemoteHostingRepository remote(String id)
@@ -459,7 +457,7 @@ class TestWorkspaceHostingService
     private static HostingPullRequestSnapshot snapshot(long accountId, long repositoryId, String scope)
     {
         PullRequestFetch fetched = fetched();
-        return new HostingPullRequestSnapshot(new HostingPullRequest(50, repositoryId, 7, "99"), accountId, scope,
+        return new HostingPullRequestSnapshot(new HostingPullRequest(50, repositoryId, 7), accountId, scope,
                 fetched.pullRequest().orElseThrow(), fetched.detail().orElseThrow(), fetched.etag(), NOW);
     }
 }

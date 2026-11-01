@@ -69,7 +69,7 @@ public final class CiAutofixHttpModels
                         journal.retries())),
                 run.rerunJournal().map(journal -> new RerunJournalResponse(
                         journal.attemptId().toString(),
-                        journal.workflowRunId(),
+                        journal.runId(),
                         journal.headSha(),
                         journal.previousAttempt(),
                         journal.observedAttempt(),
@@ -80,15 +80,14 @@ public final class CiAutofixHttpModels
                 canMessage);
     }
 
-    public static DevelopmentResponse development(CiAutofixRun run, boolean canMessage)
+    public static DevelopmentResponse development(CiAutofixRun run, String pullRequestUrl, boolean canMessage)
     {
         return new DevelopmentResponse(
                 // A development run repairs in its task's checkout, so it has nothing to prepare before CI fails.
                 run.id().toString(), run.agentTaskId(), run.status().name(), activity(run, run.agentTaskId().isPresent() || run.scope().parentTaskId().isPresent()),
                 run.attemptsUsed(), CiAutofixRun.MAX_FIX_ATTEMPTS, run.rerunCounter().used(), run.summary(),
                 run.finishReason().map(Enum::name), run.terminalAt(), run.scope().headRef(), run.expectedRemoteHead(),
-                run.scope().pullRequest().number(), "https://github.com/" + run.scope().pullRequest().repoFullName() + "/pull/" + run.scope().pullRequest().number(),
-                canMessage, run.currentTurnId());
+                run.scope().pullRequest().number(), pullRequestUrl, canMessage, run.currentTurnId());
     }
 
     public record DevelopmentResponse(
@@ -118,8 +117,8 @@ public final class CiAutofixHttpModels
                 attempt.failures().stream().map(failure -> new FailureResponse(
                         failure.signature(),
                         failure.summary(),
-                        failure.workflowRunId(),
-                        failure.workflowAttempt(),
+                        failure.runId(),
+                        failure.runAttempt(),
                         failure.jobId(),
                         failure.jobAttempt())).collect(toImmutableList()),
                 attempt.agentTurnId(),
@@ -234,7 +233,7 @@ public final class CiAutofixHttpModels
 
     record RerunJournalResponse(
             String attemptId,
-            long workflowRunId,
+            long runId,
             String headSha,
             int previousAttempt,
             Optional<Integer> observedAttempt,
@@ -261,8 +260,8 @@ public final class CiAutofixHttpModels
     record FailureResponse(
             String signature,
             String summary,
-            long workflowRunId,
-            int workflowAttempt,
+            long runId,
+            int runAttempt,
             long jobId,
             int jobAttempt) {}
 

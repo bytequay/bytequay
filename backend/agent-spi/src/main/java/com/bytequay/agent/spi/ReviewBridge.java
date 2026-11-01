@@ -96,7 +96,7 @@ public record ReviewBridge(List<ReviewTool> tools, String instruction)
             return Optional.of("Private review experiments must remain uncommitted; leave local review before committing or changing Git history");
         }
         return REMOTE_WRITE.matcher(command).find()
-                ? Optional.of("Review sessions cannot push, write to GitHub, or read credentials; publication is a ByteQuay user action")
+                ? Optional.of("Review sessions cannot push, post to the pull request, or read credentials; publication is a ByteQuay user action")
                 : Optional.empty();
     }
 }

@@ -21,8 +21,9 @@ import { PLACEHOLDER_REVIEW } from '../pulls/PullChanges';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import type { CodeHostRef } from '../pulls/code-tests/contracts';
 import type { CodeCommentsOptions } from '../pulls/code-tests/useCodeComments';
-import type { GitHubCodeSnippetRequest, AgentTaskDto, InlineReviewCommentDto, PullReactionContent, PullRequestDetailDto } from '../types';
+import type { GitHubCodeSnippetRequest, AgentTaskDto, HostingServerDto, InlineReviewCommentDto, PullReactionContent, PullRequestDetailDto } from '../types';
 import type { IdeContext, IdeRequest } from './contracts';
+import { useHostingPresentation } from '../pulls/PullRequestWorkspace';
 import { useFocusBreakSurface } from '../focus/background';
 
 export type IdeSurfaceProps = {
@@ -39,10 +40,10 @@ export type IdeSurfaceProps = {
   startRequested?: boolean;
 };
 
-function contextOf(props: IdeSurfaceProps, findings: ReturnType<typeof useFindingActions>): IdeContext {
+function contextOf(props: IdeSurfaceProps, findings: ReturnType<typeof useFindingActions>, server: HostingServerDto | undefined): IdeContext {
   const { comments } = props;
   return {
-    host: props.host, review: props.review, task: props.task, detail: props.detail ?? null, findingBusy: findings.busy, findingError: findings.error,
+    host: props.host, review: props.review, task: props.task, detail: props.detail ?? null, server, findingBusy: findings.busy, findingError: findings.error,
     comments: comments === undefined ? undefined : {
       repo: comments.repo, number: comments.number, workspaceId: comments.workspaceId, canReview: comments.canReview,
       viewer: comments.viewer, pending: comments.pending, askAgent: comments.onAskAgent !== undefined, openFinding: comments.onOpenFindingInReview !== undefined,
@@ -141,6 +142,9 @@ export default function IdeSurface(props: IdeSurfaceProps) {
   findingActionsRef.current = findingActions;
   const element = useRef<HTMLDivElement>(null);
   const current = useRef(props);
+  const { server } = useHostingPresentation();
+  const serverRef = useRef(server);
+  serverRef.current = server;
   current.current = props;
   const idRef = useRef<string | null>(null);
   const [id, setId] = useState<string | null>(null);
@@ -180,14 +184,14 @@ export default function IdeSurface(props: IdeSurfaceProps) {
       idRef.current = opened;
       setId(opened);
       setNeedsStart(false);
-      void window.ide.update(opened, contextOf(current.current, findingActionsRef.current));
+      void window.ide.update(opened, contextOf(current.current, findingActionsRef.current, serverRef.current));
     }).catch(failure => { if (live) setError(String(failure)); });
     return () => { live = false; };
   }, [attempt, props.active, id, error, startRequested]);
 
   useEffect(() => {
-    if (id) void window.ide.update(id, contextOf(props, findingActions)).catch(failure => setError(String(failure)));
-  }, [id, props, findingActions]);
+    if (id) void window.ide.update(id, contextOf(props, findingActions, server)).catch(failure => setError(String(failure)));
+  }, [id, props, findingActions, server]);
 
   useEffect(() => {
     const target = element.current;

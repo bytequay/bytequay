@@ -20,8 +20,8 @@ import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** An exact description proposal and the facts needed to reconcile its write and replacement workflow. */
-public record CiDescriptionChange(String expectedBody, String body, long workflowId, long previousRunId, Optional<Instant> writeStartedAt, Optional<Instant> appliedAt)
+/** An exact description proposal and the facts needed to reconcile its write and replacement run. */
+public record CiDescriptionChange(String expectedBody, String body, long definitionId, long previousRunId, Optional<Instant> writeStartedAt, Optional<Instant> appliedAt)
 {
     public CiDescriptionChange
     {
@@ -29,7 +29,7 @@ public record CiDescriptionChange(String expectedBody, String body, long workflo
         checkArgument(expectedBody.length() <= 60_000, "expectedBody exceeds 60000 characters");
         checkText(body, "body", 60_000);
         checkArgument(!body.equals(expectedBody), "description is unchanged");
-        checkArgument(workflowId > 0 && previousRunId > 0, "workflow IDs must be positive");
+        checkArgument(definitionId > 0 && previousRunId > 0, "definition and run IDs must be positive");
         requireNonNull(writeStartedAt, "writeStartedAt is null");
         requireNonNull(appliedAt, "appliedAt is null");
         checkArgument(appliedAt.isEmpty() || writeStartedAt.isPresent(), "applied description requires a write journal");
@@ -37,11 +37,11 @@ public record CiDescriptionChange(String expectedBody, String body, long workflo
 
     public CiDescriptionChange startingWrite(Instant now)
     {
-        return new CiDescriptionChange(expectedBody, body, workflowId, previousRunId, Optional.of(now), appliedAt);
+        return new CiDescriptionChange(expectedBody, body, definitionId, previousRunId, Optional.of(now), appliedAt);
     }
 
     public CiDescriptionChange applied(Instant now)
     {
-        return new CiDescriptionChange(expectedBody, body, workflowId, previousRunId, writeStartedAt, Optional.of(now));
+        return new CiDescriptionChange(expectedBody, body, definitionId, previousRunId, writeStartedAt, Optional.of(now));
     }
 }

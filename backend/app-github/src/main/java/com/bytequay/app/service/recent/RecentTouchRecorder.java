@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.service.recent;
 
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RecentItemType;
 import com.bytequay.core.domain.RecentReason;
@@ -21,11 +20,9 @@ import com.bytequay.core.domain.RecentText;
 import com.bytequay.core.domain.RecentTextKind;
 import com.bytequay.core.domain.RecentTouch;
 import com.bytequay.core.domain.RepositoryIssue;
-import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.store.HostingIdentityStore;
-import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.RecentStore;
 import com.bytequay.core.store.RepositoryIssueStore;
@@ -57,30 +54,24 @@ public class RecentTouchRecorder
 
     private final RecentStore recent;
     private final PullRequestStore pullRequests;
-    private final PrDetailStore details;
     private final RepositoryIssueStore issues;
     private final WorkspaceStore workspaces;
     private final HostingIdentityStore hostingIdentities;
-    private final CredentialService credentials;
     private final Clock clock;
 
     public RecentTouchRecorder(
             RecentStore recent,
             PullRequestStore pullRequests,
-            PrDetailStore details,
             RepositoryIssueStore issues,
             WorkspaceStore workspaces,
             HostingIdentityStore hostingIdentities,
-            CredentialService credentials,
             Clock clock)
     {
         this.recent = requireNonNull(recent, "recent is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
-        this.details = requireNonNull(details, "details is null");
         this.issues = requireNonNull(issues, "issues is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.hostingIdentities = requireNonNull(hostingIdentities, "hostingIdentities is null");
-        this.credentials = requireNonNull(credentials, "credentials is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -256,46 +247,19 @@ public class RecentTouchRecorder
     private Optional<RecentItem> pullRequestItem(long prId)
     {
         return pullRequests.findById(prId).map(row -> {
-            var identity = pullRequests.findHostingIdentity(prId);
-            Optional<String> workspaceId = identity.flatMap(request -> workspaces.findAll().stream()
-                    .filter(workspace -> workspaces.findHostingRepositoryId(workspace.id()).filter(id -> id == request.repositoryId()).isPresent())
-                    .map(Workspace::id).findFirst());
-            String key = identity.isPresent() ? "pr:" + prId : RecentItemType.PULL_REQUEST.itemKey(row.repo(), row.number());
-            return new RecentItem(RecentItemType.PULL_REQUEST, key, Optional.of(row.number()), row.title(), Optional.of(row.repo()), workspaceId,
+            Optional<String> workspaceId = workspaces.findByHostingRepositoryId(pullRequests.findHostingIdentity(prId).orElseThrow().repositoryId()).map(Workspace::id);
+            return new RecentItem(RecentItemType.PULL_REQUEST, "pr:" + prId, Optional.of(row.number()), row.title(), Optional.of(row.repo()), workspaceId,
                     Optional.of(row.htmlUrl()), row.origin() == PullRequest.Origin.AUTHORED, Optional.of(prId), Optional.of(row.author()));
         });
     }
 
+    /** The workspace's request when one is named, else the request at that path; a request not stored yet has no entry. */
     private Optional<RecentItem> pullRequestItem(String repo, int number, String workspaceId)
     {
-        if (workspaceId != null) {
-            Optional<RecentItem> hosted = workspaces.findHostingRepositoryId(workspaceId)
-                    .flatMap(id -> pullRequests.findByHostingRepository(id, number)).flatMap(row -> pullRequestItem(row.id()));
-            if (hosted.isPresent()) {
-                return hosted;
-            }
-        }
-        Optional<Long> prId = pullRequests.findIdByRepoAndNumber(repo, number);
-        Optional<StoredPrDetail> detail = prId.flatMap(details::find);
-        String title = detail.map(stored -> stored.raw().title()).filter(value -> value != null && !value.isBlank())
-                .orElse(repo + " #" + number);
-        String htmlUrl = detail.map(stored -> stored.raw().htmlUrl())
-                .orElseGet(() -> "https://github.com/" + repo + "/pull/" + number);
-        boolean mine = detail.map(stored -> stored.raw().author())
-                .flatMap(author -> credentials.cachedLogin().map(author::equalsIgnoreCase))
-                .orElse(false);
-        String author = detail.map(stored -> stored.raw().author()).orElse(null);
-        return Optional.of(new RecentItem(
-                RecentItemType.PULL_REQUEST,
-                RecentItemType.PULL_REQUEST.itemKey(repo, number),
-                Optional.of(number),
-                title,
-                Optional.ofNullable(repo),
-                Optional.ofNullable(workspaceId),
-                Optional.ofNullable(htmlUrl),
-                mine,
-                prId,
-                Optional.ofNullable(author)));
+        return Optional.ofNullable(workspaceId).flatMap(workspaces::findHostingRepositoryId)
+                .flatMap(id -> pullRequests.findByHostingRepository(id, number)).map(PullRequest::id)
+                .or(() -> pullRequests.findIdByRepoAndNumber(repo, number))
+                .flatMap(this::pullRequestItem);
     }
 
     private Optional<RecentItem> issueItem(String workspaceId, int number)
@@ -311,22 +275,17 @@ public class RecentTouchRecorder
         }
         Workspace found = workspace.orElseThrow();
         String repo = found.monitoredRepository().fullName();
-        Optional<Long> accountId = workspaces.findHostingBinding(workspaceId).map(binding -> binding.accountId())
-                .or(() -> workspaces.findHostingCacheTarget(workspaceId).map(target -> target.accountId()));
-        Optional<String> viewer = accountId.flatMap(hostingIdentities::findAccount).map(HostingAccount::login)
-                .or(() -> accountId.isEmpty() && found.isGitHub() ? credentials.cachedLogin() : Optional.empty());
+        Optional<String> viewer = workspaces.findHostingBinding(workspaceId).flatMap(binding -> hostingIdentities.findAccount(binding.accountId()))
+                .map(HostingAccount::login);
         boolean mine = issue.map(RepositoryIssue::author).flatMap(author -> viewer.map(author::equalsIgnoreCase)).orElse(false);
-        String itemKey = found.isGitHub() ? RecentItemType.ISSUE.itemKey(repo, number) : "issue:" + workspaceId + ":" + repo + "#" + number;
-        String fallbackUrl = found.hostingServer().map(server -> server.webBaseUrl() + "/" + repo + "/-/issues/" + number)
-                .orElse("https://github.com/" + repo + "/issues/" + number);
         return Optional.of(new RecentItem(
                 RecentItemType.ISSUE,
-                itemKey,
+                found.issueKey(number),
                 Optional.of(number),
                 issue.map(RepositoryIssue::title).orElseGet(() -> repo + " #" + number),
                 Optional.of(repo),
                 Optional.of(workspaceId),
-                Optional.of(issue.map(RepositoryIssue::htmlUrl).orElse(fallbackUrl)),
+                Optional.of(issue.map(RepositoryIssue::htmlUrl).orElseGet(() -> found.provider().issueUrl(found.server().webBaseUrl(), repo, number).toString())),
                 mine,
                 Optional.empty(),
                 issue.map(RepositoryIssue::author)));

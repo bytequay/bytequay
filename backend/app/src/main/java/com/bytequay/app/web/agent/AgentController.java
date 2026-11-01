@@ -210,7 +210,7 @@ public class AgentController
         AgentMetrics metrics = task.worktreeMutationClaim().isPresent() ? metricsService.taskTotals(task.id()) : task.metrics();
         Optional<CiAutofixHttpModels.DevelopmentResponse> developmentCi = ciRuns.listByParentTaskId(task.id().toString()).stream()
                 .max(comparing(CiAutofixRun::createdAt))
-                .map(run -> CiAutofixHttpModels.development(run, ci.canMessage(run)));
+                .map(run -> CiAutofixHttpModels.development(run, ci.pullRequestUrl(run), ci.canMessage(run)));
         Optional<PullRequest> linked = ownership.linkedPullRequest(task);
         Optional<InteractiveAgentHttpContract.TaskPullRequestResponse> pullRequest = linked
                 .map(pr -> new InteractiveAgentHttpContract.TaskPullRequestResponse(pr.number(), pr.title(), pr.state(), pr.draft()));

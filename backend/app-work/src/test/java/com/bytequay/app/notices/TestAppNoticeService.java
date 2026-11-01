@@ -51,6 +51,7 @@ import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewCommit;
@@ -217,7 +218,7 @@ class TestAppNoticeService
         RepoRef repository = RepoRef.of("owner", "repo");
         when(workspaces.findById("workspace")).thenReturn(Optional.of(new Workspace("workspace", "repo", 1, repository, Optional.empty(), Optional.empty(), 1, repository,
                 Workspace.Topology.DIRECT, "main", "https://github.com/owner/repo.git", Optional.empty(), Optional.empty(), "/tmp/notice-workspace", Optional.of(NOW),
-                Optional.of(NOW), 0, NOW, NOW)));
+                Optional.of(NOW), 0, NOW, NOW, HostingServer.GITHUB_COM)));
 
         assertThat(service.alerts()).singleElement().satisfies(notice -> {
             assertThat(notice.id()).isEqualTo("artifact:question-1");

@@ -252,7 +252,7 @@ class TestCodexCliDriver
                 new AgentLaneId("deepseek-key-123e4567-e89b-12d3-a456-426614174000"), "DeepSeek", () -> Optional.of("fake-key"));
 
         assertThat(driver.capabilities().permissionPolicies())
-                .containsExactly(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX);
+                .containsExactly(AgentPermissionPolicy.values());
     }
 
     @Test
@@ -407,7 +407,7 @@ class TestCodexCliDriver
         resumed.close();
 
         assertThat(driver.capabilities().permissionPolicies())
-                .containsExactly(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX);
+                .containsExactly(AgentPermissionPolicy.values());
         assertThat(driver.capabilities().attachmentMediaTypes())
                 .containsExactlyInAnyOrder("image/png", "image/jpeg", "image/gif", "text/plain", "text/plain; charset=utf-8");
         assertThat(driver.capabilities().nestedAgentActivity()).isTrue();
@@ -486,6 +486,92 @@ class TestCodexCliDriver
             }
         }
         assertThat(supervisor.servers.getLast().resumes.get()).isEqualTo(1);
+    }
+
+    @Test
+    void cherryPickAsksByteQuayBeforeEveryCommandAndAnswersWithTheSharedRule()
+            throws Exception
+    {
+        // A cherry-pick has no task tools: its rule is applied to Codex's own approval requests.
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        List<ProviderApprovalRequest> cards = new CopyOnWriteArrayList<>();
+        AgentApprovalHandler handler = (request, timeout) -> {
+            cards.add(request);
+            return CompletableFuture.completedFuture(ProviderApprovalDecision.allow(Optional.empty()));
+        };
+        AgentSessionContext linked = ciContext(Optional.empty(), handler);
+        AgentSessionContext context = new AgentSessionContext(
+                "cherry-pick-task", linked.worktree(), linked.runtimeDirectory(), linked.providerDirectory(),
+                AgentPermissionPolicy.CHERRY_PICK, Optional.empty(), handler, Optional.empty(), Optional.empty(), SessionAccess.FULL, Optional.empty(), "");
+        try (AgentSession session = driver(supervisor).open(context, event -> {})) {
+            RunningTurn turn = session.start(command("resolve the conflict"));
+            AppServerProcess server = supervisor.servers.getLast();
+            JsonNode thread = server.threadRequests.getFirst();
+            assertThat(thread.path("approvalPolicy").asText()).isEqualTo("untrusted");
+            assertThat(thread.path("approvalsReviewer").asText()).isEqualTo("user");
+            assertThat(thread.path("config").path("web_search").asText()).isEqualTo("disabled");
+            assertThat(thread.path("config").path("features").path("multi_agent").asBoolean()).isFalse();
+            JsonNode request = server.turnRequests.getFirst();
+            assertThat(request.path("approvalPolicy").asText()).isEqualTo("untrusted");
+            assertThat(request.path("approvalsReviewer").asText()).isEqualTo("user");
+            JsonNode sandbox = request.path("sandboxPolicy");
+            assertThat(sandbox.path("writableRoots")).isEqualTo(objectMapper.valueToTree(GitWorktreeWriteRoots.writableRoots(context.worktree())));
+            assertThat(sandbox.path("networkAccess").asBoolean()).isFalse();
+
+            String fixup = "a".repeat(40);
+            Map<Long, String> commands = ImmutableMap.of(
+                    100L, "git commit --fixup=" + fixup,
+                    101L, "/bin/zsh -lc 'git commit --fixup=" + fixup + "'",
+                    102L, "git diff --check",
+                    103L, "git rebase -i HEAD~2",
+                    104L, "git commit --fixup=" + fixup + " && git push",
+                    105L, "git reset --hard HEAD~1");
+            for (Map.Entry<Long, String> command : commands.entrySet()) {
+                server.emit("""
+                        {"id":%d,"method":"item/commandExecution/requestApproval","params":{
+                        "threadId":"thread-1","turnId":"%s","itemId":"exec-%d","command":%s,"startedAtMs":1786884871461}}
+                        """.formatted(command.getKey(), server.activeTurn, command.getKey(), objectMapper.writeValueAsString(command.getValue())));
+            }
+            String inside = context.worktree().resolve("src/Main.java").toString();
+            server.emit("""
+                    {"method":"item/started","params":{"item":{"type":"fileChange","id":"patch-in","status":"inProgress","changes":[
+                    {"path":"%s","kind":{"type":"update","move_path":null},"diff":"-a\\n+b"}]},"threadId":"thread-1","turnId":"%s"}}
+                    """.formatted(inside, server.activeTurn));
+            server.emit("""
+                    {"method":"item/started","params":{"item":{"type":"fileChange","id":"patch-out","status":"inProgress","changes":[
+                    {"path":"%s","kind":{"type":"update","move_path":"/outside/moved.java"},"diff":"-a\\n+b"}]},"threadId":"thread-1","turnId":"%s"}}
+                    """.formatted(inside, server.activeTurn));
+            Map<Long, String> items = ImmutableMap.of(110L, "patch-in", 111L, "patch-out", 112L, "patch-unknown");
+            for (Map.Entry<Long, String> item : items.entrySet()) {
+                server.emit("""
+                        {"id":%d,"method":"item/fileChange/requestApproval","params":{
+                        "threadId":"thread-1","turnId":"%s","itemId":"%s","startedAtMs":1786884871462}}
+                        """.formatted(item.getKey(), server.activeTurn, item.getValue()));
+            }
+            server.emit("""
+                    {"id":113,"method":"item/fileChange/requestApproval","params":{
+                    "threadId":"thread-1","turnId":"%s","itemId":"patch-in","grantRoot":"/tmp","startedAtMs":1786884871463}}
+                    """.formatted(server.activeTurn));
+            server.emit("""
+                    {"id":114,"method":"item/permissions/requestApproval","params":{
+                    "cwd":"/worktree","itemId":"permission-1","permissions":{"network":{"enabled":true}},
+                    "startedAtMs":1786884871464,"threadId":"thread-1","turnId":"%s"}}
+                    """.formatted(server.activeTurn));
+
+            Map<Long, String> expected = ImmutableMap.<Long, String>builder()
+                    .put(100L, "accept").put(101L, "accept").put(102L, "accept")
+                    .put(103L, "decline").put(104L, "decline").put(105L, "decline")
+                    .put(110L, "accept").put(111L, "decline").put(112L, "decline").put(113L, "decline")
+                    .buildOrThrow();
+            awaitCondition(() -> expected.keySet().stream().allMatch(server.results::containsKey) && server.results.containsKey(114L));
+            expected.forEach((id, decision) -> assertThat(server.results.get(id).path("decision").asText()).as("request %s", id).isEqualTo(decision));
+            assertThat(server.results.get(114L).path("permissions").isEmpty()).isTrue();
+            assertThat(server.results.get(114L).has("scope")).isFalse();
+            // A cherry-pick runs unattended: no request became a card.
+            assertThat(cards).isEmpty();
+            server.completeTurn();
+            assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+        }
     }
 
     @Test

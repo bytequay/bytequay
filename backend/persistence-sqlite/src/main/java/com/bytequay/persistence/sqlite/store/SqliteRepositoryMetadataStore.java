@@ -56,13 +56,16 @@ public class SqliteRepositoryMetadataStore
     }
 
     @Override
-    public List<RepositoryContributor> findAllContributors()
+    public List<RepositoryContributor> findPeople(long instanceId)
     {
         Map<Long, RepositoryContributor> byId = new LinkedHashMap<>();
-        repository.findAll().stream()
+        List<RepositoryMetadataEntity> rows = repository.findByInstanceId(instanceId).stream()
                 .sorted(comparing(RepositoryMetadataEntity::getContributorsSyncedAt, nullsFirst(naturalOrder()))
                         .thenComparing(RepositoryMetadataEntity::getRepositoryId))
-                .forEach(value -> value.getContributors().forEach(contributor -> byId.put(contributor.id(), contributor)));
+                .collect(toImmutableList());
+        // Contributors win over assignable users: only they carry an avatar URL.
+        rows.forEach(value -> value.getPickerUsers().forEach(user -> byId.putIfAbsent(user.id(), new RepositoryContributor(user.id(), user.login(), "", user.bot()))));
+        rows.forEach(value -> value.getContributors().forEach(contributor -> byId.put(contributor.id(), contributor)));
         return byId.values().stream()
                 .sorted(comparing(RepositoryContributor::login, String.CASE_INSENSITIVE_ORDER).thenComparingLong(RepositoryContributor::id))
                 .collect(toImmutableList());

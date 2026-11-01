@@ -39,11 +39,16 @@ import java.net.URI;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.locks.ReentrantLock;
 
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.metadata;
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.doAnswer;
@@ -166,7 +171,8 @@ class TestWorkspaceMetadataService
         when(hosting.captureRead(org.mockito.ArgumentMatchers.anyString()))
                 .thenAnswer(invocation -> WorkspaceIssueTestData.route(workspaces.get(invocation.getArgument(0))));
         service = new WorkspaceMetadataService(workspaceStore, metadataStore, hosting,
-                ImmutableList.of(new GitHubIssueClient(gitHub, pullRequests, mock(GitHubPullRequestWriteClient.class))), avatarCache, Clock.fixed(NOW, ZoneOffset.UTC));
+                integrations(metadata(GITHUB, new GitHubIssueClient(gitHub, pullRequests, mock(GitHubPullRequestWriteClient.class)))), avatarCache,
+                Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
@@ -175,15 +181,14 @@ class TestWorkspaceMetadataService
         Workspace gitlab = new Workspace("gitlab", "GitLab project", 100, DIRECT, Optional.empty(), Optional.empty(), 100, DIRECT,
                 Topology.DIRECT, "main", "https://gitlab.com/owner/project.git", Optional.empty(), Optional.empty(), "/tmp/gitlab-project",
                 Optional.empty(), Optional.empty(), 0, NOW, NOW,
-                Optional.of(new HostingServer(GITLAB, URI.create("https://gitlab.com"), URI.create("https://gitlab.com/api/v4"))));
+                new HostingServer(GITLAB, URI.create("https://gitlab.com"), URI.create("https://gitlab.com/api/v4")));
         workspaces.put("gitlab", gitlab);
         var route = WorkspaceIssueTestData.route(gitlab);
         when(hosting.captureRead("gitlab")).thenReturn(route);
         var reader = mock(com.bytequay.core.hosting.RepositoryMetadataReader.class);
-        when(reader.provider()).thenReturn(GITLAB);
-        when(reader.overview(route.session().access(), route.repository())).thenReturn(new com.bytequay.core.hosting.RepositoryOverview("Project", 3,
+        when(reader.overview(route.target())).thenReturn(new com.bytequay.core.hosting.RepositoryOverview("Project", 3,
                 ImmutableList.of("java"), ImmutableMap.of("Java", 100L)));
-        service = new WorkspaceMetadataService(workspaceStore, metadataStore, hosting, ImmutableList.of(reader), avatarCache, Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new WorkspaceMetadataService(workspaceStore, metadataStore, hosting, integrations(metadata(GITLAB, reader)), avatarCache, Clock.fixed(NOW, ZoneOffset.UTC));
 
         service.synchronize("gitlab");
 
@@ -204,10 +209,14 @@ class TestWorkspaceMetadataService
         when(pullRequests.fetchAssignableRepositoryUsers("token", DIRECT))
                 .thenReturn(ImmutableList.of(new GitHubRepositoryUser(
                         3, "alice", "https://avatars.example/alice", false)));
-        when(avatarCache.cache("https://avatars.example/alice")).thenReturn(Optional.of("avatar-key"));
+        when(avatarCache.key("https://avatars.example/alice")).thenReturn("avatar-key");
+        List<Boolean> lockedWhileDownloading = new ArrayList<>();
+        doAnswer(invocation -> lockedWhileDownloading.add(((ReentrantLock) WorkspaceOperationLocks.get("direct")).isHeldByCurrentThread()))
+                .when(avatarCache).cacheAll(List.of("https://avatars.example/alice"));
 
         service.synchronize("direct");
 
+        assertThat(lockedWhileDownloading).containsExactly(false);
         assertThat(service.getSnapshot("direct").contributors()).hasSize(1);
         assertThat(service.getSnapshot("direct").pickerUsers())
                 .containsExactly(new RepositoryPickerUser(3, "alice", Optional.of("avatar-key"), false));
@@ -217,7 +226,7 @@ class TestWorkspaceMetadataService
         verify(gitHub).fetchLabels("token", DIRECT);
         verify(gitHub).fetchOverview("token", DIRECT);
         verify(pullRequests).fetchAssignableRepositoryUsers("token", DIRECT);
-        verify(avatarCache).cache("https://avatars.example/alice");
+        verify(avatarCache).cacheAll(List.of("https://avatars.example/alice"));
     }
 
     @Test
@@ -287,7 +296,8 @@ class TestWorkspaceMetadataService
         assertThat(workspaces.get(fork.id()).lastMetadataSyncAt()).contains(NOW);
         verify(gitHub).fetchOverview("token", UPSTREAM);
         verifyNoMoreInteractions(gitHub);
-        verifyNoInteractions(pullRequests, avatarCache);
+        verifyNoInteractions(pullRequests);
+        verify(avatarCache).cacheAll(ImmutableList.of());
     }
 
     @Test
@@ -319,7 +329,8 @@ class TestWorkspaceMetadataService
         assertThat(snapshots.get(fork.selectedRepositoryId())).isEqualTo(forkSnapshot);
         verify(gitHub).fetchContributors("token", UPSTREAM);
         verifyNoMoreInteractions(gitHub);
-        verifyNoInteractions(pullRequests, avatarCache);
+        verifyNoInteractions(pullRequests);
+        verify(avatarCache).cacheAll(ImmutableList.of());
     }
 
     @Test
@@ -345,7 +356,7 @@ class TestWorkspaceMetadataService
         when(pullRequests.fetchAssignableRepositoryUsers("token", DIRECT))
                 .thenReturn(ImmutableList.of(new GitHubRepositoryUser(
                         3, "alice", "https://avatars.example/alice", false)));
-        when(avatarCache.cache("https://avatars.example/alice")).thenReturn(Optional.of("avatar-key"));
+        when(avatarCache.key("https://avatars.example/alice")).thenReturn("avatar-key");
 
         service.synchronize("direct");
 
@@ -358,7 +369,7 @@ class TestWorkspaceMetadataService
     }
 
     @Test
-    void weeklyRefreshKeepsThePreviousAvatarWhenRedownloadFails()
+    void weeklyRefreshStoresTheNewAvatarKeyAndDownloadsItAfterwards()
     {
         Workspace fresh = workspace("direct", 100, DIRECT, Topology.DIRECT)
                 .withMetadataSyncAt(Optional.of(NOW), NOW);
@@ -380,12 +391,13 @@ class TestWorkspaceMetadataService
         when(pullRequests.fetchAssignableRepositoryUsers("token", DIRECT))
                 .thenReturn(ImmutableList.of(new GitHubRepositoryUser(
                         3, "alice", "https://avatars.example/alice", false)));
-        when(avatarCache.cache("https://avatars.example/alice")).thenReturn(Optional.empty());
+        when(avatarCache.key("https://avatars.example/alice")).thenReturn("new-key");
 
         service.synchronize("direct");
 
         assertThat(service.getSnapshot("direct").pickerUsers())
-                .containsExactly(new RepositoryPickerUser(3, "alice", Optional.of("old-key"), false));
+                .containsExactly(new RepositoryPickerUser(3, "alice", Optional.of("new-key"), false));
+        verify(avatarCache).cacheAll(List.of("https://avatars.example/alice"));
         verify(pullRequests).fetchAssignableRepositoryUsers("token", DIRECT);
         verify(gitHub, never()).fetchContributors("token", DIRECT);
         verify(gitHub, never()).fetchLabels("token", DIRECT);
@@ -458,6 +470,7 @@ class TestWorkspaceMetadataService
                 Optional.empty(),
                 0,
                 NOW,
-                NOW);
+                NOW,
+                HostingServer.GITHUB_COM);
     }
 }

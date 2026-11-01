@@ -56,7 +56,7 @@ describe('the agent review on a development task Summary', () => {
   it('shows a finished review as the same panel the reviewer page shows, without the reviewer’s own explanation', () => {
     const review = reviewFixture();
     const html = section(state(review));
-    expect(html).toContain('Local · never posted to GitHub');
+    expect(html).toContain('Local · never posted');
     expect(html).toContain('>Review again</button>');
     expect(html).toContain('role="tab" aria-selected="true">Findings<span>3</span>');
     // The developer's What changed above already explains the change.

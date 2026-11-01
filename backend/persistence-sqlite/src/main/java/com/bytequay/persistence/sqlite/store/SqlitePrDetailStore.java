@@ -102,7 +102,7 @@ public class SqlitePrDetailStore
     @Override
     public Optional<Instant> findSyncedAt(String repo, int number)
     {
-        return pullRequestRepo.findByRepoIgnoreCaseAndNumber(repo, number)
+        return pullRequestRepo.findByPath(repo, number).stream().findFirst()
                 .map(PullRequestEntity::getId)
                 .flatMap(detailRepo::findSyncedAtByPrId);
     }
@@ -396,7 +396,7 @@ public class SqlitePrDetailStore
         requireNonNull(event, "event is null");
         String eventKey = event.localEventKey()
                 .orElseThrow(() -> new IllegalArgumentException("local timeline event has no event key"));
-        long prId = pullRequestRepo.findByRepoIgnoreCaseAndNumber(pullRequest.repoFullName(), pullRequest.number())
+        long prId = pullRequestRepo.findByPath(pullRequest.repoFullName(), pullRequest.number()).stream().findFirst()
                 .map(PullRequestEntity::getId)
                 .orElseThrow(() -> new IllegalArgumentException("Pull request is not stored: " + pullRequest.fullName()));
         timelineRepo.insertLocalEvent(prId, event.event(), event.actor(), InstantToTextConverter.format(event.timestamp()), event.body(), eventKey);
@@ -495,17 +495,17 @@ public class SqlitePrDetailStore
     }
 
     /**
-     * Reconciles the stored reviews for a PR against the full list GitHub
-     * returned. Matching is on {@code github_id}.
+     * Reconciles the stored reviews for a PR against the full list the provider
+     * returned. Matching is on {@code remote_id}.
      */
     private void saveReviews(long prId, List<PrReviewState> reviews, boolean complete)
     {
         reconcile(
                 reviewRepo,
                 reviewRepo.findByPrId(prId),
-                row -> reviewKey(row.getGithubId(), row.getLogin()),
+                row -> reviewKey(row.getRemoteId(), row.getLogin()),
                 reviews,
-                review -> reviewKey(review.githubId(), review.login()),
+                review -> reviewKey(review.remoteId(), review.login()),
                 (entity, review) -> (entity == null ? new PrReviewEntity() : entity).updateFrom(prId, review),
                 complete);
     }
@@ -518,7 +518,7 @@ public class SqlitePrDetailStore
     /**
      * Counterpart of {@link #saveReviews} for the timeline, matched on
      * {@link #sourceKey}. Locally recorded events are never part of what
-     * GitHub returns, so they are neither rewritten nor swept.
+     * the provider returns, so they are neither rewritten nor swept.
      */
     private void saveTimeline(long prId, List<PrTimelineEvent> events, boolean complete)
     {
@@ -537,9 +537,9 @@ public class SqlitePrDetailStore
     }
 
     /**
-     * Reconciles one PR-scoped detail table against the full list GitHub
+     * Reconciles one PR-scoped detail table against the full list the provider
      * returned: rows keep their identity across refreshes, and when the list
-     * is {@code complete}, rows GitHub no longer reports are swept. A stored
+     * is {@code complete}, rows the provider no longer reports are swept. A stored
      * row with a null or duplicate key cannot be matched and is replaced; an
      * incoming item with a null key always creates a new row.
      */
@@ -574,14 +574,14 @@ public class SqlitePrDetailStore
     }
 
     /**
-     * Stable identity for a timeline event. Most carry a GitHub id, but
+     * Stable identity for a timeline event. Most carry a remote id, but
      * commits, cross-references and the synthetic reactions row do not, so
      * those fall back to the identifier their payload does carry.
      */
     private static String sourceKey(PrTimelineEvent event)
     {
-        if (event.githubId() != null) {
-            return "gh:" + event.githubId();
+        if (event.remoteId() != null) {
+            return "remote:" + event.remoteId();
         }
         if (event.payload().commitSha() != null) {
             return "commit:" + event.payload().commitSha();
@@ -593,15 +593,15 @@ public class SqlitePrDetailStore
     }
 
     /** Counterpart of {@link #saveReviews} for check runs. A re-run reports a
-     *  new {@code github_id}, so superseded runs are swept here. */
+     *  new {@code remote_id}, so superseded runs are swept here. */
     private void saveCheckRuns(long prId, List<PrCheckRunState> checkRuns, boolean complete)
     {
         reconcile(
                 checkRunRepo,
                 checkRunRepo.findByPrId(prId),
-                PrCheckRunEntity::getGithubId,
+                PrCheckRunEntity::getRemoteId,
                 checkRuns,
-                PrCheckRunState::githubId,
+                PrCheckRunState::remoteId,
                 (entity, check) -> (entity == null ? new PrCheckRunEntity() : entity).updateFrom(prId, check),
                 complete);
     }

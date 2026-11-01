@@ -57,7 +57,7 @@ export function gitHubRetryAt(failure: unknown): number | null {
   return Number.isNaN(resetAt) ? null : resetAt;
 }
 
-/** Addresses one pull request the way GitHub does, so a late response can be matched to its row. */
+/** Addresses one pull request the way the provider does, so a late response can be matched to its row. */
 interface PullRequestTarget {
   repo: string;
   number: number;
@@ -72,7 +72,7 @@ export interface PullRequestDetailSource {
   detail: PullRequestDetailDto | null;
   loading: boolean;
   error: string | null;
-  /** Rebuilds the whole snapshot from GitHub — what a refresh control calls. */
+  /** Rebuilds the whole snapshot from the provider — what a refresh control calls. */
   refresh: () => Promise<void>;
   update: PullDetailUpdater;
   replace: (detail: PullRequestDetailDto) => void;
@@ -297,7 +297,7 @@ export function usePullRequestDetail(
     setDetail(next);
   }, []);
 
-  // A write returns the pull request as GitHub now has it, which does not carry the reactions,
+  // A write returns the pull request as the provider now has it, which does not carry the reactions,
   // label edits and thread resolutions this session applied locally. Merging keeps them.
   const replace = useCallback((value: PullRequestDetailDto) => {
     if (pullRequestKey(value) !== currentKey.current) return;

@@ -20,10 +20,10 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
 /**
- * The GitHub comment a private thread is about.
+ * The pull request comment a private thread is about.
  *
- * @param key      kind and GitHub id: review:&lt;id&gt;, review_comment:&lt;id&gt; or issue_comment:&lt;id&gt;;
- *                 GitHub ids are unique only within one resource type
+ * @param key      kind and remote id: review:&lt;id&gt;, review_comment:&lt;id&gt; or issue_comment:&lt;id&gt;;
+ *                 remote ids are unique only within one resource type
  * @param snapshot the untrusted comment JSON, captured when the thread is created and never
  *                 recomputed, so a re-seed reproduces the comment after an edit or deletion
  */

@@ -99,10 +99,10 @@ class TestSqliteCommitHistoryStore
         assertThat(reloaded.findRefreshMetadata("missing")).isEqualTo(CommitRefreshMetadata.empty("missing"));
     }
 
-    private static CommitEnrichment enrichment(long repositoryId, String sha, Optional<Integer> pullRequestNumber, Optional<String> pullRequestTitle)
+    private static CommitEnrichment enrichment(long hostingRepositoryId, String sha, Optional<Integer> pullRequestNumber, Optional<String> pullRequestTitle)
     {
         return new CommitEnrichment(
-                repositoryId,
+                hostingRepositoryId,
                 sha,
                 Optional.of("percy-r"),
                 Optional.of("avatar-key"),

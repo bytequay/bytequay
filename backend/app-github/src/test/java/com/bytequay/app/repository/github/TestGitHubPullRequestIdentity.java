@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.repository.github;
 
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
@@ -50,7 +50,7 @@ class TestGitHubPullRequestIdentity
     {
         server.expect(requestTo("https://api.github.test/repos/acme/project/pulls/7"))
                 .andRespond(withSuccess(row(7, "open", "null", "main").replace("\"draft\":true", "\"draft\":false"), MediaType.APPLICATION_JSON));
-        GitHubPullRequestIdentity identity = client.fetchPullRequestIdentity("token", PullRequestRef.of("acme", "project", 7));
+        PullRequestIdentity identity = client.fetchPullRequestIdentity("token", PullRequestRef.of("acme", "project", 7));
         assertThat(identity.draft()).isFalse();
         assertThat(identity.headSha()).isEqualTo(SHA);
         assertThat(identity.baseRepository()).isEqualTo(BASE);
@@ -65,8 +65,8 @@ class TestGitHubPullRequestIdentity
 
         var identities = client.fetchPullRequestIdentities("token", BASE, HEAD, BRANCH);
 
-        assertThat(identities).extracting(GitHubPullRequestIdentity::state)
-                .containsExactly(GitHubPullRequestIdentity.State.OPEN, GitHubPullRequestIdentity.State.CLOSED, GitHubPullRequestIdentity.State.MERGED);
+        assertThat(identities).extracting(PullRequestIdentity::state)
+                .containsExactly(PullRequestIdentity.State.OPEN, PullRequestIdentity.State.CLOSED, PullRequestIdentity.State.MERGED);
         assertThat(identities).allSatisfy(identity -> {
             assertThat(identity.headRepository()).isEqualTo(HEAD);
             assertThat(identity.baseRepository()).isEqualTo(BASE);

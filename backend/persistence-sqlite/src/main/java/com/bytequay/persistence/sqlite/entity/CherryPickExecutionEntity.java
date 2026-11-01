@@ -115,8 +115,6 @@ public class CherryPickExecutionEntity
 
     private String pushedSha;
 
-    private Long providerPullRequestId;
-
     private Integer providerPullRequestNumber;
 
     private String providerPullRequestUrl;
@@ -213,7 +211,6 @@ public class CherryPickExecutionEntity
         pushedRemote = execution.delivery().map(Delivery::pushRemote).orElse(null);
         pushedHead = execution.delivery().map(Delivery::head).orElse(null);
         pushedSha = execution.delivery().map(Delivery::sha).orElse(null);
-        providerPullRequestId = execution.delivery().flatMap(Delivery::pullRequestId).orElse(null);
         providerPullRequestNumber = execution.delivery().flatMap(Delivery::pullRequestNumber).orElse(null);
         providerPullRequestUrl = execution.delivery().flatMap(Delivery::pullRequestUrl).orElse(null);
         sourceBaseSha = range.sourceBaseSha();
@@ -260,7 +257,6 @@ public class CherryPickExecutionEntity
                         remote,
                         pushedHead,
                         pushedSha,
-                        Optional.ofNullable(providerPullRequestId),
                         Optional.ofNullable(providerPullRequestNumber),
                         Optional.ofNullable(providerPullRequestUrl))),
                 new Range(sourceBaseSha, sourceTipSha, initialTargetSha),

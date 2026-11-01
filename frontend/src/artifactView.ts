@@ -15,7 +15,8 @@ import { ipcMain, protocol, WebContentsView, type BrowserWindow } from 'electron
 // eslint-disable-next-line import/no-unresolved -- Vite inlines the stylesheet's text; the resolver does not know ?raw.
 import theme from './artifacts/theme.css?raw';
 import { browserBounds } from './browserTabs';
-import { parseArtifactTarget, type ArtifactTarget } from './artifacts/contracts';
+import { parseArtifactTarget, type ArtifactReaderTarget, type ArtifactTarget } from './artifacts/contracts';
+import { artifactReader, artifactReaderPage } from './artifacts/reader';
 
 const SCHEME = 'bytequay-artifact';
 
@@ -35,13 +36,13 @@ export function artifactUrl(target: ArtifactTarget): string {
   return `${SCHEME}://${target.artifactId}/${target.workspaceId}/`;
 }
 
-/** Shows one saved page over the Artifacts page; its scripts run, but every request beyond its own document and theme is cancelled. */
+/** Shows the book in one native view; each saved page runs in an opaque-origin sandbox without a bridge. */
 export class ArtifactView {
   private view: WebContentsView | null = null;
   // The page and version this view shows; its HTML is read before loading so a failed read reports the backend's reason.
   private wanted: string | null = null;
   private loading: Promise<void> | undefined;
-  private page: { url: string; html: string } | null = null;
+  private book: { url: string; key: string; target: ArtifactReaderTarget; html: Map<string, Promise<string>> } | null = null;
   private proxied: Promise<void> = Promise.resolve();
   private idle: ReturnType<typeof setTimeout> | undefined;
   private covered: string | null = null;
@@ -59,7 +60,7 @@ export class ArtifactView {
     });
   }
 
-  async show(target: ArtifactTarget | null, bounds: unknown, allowFocusRestore = true): Promise<void> {
+  async show(target: ArtifactReaderTarget | null, bounds: unknown, allowFocusRestore = true): Promise<void> {
     const window = this.window();
     clearTimeout(this.idle);
     if (target === null || !window || window.isDestroyed()) {
@@ -71,7 +72,8 @@ export class ArtifactView {
       return;
     }
     const url = artifactUrl(target);
-    const wanted = `${url} ${target.pageId}`;
+    const key = `${url} ${JSON.stringify(target.pages)}`;
+    const wanted = `${key} ${target.pageId}`;
     if (bounds === null) {
       if (this.covered !== wanted) this.restoreFocus = this.wanted === wanted && this.view?.webContents.isFocused() === true;
       if (!allowFocusRestore) this.restoreFocus = false;
@@ -91,22 +93,44 @@ export class ArtifactView {
     if (restoreFocus && window.isFocused()) view.webContents.focus();
     if (this.wanted === wanted) return this.loading;
     this.wanted = wanted;
+    // A covering dialog can hide the reader during a load; it still has to finish layout before its background is captured.
+    view.webContents.setBackgroundThrottling(false);
     this.loading = (async () => {
       try {
-        const html = await this.readPage(target);
+        const book = this.book?.key === key ? this.book : { url, key, target, html: new Map<string, Promise<string>>() };
+        await this.pageHtml(book, target.pageId);
         // Another page, or a newer save of this one, replaced it while it was read or loaded.
         await this.proxied;
         if (this.wanted !== wanted || this.view !== view) return;
-        this.page = { url, html };
-        await view.webContents.loadURL(url);
+        if (this.book === book) {
+          // The app can jump from a transcript mark without discarding the other pages' interactive state.
+          await view.webContents.executeJavaScript(`new Promise(resolve => {
+            const id = ${JSON.stringify(target.pageId)};
+            const ready = event => { if (event.detail === id) { window.removeEventListener('artifact-ready', ready); resolve(); } };
+            window.addEventListener('artifact-ready', ready);
+            window.dispatchEvent(new CustomEvent('artifact-select', { detail: id }));
+          })`);
+        }
+        else {
+          this.book = book;
+          await view.webContents.loadURL(url);
+        }
       }
       catch (error) {
         if (this.wanted !== wanted || this.view !== view) return;
         this.wanted = null;
+        this.book = null;
         throw error;
       }
     })();
-    return this.loading;
+    const loading = this.loading;
+    const settled = () => {
+      if (this.loading !== loading) return;
+      this.loading = undefined;
+      if (this.view === view && !view.webContents.isDestroyed()) view.webContents.setBackgroundThrottling(true);
+    };
+    void loading.then(settled, settled);
+    return loading;
   }
 
   private create(): WebContentsView {
@@ -128,18 +152,53 @@ export class ArtifactView {
     contents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp');
     contents.setWindowOpenHandler(() => ({ action: 'deny' }));
     contents.on('will-navigate', event => event.preventDefault());
-    contents.on('will-frame-navigate', event => { if (!event.isMainFrame) event.preventDefault(); });
-    contents.on('render-process-gone', () => { this.wanted = null; });
+    contents.on('will-frame-navigate', event => {
+      // Only the app's top-level reader may load a saved version into one of its direct child frames.
+      if (!event.isMainFrame && !(event.initiator === contents.mainFrame && event.frame?.parent === contents.mainFrame
+        && this.book?.target.pages.some(page => event.url === `${this.book?.url}pages/${encodeURIComponent(page.id)}/`))) event.preventDefault();
+    });
+    contents.on('did-navigate-in-page', (_event, address, isMainFrame) => {
+      const book = this.book;
+      if (!isMainFrame || !book || this.view !== view) return;
+      const url = new URL(address);
+      const pageId = url.hash.slice(1);
+      url.hash = '';
+      if (url.href !== book.url || !book.target.pages.some(page => page.id === pageId)) return;
+      const wanted = `${book.key} ${pageId}`;
+      if (this.loading !== undefined && this.wanted !== wanted) return;
+      this.wanted = wanted;
+      this.window()?.webContents.send('artifacts:reading', { workspaceId: book.target.workspaceId, artifactId: book.target.artifactId, pageId });
+    });
+    contents.on('render-process-gone', () => { this.wanted = null; this.book = null; });
     contents.on('destroyed', () => { if (this.view === view) this.closeHidden(); });
     this.view = view;
     return view;
   }
 
-  private serve(request: Request): Response {
+  private pageHtml(book: NonNullable<ArtifactView['book']>, pageId: string): Promise<string> {
+    let html = book.html.get(pageId);
+    if (!html) {
+      html = this.readPage({ ...book.target, pageId }).catch(error => { book.html.delete(pageId); throw error; });
+      book.html.set(pageId, html);
+    }
+    return html;
+  }
+
+  private async serve(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname.endsWith('/theme.css')) return new Response(ARTIFACT_THEME, { headers: { 'Content-Type': 'text/css; charset=utf-8' } });
-    if (this.page === null || url.href !== this.page.url) return new Response('Not found', { status: 404 });
-    return new Response(this.page.html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': POLICY, 'X-DNS-Prefetch-Control': 'off' } });
+    const book = this.book;
+    if (book === null) return new Response('Not found', { status: 404 });
+    const headers = { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': POLICY, 'X-DNS-Prefetch-Control': 'off' };
+    if (url.href === book.url) return new Response(artifactReader(book.target), { headers: { ...headers, 'Content-Security-Policy': `${POLICY}; frame-src 'self'` } });
+    const page = book.target.pages.find(page => url.href === `${book.url}pages/${encodeURIComponent(page.id)}/`);
+    if (!page) return new Response('Not found', { status: 404 });
+    try {
+      return new Response(artifactReaderPage(await this.pageHtml(book, page.id), page.id), { headers });
+    }
+    catch {
+      return new Response(artifactReaderPage('<!doctype html><link rel="stylesheet" href="theme.css"><p role="alert">This page could not be opened.</p><button data-artifact-retry>Try again</button>', page.id), { headers });
+    }
   }
 
   private closeHidden(): void {
@@ -155,7 +214,7 @@ export class ArtifactView {
     this.view = null;
     this.wanted = null;
     this.loading = undefined;
-    this.page = null;
+    this.book = null;
     this.covered = null;
     this.restoreFocus = false;
     if (contents && !contents.isDestroyed()) contents.close();

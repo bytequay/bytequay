@@ -153,6 +153,15 @@
   border-radius: 4px;
 }
 
+/* A status as a round mark, such as a step on a route. */
+.pill.is-dot {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 50%;
+}
+
 .pill.is-struck {
   text-decoration: line-through;
   text-decoration-color: light-dark(rgba(87, 96, 106, 0.5), rgb(210 220 235 / 50%));

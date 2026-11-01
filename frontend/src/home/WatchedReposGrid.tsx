@@ -91,8 +91,8 @@ function WatchedReposGrid({ workspaces, loading, onOpenWorkspace, onWatch }: Pro
                 }}
               >
                 <div className="home-repo-tile__head">
-                  <HostMark gitlab={workspace.hostingServer?.provider === 'GITLAB'} />
-                  <RepoAvatar github={workspace.hostingServer?.provider !== 'GITLAB'}
+                  <HostMark gitlab={workspace.hostingServer.provider === 'GITLAB'} />
+                  <RepoAvatar github={workspace.hostingServer.provider !== 'GITLAB'}
                     owner={workspace.monitoredOwner}
                     repo={workspace.monitoredRepo}
                     size={18}

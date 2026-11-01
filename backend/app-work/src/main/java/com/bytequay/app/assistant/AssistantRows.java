@@ -81,7 +81,7 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Reads the items the assistant names from what ByteQuay stores: the rows of the lists it showed, and what a search finds among pull
- * requests, repository issues, cached Jira tickets, tasks, work items and Epics. No GitHub, Jira or provider request is made here.
+ * requests, repository issues, cached Jira tickets, tasks, work items and Epics. No hosting, Jira or provider request is made here.
  */
 @Component
 class AssistantRows
@@ -203,10 +203,8 @@ class AssistantRows
     {
         return switch (AgendaRefs.kind(ref)) {
             case "pr" -> AgendaRefs.numbered(ref).flatMap(number -> pullRequests.findIdByRepoAndNumber(number.repo(), number.number())).flatMap(pullRequests::findById)
-                    .map(pr -> pullRequest(pr, shared));
-            case "issue" -> AgendaRefs.numbered(ref).flatMap(number -> number.workspaceId().flatMap(workspaces::findById)
-                    .or(() -> number.workspaceId().isPresent() ? Optional.empty() : workspace(shared.watched.get(), number.repo()))
-                    .filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(number.repo()))
+                    .map(this::pullRequest);
+            case "issue" -> AgendaRefs.numbered(ref).flatMap(number -> AgendaRefs.issueWorkspace(number, workspaces)
                     .flatMap(workspace -> issues.find(workspaces, workspace, number.number()).map(issue -> issue(workspace, issue))));
             case "jira" -> Optional.of(Splitter.on(':').limit(2).splitToList(AgendaRefs.id(ref))).filter(parts -> parts.size() == 2)
                     .flatMap(parts -> jira.cachedIssue(parts.get(0), parts.get(1))).map(this::ticket);
@@ -218,7 +216,7 @@ class AssistantRows
         };
     }
 
-    private AssistantRow pullRequest(PullRequest pr, Shared shared)
+    private AssistantRow pullRequest(PullRequest pr)
     {
         Optional<String> viewer = credentials.cachedLogin();
         Optional<StoredPrDetail> detail = details.find(pr.id());
@@ -232,7 +230,7 @@ class AssistantRows
                 Optional.ofNullable(pr.ciStatus()).filter(ci -> ci != PullRequestDetail.CiStatus.NONE).map(ci -> lower(ci.name())),
                 Optional.ofNullable(pr.reviewDecision()).map(AssistantRows::lower), approvals, pr.mine(viewer), pr.mergeBlocked(), youApproved,
                 detail.map(stored -> stored.raw().headSha()), Optional.empty(), Optional.empty(),
-                Optional.empty(), Optional.empty(), at(pr), latest, AgendaTarget.pull(pr.repo(), pr.number(), workspace(shared.watched.get(), pr.repo()).map(Workspace::id)));
+                Optional.empty(), Optional.empty(), at(pr), latest, AgendaTarget.pull(pr.id(), pr.repo(), pr.number(), workspace(pr)));
     }
 
     private static Latest latest(PrActivitySummary activity, Optional<String> viewer)
@@ -271,7 +269,7 @@ class AssistantRows
     {
         String repo = workspace.monitoredRepository().fullName();
         // The store keeps a repository's open issues only.
-        return new AssistantRow(AgendaRefs.issue(workspace, repo, issue.number()), Kind.ISSUE, issue.title(), Optional.of("#" + issue.number()),
+        return new AssistantRow(AgendaRefs.issue(workspace, issue.number()), Kind.ISSUE, issue.title(), Optional.of("#" + issue.number()),
                 Optional.of("open"), Optional.empty(),
                 Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.of(issue.updatedAt()), Optional.empty(), AgendaTarget.issue(repo, issue.number(), workspace.id()));
@@ -342,16 +340,14 @@ class AssistantRows
     }
 
     /**
-     * The key Needs attention keeps an item's mark under: a pull request or an issue by its repository as the list spells it, which a
-     * ref's lowercase may not match, and a ticket or a task by its ref. Empty for anything else, or a pull request ByteQuay does not have.
+     * The key Needs attention keeps an item's mark under, as the list builds it: a pull request by its row, an issue by its workspace's key,
+     * and a ticket or a task by its ref. Empty for anything else, or an item ByteQuay does not have.
      */
     Optional<String> attentionKey(String ref)
     {
         return switch (AgendaRefs.kind(ref)) {
-            case "pr" -> AgendaRefs.numbered(ref).flatMap(number -> pullRequests.findIdByRepoAndNumber(number.repo(), number.number())).flatMap(pullRequests::findById)
-                    .map(pr -> pr.repo() + "#" + pr.number());
-            case "issue" -> AgendaRefs.numbered(ref).flatMap(number -> workspace(workspaces.findAll(), number.repo())
-                    .map(workspace -> workspace.monitoredRepository().fullName() + "#" + number.number()));
+            case "pr" -> AgendaRefs.numbered(ref).flatMap(number -> pullRequests.findIdByRepoAndNumber(number.repo(), number.number())).map(id -> "pr:" + id);
+            case "issue" -> AgendaRefs.numbered(ref).flatMap(number -> AgendaRefs.issueWorkspace(number, workspaces).map(workspace -> workspace.issueKey(number.number())));
             case "jira", "task" -> Optional.of(ref);
             default -> Optional.empty();
         };
@@ -406,7 +402,7 @@ class AssistantRows
             boolean exact = number.filter(value -> value == pr.number()).isPresent();
             if (exact || matches(pr.title(), words)) {
                 add(found, new Found(AgendaRefs.pull(pr.repo(), pr.number()), pr.title(), Optional.of(state(pr)), at(pr),
-                        AgendaTarget.pull(pr.repo(), pr.number(), workspace(watched, pr.repo()).map(Workspace::id)), exact));
+                        AgendaTarget.pull(pr.id(), pr.repo(), pr.number(), workspace(pr)), exact));
             }
         }
         for (Workspace workspace : watched) {
@@ -472,7 +468,7 @@ class AssistantRows
     private static Found found(Workspace workspace, String repo, RepositoryIssue issue, boolean exact)
     {
         // The store keeps a repository's open issues only.
-        return new Found(AgendaRefs.issue(workspace, repo, issue.number()), issue.title(), Optional.of("open"), Optional.of(issue.updatedAt()),
+        return new Found(AgendaRefs.issue(workspace, issue.number()), issue.title(), Optional.of("open"), Optional.of(issue.updatedAt()),
                 AgendaTarget.issue(repo, issue.number(), workspace.id()), exact);
     }
 
@@ -509,9 +505,10 @@ class AssistantRows
         return Optional.ofNullable(pr.activityAt()).or(() -> Optional.ofNullable(pr.updatedAt()));
     }
 
-    private static Optional<Workspace> workspace(List<Workspace> watched, String repo)
+    /** The workspace on the request's repository, a watched one first. */
+    private Optional<String> workspace(PullRequest pr)
     {
-        return watched.stream().filter(Workspace::isGitHub).filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(repo)).findFirst();
+        return pullRequests.findHostingIdentity(pr.id()).flatMap(identity -> workspaces.findByHostingRepositoryId(identity.repositoryId())).map(Workspace::id);
     }
 
     static Optional<TaskId> taskId(String id)

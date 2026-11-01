@@ -19,7 +19,7 @@ import { AgentSetupNotice, useAgentAvailability } from '../agents/availability';
 import type { EpicDraftDto, EpicDraftMessage, UnifiedWorkItem } from '../workitems/contracts';
 import { notifyJiraChanged } from '../jira/contracts';
 import MarkdownBody from '../pulls/MarkdownBody';
-import { useHostingPresentation } from '../pulls/PullRequestWorkspace';
+import { useProviderName } from '../pulls/PullRequestWorkspace';
 import { useModalDialog } from '../useModalDialog';
 import { createLocalEpic, ticketEpicId } from './epics';
 import { notifyIssueDevelopmentChanged } from './issueDevelopment';
@@ -27,7 +27,7 @@ import '../css/confirm-dialog.css';
 import '../css/create-epic.css';
 
 type Mode = 'talk' | 'manual';
-type Source = 'LOCAL' | 'GITHUB' | 'JIRA';
+type Source = 'LOCAL' | 'ISSUE' | 'JIRA';
 /** A Local item opens by its id; a marked issue or ticket by its Epic identity, when the catalog named it by one. */
 export type CreatedEpic = { kind: 'local'; itemId: string } | { kind: 'remote'; epicId: string | null };
 
@@ -51,8 +51,7 @@ export default function CreateEpicDialog({ workspaceId, marked, jiraConnected, o
   onClose: () => void;
   onCreated: (created: CreatedEpic) => void;
 }) {
-  const { server } = useHostingPresentation();
-  const issueProvider = server?.provider === 'GITLAB' ? 'GitLab' : 'GitHub';
+  const issueProvider = useProviderName();
   const dialog = useModalDialog();
   // Opening a modal moves focus to the dialog itself, away from the field its first view focused while mounting.
   useEffect(() => { dialog.current?.querySelector<HTMLElement>('textarea, input')?.focus(); }, [dialog]);
@@ -85,7 +84,7 @@ export default function CreateEpicDialog({ workspaceId, marked, jiraConnected, o
     setCreating(true);
     setError(null);
     try {
-      if (item.source === 'GITHUB') {
+      if (item.source === 'ISSUE') {
         const number = Number(key.slice(key.lastIndexOf('#') + 1));
         await window.bridge.setWorkspaceIssueEpic(workspaceId, number, true);
         notifyIssueDevelopmentChanged();
@@ -107,7 +106,7 @@ export default function CreateEpicDialog({ workspaceId, marked, jiraConnected, o
     }
   };
 
-  const sources: [Source, string][] = [['LOCAL', 'Local'], ['GITHUB', `${issueProvider} issue`], ...(jiraConnected ? [['JIRA', 'Jira ticket'] as [Source, string]] : [])];
+  const sources: [Source, string][] = [['LOCAL', 'Local'], ['ISSUE', `${issueProvider} issue`], ...(jiraConnected ? [['JIRA', 'Jira ticket'] as [Source, string]] : [])];
   return (
     <dialog ref={dialog} className="bq-confirm-dialog create-epic" aria-labelledby={titleId} aria-modal="true" aria-busy={creating}
       onCancel={(event) => {
@@ -279,7 +278,7 @@ function LocalForm({ fields, busy, onChange, onSubmit }: { fields: EpicDraftDto;
 function Picker({ workspaceId, issueProvider, source, marked, busy, onPick }: {
   workspaceId: string;
   issueProvider: string;
-  source: 'GITHUB' | 'JIRA';
+  source: 'ISSUE' | 'JIRA';
   marked: ReadonlySet<string>;
   busy: boolean;
   onPick: (item: UnifiedWorkItem) => void;
@@ -296,7 +295,7 @@ function Picker({ workspaceId, issueProvider, source, marked, busy, onPick }: {
   const words = query.trim().toLowerCase();
   const found = (items ?? []).filter((item) => item.source === source && !item.closed && item.reference !== null && !marked.has(item.id)
     && item.work?.isEpic !== true && !item.work?.epicId && (words === '' || `${item.reference.label} ${item.title}`.toLowerCase().includes(words)));
-  const issue = source === 'GITHUB';
+  const issue = source === 'ISSUE';
   return (
     <div className="create-epic__picker">
       <label className="create-epic__search">

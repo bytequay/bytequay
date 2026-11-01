@@ -15,7 +15,8 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import '../../index.css';
 import AttentionList from '../AttentionList';
-import type { AttentionItem } from '../attention';
+import { pullRequestItem, type AttentionItem } from '../attention';
+import { pr } from '../../pulls/fixtures/pullRequest';
 import TodayList from '../TodayList';
 import { todayKeys, type TodayScope } from '../today';
 import type { TodayAgenda } from '../useTodayAgenda';
@@ -42,17 +43,17 @@ const ITEMS: AgendaItemDto[] = [
   },
   {
     ref: 'pr:owner/repository#31377', action: 'review', title: 'Review #31377 Add Iceberg metadata cache', label: 'Review #31377', at: '2026-10-13T08:00:00Z',
-    workspaceId: 'ws1', why: 'Asked 3 days ago. 134 lines, CI green; fits your 12:30 gap.', target: target('PULL', { repo: 'owner/repository', number: 31377 }),
+    workspaceId: 'ws1', why: 'Asked 3 days ago. 134 lines, CI green; fits your 12:30 gap.', target: target('PULL', { repo: 'owner/repository', number: 31377, id: '31377' }),
     where: null, status: 'open', byYou: false, doneText: null, doneAt: null,
   },
   {
     ref: 'pr:owner/gateway#612', action: 'merge', title: 'Merge #612 Route by client tags', label: 'Merge #612', at: '2026-10-14T10:00:00Z', workspaceId: null,
-    why: 'Approved by finn-ep, green and mergeable since Wednesday.', target: target('PULL', { repo: 'owner/gateway', number: 612, workspaceId: null }),
+    why: 'Approved by finn-ep, green and mergeable since Wednesday.', target: target('PULL', { repo: 'owner/gateway', number: 612, id: '612', workspaceId: null }),
     where: null, status: 'open', byYou: false, doneText: null, doneAt: null,
   },
   {
     ref: 'pr:owner/repository#31390', action: 'fix', title: 'Fix maven-checks on #31390', label: 'maven-checks', at: '2026-10-15T09:00:00Z', workspaceId: 'ws1',
-    why: 'maven-checks failed on your last push.', target: target('PULL', { repo: 'owner/repository', number: 31390 }),
+    why: 'maven-checks failed on your last push.', target: target('PULL', { repo: 'owner/repository', number: 31390, id: '31390' }),
     where: null, status: 'done', byYou: false, doneText: 'Checks passed', doneAt: null,
   },
 ];
@@ -63,20 +64,19 @@ const AGENDA: AgendaDto = {
   items: ITEMS,
   recap: {
     text: 'Merged 3 PRs. Iceberg write path is half done. #31377 has waited all week.',
-    merged: [{ ref: 'pr:owner/repository#31390', target: target('PULL', { repo: 'owner/repository', number: 31390 }) },
-      { ref: 'pr:owner/gateway#605', target: target('PULL', { repo: 'owner/gateway', number: 605 }) }],
-    slipped: [{ ref: 'pr:owner/repository#31377', target: target('PULL', { repo: 'owner/repository', number: 31377 }) }],
+    merged: [{ ref: 'pr:owner/repository#31390', target: target('PULL', { repo: 'owner/repository', number: 31390, id: '31390' }) },
+      { ref: 'pr:owner/gateway#605', target: target('PULL', { repo: 'owner/gateway', number: 605, id: '605' }) }],
+    slipped: [{ ref: 'pr:owner/repository#31377', target: target('PULL', { repo: 'owner/repository', number: 31377, id: '31377' }) }],
   },
   calendar: { state: 'used', busyHours: 5.5, allDay: false, busy: [{ from: '10:00', to: '12:30' }, { from: '15:00', to: '18:00' }],
     free: [{ from: '09:00', to: '10:00' }, { from: '12:30', to: '15:00' }] },
   failure: null,
 };
 
-const ATTENTION: AttentionItem[] = [31377, 31411].map((number): AttentionItem => ({
-  key: `owner/repository#${number}`, sourceKey: `github.com:issue:${number}`, type: 'issue', kind: 'assigned', repo: 'owner/repository', number,
-  title: number === 31377 ? 'Add Iceberg metadata cache' : 'Snapshot expiry ignores branch retention', author: 'marlo-t', authorAvatarUrl: null,
-  createdAt: '2026-10-10T00:00:00Z', updatedAt: '2026-10-15T00:00:00Z', labels: [], pr: null, body: '', commentCount: 0, workspaceId: 'ws1',
-}));
+const ATTENTION: AttentionItem[] = [31377, 31411].map(number => pullRequestItem(pr({
+  id: number, repo: 'owner/repository', number, title: number === 31377 ? 'Add Iceberg metadata cache' : 'Snapshot expiry ignores branch retention',
+  author: 'marlo-t', createdAt: '2026-10-10T00:00:00Z', updatedAt: '2026-10-15T00:00:00Z',
+}), 'assigned', 'ws1'));
 
 type Mounted = { host: HTMLElement; marks: [string, string | null][]; starts: string[]; render: (agenda: AgendaDto) => void; dispose: () => void };
 

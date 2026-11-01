@@ -22,7 +22,7 @@ import '../../css/base.css';
 
 const workspace = workspaceFixture({
   id: 'repository', name: 'Repository', selectedOwner: 'owner', selectedRepo: 'repository', monitoredOwner: 'owner', monitoredRepo: 'repository',
-  selectedRepositoryId: 1, monitoredRepositoryId: 1, localRepositoryPath: '/managed/repository',
+  selectedRepositoryId: 1, monitoredRepositoryId: 1, hostingServer: { provider: 'GITHUB', webBaseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' }, localRepositoryPath: '/managed/repository',
 });
 const page: MemoryPageDto = {
   memories: Array.from({ length: 18 }, (_, index): MemoryDto => ({

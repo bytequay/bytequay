@@ -15,13 +15,18 @@ package com.bytequay.app.service.pr;
 
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.git.command.GitCommandRunner.Result;
-import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.HostingConnectionService;
+import com.bytequay.app.service.hosting.HostingIntegrations;
+import com.bytequay.app.service.hosting.HostingReadSession;
+import com.bytequay.app.workspace.WorkspaceHostingRead;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
-import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.springframework.http.HttpStatus;
@@ -33,7 +38,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
-import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
 import static java.util.Objects.requireNonNull;
 
 @Service
@@ -41,45 +45,50 @@ public class PullRequestConflictService
 {
     private final WorkspaceStore workspaces;
     private final WorkspaceRepositoryService repositories;
-    private final GitHubPullRequestReadClient github;
+    private final WorkspaceHostingService hosting;
+    private final HostingConnectionService connections;
+    private final HostingIntegrations integrations;
     private final CredentialService credentials;
     private final GitCommandRunner git;
 
-    public PullRequestConflictService(WorkspaceStore workspaces, WorkspaceRepositoryService repositories,
-            GitHubPullRequestReadClient github, CredentialService credentials, GitCommandRunner git)
+    public PullRequestConflictService(WorkspaceStore workspaces, WorkspaceRepositoryService repositories, WorkspaceHostingService hosting,
+            HostingConnectionService connections, HostingIntegrations integrations, CredentialService credentials, GitCommandRunner git)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.repositories = requireNonNull(repositories, "repositories is null");
-        this.github = requireNonNull(github, "github is null");
+        this.hosting = requireNonNull(hosting, "hosting is null");
+        this.connections = requireNonNull(connections, "connections is null");
+        this.integrations = requireNonNull(integrations, "integrations is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.git = requireNonNull(git, "git is null");
     }
 
-    public PullRequestConflicts read(String repo, int number)
+    public PullRequestConflicts read(PullRequestRoute route, String repo, int number)
     {
-        var pullRequest = parseRef(repo, number);
-        RepoRef requested = RepoRef.of(pullRequest.owner(), pullRequest.repo());
-        var workspace = workspaces.findAll().stream().filter(Workspace::isGitHub)
-                .filter(value -> value.monitoredRepository().fullName().equalsIgnoreCase(requested.fullName())
-                        || value.selectedRepository().fullName().equalsIgnoreCase(requested.fullName()))
-                .findFirst()
+        Workspace workspace = route.workspaceId()
+                .map(id -> workspaces.findById(id)
+                        .filter(value -> value.monitoredRepository().fullName().equalsIgnoreCase(repo) || value.selectedRepository().fullName().equalsIgnoreCase(repo)))
+                // Outside a workspace, the watched workspace on the request's repository holds the clone to compare in.
+                .orElseGet(() -> connections.findRepository(session(route), repo).flatMap(repository -> workspaces.findByHostingRepositoryId(repository.id()))
+                        .filter(found -> workspaces.isWatched(found.id())))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Watch repository to list conflicted files"));
         return WorkspaceOperationLocks.withLock(workspace.id(), () -> {
             var local = repositories.requireLocalRepository(workspace.id());
-            RepoRef canonical = workspace.monitoredRepository().fullName().equalsIgnoreCase(requested.fullName())
-                    ? workspace.monitoredRepository() : workspace.selectedRepository();
-            GitHubPullRequestIdentity identity = github.fetchPullRequestIdentity(credentials.resolveGitHubToken(workspace.id()), parseRef(canonical.fullName(), number));
-            if (identity.state() != GitHubPullRequestIdentity.State.OPEN) {
+            WorkspaceHostingRead read = hosting.captureRead(workspace.id());
+            HostingRepository repository = read.repository().fullPath().equalsIgnoreCase(repo) ? read.repository() : connections.resolveRepository(read.session(), repo);
+            HostingTarget hosted = new HostingTarget(read.session().access(), repository);
+            PullRequestIdentity identity = integrations.of(hosted).contents().identity(hosted, number);
+            if (identity.state() != PullRequestIdentity.State.OPEN) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "This pull request is no longer open. Refresh the pull request.");
             }
-            if (!identity.baseRepository().fullName().equalsIgnoreCase(requested.fullName()) || !sha(identity.headSha())) {
-                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned an invalid pull-request comparison.");
+            if (!identity.baseRepository().fullName().equalsIgnoreCase(repository.fullPath()) || !sha(identity.headSha())) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "The hosting provider returned an invalid pull-request comparison.");
             }
             Result shallow = git.run(local.repository(), "rev-parse", "--is-shallow-repository");
             if (!shallow.successful() || shallow.truncated() || !shallow.output().strip().equals("false")) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "Complete repository history is required to list conflicted files.");
             }
-            String url = "https://github.com/" + canonical.fullName() + ".git";
+            String url = repository.httpCloneUrl().toASCIIString();
             Map<String, String> authentication = credentials.gitAuthenticationEnvironment(workspace.id(), ImmutableList.of(url));
             // The PR's base SHA can lag behind the current target branch.
             String baseRef = "refs/heads/" + identity.baseBranch();
@@ -100,6 +109,11 @@ public class PullRequestConflictService
                     target[0], identity.headSha());
             return new PullRequestConflicts(identity.baseBranch(), conflictPaths(merged));
         });
+    }
+
+    private HostingReadSession session(PullRequestRoute route)
+    {
+        return route.accountId().isPresent() ? connections.readSession(route.accountId().getAsLong()) : credentials.captureHostingRead();
     }
 
     static List<String> conflictPaths(Result result)

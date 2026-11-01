@@ -42,45 +42,45 @@ public class TeamController
     }
 
     @GetMapping
-    public TeamDirectory directory()
+    public List<TeamDirectory> directories()
     {
-        return teams.directory();
+        return teams.directories();
     }
 
-    @GetMapping("/contributors")
-    public List<RepositoryContributor> contributors()
+    @GetMapping("/{accountId}/contributors")
+    public List<RepositoryContributor> contributors(@PathVariable long accountId)
     {
-        return teams.contributors();
+        return teams.contributors(accountId);
     }
 
-    @PostMapping
-    public TeamDirectory create(@RequestBody CircleRequest request)
+    @PostMapping("/{accountId}/circles")
+    public TeamDirectory create(@PathVariable long accountId, @RequestBody CircleRequest request)
     {
-        return teams.create(request.name(), request.description(), request.avatar(), request.repositories(), request.members());
+        return teams.create(accountId, request.name(), request.description(), request.avatar(), request.repositories(), request.members());
     }
 
-    @PutMapping("/{id}")
-    public TeamDirectory update(@PathVariable String id, @RequestBody CircleRequest request)
+    @PutMapping("/{accountId}/circles/{id}")
+    public TeamDirectory update(@PathVariable long accountId, @PathVariable String id, @RequestBody CircleRequest request)
     {
-        return teams.update(id, request.name(), request.description(), request.avatar(), request.repositories());
+        return teams.update(accountId, id, request.name(), request.description(), request.avatar(), request.repositories());
     }
 
-    @DeleteMapping("/{id}")
-    public TeamDirectory remove(@PathVariable String id)
+    @DeleteMapping("/{accountId}/circles/{id}")
+    public TeamDirectory remove(@PathVariable long accountId, @PathVariable String id)
     {
-        return teams.remove(id);
+        return teams.remove(accountId, id);
     }
 
-    @PostMapping("/{id}/members")
-    public TeamDirectory addMember(@PathVariable String id, @RequestBody TeamMemberInput request)
+    @PostMapping("/{accountId}/circles/{id}/members")
+    public TeamDirectory addMember(@PathVariable long accountId, @PathVariable String id, @RequestBody TeamMemberInput request)
     {
-        return teams.addMember(id, request);
+        return teams.addMember(accountId, id, request);
     }
 
-    @DeleteMapping("/{id}/members/{githubId}")
-    public TeamDirectory removeMember(@PathVariable String id, @PathVariable long githubId)
+    @DeleteMapping("/{accountId}/circles/{id}/members/{remoteId}")
+    public TeamDirectory removeMember(@PathVariable long accountId, @PathVariable String id, @PathVariable long remoteId)
     {
-        return teams.removeMember(id, githubId);
+        return teams.removeMember(accountId, id, remoteId);
     }
 
     public record CircleRequest(String name, String description, Avatar avatar, List<String> repositories, List<TeamMemberInput> members)

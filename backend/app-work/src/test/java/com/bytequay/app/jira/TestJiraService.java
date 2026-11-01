@@ -26,6 +26,7 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.JiraIssueTaskStore;
 import com.bytequay.core.store.WorkItemStore;
@@ -366,7 +367,8 @@ class TestJiraService
     {
         RepoRef repository = new RepoRef("bytequay", "bytequay");
         return new Workspace(id, name, 1, repository, Optional.empty(), Optional.empty(), 1, repository, Workspace.Topology.DIRECT,
-                "main", "https://github.com/bytequay/bytequay.git", Optional.empty(), Optional.empty(), "/tmp/bytequay", Optional.empty(), Optional.empty(), 0, UPDATED, UPDATED);
+                "main", "https://github.com/bytequay/bytequay.git", Optional.empty(), Optional.empty(), "/tmp/bytequay", Optional.empty(), Optional.empty(), 0, UPDATED, UPDATED,
+                HostingServer.GITHUB_COM);
     }
 
     private JsonNode json(String value)

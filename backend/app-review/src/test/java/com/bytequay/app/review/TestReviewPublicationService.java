@@ -24,6 +24,7 @@ import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestDetail.CiStatus;
 import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingCapabilities;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
@@ -117,6 +118,7 @@ class TestReviewPublicationService
         pullRequests = mock(PullRequestService.class);
         service = new ReviewPublicationService(drafts, reviews.service, pullRequests, Clock.fixed(NOW, ZoneOffset.UTC));
         when(pullRequests.prepareRead(anyString(), eq(REPO), eq(NUMBER))).thenReturn(ROUTE);
+        when(pullRequests.capabilities(any())).thenReturn(HostingCapabilities.ALL);
     }
 
     @Test
@@ -668,6 +670,31 @@ class TestReviewPublicationService
             assertThat(comment.line()).isEqualTo(119);
             assertThat(comment.side()).isEqualTo("RIGHT");
             assertThat(comment.startSide()).isEqualTo("RIGHT");
+        });
+    }
+
+    @Test
+    void aRangeIsAnchoredOnItsLastLineWhereTheProviderHasNoMultiLineComments()
+    {
+        HostingInstance gitLab = new HostingInstance(2, HostingProvider.GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"));
+        PullRequestRead route = new PullRequestRead(new HostingReadSession(11, "account", new HostingAccess(gitLab, "token")),
+                new HostingRepository(21, 2, "repository", REPO, URI.create("https://gitlab.example.com/" + REPO),
+                        URI.create("https://gitlab.example.com/" + REPO + ".git"), Optional.empty(), Optional.of("main")), NUMBER, "viewer");
+        ReviewDraft draft = service.addManual(route, 0, new ReviewDraftItem("new", Source.MANUAL, Optional.empty(), OptionalInt.empty(), "src/Service.java", "RIGHT", 119,
+                OptionalInt.of(118), "Guard the empty value.", true, Optional.empty(), Optional.of(REVIEWED_HEAD), OptionalLong.empty()));
+        when(pullRequests.findHeadSha(route)).thenReturn(Optional.of(REVIEWED_HEAD));
+        when(pullRequests.getPullRequestDetail(route)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(route), eq(PR_ID), eq("COMMENT"), eq(""), any(), anyString())).thenReturn(posted());
+        when(pullRequests.capabilities(route)).thenReturn(new HostingCapabilities(false, false, true, true, false, true));
+
+        service.submit(route, draft.version(), "", "COMMENT", REVIEWED_HEAD);
+
+        ArgumentCaptor<List<InlineReviewComment>> sent = ArgumentCaptor.captor();
+        verify(pullRequests).submitReview(eq(route), eq(PR_ID), eq("COMMENT"), eq(""), sent.capture(), anyString());
+        assertThat(sent.getValue()).singleElement().satisfies(comment -> {
+            assertThat(comment.line()).isEqualTo(119);
+            assertThat(comment.startLine()).isNull();
+            assertThat(comment.startSide()).isNull();
         });
     }
 
@@ -1362,13 +1389,13 @@ class TestReviewPublicationService
 
     private static PrTimelineEvent thread(String path, PrTimelineComment comment)
     {
-        return new PrTimelineEvent(comment.githubId(), "review_thread", "me", NOW, null, PrTimelinePayload.builder().path(path).comments(ImmutableList.of(comment)).build(),
+        return new PrTimelineEvent(comment.remoteId(), "review_thread", "me", NOW, null, PrTimelinePayload.builder().path(path).comments(ImmutableList.of(comment)).build(),
                 Optional.empty());
     }
 
-    private static PrTimelineComment comment(long githubId, long reviewId, String body, Long inReplyToId)
+    private static PrTimelineComment comment(long remoteId, long reviewId, String body, Long inReplyToId)
     {
-        return new PrTimelineComment(githubId, "me", null, false, NOW, body, "https://github.com/octo/widgets/pull/7#discussion_r" + githubId, reviewId, inReplyToId,
+        return new PrTimelineComment(remoteId, "me", null, false, NOW, body, "https://github.com/octo/widgets/pull/7#discussion_r" + remoteId, reviewId, inReplyToId,
                 ImmutableList.of());
     }
 

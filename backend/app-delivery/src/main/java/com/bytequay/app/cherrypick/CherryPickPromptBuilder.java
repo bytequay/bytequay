@@ -79,7 +79,7 @@ final class CherryPickPromptBuilder
 
                 Do not run git cherry-pick --continue, --skip, or --abort. Do not
                 create an ordinary commit, another fixup, or a third commit. Do not pick
-                another commit, rebase, reset, push, use gh, or write to GitHub.
+                another commit, rebase, reset, push, use gh or glab, or write to GitHub or GitLab.
 
                 Your final message is for the user. ByteQuay inspects Git and decides.
                 """);
@@ -115,7 +115,7 @@ final class CherryPickPromptBuilder
                 clean index and worktree with no rebase or conflict state. No attribution,
                 co-authorship or generated-with trailers.
 
-                Do not fetch, rebase onto the target, push, use gh, or write to GitHub.
+                Do not fetch, rebase onto the target, push, use gh or glab, or write to GitHub or GitLab.
 
                 Report what you built and ran, the results and any repairs to the user. ByteQuay
                 inspects Git and decides.

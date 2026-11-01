@@ -76,7 +76,8 @@ export function mount() {
     },
     selectBackportSource: async (...args: unknown[]) => {
       calls.push(args);
-      return { ...base, chain: { ...base.chain, version: 2, reason: 'Selected 2 landed commits. Resume to continue the saved route.' } };
+      return { ...base, chain: { ...base.chain, version: 2, reason: 'Selected 2 landed commits. Resume to continue the saved route.',
+        hops: [{ ...base.chain.hops[0], selection: { commits: ['b'.repeat(40), 'a'.repeat(40)], tipSha: 'a'.repeat(40) } }, base.chain.hops[1]] } };
     },
   } });
   const host = document.createElement('main');
@@ -125,11 +126,15 @@ export async function run() {
     button('Stop').click(); await settle();
     assert(view.calls.some(call => JSON.stringify(call) === JSON.stringify(['p2', 'blocked', 'STOPPING'])), 'Stop uses owning chain');
     view.inline(); await settle();
+    const nodes = () => [...view.host.querySelectorAll('.backport-node')];
     assert(!view.host.textContent?.includes('Requested in'), 'Compact conversation card');
-    assert(view.host.querySelector('.backport-route')?.textContent?.includes('owner/repository → acme/internal → acme/private'), 'Route order preserved');
+    assert(nodes().map(node => node.querySelector('.backport-node__repo')?.textContent).join(' → ') === 'owner/repository → acme/internal → acme/private',
+      'Route order preserved');
+    assert(view.host.querySelector('.backport-chain__head .pill')?.textContent === 'Queued' && nodes()[1].textContent?.includes('Opened backport PR') === true
+      && nodes()[2].textContent?.includes('Starts after acme/internal merges') === true, 'Each repository carries its own state');
     view.parallel(); await settle();
-    assert(view.host.querySelector('.backport-route')?.textContent?.includes('owner/repository → acme/private'), 'Sibling uses original source');
-    assert(!view.host.textContent?.includes('Conversation ›'), 'Existing PR source has no invented source conversation');
+    assert(nodes()[2].querySelector('.backport-node__note')?.textContent?.startsWith('From owner/repository · ') === true, 'Sibling uses original source');
+    assert(nodes()[0].querySelector('a.backport-node__repo') === null, 'Existing PR source has no invented source conversation');
     return [{ name: 'backport chain groups, navigation, selection, Stop and Resume' }];
   } finally { view.close(); }
 }
@@ -138,7 +143,9 @@ export async function runSelectionOrder() {
   for (const mode of ['oldest-first', 'newest-first', 'paste-oldest-first', 'paste-newest-first', 'single'] as const) {
     const view = mount();
     try {
-      element<HTMLButtonElement>('.backport-block button', view.host, 'Select commits exists').click();
+      const select = [...view.host.querySelectorAll<HTMLButtonElement>('.backport-chain__action')].find(button => button.textContent === 'Select commits');
+      assert(select !== undefined, 'Select commits exists');
+      select.click();
       await settle();
       const dialog = element<HTMLDialogElement>('.cmt-rd', view.host, 'Range picker opens');
       if (mode.startsWith('paste-')) {

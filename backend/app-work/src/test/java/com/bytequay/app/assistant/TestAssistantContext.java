@@ -65,6 +65,8 @@ import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.ServedRef;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingPullRequest;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.AgendaStore;
 import com.bytequay.core.store.EpicStore;
@@ -185,8 +187,10 @@ class TestAssistantContext
                 "Kept the old cache key and " + "checked every reader of it. ".repeat(30), NOW.minusSeconds(60), Optional.empty())), Optional.empty(), Optional.of(failed))));
         Workspace repository = new Workspace("ws1", "Repository", 1, RepoRef.of("owner", "repository"), Optional.empty(), Optional.empty(), 1, RepoRef.of("owner", "repository"),
                 Workspace.Topology.DIRECT, "master", "https://github.com/owner/repository.git", Optional.empty(), Optional.empty(), "/managed/repository", Optional.empty(),
-                Optional.empty(), 0, NOW, NOW);
+                Optional.empty(), 0, NOW, NOW, HostingServer.GITHUB_COM);
         when(workspaces.findAll()).thenReturn(ImmutableList.of(repository));
+        when(pullRequests.findHostingIdentity(7L)).thenReturn(Optional.of(new HostingPullRequest(7, 20, 31402)));
+        when(workspaces.findByHostingRepositoryId(20)).thenReturn(Optional.of(repository));
         when(models.agentModel(AgentModelType.DEVELOPMENT, Optional.of("ws1")))
                 .thenReturn(new AgentModelSetting(AgentModelType.DEVELOPMENT, true, "claude", "Claude Code", "opus", "Opus 5.5", Optional.empty()));
         when(models.get()).thenReturn(new ModelSettingsService.ModelSettings(ImmutableList.of(),
@@ -281,7 +285,7 @@ class TestAssistantContext
     void readsTodaysAgendaWithWhatIsDone()
             throws Exception
     {
-        AgendaTarget pull = AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1"));
+        AgendaTarget pull = AgendaTarget.pull(1, "owner/repository", 31402, Optional.of("ws1"));
         when(agendaService.today(Optional.empty())).thenReturn(new AgendaView(TODAY.toString(), "READY", true, 540, Optional.of(NOW), Optional.of("Opus 5.5"),
                 Optional.of("Unblock the Iceberg retry first."), ImmutableList.of(new AgendaView.Item("pr:owner/repository#31402", "fix", "Fix the retry test",
                         "the retry test", "CI fails on the retry test", Optional.empty(), Optional.of("ws1"), pull, Optional.empty(), "done", false, Optional.of("Merged"),
@@ -310,7 +314,7 @@ class TestAssistantContext
         read(first.tool(), "tasks");
         read(first.tool(), "waiting");
         assertThat(first.served()).containsEntry("task:t1", new ServedRef("tasks", Optional.of(AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", "t1"))))
-                .containsEntry("pr:owner/repository#31402", new ServedRef("tasks", Optional.of(AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1")))))
+                .containsEntry("pr:owner/repository#31402", new ServedRef("tasks", Optional.of(AgendaTarget.pull(1, "owner/repository", 31402, Optional.of("ws1")))))
                 .containsEntry("task:" + TASK.id(), new ServedRef("waiting", Optional.of(AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", TASK.id().toString()))));
         // An approval is answered only from the cards on screen when the message was sent, never from a ref served earlier.
         assertThat(first.served().keySet()).noneMatch(ref -> ref.startsWith("approval:"));
@@ -356,7 +360,7 @@ class TestAssistantContext
         assertThat(result.path("said").path("text").asText()).hasSizeLessThanOrEqualTo(400).endsWith("…");
 
         // Each item the agent named joins the day's refs, so a later message may act on it.
-        assertThat(context.served()).containsEntry("pr:owner/repository#31402", new ServedRef("lookup", Optional.of(AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1")))))
+        assertThat(context.served()).containsEntry("pr:owner/repository#31402", new ServedRef("lookup", Optional.of(AgendaTarget.pull(7, "owner/repository", 31402, Optional.of("ws1")))))
                 .containsEntry("work:w22", new ServedRef("lookup", Optional.of(AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w22"))))
                 .containsEntry("task:" + FINISHED.id(), new ServedRef("result", Optional.of(AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", FINISHED.id().toString()))));
     }
@@ -385,7 +389,7 @@ class TestAssistantContext
         // Every word of the query in a title, the newest first, whichever store holds it.
         JsonNode snapshots = search(tool, "{\"kind\":\"search\",\"query\":\"Snapshot\"}");
         assertThat(keys(snapshots)).isEqualTo(ImmutableSet.of("kind", "query", "page", "entries", "nextPage"));
-        assertThat(refs(snapshots)).containsExactly("work:w22", "epic:LOCAL:w1", "jira:cloud:10042", "issue:owner/repository#77", "task:" + ASKING.id(), "pr:owner/repository#31377");
+        assertThat(refs(snapshots)).containsExactly("work:w22", "epic:LOCAL:w1", "jira:cloud:10042", "issue:ws1:owner/repository#77", "task:" + ASKING.id(), "pr:owner/repository#31377");
         assertThat(keys(snapshots.path("entries").path(2))).isEqualTo(ImmutableSet.of("ref", "title", "state", "at"));
         assertThat(snapshots.path("entries").path(2).path("title").asText()).isEqualTo("ICE-7 Expire snapshots by branch");
         assertThat(snapshots.path("entries").path(2).path("state").asText()).isEqualTo("In progress");
@@ -398,7 +402,7 @@ class TestAssistantContext
         // What a search found joins the day's refs, so a later message may act on it.
         assertThat(context.served()).containsEntry("work:w22", new ServedRef("search", Optional.of(AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w22"))))
                 .containsEntry("epic:LOCAL:w1", new ServedRef("search", Optional.of(AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w1"))))
-                .containsEntry("pr:owner/repository#31402", new ServedRef("search", Optional.of(AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1")))));
+                .containsEntry("pr:owner/repository#31402", new ServedRef("search", Optional.of(AgendaTarget.pull(7, "owner/repository", 31402, Optional.of("ws1")))));
         // Tickets come from Jira's cache; a search never asks Jira.
         verify(jira, times(4)).cachedIssues();
         verifyNoMoreInteractions(jira);

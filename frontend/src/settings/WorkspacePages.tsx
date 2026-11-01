@@ -20,6 +20,7 @@ import type {
   WorkspaceSettingsDto,
 } from '../types';
 import RepoAvatar from '../RepoAvatar';
+import { providerName } from '../pulls/PullRequestWorkspace';
 import { RelatedWorkspaceSettings } from '../workspaces/RelatedWorkspaces';
 import { isClaudeLane, isDeepSeekKeyLane, type ClaudeLogin } from './model';
 import ProviderRow from './ProviderRow';
@@ -31,7 +32,7 @@ import { Badge, SettingsCard, SettingsRow } from './primitives';
 function Eyebrow({ workspace }: { workspace: WorkspaceDto }) {
   return (
     <div className="setw-eyebrow">
-      <RepoAvatar github={workspace.hostingServer?.provider !== 'GITLAB'} owner={workspace.selectedOwner} repo={workspace.selectedRepo} size={17} radius={4} />
+      <RepoAvatar github={workspace.hostingServer.provider !== 'GITLAB'} owner={workspace.selectedOwner} repo={workspace.selectedRepo} size={17} radius={4} />
       <span>{workspace.selectedOwner}/{workspace.selectedRepo}</span>
     </div>
   );
@@ -89,7 +90,7 @@ export function WorkspaceRepositoryPage({ workspace, settings, error, onUnlinkUp
         )}
       </SettingsCard>
 
-      <RelatedWorkspaceSettings key={workspace.id} workspace={workspace} />
+      {workspace.capabilities?.forkWorkflows !== false && <RelatedWorkspaceSettings key={workspace.id} workspace={workspace} />}
 
       <div className="setw-section"><span className="setw-section-title">Commits</span></div>
       <SettingsCard>
@@ -195,76 +196,6 @@ export function WorkspaceAgentsPage({
   );
 }
 
-export function WorkspaceTokenPage({ workspace, settings, login, copied, error, onSave, onDelete, onCopy }: {
-  workspace: WorkspaceDto;
-  settings: WorkspaceSettingsDto | null;
-  login: string | null;
-  copied: boolean;
-  error: string | null;
-  onSave: (token: string) => void;
-  onDelete: () => void;
-  onCopy: () => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState('');
-  const token = settings?.githubToken ?? null;
-
-  return (
-    <div className="setw-page">
-      <Eyebrow workspace={workspace} />
-      <h1>Token</h1>
-      {error !== null && <div className="setw-error" role="alert">{error}</div>}
-      <SettingsCard>
-        <SettingsRow
-          title="GitHub token"
-          subtitle={token === null
-            ? `${login ?? 'Your account'} · from Integrations → GitHub`
-            : token.login}
-        >
-          {token === null && !editing && (
-            <>
-              <Badge>global default</Badge>
-              <button type="button" className="setw-btn" onClick={() => setEditing(true)}>Use a workspace token…</button>
-            </>
-          )}
-          {token !== null && !editing && (
-            <>
-              <button type="button" className="setw-btn" onClick={onCopy}>{copied ? 'Copied' : 'Copy'}</button>
-              <button type="button" className="setw-btn" onClick={() => setEditing(true)}>Update…</button>
-              <button type="button" className="setw-btn is-danger" onClick={onDelete}>Remove</button>
-            </>
-          )}
-        </SettingsRow>
-        {token !== null && !editing && (
-          <div className="setw-row"><div className="setw-token setw-mono">{token.maskedToken}</div></div>
-        )}
-        {editing && (
-          <div className="setw-row">
-            <input
-              type="password"
-              value={value}
-              aria-label="Workspace GitHub token"
-              placeholder="github_pat_…"
-              className="setw-input setw-mono"
-              style={{ flex: 1, minWidth: 0 }}
-              onChange={event => setValue(event.target.value)}
-            />
-            <button
-              type="button"
-              className="setw-btn-primary"
-              disabled={value.trim() === ''}
-              onClick={() => { onSave(value.trim()); setValue(''); setEditing(false); }}
-            >
-              Save
-            </button>
-            <button type="button" className="setw-btn" onClick={() => { setEditing(false); setValue(''); }}>Cancel</button>
-          </div>
-        )}
-      </SettingsCard>
-    </div>
-  );
-}
-
 export function WorkspaceAdvancedPage({ workspace, busy, error, onUnwatch, onDelete }: {
   workspace: WorkspaceDto;
   busy: boolean;
@@ -283,7 +214,7 @@ export function WorkspaceAdvancedPage({ workspace, busy, error, onUnwatch, onDel
             {busy ? 'Unwatching…' : 'Unwatch'}
           </button>
         </SettingsRow>
-        <SettingsRow title="Delete local data" subtitle="Keeps the GitHub repository and fork">
+        <SettingsRow title="Delete local data" subtitle={`Keeps everything on ${providerName(workspace.hostingServer)}`}>
           <button type="button" className="setw-btn is-danger" disabled={busy} onClick={onDelete}>Delete…</button>
         </SettingsRow>
       </SettingsCard>

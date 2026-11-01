@@ -21,6 +21,12 @@ import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingAccount;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.RemoteHostingAccount;
+import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -29,12 +35,18 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.net.URI;
 import java.time.Instant;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
+import static com.bytequay.core.hosting.HostingPullRequestSnapshot.CONNECTED_ACCOUNT;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -58,16 +70,22 @@ class TestSqlitePullRequestWorkspaceScope
     @Autowired
     private SqliteWorkspaceStore workspaceStore;
 
+    @Autowired
+    private SqliteHostingPullRequestStore hosted;
+
+    @Autowired
+    private SqliteHostingIdentityStore identities;
+
     @Test
     void notificationPreviewAndDiscussionTimestampSurviveOlderDiscovery()
     {
         FetchedPullRequest fetched = pullRequest(1, "owner/project", 1);
-        PullRequest row = store.saveObserved(fetched);
+        PullRequest row = saveObserved(fetched);
         Instant replyAt = fetched.updatedAt().plusSeconds(60);
         PrActivitySummary reply = new PrActivitySummary("commented", Optional.of("reviewer"), replyAt,
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.of("New reply"), Optional.empty(), OptionalInt.empty());
         store.observeActivity(row.id(), Optional.of(reply), replyAt);
-        store.saveObserved(fetched);
+        saveObserved(fetched);
         store.observeActivity(row.id(), Optional.empty(), fetched.updatedAt());
 
         assertThat(store.findDiscussionActivityAt(row.id())).contains(replyAt);
@@ -80,13 +98,13 @@ class TestSqlitePullRequestWorkspaceScope
     void attentionActivityKeepsTheLatestAndSurvivesDiscovery()
     {
         FetchedPullRequest fetched = pullRequest(1, "owner/project", 1);
-        PullRequest row = store.saveObserved(fetched);
+        PullRequest row = saveObserved(fetched);
         Instant commentAt = fetched.updatedAt().plusSeconds(60);
         assertThat(store.findAttentionActivities(ImmutableSet.of(row.id()))).isEmpty();
 
         store.observeAttentionActivity(row.id(), commentAt);
         store.observeAttentionActivity(row.id(), fetched.updatedAt());
-        store.saveObserved(fetched);
+        saveObserved(fetched);
 
         assertThat(store.findAttentionActivities(ImmutableSet.of(row.id()))).containsExactly(Map.entry(row.id(), commentAt));
     }
@@ -96,10 +114,10 @@ class TestSqlitePullRequestWorkspaceScope
     {
         FetchedPullRequest fetched = pullRequest(1, "owner/project", 1, "closed", RETENTION_CUTOFF.minusSeconds(1), RETENTION_CUTOFF.minusSeconds(1))
                 .withOrigin(PullRequest.Origin.OTHER);
-        PullRequest row = store.saveObserved(fetched);
+        PullRequest row = saveObserved(fetched);
         store.setMonitored(row.id(), true);
         Instant baseline = store.findById(row.id()).orElseThrow().monitoredAt();
-        store.saveDashboardSyncPage(ImmutableList.of(fetched));
+        saveDashboardPage(ImmutableList.of(fetched));
 
         assertThat(store.findById(row.id()).orElseThrow().monitoredAt()).isEqualTo(baseline);
         assertThat(store.findPage(0, 50).pullRequests()).extracting(PullRequest::id).contains(row.id());
@@ -113,10 +131,10 @@ class TestSqlitePullRequestWorkspaceScope
     void mergeDiscoveryClearsMonitoringAndCannotBeMonitoredAgain()
     {
         FetchedPullRequest fetched = pullRequest(1, "owner/project", 1);
-        PullRequest row = store.saveObserved(fetched);
+        PullRequest row = saveObserved(fetched);
         store.setMonitored(row.id(), true);
 
-        store.saveObserved(pullRequest(1, "owner/project", 1, "merged", fetched.updatedAt(), fetched.updatedAt()));
+        saveObserved(pullRequest(1, "owner/project", 1, "merged", fetched.updatedAt(), fetched.updatedAt()));
         entityManager.flush();
         entityManager.clear();
 
@@ -128,7 +146,7 @@ class TestSqlitePullRequestWorkspaceScope
     void detailMergeClearsMonitoring()
     {
         FetchedPullRequest fetched = pullRequest(1, "owner/project", 1);
-        PullRequest row = store.saveObserved(fetched);
+        PullRequest row = saveObserved(fetched);
         store.setMonitored(row.id(), true);
         Instant timestamp = fetched.updatedAt().plusSeconds(60);
 
@@ -146,7 +164,7 @@ class TestSqlitePullRequestWorkspaceScope
     @Test
     void activityChangesOnlyWhenObservedGithubFactsChange()
     {
-        PullRequest row = store.saveObserved(pullRequest(1, "owner/project", 1));
+        PullRequest row = saveObserved(pullRequest(1, "owner/project", 1));
         store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.PENDING, 1, 0, 0, true, "clean", null, "feature",
                 ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.empty(), ImmutableMap.of("checks", "pending"));
         store.setMonitored(row.id(), true);
@@ -168,7 +186,7 @@ class TestSqlitePullRequestWorkspaceScope
     @Test
     void reviewProjectionDifferencesDoNotCreateActivityButChangedReviewSourcesDo()
     {
-        PullRequest row = store.saveObserved(pullRequest(1, "owner/project", 1));
+        PullRequest row = saveObserved(pullRequest(1, "owner/project", 1));
         store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.PASSING, 1, 0, 0, true, "clean", null, "feature",
                 ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.of("APPROVED"),
                 ImmutableMap.of("summary", "summary-v1", "reviews", "reviews-v1"));
@@ -196,7 +214,7 @@ class TestSqlitePullRequestWorkspaceScope
     void unchangedSummaryAndDetailKeepAcknowledgedFactsAfterReload()
     {
         FetchedPullRequest fetched = pullRequest(1, "owner/project", 1, "merged", RETENTION_CUTOFF, RETENTION_CUTOFF);
-        PullRequest row = store.saveObserved(fetched);
+        PullRequest row = saveObserved(fetched);
         store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.FAILING, 1, 0, 4, null, "unknown", null, "feature",
                 ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.of("APPROVED"), ImmutableMap.of("summary", "summary-v1"));
         // Detail ignores an old failed check after a successful rerun; the summary rollup can still include it.
@@ -207,7 +225,7 @@ class TestSqlitePullRequestWorkspaceScope
         for (int refresh = 0; refresh < 3; refresh++) {
             entityManager.flush();
             entityManager.clear();
-            store.saveObserved(fetched);
+            saveObserved(fetched);
             store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.FAILING, 1, 0, 4, null, "unknown", null, "feature",
                     ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.of("APPROVED"), ImmutableMap.of("summary", "summary-v1"));
             assertThat(store.findById(row.id()).orElseThrow()).isEqualTo(acknowledged);
@@ -233,25 +251,26 @@ class TestSqlitePullRequestWorkspaceScope
     @Test
     void mergedRepositoryPullRequestsAreNewestMergeFirstAndSearchable()
     {
-        workspaceStore.createOrGet(workspace("current", 100, RepoRef.of("owner", "project")));
+        create(workspace("current", 100, RepoRef.of("owner", "project")));
         Instant older = Instant.parse("2026-08-10T00:00:00Z");
         Instant newer = Instant.parse("2026-08-12T00:00:00Z");
-        store.saveRepositorySyncPage("owner/project", ImmutableList.of(
+        saveRepositoryPage(ImmutableList.of(
                 merged(11L, 11, "Fix the parquet reader", older),
                 merged(12L, 12, "Retry S3 reads", newer),
                 pullRequest(13L, "owner/project", 13)));
+        long project = identities.findRepository(HostingServer.GITHUB_COM, "owner/project").orElseThrow().id();
 
-        assertThat(store.findMergedRepositoryPullRequests("OWNER/project", "", 50)).extracting(PullRequest::number).containsExactly(12, 11);
-        assertThat(store.findMergedRepositoryPullRequests("owner/project", "parquet", 50)).extracting(PullRequest::number).containsExactly(11);
-        assertThat(store.findMergedRepositoryPullRequests("owner/project", "#12", 50)).extracting(PullRequest::number).containsExactly(12);
-        assertThat(store.findMergedRepositoryPullRequests("owner/project", "13", 50)).isEmpty();
-        assertThat(store.findMergedRepositoryPullRequests("owner/project", "", 1)).extracting(PullRequest::number).containsExactly(12);
+        assertThat(store.findMergedRepositoryPullRequests(project, "", 50)).extracting(PullRequest::number).containsExactly(12, 11);
+        assertThat(store.findMergedRepositoryPullRequests(project, "parquet", 50)).extracting(PullRequest::number).containsExactly(11);
+        assertThat(store.findMergedRepositoryPullRequests(project, "#12", 50)).extracting(PullRequest::number).containsExactly(12);
+        assertThat(store.findMergedRepositoryPullRequests(project, "13", 50)).isEmpty();
+        assertThat(store.findMergedRepositoryPullRequests(project, "", 1)).extracting(PullRequest::number).containsExactly(12);
     }
 
-    private static FetchedPullRequest merged(long githubId, int number, String title, Instant mergedAt)
+    private static FetchedPullRequest merged(long remoteId, int number, String title, Instant mergedAt)
     {
         return new FetchedPullRequest(
-                githubId, "owner/project", number, title, "alice", "https://github.com/owner/project/pull/" + number, mergedAt, mergedAt, PullRequest.Origin.OTHER,
+                remoteId, "owner/project", number, title, "alice", "https://github.com/owner/project/pull/" + number, mergedAt, mergedAt, PullRequest.Origin.OTHER,
                 ImmutableList.of(), ImmutableMap.of(), false, "closed", mergedAt, mergedAt, ImmutableList.of(), null, null, "feature-" + number);
     }
 
@@ -262,12 +281,12 @@ class TestSqlitePullRequestWorkspaceScope
         FetchedPullRequest fetched = new FetchedPullRequest(
                 1L, "owner/project", 1, "title", "alice", "url", timestamp, timestamp, PullRequest.Origin.AUTHORED,
                 ImmutableList.of("a", "b"), ImmutableMap.of(), false, "closed", timestamp, timestamp, ImmutableList.of(), null, null, "feature");
-        PullRequest row = store.saveObserved(fetched);
+        PullRequest row = saveObserved(fetched);
         store.updateDetails(row.id(), new PrRawDetail(
                 "title", "url", "merged", "alice", null, timestamp, timestamp, timestamp, "body",
                 ImmutableList.of("b", "a"), ImmutableMap.of(), ImmutableList.of(), null, false, null, null,
                 0, 0, 0, 0, ImmutableList.of(), "head", "feature", "main"));
-        store.saveObserved(new FetchedPullRequest(
+        saveObserved(new FetchedPullRequest(
                 1L, "owner/project", 1, "title", "alice", "url", timestamp, timestamp, PullRequest.Origin.AUTHORED,
                 ImmutableList.of("b", "a"), ImmutableMap.of(), false, "closed", timestamp, timestamp, ImmutableList.of(), null, null, "feature"));
         assertThat(store.findById(row.id()).orElseThrow().activityAt()).isEqualTo(row.activityAt());
@@ -279,7 +298,7 @@ class TestSqlitePullRequestWorkspaceScope
     {
         Instant closedAt = Instant.parse("2026-08-20T00:00:00Z");
         Instant updatedAt = Instant.parse("2026-08-21T00:00:00Z");
-        PullRequest row = store.saveObserved(pullRequest(1, "owner/project", 1, "closed", closedAt, closedAt));
+        PullRequest row = saveObserved(pullRequest(1, "owner/project", 1, "closed", closedAt, closedAt));
         store.updateDetails(row.id(), new PrRawDetail(
                 "Updated title", row.htmlUrl(), "closed", "alice", null, row.createdAt(), updatedAt, null, "body",
                 ImmutableList.of("java"), ImmutableMap.of("java", "abcdef"), ImmutableList.of(), null, true, null, null,
@@ -293,7 +312,7 @@ class TestSqlitePullRequestWorkspaceScope
         assertThat(baseline.closedAt()).isEqualTo(closedAt);
         assertThat(baseline.activityAt()).isBeforeOrEqualTo(baseline.monitoredAt());
 
-        store.saveRepositorySyncPage("owner/project", ImmutableList.of(new FetchedPullRequest(
+        saveRepositoryPage(ImmutableList.of(new FetchedPullRequest(
                 1L, "owner/project", 1, "Updated title", "alice", row.htmlUrl(), row.createdAt(), updatedAt, PullRequest.Origin.AUTHORED,
                 ImmutableList.of("java"), ImmutableMap.of("java", "abcdef"), true, "closed", closedAt, null, ImmutableList.of(), null, null, "feature")));
 
@@ -304,14 +323,14 @@ class TestSqlitePullRequestWorkspaceScope
     void staleObservedAndScanRowsPreserveNewerFacts()
     {
         Instant freshTime = Instant.parse("2026-08-22T00:00:00Z");
-        PullRequest fresh = store.saveObserved(new FetchedPullRequest(
+        PullRequest fresh = saveObserved(new FetchedPullRequest(
                 1L, "owner/project", 1, "Current title", "alice", "url", freshTime, freshTime, PullRequest.Origin.REVIEW_REQUESTED,
                 ImmutableList.of("current"), ImmutableMap.of("current", "abcdef"), true, "closed", freshTime, null, ImmutableList.of("bob"), null, null, "feature"));
         FetchedPullRequest stale = pullRequest(2, "owner/project", 1, "open", null, freshTime.minusSeconds(60)).withOrigin(PullRequest.Origin.OTHER);
 
-        assertThat(store.saveObserved(stale)).isEqualTo(fresh);
-        assertThat(store.saveDashboardSyncPage(ImmutableList.of(stale))).containsExactly(fresh);
-        assertThat(store.saveRepositorySyncPage("owner/project", ImmutableList.of(stale))).containsExactly(fresh);
+        assertThat(saveObserved(stale)).isEqualTo(fresh);
+        assertThat(saveDashboardPage(ImmutableList.of(stale))).containsExactly(fresh);
+        assertThat(saveRepositoryPage(ImmutableList.of(stale))).containsExactly(fresh);
 
         assertThat(store.findById(fresh.id())).contains(fresh);
     }
@@ -320,7 +339,7 @@ class TestSqlitePullRequestWorkspaceScope
     void staleDetailCannotRegressANewerSummaryOrCreateActivity()
     {
         Instant freshTime = Instant.parse("2026-08-22T00:00:00Z");
-        PullRequest fresh = store.saveObserved(pullRequest(1, "owner/project", 1, "closed", freshTime, freshTime));
+        PullRequest fresh = saveObserved(pullRequest(1, "owner/project", 1, "closed", freshTime, freshTime));
         store.updateDetails(fresh.id(), new PrRawDetail(
                 "Old title", "url", "open", "alice", null, fresh.createdAt(), freshTime.minusSeconds(60), null, "body",
                 ImmutableList.of("old"), ImmutableMap.of(), ImmutableList.of(), null, true, null, null,
@@ -341,7 +360,7 @@ class TestSqlitePullRequestWorkspaceScope
     @Test
     void editingATitlePreservesOtherListFields()
     {
-        PullRequest previous = store.saveObserved(pullRequest(1, "owner/project", 1));
+        PullRequest previous = saveObserved(pullRequest(1, "owner/project", 1));
 
         store.updateTitle(previous.id(), "Edited title");
 
@@ -356,7 +375,7 @@ class TestSqlitePullRequestWorkspaceScope
     void staleEnrichmentCannotClearANewerReviewRequest()
     {
         Instant freshTime = Instant.parse("2026-08-22T00:00:00Z");
-        PullRequest fresh = store.saveObserved(pullRequest(1, "owner/project", 1, "open", null, freshTime).withOrigin(PullRequest.Origin.REVIEW_REQUESTED));
+        PullRequest fresh = saveObserved(pullRequest(1, "owner/project", 1, "open", null, freshTime).withOrigin(PullRequest.Origin.REVIEW_REQUESTED));
         store.updateEnrichment(fresh.id(), freshTime, PullRequestDetail.CiStatus.PENDING, 1, 0, 2, true, "clean", null, "feature",
                 ImmutableList.of("bob"), PullRequest.Origin.REVIEW_REQUESTED, Optional.empty(), Optional.empty(), ImmutableMap.of("raw", "current"));
         PullRequest baseline = store.findById(fresh.id()).orElseThrow();
@@ -371,7 +390,7 @@ class TestSqlitePullRequestWorkspaceScope
     void mergeabilityGitHubHasNotComputedKeepsTheLastKnownAnswer()
     {
         FetchedPullRequest fetched = pullRequest(1, "owner/project", 1);
-        PullRequest row = store.saveObserved(fetched);
+        PullRequest row = saveObserved(fetched);
         store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.PASSING, 1, 0, 0, true, "clean", null, "feature",
                 ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.of("APPROVED"), ImmutableMap.of("summary", "clean"));
 
@@ -379,7 +398,7 @@ class TestSqlitePullRequestWorkspaceScope
                 ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.of("APPROVED"), ImmutableMap.of("summary", "unknown"));
         assertThat(store.findById(row.id()).orElseThrow()).extracting(PullRequest::mergeable, PullRequest::mergeableState).containsExactly(true, "clean");
 
-        store.saveObserved(new FetchedPullRequest(fetched.githubId(), fetched.repo(), fetched.number(), fetched.title(), fetched.author(), fetched.htmlUrl(),
+        saveObserved(new FetchedPullRequest(fetched.remoteId(), fetched.repo(), fetched.number(), fetched.title(), fetched.author(), fetched.htmlUrl(),
                 fetched.createdAt(), fetched.updatedAt(), fetched.origin(), fetched.labels(), fetched.labelColors(), false, "open", null, null,
                 ImmutableList.of(), null, "unknown", "feature"));
         assertThat(store.findById(row.id()).orElseThrow()).extracting(PullRequest::mergeable, PullRequest::mergeableState).containsExactly(true, "clean");
@@ -393,22 +412,23 @@ class TestSqlitePullRequestWorkspaceScope
     void newReviewRequestsAdvanceTheirTimestampAndSearchDoesNotInventRequests()
     {
         FetchedPullRequest fetched = pullRequest(1, "owner/project", 1);
-        PullRequest row = store.saveObserved(fetched.withOrigin(PullRequest.Origin.REVIEW_REQUESTED));
+        PullRequest row = saveObserved(fetched.withOrigin(PullRequest.Origin.REVIEW_REQUESTED));
         Instant firstRequestedAt = row.reviewRequestedAt();
-        store.saveObserved(fetched.withOrigin(PullRequest.Origin.OTHER));
-        Instant reviewedAt = Instant.now();
+        saveObserved(fetched.withOrigin(PullRequest.Origin.OTHER));
+        Instant reviewedAt = fetched.updatedAt().plusSeconds(60);
         viewStateStore.markReviewed(row.id(), HandledAction.APPROVED, "head", reviewedAt);
-        store.saveObserved(fetched.withOrigin(PullRequest.Origin.REVIEW_REQUESTED));
+        fetched = pullRequest(1, "owner/project", 1, "open", null, reviewedAt.plusSeconds(60));
+        saveObserved(fetched.withOrigin(PullRequest.Origin.REVIEW_REQUESTED));
         Instant requestedAgainAt = store.findById(row.id()).orElseThrow().reviewRequestedAt();
         assertThat(requestedAgainAt).isAfter(reviewedAt);
 
         FetchedPullRequest searchRow = pullRequest(1, "owner/project", 1, "open", null, fetched.updatedAt(), null).withOrigin(PullRequest.Origin.OTHER);
-        store.saveObserved(searchRow);
-        store.saveObserved(searchRow);
+        saveObserved(searchRow);
+        saveObserved(searchRow);
         assertThat(store.findById(row.id()).orElseThrow().origin()).isEqualTo(PullRequest.Origin.REVIEW_REQUESTED);
         assertThat(store.findById(row.id()).orElseThrow().reviewRequestedAt()).isEqualTo(requestedAgainAt);
-        store.saveRepositorySyncPage("owner/project", ImmutableList.of(searchRow));
-        store.saveRepositorySyncPage("owner/project", ImmutableList.of(searchRow.withOrigin(PullRequest.Origin.REVIEW_REQUESTED)));
+        saveRepositoryPage(ImmutableList.of(searchRow));
+        saveRepositoryPage(ImmutableList.of(searchRow.withOrigin(PullRequest.Origin.REVIEW_REQUESTED)));
         assertThat(store.findById(row.id()).orElseThrow().reviewRequestedAt()).isEqualTo(requestedAgainAt);
         store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.PASSING, 0, 0, 0, true, "clean", null, "feature",
                 ImmutableList.of("alice"), PullRequest.Origin.REVIEW_REQUESTED, Optional.of(firstRequestedAt), Optional.empty(), ImmutableMap.of());
@@ -422,13 +442,13 @@ class TestSqlitePullRequestWorkspaceScope
         for (int index = 1; index <= 55; index++) {
             rows.add(pullRequest(index, "owner/project", index));
         }
-        store.saveRepositorySyncPage("owner/project", rows.build());
-        PullRequest unrelated = store.saveObserved(pullRequest(56, "owner/project", 56).withOrigin(PullRequest.Origin.OTHER));
-        PullRequest reviewed = store.saveObserved(pullRequest(57, "owner/project", 57).withOrigin(PullRequest.Origin.OTHER));
+        saveRepositoryPage(rows.build());
+        PullRequest unrelated = saveObserved(pullRequest(56, "owner/project", 56).withOrigin(PullRequest.Origin.OTHER));
+        PullRequest reviewed = saveObserved(pullRequest(57, "owner/project", 57).withOrigin(PullRequest.Origin.OTHER));
         Instant reviewedAt = Instant.parse("2026-08-01T00:00:00Z");
         viewStateStore.markReviewed(reviewed.id(), HandledAction.APPROVED, "head", reviewedAt);
-        PullRequest requested = store.saveObserved(pullRequest(58, "owner/project", 58).withOrigin(PullRequest.Origin.REVIEW_REQUESTED));
-        store.saveObserved(pullRequest(58, "owner/project", 58).withOrigin(PullRequest.Origin.OTHER));
+        PullRequest requested = saveObserved(pullRequest(58, "owner/project", 58).withOrigin(PullRequest.Origin.REVIEW_REQUESTED));
+        saveObserved(pullRequest(58, "owner/project", 58).withOrigin(PullRequest.Origin.OTHER));
 
         assertThat(store.findAttentionCandidates()).hasSize(58).extracting(PullRequest::id).contains(unrelated.id());
         assertThat(store.findById(requested.id()).orElseThrow().reviewRequestedAt()).isNotNull();
@@ -439,10 +459,10 @@ class TestSqlitePullRequestWorkspaceScope
     void attentionIncludesOrdinaryWatchedRepositoryUpdatesWithoutADetailSnapshot()
     {
         Workspace workspace = workspace("updates", 100, RepoRef.of("owner", "project"));
-        workspaceStore.createOrGet(workspace);
-        PullRequest watched = store.saveRepositorySyncPage("owner/project", ImmutableList.of(
+        create(workspace);
+        PullRequest watched = saveRepositoryPage(ImmutableList.of(
                 pullRequest(1, "owner/project", 1).withOrigin(PullRequest.Origin.OTHER))).getFirst();
-        store.saveRepositorySyncPage("unwatched/project", ImmutableList.of(pullRequest(2, "unwatched/project", 2).withOrigin(PullRequest.Origin.OTHER)));
+        saveRepositoryPage(ImmutableList.of(pullRequest(2, "unwatched/project", 2).withOrigin(PullRequest.Origin.OTHER)));
 
         assertThat(store.findAttentionCandidates()).extracting(PullRequest::id).containsExactly(watched.id());
         workspaceStore.setWatched(workspace.id(), false);
@@ -457,31 +477,22 @@ class TestSqlitePullRequestWorkspaceScope
         FetchedPullRequest workspaceOnly = pullRequest(3, "owner/project", 3);
         FetchedPullRequest otherWorkspace = pullRequest(4, "other/project", 4);
         Workspace workspace = workspace("current", 100, RepoRef.of("owner", "project"));
-        workspaceStore.createOrGet(workspace);
+        create(workspace);
 
-        store.saveDashboardSyncPage(ImmutableList.of(global, shared));
-        store.saveRepositorySyncPage("owner/project", ImmutableList.of(shared, workspaceOnly));
-        store.saveRepositorySyncPage("other/project", ImmutableList.of(otherWorkspace));
+        saveDashboardPage(ImmutableList.of(global, shared));
+        saveRepositoryPage(ImmutableList.of(shared, workspaceOnly));
+        saveRepositoryPage(ImmutableList.of(otherWorkspace));
 
         assertThat(store.findPage(0, 50).pullRequests())
                 .extracting(PullRequest::id)
                 .containsExactlyInAnyOrder(1L, 2L, 3L);
         assertThat(store.findPage(0, 50).openPullRequests()).isEqualTo(3);
-        assertThat(store.findRepositoryPage("OWNER/PROJECT", 0, 50).pullRequests())
-                .extracting(PullRequest::id)
-                .containsExactlyInAnyOrder(2L, 3L);
-        assertThat(store.findRepositoryPage("owner/project", 0, 50).pullRequests())
-                .extracting(PullRequest::id)
-                .doesNotContain(4L);
 
-        store.saveDashboardSyncPage(ImmutableList.of(global));
+        saveDashboardPage(ImmutableList.of(global));
 
         assertThat(store.findPage(0, 50).pullRequests())
                 .extracting(PullRequest::id)
                 .containsExactlyInAnyOrder(1L, 2L, 3L);
-        assertThat(store.findRepositoryPage("owner/project", 0, 50).pullRequests())
-                .extracting(PullRequest::id)
-                .containsExactlyInAnyOrder(2L, 3L);
 
         workspaceStore.setWatched(workspace.id(), false);
 
@@ -489,8 +500,6 @@ class TestSqlitePullRequestWorkspaceScope
                 .extracting(PullRequest::id)
                 .containsExactlyInAnyOrder(1L, 2L);
         assertThat(store.findPage(0, 50).openPullRequests()).isEqualTo(2);
-        assertThat(store.findRepositoryPage("owner/project", 0, 50).pullRequests())
-                .extracting(PullRequest::id).containsExactlyInAnyOrder(2L, 3L);
 
         workspaceStore.setWatched(workspace.id(), true);
 
@@ -505,10 +514,10 @@ class TestSqlitePullRequestWorkspaceScope
         for (int index = 1; index <= 55; index++) {
             pullRequests.add(pullRequest(index, "owner/project", index));
         }
-        store.saveRepositorySyncPage("owner/project", pullRequests.build());
+        saveDashboardPage(pullRequests.build());
 
-        var first = store.findRepositoryPage("owner/project", 0, 50);
-        var second = store.findRepositoryPage("owner/project", 1, 50);
+        var first = store.findPage(0, 50);
+        var second = store.findPage(1, 50);
 
         assertThat(first.pullRequests()).hasSize(50);
         assertThat(first.totalPullRequests()).isEqualTo(55);
@@ -518,26 +527,11 @@ class TestSqlitePullRequestWorkspaceScope
     }
 
     @Test
-    void searchesARepositoryByTitleOrPullRequestNumber()
-    {
-        FetchedPullRequest first = pullRequest(1, "owner/project", 41);
-        FetchedPullRequest second = pullRequest(2, "owner/project", 42);
-        store.saveRepositorySyncPage("owner/project", ImmutableList.of(first, second));
-
-        assertThat(store.findRepositoryPage("owner/project", 0, 50, "pr 41").pullRequests())
-                .extracting(PullRequest::number)
-                .containsExactly(41);
-        assertThat(store.findRepositoryPage("owner/project", 0, 50, "#42").pullRequests())
-                .extracting(PullRequest::number)
-                .containsExactly(42);
-    }
-
-    @Test
     void storesDirectlyOpenedPullRequestInTheLocalDashboard()
     {
         FetchedPullRequest observed = pullRequest(91, "external/project", 12);
 
-        PullRequest stored = store.saveObserved(observed);
+        PullRequest stored = saveObserved(observed);
 
         assertThat(store.findIdByRepoAndNumber("external/project", 12)).contains(stored.id());
         assertThat(store.findPage(0, 50).pullRequests()).containsExactly(stored);
@@ -550,8 +544,8 @@ class TestSqlitePullRequestWorkspaceScope
         // pull request; neither may decide the row identity.
         FetchedPullRequest searchResult = pullRequest(91, "external/project", 12);
         FetchedPullRequest pullEndpointResult = pullRequest(92, "external/project", 12);
-        long first = store.saveObserved(searchResult).id();
-        long second = store.saveObserved(pullEndpointResult).id();
+        long first = saveObserved(searchResult).id();
+        long second = saveObserved(pullEndpointResult).id();
 
         assertThat(second).isEqualTo(first);
         assertThat(store.findIdByRepoAndNumber("EXTERNAL/PROJECT", 12)).contains(first);
@@ -565,20 +559,19 @@ class TestSqlitePullRequestWorkspaceScope
     {
         FetchedPullRequest first = pullRequest(101, "owner/project", 101);
         FetchedPullRequest second = pullRequest(102, "owner/project", 102);
-        store.saveRepositorySyncPage("owner/project", ImmutableList.of(first));
+        saveRepositoryPage(ImmutableList.of(first));
 
-        store.saveRepositorySyncPage("owner/project", ImmutableList.of(second));
+        saveRepositoryPage(ImmutableList.of(second));
 
-        assertThat(store.findRepositoryPage("owner/project", 0, 50).pullRequests())
-                .extracting(PullRequest::number)
-                .containsExactlyInAnyOrder(101, 102);
+        assertThat(store.findIdByRepoAndNumber("owner/project", 101)).isPresent();
+        assertThat(store.findIdByRepoAndNumber("owner/project", 102)).isPresent();
     }
 
     @Test
     void findsThePullRequestsOnOneHeadBranch()
     {
         String branch = "bytequay/task/0f1e2d3c-0000-4000-8000-000000000001";
-        store.saveRepositorySyncPage("Owner/Project", ImmutableList.of(
+        saveRepositoryPage(ImmutableList.of(
                 pullRequest(301, "Owner/Project", 301, branch),
                 pullRequest(302, "Owner/Project", 302, branch),
                 pullRequest(303, "Owner/Project", 303),
@@ -590,25 +583,55 @@ class TestSqlitePullRequestWorkspaceScope
         assertThat(store.findByHeadRef("owner/project", "bytequay/task/none")).isEmpty();
     }
 
-    private static FetchedPullRequest pullRequest(long githubId, String repository, int number)
+    /** Discovery stores the summary under its repository and shows it on the dashboard. */
+    private PullRequest saveObserved(FetchedPullRequest pullRequest)
     {
-        return pullRequest(githubId, repository, number, "feature");
+        PullRequest row = saveListed(pullRequest);
+        store.setDashboardVisible(row.id(), true);
+        return store.findById(row.id()).orElseThrow();
     }
 
-    private static FetchedPullRequest pullRequest(long githubId, String repository, int number, String headRef)
+    private List<PullRequest> saveDashboardPage(List<FetchedPullRequest> pullRequests)
     {
-        return pullRequest(githubId, repository, number, "open", null, Instant.parse("2026-08-21T00:00:00Z"), headRef);
+        return pullRequests.stream().map(this::saveObserved).collect(toImmutableList());
     }
 
-    private static FetchedPullRequest pullRequest(long githubId, String repository, int number, String state, Instant closedAt, Instant updatedAt)
+    /** A repository listing stores summaries without showing them on the dashboard. */
+    private List<PullRequest> saveRepositoryPage(List<FetchedPullRequest> pullRequests)
     {
-        return pullRequest(githubId, repository, number, state, closedAt, updatedAt, "feature");
+        return pullRequests.stream().map(this::saveListed).collect(toImmutableList());
     }
 
-    private static FetchedPullRequest pullRequest(long githubId, String repository, int number, String state, Instant closedAt, Instant updatedAt, String headRef)
+    private PullRequest saveListed(FetchedPullRequest pullRequest)
+    {
+        HostingInstance instance = identities.upsertInstance(new HostingServer(GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com")));
+        HostingAccount account = identities.upsertAccount(instance.id(), new RemoteHostingAccount("1", "alice"));
+        String path = pullRequest.repo();
+        HostingRepository repository = identities.upsertRepository(instance.id(), new RemoteHostingRepository(path.toLowerCase(Locale.ROOT), path,
+                URI.create("https://github.com/" + path), URI.create("https://github.com/" + path + ".git"), Optional.empty(), Optional.of("main")));
+        hosted.savePage(account.id(), repository.id(), CONNECTED_ACCOUNT, ImmutableList.of(pullRequest));
+        return store.findByHostingRepository(repository.id(), pullRequest.number()).orElseThrow();
+    }
+
+    private static FetchedPullRequest pullRequest(long remoteId, String repository, int number)
+    {
+        return pullRequest(remoteId, repository, number, "feature");
+    }
+
+    private static FetchedPullRequest pullRequest(long remoteId, String repository, int number, String headRef)
+    {
+        return pullRequest(remoteId, repository, number, "open", null, Instant.parse("2026-08-21T00:00:00Z"), headRef);
+    }
+
+    private static FetchedPullRequest pullRequest(long remoteId, String repository, int number, String state, Instant closedAt, Instant updatedAt)
+    {
+        return pullRequest(remoteId, repository, number, state, closedAt, updatedAt, "feature");
+    }
+
+    private static FetchedPullRequest pullRequest(long remoteId, String repository, int number, String state, Instant closedAt, Instant updatedAt, String headRef)
     {
         return new FetchedPullRequest(
-                githubId,
+                remoteId,
                 repository,
                 number,
                 "PR " + number,
@@ -627,6 +650,16 @@ class TestSqlitePullRequestWorkspaceScope
                 null,
                 null,
                 headRef);
+    }
+
+    private void create(Workspace workspace)
+    {
+        HostingInstance instance = identities.upsertInstance(workspace.server());
+        HostingAccount account = identities.upsertAccount(instance.id(), new RemoteHostingAccount("1", "alice"));
+        String path = workspace.selectedRepository().fullName();
+        HostingRepository selected = identities.upsertRepository(instance.id(), new RemoteHostingRepository(Long.toString(workspace.selectedRepositoryId()), path,
+                URI.create("https://github.com/" + path), URI.create("https://github.com/" + path + ".git"), Optional.empty(), Optional.of("main")));
+        workspaceStore.createHosted(workspace, account.id(), selected.id(), Optional.empty());
     }
 
     private static Workspace workspace(String id, long repositoryId, RepoRef repository)
@@ -651,6 +684,7 @@ class TestSqlitePullRequestWorkspaceScope
                 Optional.empty(),
                 0,
                 now,
-                now);
+                now,
+                HostingServer.GITHUB_COM);
     }
 }

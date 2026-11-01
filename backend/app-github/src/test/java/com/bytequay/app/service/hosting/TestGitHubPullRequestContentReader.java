@@ -15,20 +15,27 @@ package com.bytequay.app.service.hosting;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubActionsClient;
+import com.bytequay.app.repository.github.GitHubNotificationClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubRateLimitException;
+import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineComment;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
+import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.domain.PullRequestHistoryPage;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -65,13 +72,14 @@ class TestGitHubPullRequestContentReader
     @Mock private GitHubPullRequestReadClient gitHub;
     @Mock private GitHubActionsClient actions;
     @Mock private GitHubAccountClient accounts;
+    @Mock private GitHubNotificationClient notifications;
 
     private GitHubPullRequestContentReader fetcher;
 
     @BeforeEach
     void setUp()
     {
-        fetcher = new GitHubPullRequestContentReader(gitHub, actions, accounts, Runnable::run);
+        fetcher = new GitHubPullRequestContentReader(gitHub, actions, accounts, notifications, Runnable::run);
         lenient().when(gitHub.fetchPrCommits("pat", REF)).thenReturn(ImmutableList.of());
         lenient().when(gitHub.fetchPrReviewThreads("pat", REF)).thenReturn(ImmutableList.of());
     }
@@ -90,10 +98,22 @@ class TestGitHubPullRequestContentReader
         when(actions.refreshPrCheckRuns("pat", "owner", "repo", "head", ImmutableList.of(nativeCheck), Optional.of("checks"), Optional.empty()))
                 .thenReturn(new GitHubActionsClient.PrCheckRunsFetch(ImmutableList.of(nativeCheck, external), Optional.of("checks"), Optional.empty()));
 
-        var result = fetcher.checks(access, repository, 7, "head", ImmutableList.of(cachedJob), Optional.of("checks"), Optional.empty());
+        var result = fetcher.checks(new HostingTarget(access, repository), 7, "head", ImmutableList.of(cachedJob), Optional.of("checks"), Optional.empty());
 
         assertThat(result.checkRuns()).containsExactly(cachedJob, external);
         assertThat(result.checkRunsEtag()).contains("checks");
+    }
+
+    @Test
+    void reviewRequestsComeFromTheViewersNotifications()
+    {
+        HostingInstance instance = new HostingInstance(1, GITHUB_SERVER.provider(), GITHUB_SERVER.webBaseUrl(), GITHUB_SERVER.apiBaseUrl());
+        HostingTarget target = new HostingTarget(new HostingAccess(instance, "pat"), new HostingRepository(2, 1, "99", "owner/repo",
+                URI.create("https://github.com/owner/repo"), URI.create("https://github.com/owner/repo.git"), Optional.empty(), Optional.of("main")));
+        when(notifications.reviewRequests("alice")).thenReturn(ImmutableSet.of(REF));
+
+        assertThat(fetcher.reviewRequested(target, 7, "alice")).isTrue();
+        assertThat(fetcher.reviewRequested(target, 8, "alice")).isFalse();
     }
 
     @Test
@@ -201,7 +221,7 @@ class TestGitHubPullRequestContentReader
         when(gitHub.fetchPrReviews("pat", REF)).thenAnswer(blocked);
         when(gitHub.fetchPrTimeline("pat", REF)).thenAnswer(blocked);
         var executor = Executors.newVirtualThreadPerTaskExecutor();
-        var discussion = new GitHubPullRequestContentReader(gitHub, actions, accounts, executor).fetchDiscussion("pat", REF, existing());
+        var discussion = new GitHubPullRequestContentReader(gitHub, actions, accounts, notifications, executor).fetchDiscussion("pat", REF, existing());
         AtomicReference<RuntimeException> failure = new AtomicReference<>();
         AtomicBoolean interruptRestored = new AtomicBoolean();
         Thread caller = Thread.startVirtualThread(() -> {
@@ -286,8 +306,25 @@ class TestGitHubPullRequestContentReader
                 headSha, "feature", null);
     }
 
-    private static PrTimelineEvent comment(Long githubId, String actor, Instant timestamp, String body)
+    private static PrTimelineEvent comment(Long remoteId, String actor, Instant timestamp, String body)
     {
-        return new PrTimelineEvent(githubId, "commented", actor, timestamp, body, Optional.empty());
+        return new PrTimelineEvent(remoteId, "commented", actor, timestamp, body, Optional.empty());
+    }
+
+    @Test
+    void searchesTitlesMergedIntoTheBaseBranchSinceTheGivenDay()
+    {
+        HostingInstance instance = new HostingInstance(1, GITHUB_SERVER.provider(), GITHUB_SERVER.webBaseUrl(), GITHUB_SERVER.apiBaseUrl());
+        HostingRepository repository = new HostingRepository(2, 1, "99", "owner/repo", URI.create("https://github.com/owner/repo"),
+                URI.create("https://github.com/owner/repo.git"), Optional.empty(), Optional.of("main"));
+        FetchedPullRequest merged = new FetchedPullRequest(5L, "owner/repo", 5, "Backport 4: Fix dates", "alice", "https://github.com/owner/repo/pull/5",
+                Instant.EPOCH, Instant.EPOCH, PullRequest.Origin.OTHER, ImmutableList.of(), ImmutableMap.of(), false, "merged", Instant.EPOCH, Instant.EPOCH,
+                ImmutableList.of(), null, null, null);
+        when(gitHub.searchPullRequestsPaged("pat", "repo:owner/repo is:pr is:merged merged:>=1970-01-02 base:\"release \\\"2\\\"\"", 1, 20))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(merged), false));
+
+        HostingTarget target = new HostingTarget(new HostingAccess(instance, "pat"), repository);
+
+        assertThat(fetcher.recentMergedTitles(target, "release \"2\"", Instant.EPOCH.plus(Duration.ofDays(1)), 20)).containsExactly("Backport 4: Fix dates");
     }
 }

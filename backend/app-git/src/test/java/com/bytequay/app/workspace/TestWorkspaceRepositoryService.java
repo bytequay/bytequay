@@ -16,12 +16,20 @@ package com.bytequay.app.workspace;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
+import com.bytequay.app.service.hosting.HostingConnectionService;
+import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import com.bytequay.core.store.RemoteSourceStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -32,6 +40,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -47,11 +56,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.bothProviders;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.capabilities;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -65,7 +77,11 @@ class TestWorkspaceRepositoryService
 {
     private static final Instant NOW = Instant.parse("2026-08-21T00:00:00Z");
 
-    private final CredentialService credentials = mock(CredentialService.class);
+    private static final HostingInstance GITHUB = new HostingInstance(1, HostingProvider.GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
+    private static final HostingReadSession SIGN_IN = new HostingReadSession(7, "hosting-account", new HostingAccess(GITHUB, "token"));
+
+    private final CredentialService credentials = signedIn(mock(CredentialService.class));
+    private final HostingConnectionService connections = connections();
     private final GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
     private final InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
     private final WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
@@ -164,8 +180,8 @@ class TestWorkspaceRepositoryService
         service.unwatch(workspace.id());
 
         assertThat(service.listWorkspaces()).isEmpty();
-        assertThat(service.listRetiredWorkspaces()).containsExactly(WorkspaceSummary.of(workspace));
-        assertThat(service.getWorkspace(workspace.id())).isEqualTo(WorkspaceSummary.of(workspace));
+        assertThat(service.listRetiredWorkspaces()).containsExactly(WorkspaceSummary.of(workspace, capabilities(workspace.provider())));
+        assertThat(service.getWorkspace(workspace.id())).isEqualTo(WorkspaceSummary.of(workspace, capabilities(workspace.provider())));
         assertThat(store.findAllRetained()).containsExactly(workspace);
         assertThat(service.previewWatch(100, Optional.empty()).existingWorkspaceId()).isEmpty();
         assertThat(Files.readString(taskWorktree.resolve("unfinished.txt"))).isEqualTo("local work");
@@ -187,24 +203,24 @@ class TestWorkspaceRepositoryService
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         RemoteSourceStore remotes = remoteSources();
         List<Runnable> queued = new ArrayList<>();
-        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remotes, gitHub, credentials,
-                Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/tmp/bytequay-workspaces"), provisioning, metadata, refresh, queued::add);
+        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remotes, gitHub, credentials, connections,
+                Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/tmp/bytequay-workspaces"), provisioning, metadata, refresh, bothProviders(), queued::add);
         Workspace retired = watch(service, 100);
         Workspace watched = watch(service, 200);
         service.unwatch(retired.id());
         queued.clear();
         reset(remotes, gitHub, credentials, provisioning, metadata, refresh);
 
-        assertThat(service.listRetiredWorkspaces()).containsExactly(WorkspaceSummary.of(retired));
-        assertThat(service.listWorkspaces()).containsExactly(WorkspaceSummary.of(watched));
-        assertThat(service.getWorkspace(retired.id())).isEqualTo(WorkspaceSummary.of(retired));
+        assertThat(service.listRetiredWorkspaces()).containsExactly(WorkspaceSummary.of(retired, capabilities(retired.provider())));
+        assertThat(service.listWorkspaces()).containsExactly(WorkspaceSummary.of(watched, capabilities(watched.provider())));
+        assertThat(service.getWorkspace(retired.id())).isEqualTo(WorkspaceSummary.of(retired, capabilities(retired.provider())));
         assertThat(store.isWatched(retired.id())).isFalse();
         assertThat(queued).isEmpty();
         verifyNoInteractions(remotes, gitHub, credentials, provisioning, metadata, refresh);
 
         store.delete(retired.id());
         assertThat(service.listRetiredWorkspaces()).isEmpty();
-        assertThat(service.listWorkspaces()).containsExactly(WorkspaceSummary.of(watched));
+        assertThat(service.listWorkspaces()).containsExactly(WorkspaceSummary.of(watched, capabilities(watched.provider())));
     }
 
     @Test
@@ -233,8 +249,8 @@ class TestWorkspaceRepositoryService
         when(credentials.resolveGitHubCredential()).thenReturn(credential("owner"));
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         List<Runnable> queued = new ArrayList<>();
-        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remoteSources(), gitHub, credentials,
-                Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/tmp/bytequay-workspaces"), provisioning, metadata, refresh, queued::add);
+        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remoteSources(), gitHub, credentials, connections,
+                Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/tmp/bytequay-workspaces"), provisioning, metadata, refresh, bothProviders(), queued::add);
         Workspace workspace = watch(service, 100);
         service.unwatch(workspace.id());
 
@@ -310,11 +326,13 @@ class TestWorkspaceRepositoryService
                 remoteSources(),
                 gitHub,
                 credentials,
+                connections,
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 new WorkspacePaths("/tmp/bytequay-workspaces"),
                 provisioning,
                 metadata,
                 mock(PullRequestRefreshService.class),
+                bothProviders(),
                 Runnable::run);
         Instant staleCode = NOW.minusSeconds(301);
         Instant staleMetadata = NOW.minusSeconds(8 * 24 * 60 * 60);
@@ -340,9 +358,9 @@ class TestWorkspaceRepositoryService
         when(provisioning.synchronizeCode(anyString())).thenThrow(new IllegalStateException("fetch failed"));
         List<Runnable> queued = new ArrayList<>();
         AtomicBoolean reject = new AtomicBoolean(rejectInitially);
-        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remoteSources(), gitHub, credentials,
+        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remoteSources(), gitHub, credentials, connections,
                 Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/tmp/bytequay-workspaces"), provisioning, metadata,
-                mock(PullRequestRefreshService.class), task -> {
+                mock(PullRequestRefreshService.class), bothProviders(), task -> {
                     if (reject.get()) {
                         throw new RejectedExecutionException("executor unavailable");
                     }
@@ -375,11 +393,13 @@ class TestWorkspaceRepositoryService
                 remoteSources(),
                 gitHub,
                 credentials,
+                connections,
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 new WorkspacePaths("/tmp/bytequay-workspaces"),
                 provisioning,
                 metadata,
                 mock(PullRequestRefreshService.class),
+                bothProviders(),
                 Runnable::run);
         Workspace pending = watch(service, 100);
         Workspace syncing = store.save(watch(service, 200)
@@ -418,11 +438,13 @@ class TestWorkspaceRepositoryService
                 remoteSources(),
                 gitHub,
                 credentials,
+                connections,
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 new WorkspacePaths("/tmp/bytequay-workspaces"),
                 provisioning,
                 mock(WorkspaceMetadataService.class),
                 pullRequestRefresh,
+                bothProviders(),
                 Runnable::run);
 
         Workspace watched = watch(service, 100);
@@ -440,8 +462,8 @@ class TestWorkspaceRepositoryService
         List<Boolean> held = new ArrayList<>();
         doAnswer(invocation -> held.add(((ReentrantLock) WorkspaceOperationLocks.get(invocation.getArgument(0))).isHeldByCurrentThread()))
                 .when(pullRequestRefresh).refreshWorkspace(anyString());
-        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remoteSources(), gitHub, credentials,
-                Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/tmp/bytequay-workspaces"), provisioning, metadata, pullRequestRefresh, Runnable::run);
+        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remoteSources(), gitHub, credentials, connections,
+                Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/tmp/bytequay-workspaces"), provisioning, metadata, pullRequestRefresh, bothProviders(), Runnable::run);
 
         service.requestSync(watch(service, 100).id());
 
@@ -474,7 +496,7 @@ class TestWorkspaceRepositoryService
             WorkspaceProvisioningService provisioning,
             WorkspacePaths paths)
     {
-        CredentialService credentials = mock(CredentialService.class);
+        CredentialService credentials = signedIn(mock(CredentialService.class));
         when(credentials.resolveGitHubToken()).thenReturn("token");
         when(credentials.resolveGitHubCredential()).thenReturn(credential("owner"));
         return new WorkspaceRepositoryService(
@@ -482,12 +504,33 @@ class TestWorkspaceRepositoryService
                 remoteSources(),
                 gitHub,
                 credentials,
+                connections(),
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 paths,
                 provisioning,
                 mock(WorkspaceMetadataService.class),
                 mock(PullRequestRefreshService.class),
+                bothProviders(),
                 Runnable::run);
+    }
+
+    private static CredentialService signedIn(CredentialService credentials)
+    {
+        when(credentials.captureHostingRead()).thenReturn(SIGN_IN);
+        return credentials;
+    }
+
+    /** Every repository the main sign-in reads is retained under a local id derived from its GitHub number. */
+    private static HostingConnectionService connections()
+    {
+        HostingConnectionService connections = mock(HostingConnectionService.class);
+        when(connections.readSession(7)).thenReturn(SIGN_IN);
+        when(connections.resolveRepositoryById(eq(SIGN_IN), anyString())).thenAnswer(call -> {
+            String remoteId = call.getArgument(1);
+            return new HostingRepository(1000 + Long.parseLong(remoteId), 1, remoteId, "owner/repository-" + remoteId, URI.create("https://github.com/owner/repository"),
+                    URI.create("https://github.com/owner/repository.git"), Optional.empty(), Optional.of("main"));
+        });
+        return connections;
     }
 
     private static RemoteSourceStore remoteSources()
@@ -546,47 +589,22 @@ class TestWorkspaceRepositoryService
     }
 
     @Test
-    void linksAndUnlinksAnyReadableRepository()
+    void unlinkingTheUpstreamKeepsTheWorkspaceBoundToItsAccount()
     {
-        when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
+        when(gitHub.fetchRepository("token", 200L)).thenReturn(Optional.of(fork(200, 300)));
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(direct(300, "upstream")));
         WorkspaceRepositoryService service = service(store, gitHub);
-        Workspace selected = store.save(watch(service, 100)
+        Workspace fork = store.save(watch(service, 200, Optional.of(Topology.FORK))
                 .withCodeSyncAt(Optional.of(NOW), NOW)
                 .withMetadataSyncAt(Optional.of(NOW), NOW));
+        assertThat(store.findHostingBinding(fork.id())).contains(new WorkspaceHostingBinding(fork.id(), 7, 1200, Optional.of(1300L)));
 
-        Workspace linked = service.setUpstream(selected.id(), Optional.of(300L));
-
-        assertThat(store.findAll()).hasSize(1);
-        assertThat(linked.upstreamRepositoryId()).contains(300L);
-        assertThat(linked.upstreamRepository()).contains(RepoRef.of("upstream", "project"));
-        assertThat(linked.monitoredRepository()).isEqualTo(RepoRef.of("upstream", "project"));
-        assertThat(linked.upstreamDefaultBranch()).contains("main");
-
-        store.save(linked.withCodeSyncAt(Optional.of(NOW), NOW)
-                .withMetadataSyncAt(Optional.of(NOW), NOW));
-        Workspace unlinked = service.setUpstream(selected.id(), Optional.empty());
+        Workspace unlinked = service.unlinkUpstream(fork.id());
 
         assertThat(unlinked.upstreamRepository()).isEmpty();
-        assertThat(unlinked.monitoredRepository()).isEqualTo(selected.selectedRepository());
-    }
-
-    @Test
-    void rejectsSelectedAndUnreadableUpstreamRepositories()
-    {
-        when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
-        when(gitHub.fetchRepository("token", 999L)).thenReturn(Optional.empty());
-        WorkspaceRepositoryService service = service(store, gitHub);
-        Workspace selected = store.save(watch(service, 100)
-                .withCodeSyncAt(Optional.of(NOW), NOW)
-                .withMetadataSyncAt(Optional.of(NOW), NOW));
-
-        assertThatThrownBy(() -> service.setUpstream(selected.id(), Optional.of(100L)))
-                .isInstanceOfSatisfying(WorkspaceException.class,
-                        failure -> assertThat(failure.code()).isEqualTo("WORKSPACE_UPSTREAM_INVALID"));
-        assertThatThrownBy(() -> service.setUpstream(selected.id(), Optional.of(999L)))
-                .isInstanceOfSatisfying(WorkspaceException.class,
-                        failure -> assertThat(failure.code()).isEqualTo("WORKSPACE_UPSTREAM_INVALID"));
+        assertThat(unlinked.monitoredRepository()).isEqualTo(fork.selectedRepository());
+        assertThat(store.findHostingBinding(fork.id())).contains(new WorkspaceHostingBinding(fork.id(), 7, 1200, Optional.empty()));
+        assertThat(service.unlinkUpstream(fork.id())).isEqualTo(unlinked);
     }
 
     @Test
@@ -662,7 +680,7 @@ class TestWorkspaceRepositoryService
         Workspace original = new Workspace("original-workspace", "upstream/project", 300, RepoRef.of("upstream", "project"),
                 Optional.empty(), Optional.empty(), 300, RepoRef.of("upstream", "project"), Topology.DIRECT,
                 "main", "https://github.com/upstream/project.git", Optional.empty(), Optional.empty(),
-                "/tmp/bytequay-workspaces/original-workspace/repository", Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW);
+                "/tmp/bytequay-workspaces/original-workspace/repository", Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW, HostingServer.GITHUB_COM);
         store.save(original);
         UserRepo upstream = direct(300, "upstream");
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(upstream));
@@ -727,7 +745,7 @@ class TestWorkspaceRepositoryService
         when(gitHub.findOwnedFork("token", upstream, "owner")).thenReturn(Optional.of(fork(200, 300)));
         WorkspaceRepositoryService service = service(store, gitHub);
         Workspace workspace = watch(service, 200, Optional.of(Topology.FORK));
-        service.setUpstream(workspace.id(), Optional.empty());
+        service.unlinkUpstream(workspace.id());
 
         assertThat(service.previewWatch(300, Optional.empty()).existingWorkspaceId()).isEmpty();
         Workspace relinked = watch(service, 300);
@@ -736,6 +754,7 @@ class TestWorkspaceRepositoryService
         assertThat(relinked.selectedRepositoryId()).isEqualTo(workspace.selectedRepositoryId());
         assertThat(relinked.localRepositoryPath()).isEqualTo(workspace.localRepositoryPath());
         assertThat(relinked.upstreamRepositoryId()).contains(300L);
+        assertThat(store.findHostingBinding(workspace.id())).contains(new WorkspaceHostingBinding(workspace.id(), 7, 1200, Optional.of(1300L)));
         assertThat(store.findAll()).hasSize(1);
     }
 

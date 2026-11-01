@@ -76,6 +76,7 @@ const bridge: Bridge = {
   fetchAttentionPrs: invoke('prs:attention'),
   findStoredPullRequest: invoke('prs:stored'),
   fetchAuthoredIssues: invoke('issues:authored'),
+  fetchDone: invoke('done:list'),
   findStoredPullRequestDescription: invoke('prs:stored:description'),
   setPrMonitored: invoke('prs:monitor'),
   setPrAttentionHandled: invoke('prs:attention:handled'),
@@ -87,7 +88,7 @@ const bridge: Bridge = {
     let active = true;
     const consume = () => {
       void ipcRenderer.invoke('prs:notification:pending')
-        .then((reference: { repo: string; number: number } | null) => {
+        .then((reference: { repo: string; number: number; workspaceId?: string; accountId?: number } | null) => {
           if (active && reference !== null) callback(reference);
         })
         .catch(() => {});
@@ -189,6 +190,7 @@ const bridge: Bridge = {
   answerArtifactQuestion: invoke('artifacts:question'),
   stopArtifact: invoke('artifacts:stop'),
   showArtifact: invoke('artifacts:show'),
+  onArtifactReading: listener => subscribe('artifacts:reading', listener),
   refreshEpicChildren: invoke('epics:children'),
   syncEpicChildren: invoke('epics:sync'),
   dismissEpicChildren: invoke('epics:dismiss'),
@@ -206,7 +208,7 @@ const bridge: Bridge = {
   updateWorkspaceIssueType: invoke('workspaces:issues:type:update'),
   updateWorkspaceIssueMetadata: invoke('workspaces:issues:metadata:update'),
   syncWorkspace: invoke('workspaces:sync'),
-  setWorkspaceUpstream: invoke('workspaces:upstream'),
+  unlinkWorkspaceUpstream: invoke('workspaces:unlink-upstream'),
   removeWorkspace: invoke('workspaces:remove'),
   deleteWorkspace: invoke('workspaces:delete'),
   getRepositoryAvatar: invoke('repos:avatar'),
@@ -355,9 +357,6 @@ const bridge: Bridge = {
   renameWorkspace: invoke('workspaces:rename'),
   setWorkspaceAgentModel: invoke('workspaces:agent-model:set'),
   clearWorkspaceAgentModel: invoke('workspaces:agent-model:clear'),
-  saveWorkspaceGitHubToken: invoke('workspaces:token:save'),
-  deleteWorkspaceGitHubToken: invoke('workspaces:token:delete'),
-  copyWorkspaceGitHubToken: invoke('workspaces:token:copy'),
 
   fetchRecent: invoke('recent:list'),
   searchRecent: (query, limit = 10) => ipcRenderer.invoke('recent:search', query, limit),

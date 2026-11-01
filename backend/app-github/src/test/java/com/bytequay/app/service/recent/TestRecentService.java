@@ -434,18 +434,18 @@ class TestRecentService
         String url = base + "/" + repository.fullName() + "/-/merge_requests/7";
         Workspace workspace = new Workspace("gitlab", "Repo", 42, repository, Optional.empty(), Optional.empty(), 42, repository,
                 Workspace.Topology.DIRECT, "main", base + "/" + repository.fullName() + ".git", Optional.empty(), Optional.empty(), "/tmp/repo",
-                Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.of(new HostingServer(GITLAB, URI.create(base), URI.create(base + "/api/v4"))));
+                Optional.empty(), Optional.empty(), 0, NOW, NOW, new HostingServer(GITLAB, URI.create(base), URI.create(base + "/api/v4")));
         PullRequest request = new PullRequest(701, repository.fullName(), 7, "Fix selection", "alice", url, NOW, NOW, PullRequest.Origin.OTHER,
                 ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), null, 0, 0, 0, "open", null, null,
                 null, null, null, "feature", null, null, null, null);
         PullRequestStore pullRequests = mock(PullRequestStore.class);
-        when(workspaces.findAll()).thenReturn(ImmutableList.of(workspace));
         when(workspaces.findHostingRepositoryId(workspace.id())).thenReturn(Optional.of(99L));
+        when(workspaces.findByHostingRepositoryId(99)).thenReturn(Optional.of(workspace));
         when(pullRequests.findByHostingRepository(99, 7)).thenReturn(Optional.of(request));
         when(pullRequests.findById(701)).thenReturn(Optional.of(request));
-        when(pullRequests.findHostingIdentity(701)).thenReturn(Optional.of(new HostingPullRequest(701, 99, 7, "9001")));
-        RecentTouchRecorder writer = new RecentTouchRecorder(store, pullRequests, details, mock(RepositoryIssueStore.class), workspaces,
-                mock(HostingIdentityStore.class), credentials, CLOCK);
+        when(pullRequests.findHostingIdentity(701)).thenReturn(Optional.of(new HostingPullRequest(701, 99, 7)));
+        RecentTouchRecorder writer = new RecentTouchRecorder(store, pullRequests, mock(RepositoryIssueStore.class), workspaces,
+                mock(HostingIdentityStore.class), CLOCK);
 
         writer.viewerTouch(new ViewerTouch(RecentItemType.PULL_REQUEST, repository.fullName(), 7, workspace.id(), ViewerTouch.Signal.DWELL, 19));
         assertThat(service.stream(everything(), null).rows()).isEmpty();
@@ -466,8 +466,8 @@ class TestRecentService
     @Test
     void recordsAndFindsTicketsByStableIdentityKeyAndWorkspace()
     {
-        RecentTouchRecorder writer = new RecentTouchRecorder(store, mock(PullRequestStore.class), details, mock(RepositoryIssueStore.class), workspaces,
-                mock(com.bytequay.core.store.HostingIdentityStore.class), credentials, CLOCK);
+        RecentTouchRecorder writer = new RecentTouchRecorder(store, mock(PullRequestStore.class), mock(RepositoryIssueStore.class), workspaces,
+                mock(com.bytequay.core.store.HostingIdentityStore.class), CLOCK);
         RecentItem ticket = jiraTicket("cloud-one", Optional.of("ws-1"));
         writer.read(ticket, 19);
         assertThat(service.stream(everything(), null).rows()).isEmpty();
@@ -585,7 +585,8 @@ class TestRecentService
                 Optional.empty(),
                 0,
                 NOW,
-                NOW);
+                NOW,
+                HostingServer.GITHUB_COM);
     }
 
     private static RecentTouch elsewhere(String itemKey, LocalDate day, Instant at)

@@ -65,6 +65,7 @@ import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.PullRequestStore;
@@ -155,7 +156,7 @@ class TestRelatedWorkspaceWork
         when(turns.findByIdempotencyKey(any(), anyString())).thenAnswer(call -> Optional.ofNullable(dispatched.get(call.getArgument(1))));
         Workspace destination = new Workspace("iceberg", "Iceberg", 2, RepoRef.of("apache", "iceberg"), Optional.empty(), Optional.empty(),
                 2, RepoRef.of("apache", "iceberg"), Workspace.Topology.DIRECT, "main", "https://github.com/apache/iceberg.git",
-                Optional.empty(), Optional.empty(), repository.toString(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH);
+                Optional.empty(), Optional.empty(), repository.toString(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, HostingServer.GITHUB_COM);
         when(relationships.requireRelated("repository", "iceberg")).thenReturn(destination);
         when(relationships.related("repository")).thenReturn(ImmutableList.of(
                 new WorkspaceRelationships.Related("iceberg", WorkspaceRelationships.Position.DEPENDENCY, "Read core")));

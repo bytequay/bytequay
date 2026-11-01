@@ -14,10 +14,16 @@
 package com.bytequay.integration.gitlab.impl;
 
 import com.bytequay.core.domain.InlineReviewComment;
+import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.hosting.CommentTarget;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
+import com.bytequay.core.hosting.MergeStrategy;
+import com.bytequay.core.hosting.Reaction;
+import com.bytequay.core.hosting.ReviewVerdict;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -93,6 +99,11 @@ class TestGitLabPullRequestWriter
         writer = new GitLabPullRequestWriter(http, mapper);
     }
 
+    private HostingTarget target()
+    {
+        return new HostingTarget(access, repository);
+    }
+
     @AfterEach
     void tearDown()
     {
@@ -106,7 +117,7 @@ class TestGitLabPullRequestWriter
     {
         responses.put("POST /gitlab/api/v4/projects/42/merge_requests", "{\"id\":321,\"iid\":7,\"web_url\":\"" + base + "/group/nested/repo/-/merge_requests/7\"}");
 
-        var created = writer.create(access, repository, "feature", "main", "Change", "Body", true);
+        var created = writer.create(target(), RepoRef.of("group/nested", "repo"), "feature", "main", "Change", "Body", true);
 
         assertThat(created.id()).isEqualTo(321);
         assertThat(created.number()).isEqualTo(7);
@@ -117,12 +128,20 @@ class TestGitLabPullRequestWriter
     }
 
     @Test
+    void refusesAMergeRequestFromAFork()
+    {
+        assertThatThrownBy(() -> writer.create(target(), RepoRef.of("someone", "repo"), "feature", "main", "Change", "Body", true))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("GitLab merge requests from a fork are not supported yet");
+        assertThat(received).isEmpty();
+    }
+
+    @Test
     void mergeCarriesTheObservedHeadAndSquashChoice()
             throws Exception
     {
         responses.put("PUT " + PREFIX + "/merge", "{\"state\":\"merged\",\"merge_commit_sha\":\"" + HEAD + "\"}");
 
-        assertThat(writer.merge(access, repository, 7, "squash", HEAD).merged()).isTrue();
+        assertThat(writer.merge(target(), 7, MergeStrategy.SQUASH, HEAD).merged()).isTrue();
         Merge request = mapper.readValue(received.getFirst().body(), Merge.class);
         assertThat(request.sha()).isEqualTo(HEAD);
         assertThat(request.squash()).isTrue();
@@ -134,7 +153,7 @@ class TestGitLabPullRequestWriter
     {
         responses.put("PUT " + PREFIX + "/merge", "{\"state\":\"merged\",\"merge_commit_sha\":\"" + HEAD + "\"}");
 
-        assertThat(writer.merge(access, repository, 7, "default", HEAD).merged()).isTrue();
+        assertThat(writer.merge(target(), 7, MergeStrategy.DEFAULT, HEAD).merged()).isTrue();
         Merge request = mapper.readValue(received.getFirst().body(), Merge.class);
         assertThat(request.sha()).isEqualTo(HEAD);
         assertThat(request.squash()).isNull();
@@ -144,7 +163,7 @@ class TestGitLabPullRequestWriter
     @Test
     void explicitRebaseDoesNotSilentlyChooseAnotherMergeMethod()
     {
-        assertThatThrownBy(() -> writer.merge(access, repository, 7, "rebase", HEAD))
+        assertThatThrownBy(() -> writer.merge(target(), 7, MergeStrategy.REBASE, HEAD))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("project");
         assertThat(received).isEmpty();
     }
@@ -154,7 +173,7 @@ class TestGitLabPullRequestWriter
     {
         responses.put("GET " + PREFIX, "{\"sha\":\"" + BASE + "\"}");
 
-        assertThatThrownBy(() -> writer.submitReview(access, repository, 7, "APPROVE", "Fine", ImmutableList.of(), HEAD))
+        assertThatThrownBy(() -> writer.submitReview(target(), 7, ReviewVerdict.APPROVE, "Fine", ImmutableList.of(), HEAD))
                 .isInstanceOf(HostingFailure.class).hasMessageContaining("head changed");
         assertThat(received).allSatisfy(request -> assertThat(request.key()).startsWith("GET "));
     }
@@ -162,7 +181,7 @@ class TestGitLabPullRequestWriter
     @Test
     void unsupportedReviewStateCannotPublishCommentsOrOtherDrafts()
     {
-        assertThatThrownBy(() -> writer.submitReview(access, repository, 7, "REQUEST_CHANGES", "Fix it", ImmutableList.of(), HEAD))
+        assertThatThrownBy(() -> writer.submitReview(target(), 7, ReviewVerdict.REQUEST_CHANGES, "Fix it", ImmutableList.of(), HEAD))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("request-changes");
         assertThat(received).isEmpty();
     }
@@ -182,7 +201,7 @@ class TestGitLabPullRequestWriter
         }
         InlineReviewComment comment = new InlineReviewComment("file.txt", "Why?", 5, "RIGHT", null, null, HEAD, OptionalLong.empty());
 
-        var result = writer.createReviewComment(access, repository, 7, comment);
+        var result = writer.createReviewComment(target(), 7, comment);
 
         assertThat(result.event()).isEqualTo("review_thread");
         DiscussionBody request = mapper.readValue(received.getLast().body(), DiscussionBody.class);
@@ -190,7 +209,7 @@ class TestGitLabPullRequestWriter
         assertThat(request.position().newLine()).isEqualTo(5);
         assertThat(request.position().headSha()).isEqualTo(HEAD);
         assertThat(request.position().baseSha()).isEqualTo(BASE);
-        assertThat(received.stream().filter(value -> value.key().equals("GET " + PREFIX + "/changes"))).hasSize(legacy ? 1 : 0);
+        assertThat(received.stream().filter(value -> value.key().equals("GET " + PREFIX + "/changes?access_raw_diffs=true"))).hasSize(legacy ? 1 : 0);
     }
 
     @Test
@@ -199,11 +218,11 @@ class TestGitLabPullRequestWriter
         responses.put("GET " + PREFIX, "{\"sha\":\"" + HEAD + "\"}");
         responses.put("POST " + PREFIX + "/notes", note());
 
-        var result = writer.submitReview(access, repository, 7, "COMMENT", "Comment", ImmutableList.of(), HEAD);
+        var result = writer.submitReview(target(), 7, ReviewVerdict.COMMENT, "Comment", ImmutableList.of(), HEAD);
 
         assertThat(result.review()).isEmpty();
         assertThat(result.events()).singleElement().satisfies(event -> {
-            assertThat(event.githubId()).isEqualTo(10L);
+            assertThat(event.remoteId()).isEqualTo(10L);
             assertThat(event.event()).isEqualTo("commented");
             assertThat(event.timestamp()).isEqualTo(Instant.parse("2026-01-01T00:00:00Z"));
             assertThat(event.payload().htmlUrl()).isEqualTo(base + "/group/nested/repo/-/merge_requests/7#note_10");
@@ -215,7 +234,7 @@ class TestGitLabPullRequestWriter
     {
         responses.put("POST " + PREFIX + "/notes", note().replace("2026-01-01T00:00:00Z", "yesterday"));
 
-        assertThatThrownBy(() -> writer.comment(access, repository, 7, "Comment"))
+        assertThatThrownBy(() -> writer.comment(target(), 7, "Comment"))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
     }
 
@@ -225,7 +244,7 @@ class TestGitLabPullRequestWriter
         responses.put("GET " + PREFIX, "{\"sha\":\"" + HEAD + "\",\"reviewers\":[]}");
         responses.put("GET /gitlab/api/v4/users?username=nobody", "[{\"id\":4,\"username\":\"somebody\"}]");
 
-        assertThatThrownBy(() -> writer.updateReviewer(access, repository, 7, "nobody", true))
+        assertThatThrownBy(() -> writer.updateReviewer(target(), 7, "nobody", true))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(MISSING_OR_INACCESSIBLE))
                 .hasMessageContaining("nobody");
         assertThat(received).noneMatch(request -> request.key().startsWith("PUT "));
@@ -238,10 +257,10 @@ class TestGitLabPullRequestWriter
         responses.put("GET /gitlab/api/v4/user", "{\"id\":3,\"username\":\"reviewer\"}");
         responses.put("POST " + PREFIX + "/approve", "{}");
 
-        var result = writer.submitReview(access, repository, 7, "APPROVE", "", ImmutableList.of(), HEAD);
+        var result = writer.submitReview(target(), 7, ReviewVerdict.APPROVE, "", ImmutableList.of(), HEAD);
 
         assertThat(result.review()).get().satisfies(review -> {
-            assertThat(review.githubId()).isNull();
+            assertThat(review.remoteId()).isNull();
             assertThat(review.submittedAt()).isNull();
             assertThat(review.state()).isEqualTo("APPROVED");
             assertThat(review.login()).isEqualTo("reviewer");
@@ -257,11 +276,11 @@ class TestGitLabPullRequestWriter
         responses.put("POST " + PREFIX + "/discussions/thread/notes", note().replace("\"id\":10", "\"id\":11").replace("Comment", "Reply"));
         InlineReviewComment reply = new InlineReviewComment("", "Reply", 0, null, null, null, null, OptionalLong.of(10));
 
-        var result = writer.createReviewComment(access, repository, 7, reply);
+        var result = writer.createReviewComment(target(), 7, reply);
 
         assertThat(result.event()).isEqualTo("review_thread");
         assertThat(result.payload().comments()).hasSize(2);
-        assertThat(result.payload().comments().getLast().githubId()).isEqualTo(11L);
+        assertThat(result.payload().comments().getLast().remoteId()).isEqualTo(11L);
         assertThat(result.payload().comments().getLast().body()).isEqualTo("Reply");
         assertThat(received).extracting(Request::key).containsExactly(
                 "GET " + PREFIX, "GET " + PREFIX + "/discussions?per_page=100&page=1", "POST " + PREFIX + "/discussions/thread/notes");
@@ -282,10 +301,10 @@ class TestGitLabPullRequestWriter
         responses.put("POST " + PREFIX + "/discussions/thread/notes", note().replace("\"id\":10", "\"id\":11"));
         var reply = new InlineReviewComment("", "Reply", 0, null, null, null, null, OptionalLong.of(10));
 
-        var result = writer.submitReview(access, repository, 7, "COMMENT", "", ImmutableList.of(reply), HEAD);
+        var result = writer.submitReview(target(), 7, ReviewVerdict.COMMENT, "", ImmutableList.of(reply), HEAD);
 
         assertThat(result.events()).singleElement().satisfies(thread -> {
-            assertThat(thread.githubId()).isEqualTo(10L);
+            assertThat(thread.remoteId()).isEqualTo(10L);
             assertThat(thread.payload().outdated()).isEqualTo(!"current".equals(revision));
             assertThat(thread.payload().line()).isEqualTo("current".equals(revision) ? 3 : null);
             assertThat(thread.payload().originalLine()).isEqualTo(3);
@@ -293,7 +312,7 @@ class TestGitLabPullRequestWriter
             assertThat(thread.payload().path()).isEqualTo("LEFT".equals(side) ? "old.txt" : "new.txt");
             assertThat(thread.payload().side()).isEqualTo(side);
             assertThat(thread.payload().resolved()).isTrue();
-            assertThat(thread.payload().comments()).extracting(comment -> comment.githubId()).containsExactly(10L, 11L);
+            assertThat(thread.payload().comments()).extracting(comment -> comment.remoteId()).containsExactly(10L, 11L);
         });
     }
 
@@ -307,13 +326,13 @@ class TestGitLabPullRequestWriter
         responses.put("GET " + awards + "?per_page=100&page=1", "[" + otherAward + "]");
         responses.put("POST " + awards, "{}");
 
-        assertThat(writer.toggleReaction(access, repository, 7, "review_comment", 10L, "laugh", false)).isTrue();
+        assertThat(writer.toggleReaction(target(), 7, CommentTarget.REVIEW_COMMENT, 10L, Reaction.LAUGH, false)).isTrue();
         assertThat(mapper.readValue(received.getLast().body(), Emoji.class).name()).isEqualTo("smile");
 
         responses.put("GET " + awards + "?per_page=100&page=1", "[" + otherAward + ",{\"id\":92,\"name\":\"smile\",\"user\":{\"id\":3}}]");
         responses.put("DELETE " + awards + "/92", "{}");
 
-        assertThat(writer.toggleReaction(access, repository, 7, "review_comment", 10L, "laugh", true)).isFalse();
+        assertThat(writer.toggleReaction(target(), 7, CommentTarget.REVIEW_COMMENT, 10L, Reaction.LAUGH, true)).isFalse();
         assertThat(received.stream().filter(request -> !request.key().startsWith("GET ")).map(Request::key))
                 .containsExactly("POST " + awards, "DELETE " + awards + "/92");
     }
@@ -325,20 +344,27 @@ class TestGitLabPullRequestWriter
         responses.put("GET /gitlab/api/v4/user", "{\"id\":3,\"username\":\"reviewer\"}");
         responses.put("POST " + PREFIX + "/notes", note());
 
-        assertThatThrownBy(() -> writer.submitReview(access, repository, 7, "APPROVE", "Fine", ImmutableList.of(), HEAD))
+        assertThatThrownBy(() -> writer.submitReview(target(), 7, ReviewVerdict.APPROVE, "Fine", ImmutableList.of(), HEAD))
                 .isInstanceOf(HostingFailure.class).hasMessageContaining("published 1 comment").hasMessageContaining("Refresh before retrying");
     }
 
     @Test
-    void retriesOnlyFailedJobsFromCurrentPipeline()
+    void retriesTheCurrentPipelineOnlyWhileACurrentJobFailed()
     {
-        responses.put("GET " + PREFIX, "{\"head_pipeline\":{\"id\":9,\"project_id\":42}}");
-        responses.put("GET /gitlab/api/v4/projects/42/pipelines/9/jobs?per_page=100&page=1", "[{\"id\":12,\"status\":\"failed\"},{\"id\":13,\"status\":\"success\"}]");
-        responses.put("POST /gitlab/api/v4/projects/42/jobs/12/retry", "{}");
+        String jobs = "GET /gitlab/api/v4/projects/43/pipelines/9/jobs?include_retried=true&per_page=100&page=1";
+        responses.put("GET " + PREFIX, "{\"head_pipeline\":{\"id\":9,\"project_id\":43}}");
+        responses.put(jobs, "[{\"id\":12,\"name\":\"test\",\"status\":\"failed\"},{\"id\":13,\"name\":\"lint\",\"status\":\"success\"}]");
+        responses.put("POST /gitlab/api/v4/projects/43/pipelines/9/retry", "{}");
 
-        writer.rerunFailedChecks(access, repository, 7);
+        writer.rerunFailedChecks(target(), 7);
 
-        assertThat(received.stream().filter(request -> request.key().startsWith("POST")).map(Request::key)).containsExactly("POST /gitlab/api/v4/projects/42/jobs/12/retry");
+        assertThat(received.stream().filter(request -> request.key().startsWith("POST")).map(Request::key)).containsExactly("POST /gitlab/api/v4/projects/43/pipelines/9/retry");
+
+        received.clear();
+        responses.put(jobs, "[{\"id\":12,\"name\":\"test\",\"status\":\"failed\"},{\"id\":14,\"name\":\"test\",\"status\":\"running\"}]");
+
+        assertThatThrownBy(() -> writer.rerunFailedChecks(target(), 7)).isInstanceOf(HostingFailure.class).hasMessageContaining("No failed jobs");
+        assertThat(received).noneMatch(request -> request.key().startsWith("POST"));
     }
 
     @Test
@@ -347,9 +373,9 @@ class TestGitLabPullRequestWriter
         responses.put("POST " + PREFIX + "/notes", "{\"commands_changes\":{\"state_event\":\"close\"},\"summary\":[\"Closed this merge request.\"]}");
         statuses.put("POST " + PREFIX + "/notes", 202);
 
-        var result = writer.comment(access, repository, 7, "/close");
+        var result = writer.comment(target(), 7, "/close");
 
-        assertThat(result.githubId()).isNull();
+        assertThat(result.remoteId()).isNull();
         assertThat(result.timestamp()).isNull();
         assertThat(result.event()).isEqualTo("system_note");
         assertThat(result.body()).isEqualTo("Closed this merge request.");
@@ -367,10 +393,10 @@ class TestGitLabPullRequestWriter
         var comment = reply ? new InlineReviewComment("", "/close", 0, null, null, null, null, OptionalLong.of(10))
                 : new InlineReviewComment("file.txt", "/close", 4, "RIGHT", null, null, HEAD, OptionalLong.empty());
 
-        var result = batch ? writer.submitReview(access, repository, 7, "COMMENT", "", ImmutableList.of(comment), HEAD).events().getFirst()
-                : writer.createReviewComment(access, repository, 7, comment);
+        var result = batch ? writer.submitReview(target(), 7, ReviewVerdict.COMMENT, "", ImmutableList.of(comment), HEAD).events().getFirst()
+                : writer.createReviewComment(target(), 7, comment);
 
-        assertThat(result.githubId()).isNull();
+        assertThat(result.remoteId()).isNull();
         assertThat(result.timestamp()).isNull();
         assertThat(result.event()).isEqualTo("system_note");
         assertThat(result.body()).isEqualTo("Closed this merge request.");
@@ -391,11 +417,11 @@ class TestGitLabPullRequestWriter
                 new InlineReviewComment("file.txt", "First", 3, "RIGHT", null, null, HEAD, OptionalLong.empty()),
                 new InlineReviewComment("file.txt", "Second", 4, "RIGHT", null, null, HEAD, OptionalLong.empty()));
 
-        var result = writer.submitReview(access, repository, 7, "COMMENT", "", comments, HEAD);
+        var result = writer.submitReview(target(), 7, ReviewVerdict.COMMENT, "", comments, HEAD);
 
         assertThat(result.events()).hasSize(2);
-        assertThat(received.stream().filter(request -> request.key().contains("/diffs?"))).hasSize(1);
-        assertThat(received.stream().filter(request -> request.key().equals("GET " + PREFIX + "/changes"))).hasSize(legacy ? 1 : 0);
+        assertThat(received.stream().filter(request -> request.key().contains("/diffs?"))).hasSize(legacy ? 0 : 1);
+        assertThat(received.stream().filter(request -> request.key().equals("GET " + PREFIX + "/changes?access_raw_diffs=true"))).hasSize(legacy ? 1 : 0);
         var posted = received.stream().filter(request -> request.key().equals("POST " + PREFIX + "/discussions")).toList();
         assertThat(posted).hasSize(2);
         assertThat(mapper.readValue(posted.getFirst().body(), DiscussionBody.class).position().newLine()).isEqualTo(3);
@@ -410,22 +436,24 @@ class TestGitLabPullRequestWriter
         legacyDiffResponses();
         if (changed) {
             beforeResponse = key -> {
-                if (key.equals("GET " + PREFIX + "/changes")) {
+                if (key.equals("GET " + PREFIX + "/changes?access_raw_diffs=true")) {
                     responses.put("GET " + PREFIX, "{\"sha\":\"" + BASE + "\"}");
                 }
             };
         }
         else {
-            responses.compute("GET " + PREFIX + "/changes", (key, body) -> body.replace("\"overflow\":false", "\"overflow\":true"));
+            // Changes cut at the server's limits are completed from a comparison; one that times out leaves the diff incomplete.
+            responses.compute("GET " + PREFIX + "/changes?access_raw_diffs=true", (key, body) -> body.replace("\"overflow\":false", "\"overflow\":true"));
+            responses.put("GET /gitlab/api/v4/projects/42/repository/compare?from=" + BASE + "&to=" + HEAD + "&straight=true", "{\"compare_timeout\":true,\"diffs\":[]}");
         }
         var comment = new InlineReviewComment("file.txt", "Comment", 4, "RIGHT", null, null, HEAD, OptionalLong.empty());
 
         assertThatThrownBy(() -> {
             if (batch) {
-                writer.submitReview(access, repository, 7, "COMMENT", "Summary", ImmutableList.of(comment), HEAD);
+                writer.submitReview(target(), 7, ReviewVerdict.COMMENT, "Summary", ImmutableList.of(comment), HEAD);
             }
             else {
-                writer.createReviewComment(access, repository, 7, comment);
+                writer.createReviewComment(target(), 7, comment);
             }
         }).isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(
                 changed ? HostingFailure.Kind.REVISION_CONFLICT : HostingFailure.Kind.UNAVAILABLE));
@@ -445,7 +473,7 @@ class TestGitLabPullRequestWriter
                 new InlineReviewComment("file.txt", "First", 3, "RIGHT", null, null, HEAD, OptionalLong.empty()),
                 new InlineReviewComment("file.txt", "Second", 4, "RIGHT", null, null, HEAD, OptionalLong.empty()));
 
-        assertThatThrownBy(() -> writer.submitReview(access, repository, 7, "COMMENT", "", comments, HEAD))
+        assertThatThrownBy(() -> writer.submitReview(target(), 7, ReviewVerdict.COMMENT, "", comments, HEAD))
                 .isInstanceOf(HostingFailure.class).hasMessageContaining("published 1 comment").hasMessageContaining("Refresh before retrying");
         assertThat(received.stream().filter(request -> request.key().contains("/diffs?"))).hasSize(1);
         assertThat(received.stream().filter(request -> request.key().startsWith("POST "))).hasSize(1);
@@ -461,10 +489,11 @@ class TestGitLabPullRequestWriter
         responses.put("POST " + PREFIX + "/discussions", "{\"id\":\"thread\",\"notes\":[" + note() + "]}");
     }
 
+    /** Switches to the implementation for GitLab before 16.11, which reads one unpaged changes response. */
     private void legacyDiffResponses()
     {
-        statuses.put("GET " + PREFIX + "/diffs?per_page=100&page=1", 404);
-        responses.put("GET " + PREFIX + "/changes", """
+        writer = new GitLabPullRequestWriter(http, mapper, GitLabRelease.LEGACY);
+        responses.put("GET " + PREFIX + "/changes?access_raw_diffs=true", """
                 {"project_id":42,"iid":7,"sha":"%s","diff_refs":{"base_sha":"%s","start_sha":"%s","head_sha":"%s"},
                  "overflow":false,"changes":%s}
                 """.formatted(HEAD, BASE, BASE, HEAD, responses.get("GET " + PREFIX + "/diffs?per_page=100&page=1")));

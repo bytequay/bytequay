@@ -53,12 +53,12 @@ function readSearches(): string[] {
  * rather than threading a focus prop through the whole detail tree.
  */
 export function scrollToWrittenText(textId: string | null) {
-  const githubId = textId?.match(/(\d+)$/)?.[1];
-  if (!githubId) return;
+  const remoteId = textId?.match(/(\d+)$/)?.[1];
+  if (!remoteId) return;
   const deadline = Date.now() + 4000;
   const attempt = () => {
     // The zoomed pull request can sit over a page showing the same one; the top layer comes last.
-    const anchors = document.querySelectorAll(`#pr-activity-${githubId}`);
+    const anchors = document.querySelectorAll(`#pr-activity-${remoteId}`);
     const anchor = anchors[anchors.length - 1];
     if (anchor) {
       anchor.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -99,7 +99,7 @@ export default function RecentPalette({
   useEffect(() => {
     window.bridge.fetchRecentChanges()
       .then(list => setChanges(Object.fromEntries(list.map(change => [change.itemKey, change]))))
-      // The dots are the one signal that leans on a GitHub refresh having
+      // The dots are the one signal that leans on a provider refresh having
       // happened. Losing them must never blank the stream.
       .catch(() => setChanges({}));
   }, []);

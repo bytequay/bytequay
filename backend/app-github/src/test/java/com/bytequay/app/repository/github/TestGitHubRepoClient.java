@@ -14,10 +14,11 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.agent.core.AgentConflictException;
-import com.bytequay.core.domain.GitHubIssuePreview;
+import com.bytequay.core.domain.HostedIssuePreview;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryLabel;
+import com.bytequay.core.hosting.ChildIssue;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -204,7 +205,7 @@ class TestGitHubRepoClient
                          "updated_at":"2026-08-21T00:00:00Z"}
                         """, MediaType.APPLICATION_JSON));
 
-        GitHubIssuePreview preview = client.fetchIssuePreview("pat", REPOSITORY, 30611);
+        HostedIssuePreview preview = client.fetchIssuePreview("pat", REPOSITORY, 30611);
 
         assertThat(preview.title()).isEqualTo("Kerberos container times out");
         assertThat(preview.body()).isEqualTo("Issue details");
@@ -224,7 +225,7 @@ class TestGitHubRepoClient
                          "pull_request":{"url":"https://api.github.test/repos/owner/repo/pulls/8"}}
                         """, MediaType.APPLICATION_JSON));
 
-        GitHubIssuePreview preview = client.fetchIssuePreview("pat", REPOSITORY, 8);
+        HostedIssuePreview preview = client.fetchIssuePreview("pat", REPOSITORY, 8);
 
         assertThat(preview.pullRequest()).isTrue();
         assertThat(preview.state()).isEqualTo("open");
@@ -420,7 +421,7 @@ class TestGitHubRepoClient
                         """, MediaType.APPLICATION_JSON));
 
         assertThat(client.fetchSubIssues("pat", REPOSITORY, 7)).containsExactly(
-                new GitHubRepoClient.SubIssue(71, 8, "Parse", false, Optional.of("https://github.com/owner/repo/issues/8"), REPOSITORY),
-                new GitHubRepoClient.SubIssue(72, 3, "Docs", true, Optional.empty(), RepoRef.of("other", "docs")));
+                new ChildIssue(71, 8, "Parse", false, Optional.of("https://github.com/owner/repo/issues/8"), REPOSITORY.fullName()),
+                new ChildIssue(72, 3, "Docs", true, Optional.empty(), "other/docs"));
     }
 }

@@ -33,6 +33,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -91,15 +92,33 @@ public class AvatarCache
         this.timeout = requireNonNull(timeout, "timeout is null");
     }
 
+    /** The stable local key of an HTTPS image, without downloading it. */
+    public String key(String sourceUrl)
+    {
+        return Hashing.sha256().hashString(source(sourceUrl).toString(), UTF_8).toString();
+    }
+
     /** Downloads an uncached HTTPS image and returns its stable local key. */
     public Optional<String> cache(String sourceUrl)
     {
-        URI source = source(sourceUrl);
-        String key = Hashing.sha256().hashString(source.toString(), UTF_8).toString();
+        String key = key(sourceUrl);
         if (find(key).isPresent()) {
             return Optional.of(key);
         }
-        return download(source, key);
+        return download(source(sourceUrl), key);
+    }
+
+    /** Downloads each uncached image; a rejected URL or failed download is skipped. */
+    public void cacheAll(Collection<String> sourceUrls)
+    {
+        for (String sourceUrl : sourceUrls) {
+            try {
+                cache(sourceUrl);
+            }
+            catch (RuntimeException failure) {
+                log.debug("Avatar cache skipped an image: {}", failure.getMessage());
+            }
+        }
     }
 
     /** Local reads never wait for a refresh; callers request refresh separately in the background. */

@@ -17,15 +17,17 @@ import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
-import com.bytequay.app.repository.github.actions.BoundedCiLog;
-import com.bytequay.app.repository.github.actions.CiHeadSnapshot;
-import com.bytequay.app.repository.github.actions.CiJob;
-import com.bytequay.app.repository.github.actions.CiStep;
-import com.bytequay.app.repository.github.actions.CiWorkflowRun;
-import com.bytequay.app.repository.github.actions.GitHubActionsClient;
-import com.bytequay.app.repository.github.actions.ReadCiLogQuery;
+import com.bytequay.app.service.ci.BoundedCiLog;
+import com.bytequay.app.service.ci.CiLogReader;
+import com.bytequay.app.service.ci.ReadCiLogQuery;
 import com.bytequay.core.ci.CiAutofixAttempt.FailureEvidence;
 import com.bytequay.core.ci.CiAutofixAttempt.LogReference;
+import com.bytequay.core.ci.CiHeadSnapshot;
+import com.bytequay.core.ci.CiJob;
+import com.bytequay.core.ci.CiRun;
+import com.bytequay.core.ci.CiStep;
+import com.bytequay.core.hosting.HostingTarget;
+import com.bytequay.core.hosting.PullRequestCi;
 import com.google.common.hash.Hashing;
 import org.springframework.stereotype.Component;
 
@@ -53,12 +55,12 @@ final class CiAutofixLogReader
     private static final int MAXIMUM_EVENT_PAGES = 10;
     private static final int MAXIMUM_NOTE_CHARACTERS = 16 * 1024;
 
-    private final GitHubActionsClient gitHub;
+    private final CiLogReader logs;
     private final AgentEventService eventService;
 
-    CiAutofixLogReader(GitHubActionsClient gitHub, AgentEventService eventService)
+    CiAutofixLogReader(CiLogReader logs, AgentEventService eventService)
     {
-        this.gitHub = requireNonNull(gitHub, "gitHub is null");
+        this.logs = requireNonNull(logs, "logs is null");
         this.eventService = requireNonNull(eventService, "eventService is null");
     }
 
@@ -92,14 +94,16 @@ final class CiAutofixLogReader
         return Optional.of(truncate(result.strip(), MAXIMUM_NOTE_CHARACTERS, "…"));
     }
 
-    List<FailureEvidence> readFailures(TaskId taskId, CiHeadSnapshot snapshot)
+    List<FailureEvidence> readFailures(TaskId taskId, HostingTarget target, PullRequestCi ci, CiHeadSnapshot snapshot)
     {
         requireNonNull(taskId, "taskId is null");
+        requireNonNull(target, "target is null");
+        requireNonNull(ci, "ci is null");
         requireNonNull(snapshot, "snapshot is null");
-        List<Callable<FailureEvidence>> downloads = snapshot.workflowRuns().stream()
-                .flatMap(workflow -> workflow.jobs().stream()
+        List<Callable<FailureEvidence>> downloads = snapshot.runs().stream()
+                .flatMap(run -> run.jobs().stream()
                         .filter(CiJob::actionableFailure)
-                        .map(job -> (Callable<FailureEvidence>) () -> readFailure(taskId, snapshot, workflow, job)))
+                        .map(job -> (Callable<FailureEvidence>) () -> readFailure(taskId, target, ci, snapshot, run, job)))
                 .limit(MAXIMUM_FAILURES)
                 .collect(toImmutableList());
         try (var executor = Executors.newFixedThreadPool(LOG_DOWNLOAD_CONCURRENCY, Thread.ofVirtual().factory())) {
@@ -109,36 +113,36 @@ final class CiAutofixLogReader
         }
         catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("GitHub Actions log collection was interrupted", failure);
+            throw new IllegalStateException("CI log collection was interrupted", failure);
         }
     }
 
-    private FailureEvidence readFailure(TaskId taskId, CiHeadSnapshot snapshot, CiWorkflowRun workflow, CiJob job)
+    private FailureEvidence readFailure(TaskId taskId, HostingTarget target, PullRequestCi ci, CiHeadSnapshot snapshot, CiRun run, CiJob job)
     {
-        BoundedCiLog log = gitHub.readLog(new ReadCiLogQuery(taskId, snapshot.pullRequest(), workflow, job, MAXIMUM_LOG_BYTES));
+        BoundedCiLog log = logs.read(target, ci, new ReadCiLogQuery(taskId, snapshot.pullRequest(), run, job, MAXIMUM_LOG_BYTES));
         Optional<LogReference> reference = log.blob().map(blob -> new LogReference(
                 blob.relativePath(),
                 blob.mediaType(),
                 toIntExact(blob.size()),
                 log.compacted()));
         return new FailureEvidence(
-                failureSignature(workflow, job, log),
-                workflow.name() + " / " + job.failureSummary() + log.unavailableReason().map(reason -> "; log unavailable: " + reason).orElse(""),
-                workflow.id(),
-                workflow.attempt(),
+                failureSignature(run, job, log),
+                run.name() + " / " + job.failureSummary() + log.unavailableReason().map(reason -> "; log unavailable: " + reason).orElse(""),
+                run.id(),
+                run.attempt(),
                 job.id(),
                 job.attempt(),
                 reference);
     }
 
-    static String failureSignature(CiWorkflowRun workflowRun, CiJob job, BoundedCiLog log)
+    static String failureSignature(CiRun run, CiJob job, BoundedCiLog log)
     {
-        checkArgument(job.workflowRunId() == workflowRun.id(), "job does not belong to workflowRun");
+        checkArgument(job.runId() == run.id(), "job does not belong to run");
         StringBuilder canonical = new StringBuilder()
-                .append(workflowRun.workflowId()).append('\n')
-                .append(workflowRun.name().toLowerCase(Locale.ROOT)).append('\n')
-                .append(workflowRun.attempt()).append('\n')
-                .append(workflowRun.conclusion().orElse("")).append('\n')
+                .append(run.definitionId()).append('\n')
+                .append(run.name().toLowerCase(Locale.ROOT)).append('\n')
+                .append(run.attempt()).append('\n')
+                .append(run.conclusion().orElse("")).append('\n')
                 .append(job.name().toLowerCase(Locale.ROOT)).append('\n')
                 .append(job.attempt()).append('\n')
                 .append(job.conclusion().orElse("")).append('\n');

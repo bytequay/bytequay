@@ -29,13 +29,12 @@ import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.git.command.GitCommandRunner.Result;
 import com.bytequay.app.review.IdeRuntimeService;
 import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.hosting.HostingPullRequestContents;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.ManagedWorktreeService;
 import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspacePaths;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
 import com.bytequay.core.domain.PullRequestDetail;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.domain.RepoRef;
@@ -43,6 +42,7 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.PullRequestContentReader;
+import com.bytequay.core.hosting.PullRequestWriter;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -72,6 +72,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.app.git.GitTestSupport.configureUser;
 import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.pullRequests;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -135,7 +137,6 @@ class TestDevelopmentGitInspector
         run(repository, "init", "--bare", bareRemote.toString());
         when(workspaces.findById(WORKSPACE_ID)).thenReturn(Optional.of(workspace(false, "main")));
         when(credentials.gitAuthenticationEnvironment(eq(WORKSPACE_ID), anyCollection())).thenReturn(ImmutableMap.of());
-        when(pullRequests.provider()).thenReturn(HostingProvider.GITHUB);
         when(hosting.captureRead(WORKSPACE_ID)).thenAnswer(ignored ->
                 HostingTestFixture.route(workspaces.findById(WORKSPACE_ID).orElseThrow().monitoredRepository().fullName(), "test-token"));
         worktreeService = new ManagedWorktreeService(paths, workspaces, git, mock(IdeRuntimeService.class));
@@ -145,7 +146,7 @@ class TestDevelopmentGitInspector
         task = created(worktree.taskId(), true, "Development test", TitleSource.USER, AgentLaneId.CODEX_CLI,
                 worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
         inspector = new DevelopmentGitInspector(worktreeService, workspaces, git, credentials,
-                new HostingPullRequestContents(ImmutableList.of(pullRequests)), hosting, assignments, cachedPullRequests);
+                integrations(pullRequests(HostingProvider.GITHUB, pullRequests, mock(PullRequestWriter.class))), hosting, assignments, cachedPullRequests);
         org.mockito.Mockito.clearInvocations(pullRequests);
     }
 
@@ -167,6 +168,20 @@ class TestDevelopmentGitInspector
         verifyNoInteractions(credentials, pullRequests);
         assertThat(git.remoteReads).isZero();
         assertThat(git.branchReads - before).isEqualTo(2);
+    }
+
+    @Test
+    void namesTheGitOperationLeftOpen()
+            throws IOException
+    {
+        assertThat(inspector.openOperation(worktree)).isEqualTo("Git operation");
+
+        // A rebase that drops an emptied cherry-pick can leave its marker behind.
+        Path marker = worktree.canonicalWorktree().resolve(run(worktree.canonicalWorktree(), "rev-parse", "--git-path", "CHERRY_PICK_HEAD"));
+        Files.writeString(marker, baseSha + "\n");
+
+        assertThat(inspector.openOperation(worktree)).isEqualTo("cherry-pick");
+        assertThat(inspector.capture(task).local().gitOperationInProgress()).isTrue();
     }
 
     @Test
@@ -284,7 +299,7 @@ class TestDevelopmentGitInspector
     void assignedPullRequestKeepsItsRemoteHeadAndBaseWhileUsingTheGeneratedLocalBranch(boolean fork)
             throws IOException
     {
-        GitHubPullRequestIdentity assigned = assignPullRequest(fork);
+        PullRequestIdentity assigned = assignPullRequest(fork);
         run(repository, "push", bareRemote.toString(), baseSha + ":refs/heads/" + assigned.headBranch());
 
         DevelopmentBaseline baseline = inspector.capture(task);
@@ -295,7 +310,7 @@ class TestDevelopmentGitInspector
         assertThat(baseline.local().branch()).isEqualTo(worktree.generatedBranch());
         verifyNoInteractions(credentials, pullRequests);
         assertThat(git.remoteReads).isZero();
-        when(pullRequests.identity(any(), any(), eq(assigned.pullRequest().number()))).thenReturn(assigned);
+        when(pullRequests.identity(any(), eq(assigned.pullRequest().number()))).thenReturn(assigned);
         DevelopmentPublicationFacts facts = inspector.inspectPublication(worktree, baseline.route());
         assertThat(facts.matchingPullRequests()).containsExactly(assigned);
         assertThat(facts.remoteHeadSha()).contains(baseSha);
@@ -306,37 +321,37 @@ class TestDevelopmentGitInspector
         assertThat(run(bareRemote, "rev-parse", "refs/heads/" + assigned.headBranch())).isEqualTo(head);
         assertThat(git.run(bareRemote, "show-ref", "--verify", "--quiet", "refs/heads/" + worktree.generatedBranch()).exitCode()).isEqualTo(1);
         assertThat(worktreeService.currentBranch(worktree)).contains(worktree.generatedBranch());
-        verify(pullRequests, never()).identitiesByHead(any(), any(), any(), anyString());
+        verify(pullRequests, never()).identitiesByHead(any(), any(), anyString());
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"closed", "head", "base", "fork", "number"})
     void assignedPullRequestPublicationRefusesChangedTargets(String change)
     {
-        GitHubPullRequestIdentity assigned = assignPullRequest(false);
+        PullRequestIdentity assigned = assignPullRequest(false);
         DevelopmentPublicationRoute route = inspector.capture(task).route();
-        GitHubPullRequestIdentity changed = new GitHubPullRequestIdentity(
+        PullRequestIdentity changed = new PullRequestIdentity(
                 change.equals("number") ? PullRequestRef.of("alice", "project", 13) : assigned.pullRequest(), assigned.url(),
                 change.equals("fork") ? BASE_REPOSITORY : assigned.headRepository(), change.equals("head") ? "other-head" : assigned.headBranch(), assigned.headSha(),
                 assigned.baseRepository(), change.equals("base") ? "other-base" : assigned.baseBranch(), assigned.baseSha(),
-                change.equals("closed") ? GitHubPullRequestIdentity.State.CLOSED : assigned.state(), assigned.draft(), assigned.author());
-        when(pullRequests.identity(any(), any(), eq(assigned.pullRequest().number()))).thenReturn(changed);
+                change.equals("closed") ? PullRequestIdentity.State.CLOSED : assigned.state(), assigned.draft(), assigned.author());
+        when(pullRequests.identity(any(), eq(assigned.pullRequest().number()))).thenReturn(changed);
 
         assertThatThrownBy(() -> inspector.inspectPublication(worktree, route)).hasMessageContaining("Assigned pull request destination changed");
 
         assertThat(git.remoteReads).isZero();
-        verify(pullRequests, never()).identitiesByHead(any(), any(), any(), anyString());
+        verify(pullRequests, never()).identitiesByHead(any(), any(), anyString());
     }
 
     @Test
     void assignedMergedPullRequestIsReadableAfterItsBranchIsDeleted()
     {
-        GitHubPullRequestIdentity assigned = assignPullRequest(false);
+        PullRequestIdentity assigned = assignPullRequest(false);
         DevelopmentPublicationRoute route = inspector.capture(task).route();
-        GitHubPullRequestIdentity merged = new GitHubPullRequestIdentity(
+        PullRequestIdentity merged = new PullRequestIdentity(
                 assigned.pullRequest(), assigned.url(), assigned.headRepository(), assigned.headBranch(), assigned.headSha(),
-                assigned.baseRepository(), assigned.baseBranch(), assigned.baseSha(), GitHubPullRequestIdentity.State.MERGED, false, assigned.author());
-        when(pullRequests.identity(any(), any(), eq(assigned.pullRequest().number()))).thenReturn(merged);
+                assigned.baseRepository(), assigned.baseBranch(), assigned.baseSha(), PullRequestIdentity.State.MERGED, false, assigned.author());
+        when(pullRequests.identity(any(), eq(assigned.pullRequest().number()))).thenReturn(merged);
 
         DevelopmentPublicationFacts facts = inspector.inspectPublication(worktree, route);
 
@@ -360,7 +375,7 @@ class TestDevelopmentGitInspector
     @ValueSource(strings = {"details", "head", "base"})
     void assignedPullRequestCaptureRequiresItsCachedDestination(String missing)
     {
-        GitHubPullRequestIdentity assigned = assignPullRequest(false);
+        PullRequestIdentity assigned = assignPullRequest(false);
         PullRequestDetail cached = cachedPullRequests.findWorkspacePullRequestDetail(WORKSPACE_ID, assigned.pullRequest().repoFullName(),
                 assigned.pullRequest().number()).orElseThrow();
         switch (missing) {
@@ -413,11 +428,11 @@ class TestDevelopmentGitInspector
             inspector.pushDevelopmentHead(worktree, baseline.route(), baseSha, Optional.empty());
         }
         if (kind.equals("pull-request")) {
-            when(pullRequests.identitiesByHead(any(), any(),
+            when(pullRequests.identitiesByHead(any(),
                     eq(REPOSITORY), eq(worktree.generatedBranch())))
-                    .thenReturn(ImmutableList.of(new GitHubPullRequestIdentity(PullRequestRef.of("alice", "project", 12),
+                    .thenReturn(ImmutableList.of(new PullRequestIdentity(PullRequestRef.of("alice", "project", 12),
                             "https://github.com/alice/project/pull/12", REPOSITORY, worktree.generatedBranch(), baseSha,
-                            REPOSITORY, "main", baseSha, GitHubPullRequestIdentity.State.CLOSED, true, "alice")));
+                            REPOSITORY, "main", baseSha, PullRequestIdentity.State.CLOSED, true, "alice")));
         }
         if (kind.equals("tracking")) {
             run(repository, "config", "branch." + worktree.generatedBranch() + ".remote", "origin");
@@ -442,11 +457,11 @@ class TestDevelopmentGitInspector
             run(repository, "push", bareRemote.toString(), baseSha + ":refs/heads/" + branch);
         }
         if (kind.equals("pull-request")) {
-            when(pullRequests.identitiesByHead(any(), any(),
+            when(pullRequests.identitiesByHead(any(),
                     eq(REPOSITORY), eq(branch)))
-                    .thenReturn(ImmutableList.of(new GitHubPullRequestIdentity(PullRequestRef.of("alice", "project", 12),
+                    .thenReturn(ImmutableList.of(new PullRequestIdentity(PullRequestRef.of("alice", "project", 12),
                             "https://github.com/alice/project/pull/12", REPOSITORY, branch, baseSha,
-                            REPOSITORY, "main", baseSha, GitHubPullRequestIdentity.State.CLOSED, true, "alice")));
+                            REPOSITORY, "main", baseSha, PullRequestIdentity.State.CLOSED, true, "alice")));
         }
         if (kind.equals("unverifiable")) {
             git.remoteResult = Optional.of(new Result(128, "offline", false));
@@ -577,10 +592,10 @@ class TestDevelopmentGitInspector
         run(repository, "remote", "add", "upstream", UPSTREAM);
         run(repository, "update-ref", "refs/remotes/upstream/main", baseSha);
         DevelopmentPublicationRoute route = inspector.capture(task).route();
-        GitHubPullRequestIdentity wrongBase = new GitHubPullRequestIdentity(
+        PullRequestIdentity wrongBase = new PullRequestIdentity(
                 PullRequestRef.of("acme", "project", 12), "https://github.com/acme/project/pull/12", REPOSITORY,
-                worktree.generatedBranch(), baseSha, BASE_REPOSITORY, "release", baseSha, GitHubPullRequestIdentity.State.OPEN, true, "alice");
-        when(pullRequests.identitiesByHead(any(), any(),
+                worktree.generatedBranch(), baseSha, BASE_REPOSITORY, "release", baseSha, PullRequestIdentity.State.OPEN, true, "alice");
+        when(pullRequests.identitiesByHead(any(),
                     eq(REPOSITORY), eq(worktree.generatedBranch())))
                 .thenReturn(ImmutableList.of(wrongBase));
 
@@ -730,7 +745,7 @@ class TestDevelopmentGitInspector
         return ci;
     }
 
-    private GitHubPullRequestIdentity assignPullRequest(boolean fork)
+    private PullRequestIdentity assignPullRequest(boolean fork)
     {
         RepoRef baseRepository = fork ? BASE_REPOSITORY : REPOSITORY;
         if (fork) {
@@ -745,8 +760,8 @@ class TestDevelopmentGitInspector
         when(cached.headRef()).thenReturn("existing-pr");
         when(cached.baseRef()).thenReturn("release");
         when(cachedPullRequests.findWorkspacePullRequestDetail(WORKSPACE_ID, baseRepository.fullName(), 12)).thenReturn(Optional.of(cached));
-        return new GitHubPullRequestIdentity(ref, "https://github.com/" + baseRepository.fullName() + "/pull/12", REPOSITORY,
-                "existing-pr", baseSha, baseRepository, "release", baseSha, GitHubPullRequestIdentity.State.OPEN, false, "alice");
+        return new PullRequestIdentity(ref, "https://github.com/" + baseRepository.fullName() + "/pull/12", REPOSITORY,
+                "existing-pr", baseSha, baseRepository, "release", baseSha, PullRequestIdentity.State.OPEN, false, "alice");
     }
 
     private String publishCi(Path ci, String contents)
@@ -775,7 +790,7 @@ class TestDevelopmentGitInspector
                 fork ? Optional.of(2L) : Optional.empty(), fork ? Optional.of(BASE_REPOSITORY) : Optional.empty(),
                 fork ? 2 : 1, fork ? BASE_REPOSITORY : REPOSITORY, fork ? Workspace.Topology.FORK : Workspace.Topology.DIRECT,
                 baseBranch, ORIGIN, fork ? Optional.of(baseBranch) : Optional.empty(), fork ? Optional.of(UPSTREAM) : Optional.empty(),
-                repository.toString(), Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW);
+                repository.toString(), Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW, HostingServer.GITHUB_COM);
     }
 
     private String run(Path directory, String... arguments)

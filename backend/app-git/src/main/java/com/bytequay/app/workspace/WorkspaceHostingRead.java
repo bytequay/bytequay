@@ -16,12 +16,9 @@ package com.bytequay.app.workspace;
 import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.hosting.HostingRepository;
-import com.bytequay.core.hosting.HostingServer;
-
-import java.net.URI;
+import com.bytequay.core.hosting.HostingTarget;
 
 import static com.bytequay.core.domain.Checks.checkText;
-import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -36,24 +33,14 @@ public record WorkspaceHostingRead(HostingReadSession session, HostingRepository
         checkArgument(repository.instanceId() == session.access().instanceId().orElseThrow(), "Repository belongs to another hosting instance");
     }
 
-    public RepoRef githubRepository()
+    public HostingTarget target()
     {
-        requireGitHub();
-        String[] coordinates = repository.fullPath().split("/", -1);
-        checkArgument(coordinates.length == 2, "GitHub repository must have owner/repository coordinates");
-        return RepoRef.of(coordinates[0], coordinates[1]);
+        return new HostingTarget(session.access(), repository);
     }
 
-    public String githubToken()
+    /** The repository's coordinates, its last path segment as the name. */
+    public RepoRef repositoryRef()
     {
-        requireGitHub();
-        return session.access().token();
-    }
-
-    private void requireGitHub()
-    {
-        HostingServer server = session.access().server();
-        checkArgument(server.provider() == GITHUB && server.webBaseUrl().equals(URI.create("https://github.com"))
-                && server.apiBaseUrl().equals(URI.create("https://api.github.com")), "This operation requires a GitHub.com workspace");
+        return WorkspaceHostingService.repositoryRef(repository);
     }
 }

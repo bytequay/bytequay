@@ -156,14 +156,14 @@ export default function NeedsYou({ needs, circles, allMemberLogins, viewerLogin,
   ].filter(section => section.rows.length > 0);
   const outside = (login: string | null) => login !== null && !allMemberLogins.has(login.toLowerCase())
     && login.toLowerCase() !== viewerLogin?.toLowerCase();
-  const circlesOf = (githubId: number) => showCircle ? circles.filter(circle => circle.members.some(person => person.githubId === githubId)) : [];
+  const circlesOf = (remoteId: number) => showCircle ? circles.filter(circle => circle.members.some(person => person.remoteId === remoteId)) : [];
   return <div className="cir-needs">
     {sections.map(section => <section key={section.label} aria-label={section.label}>
       <div className="atn-head"><span className="atn-head__label">{section.label}</span><span className="atn-count">{section.rows.length}</span></div>
       <div className="item-list" role="list">
         {/* The sections already say where each item stands. */}
         {section.rows.map(need => <AttentionRow key={need.item.key} item={need.item} viewerLogin={viewerLogin} showRepo showState={false} age={needAge(need)}
-          circle={{ match: need.match, circles: circlesOf(need.match.member.githubId), outside, onPerson }}
+          circle={{ match: need.match, circles: circlesOf(need.match.member.remoteId), outside, onPerson }}
           onOpen={() => openAttentionItem(need.item)} onAcknowledge={() => acknowledge(need.item)} onSnooze={anchor => setSnooze({ need, anchor })} />)}
       </div>
     </section>)}

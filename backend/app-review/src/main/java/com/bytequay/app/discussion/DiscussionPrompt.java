@@ -26,7 +26,7 @@ final class DiscussionPrompt
             Check code claims against the current files. Report missing context or uncertainty. Use plain words, normally under 100 words.
             """;
     static final String COMMENT_PREAMBLE = """
-            Answer the pull request author's private question about review comments. Explain only; do not implement or reply on GitHub.
+            Answer the pull request author's private question about review comments. Explain only; do not implement or reply on GitHub or GitLab.
             You may read the repository, but cannot edit, commit or publish. The working tree may have changed since the comments.
             """;
     static final String REVIEW_COMMENT_PREAMBLE = """

@@ -243,14 +243,14 @@ it('forwards PR opening freshness separately from periodic and checks-only refre
     expect.objectContaining({ method: 'POST' }));
 });
 
-it.each(['pat:copy', 'workspaces:token:copy'])('reports %s only after the asynchronous clipboard write succeeds', async channel => {
+it('reports pat:copy only after the asynchronous clipboard write succeeds', async () => {
   await startMain();
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ value: 'test-token' }))));
   desktop.clipboardWriteText.mockResolvedValue(undefined);
-  await expect(desktop.handlers.get(channel)?.({}, 'workspace')).resolves.toBe(true);
+  await expect(desktop.handlers.get('pat:copy')?.({})).resolves.toBe(true);
   expect(desktop.clipboardWriteText).toHaveBeenCalledWith('test-token');
   desktop.clipboardWriteText.mockRejectedValue(new Error('Clipboard unavailable'));
-  await expect(desktop.handlers.get(channel)?.({}, 'workspace')).rejects.toThrow('Clipboard unavailable');
+  await expect(desktop.handlers.get('pat:copy')?.({})).rejects.toThrow('Clipboard unavailable');
 });
 
 it.each([
@@ -339,44 +339,51 @@ it('reads activity titles through the local stored-PR endpoint without an import
 
 it('authenticates and validates Team IPC, with time for a bounded collection pass', async () => {
   await startMain();
-  const directory: TeamDirectory = { accountLogin: 'viewer', circles: [] };
+  const directory: TeamDirectory = { accountId: 7, accountLogin: 'viewer', server: { provider: 'GITLAB', webBaseUrl: 'https://gitlab.example.com', apiBaseUrl: 'https://gitlab.example.com/api/v4' }, circles: [] };
   const totals = { prsOpened: 0, authoredPrsMerged: 0, mergesPerformed: 0, prsReviewed: 0, issuesOpened: 0, issuesClosed: 0, comments: 0,
     directInteractions: 0, sharedPullRequests: 0, sharedIssues: 0 };
   const activity: TeamActivitySnapshot = {
-    accountLogin: 'viewer', events: [], updates: 0, workItems: 0, people: [], totals, days: [{ date: '2026-09-29', updates: 0, collected: false }],
+    accountLogin: 'viewer', updates: 1, workItems: 1, people: [], totals, days: [{ date: '2026-09-29', updates: 0, collected: false }],
+    events: [{ id: 'note:1', kind: 'PR_COMMENT', actorId: 42, actorLogin: 'alice', repository: 'group/sub/project', number: 3, title: 'A change',
+      url: 'https://gitlab.example.com/group/sub/project/-/merge_requests/3#note_1', occurredAt: '2026-09-29T12:00:00Z', subjectAuthorId: null, subjectAuthorLogin: null,
+      source: 'REPOSITORY', viewerInteractionMemberIds: [] }],
     coverage: { partial: true, observedSince: null, lastRefreshedAt: null, errors: [], memberCount: 0, membersScanned: 0, repositoryCount: 0, repositoriesScanned: 0 },
   };
   const contributors = [{ id: 42, login: 'alice', avatarUrl: '', bot: false }];
   const fetch = vi.fn(async (url: string | URL) => new Response(JSON.stringify(String(url).includes('/refresh?') ? activity
-    : String(url).endsWith('/contributors') ? contributors : directory)));
+    : String(url).endsWith('/contributors') ? contributors : String(url).endsWith('/api/teams') ? [directory] : directory)));
   vi.stubGlobal('fetch', fetch);
-  const member = { githubId: 42, login: 'alice' };
-  await expect(desktop.handlers.get('teams:create')?.({}, { name: ' Internal ', description: ' Our reviewers ', avatar: { color: 'gray', shape: 'square' }, repositories: ['Owner/Repo'], members: [member] })).resolves.toEqual(directory);
-  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/teams', expect.objectContaining({ method: 'POST',
+  const member = { remoteId: 42, login: 'jane.doe' };
+  await expect(desktop.handlers.get('teams:refresh')?.({}, 7, {})).resolves.toEqual(activity);
+  expect(fetch.mock.calls.map(([url]) => String(url))).toContain('http://127.0.0.1:9527/api/teams');
+  await expect(desktop.handlers.get('teams:refresh')?.({}, 8, {})).rejects.toThrow('This account is no longer signed in');
+  await expect(desktop.handlers.get('teams:create')?.({}, 7, { name: ' Internal ', description: ' Our reviewers ', avatar: { color: 'gray', shape: 'square' }, repositories: ['Owner/Repo'], members: [member] })).resolves.toEqual(directory);
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/teams/7/circles', expect.objectContaining({ method: 'POST',
     body: JSON.stringify({ name: 'Internal', description: 'Our reviewers', avatar: { color: 'gray', shape: 'square' }, repositories: ['owner/repo'], members: [member] }),
     headers: withHeaders({ 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' }),
   }));
-  await expect(desktop.handlers.get('teams:contributors')?.({})).resolves.toEqual(contributors);
-  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/teams/contributors', expect.objectContaining({
+  await expect(desktop.handlers.get('teams:contributors')?.({}, 7)).resolves.toEqual(contributors);
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/teams/7/contributors', expect.objectContaining({
     headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }),
   }));
-  await desktop.handlers.get('teams:members:add')?.({}, 'circle-1', member);
-  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/teams/circle-1/members', expect.objectContaining({ method: 'POST',
+  await desktop.handlers.get('teams:members:add')?.({}, 7, 'circle-1', member);
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/teams/7/circles/circle-1/members', expect.objectContaining({ method: 'POST',
     body: JSON.stringify(member), headers: withHeaders({ 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' }),
   }));
-  await desktop.handlers.get('teams:members:remove')?.({}, 'circle-1', 42);
-  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/teams/circle-1/members/42', expect.objectContaining({
+  await desktop.handlers.get('teams:members:remove')?.({}, 7, 'circle-1', 42);
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/teams/7/circles/circle-1/members/42', expect.objectContaining({
     method: 'DELETE', headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }),
   }));
   const timeout = vi.spyOn(AbortSignal, 'timeout');
-  await expect(desktop.handlers.get('teams:refresh')?.({}, { circleId: 'circle-1', memberId: 42, days: 30 })).resolves.toEqual(activity);
-  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/teams/refresh?circleId=circle-1&memberId=42&days=30&limit=100',
+  await expect(desktop.handlers.get('teams:refresh')?.({}, 7, { circleId: 'circle-1', memberId: 42, days: 30 })).resolves.toEqual(activity);
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/teams/7/refresh?circleId=circle-1&memberId=42&days=30&limit=100',
     expect.objectContaining({ method: 'POST', headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
   expect(timeout).toHaveBeenCalledWith(15 * 60_000);
   const calls = fetch.mock.calls.length;
-  expect(() => desktop.handlers.get('teams:members:remove')?.({}, '../activity', 42)).toThrow('Invalid circle ID');
-  expect(() => desktop.handlers.get('teams:members:add')?.({}, 'circle-1', { ...member, githubId: 0 })).toThrow('Invalid GitHub user ID');
-  expect(() => desktop.handlers.get('teams:refresh')?.({}, { days: 91 })).toThrow('Invalid period');
+  expect(() => desktop.handlers.get('teams:members:remove')?.({}, 7, '../activity', 42)).toThrow('Invalid circle ID');
+  expect(() => desktop.handlers.get('teams:members:add')?.({}, 7, 'circle-1', { ...member, remoteId: 0 })).toThrow('Invalid User ID');
+  expect(() => desktop.handlers.get('teams:create')?.({}, '../7', { name: 'Team', description: '', repositories: [], members: [] })).toThrow('Invalid account ID');
+  expect(() => desktop.handlers.get('teams:refresh')?.({}, 7, { days: 91 })).toThrow('Invalid period');
   expect(fetch).toHaveBeenCalledTimes(calls);
 });
 
@@ -615,8 +622,8 @@ it('reads a directory’s spec sources and starts a check of it, refusing a forg
   await desktop.handlers.get('repository-context:spec-checks:start')?.({}, 'workspace/one', { ...request, specs: [] });
   expect(fetch).toHaveBeenLastCalledWith(base, expect.objectContaining({ method: 'POST', body: JSON.stringify({ ...request, specs: [] }) }));
   fetch.mockImplementation(async () => new Response(JSON.stringify(check)));
-  await expect(desktop.handlers.get('repository-context:spec-checks:dismiss')?.({}, 'workspace/one', 'check/1', 'c1', { reason: 'Filed on GitHub' })).resolves.toEqual(check);
-  expect(fetch).toHaveBeenLastCalledWith(base + '/check%2F1/candidates/c1/dismiss', expect.objectContaining({ method: 'POST', body: JSON.stringify({ reason: 'Filed on GitHub' }) }));
+  await expect(desktop.handlers.get('repository-context:spec-checks:dismiss')?.({}, 'workspace/one', 'check/1', 'c1', { reason: 'Filed as an issue' })).resolves.toEqual(check);
+  expect(fetch).toHaveBeenLastCalledWith(base + '/check%2F1/candidates/c1/dismiss', expect.objectContaining({ method: 'POST', body: JSON.stringify({ reason: 'Filed as an issue' }) }));
 });
 
 it('routes memory reads and the user’s changes, refusing a forged memory id before sending it', async () => {

@@ -15,8 +15,8 @@ import { plural } from '@bytequay/ui/displayText';
 import type { JiraIssue } from '../jira/contracts';
 import { pullRequestIsMine } from '../pulls/model';
 import { teamAttentionMatch, type TeamAttentionPreference } from '../teams/priority';
-import type { TeamCircle } from '../teams/types';
-import type { AgentTaskActivityDto, AgentTaskDto, AttentionMarkDto, PullRequestDto, RepositoryIssueSnapshotDto } from '../types';
+import type { TeamDirectory } from '../teams/types';
+import type { AgentTaskActivityDto, AgentTaskDto, AttentionMarkDto, PullRequestDto, PullRequestRoute, RepositoryIssueSnapshotDto } from '../types';
 
 /** Why an item is on the "Needs attention" list. */
 export type AttentionKind = 'approval' | 'review' | 'assigned' | 'changes' | 'failed' | 'blocked' | 'ci' | 'commits' | 'merge' | 'finished' | 'updated';
@@ -54,6 +54,8 @@ export type AttentionItem = {
   labels: string[];
   /** The pull request row the list already loaded; null for issues. */
   pr: PullRequestDto | null;
+  /** An issue's web page; a pull request's is on its row. */
+  htmlUrl?: string;
   /** Issues carry their body and comment count in the list payload. */
   body: string;
   commentCount: number;
@@ -63,8 +65,12 @@ export type AttentionItem = {
   canStartDevelopment?: boolean;
   /** Whether this issue or ticket is marked as an Epic. */
   isEpic?: boolean;
+  /** The identity work items name this issue by as an Epic; tickets build theirs from the Jira fields. */
+  epicId?: string;
   /** Issues open inside their workspace. */
   workspaceId: string | null;
+  /** A pull request no workspace lists: the connected account it opens through. */
+  accountId?: number | null;
   workspaceName?: string;
   /** Stable upstream identity, independent of which workspace supplied this issue. */
   sourceKey?: string;
@@ -111,8 +117,20 @@ function hasCommitsSinceReview(pr: PullRequestDto): boolean {
 
 export function pullRequestAttentionKey(pr: Pick<PullRequestDto, 'id'>): string { return `pr:${pr.id}`; }
 
-export function issueAttentionKey(repo: string, number: number, workspaceId: string | null): string {
-  return `issue:${workspaceId ?? repo}:${number}`;
+/** An issue's one key, as the backend's Workspace.issueKey writes it for agenda refs, Recent and Needs attention marks. */
+export function issueAttentionKey(repo: string, number: number, workspaceId: string): string {
+  return `issue:${workspaceId}:${repo.toLowerCase()}#${number}`;
+}
+
+/** Where a pull request card opens: its workspace, else the connected account that discovered it, else the desktop sign-in. */
+export function pullReferenceRoute(item: Pick<AttentionItem, 'workspaceId' | 'accountId'>): { workspaceId?: string; accountId?: number } {
+  if (item.workspaceId !== null) return { workspaceId: item.workspaceId };
+  return item.accountId === null || item.accountId === undefined ? {} : { accountId: item.accountId };
+}
+
+export function pullRoute(item: Pick<AttentionItem, 'workspaceId' | 'accountId'>): PullRequestRoute | undefined {
+  const route = pullReferenceRoute(item);
+  return route.workspaceId ?? (route.accountId === undefined ? undefined : { accountId: route.accountId });
 }
 
 export function pullRequestItem(pr: PullRequestDto, kind: AttentionKind = 'updated', workspaceId: string | null = null): AttentionItem {
@@ -132,17 +150,18 @@ export function pullRequestItem(pr: PullRequestDto, kind: AttentionKind = 'updat
     body: '',
     commentCount: pr.commentCount,
     workspaceId,
+    accountId: pr.accountId ?? null,
   };
 }
 
 /** The same source identity and snapshot for an issue card and its detail page. */
-export function issueAttentionItem(issue: RepositoryIssueSnapshotDto['issues'][number], repo: string, workspaceId: string | null): AttentionItem {
+export function issueAttentionItem(issue: RepositoryIssueSnapshotDto['issues'][number], repo: string, workspaceId: string): AttentionItem {
   return {
-    key: issueAttentionKey(repo, issue.number, workspaceId), sourceKey: `${URL.parse(issue.htmlUrl)?.origin ?? workspaceId ?? repo}:issue:${issue.id}`, type: 'issue', kind: 'updated',
+    key: issueAttentionKey(repo, issue.number, workspaceId), sourceKey: `${URL.parse(issue.htmlUrl)?.origin ?? workspaceId}:issue:${issue.id}`, type: 'issue', kind: 'updated',
     repo, number: issue.number, title: issue.title, author: issue.author, authorAvatarUrl: issue.authorAvatarUrl,
-    createdAt: issue.createdAt, updatedAt: issue.updatedAt, labels: issue.labels, pr: null,
+    createdAt: issue.createdAt, updatedAt: issue.updatedAt, labels: issue.labels, pr: null, htmlUrl: issue.htmlUrl,
     body: issue.body, commentCount: issue.commentCount, workspaceId,
-    canStartDevelopment: !issue.isEpic && issue.developmentTask == null, isEpic: issue.isEpic === true,
+    canStartDevelopment: !issue.isEpic && issue.developmentTask == null, isEpic: issue.isEpic === true, epicId: issue.epicId,
   };
 }
 
@@ -186,7 +205,7 @@ export function attentionCandidates(
     if (!previous || (issue.workspaceId ?? '').localeCompare(previous.workspaceId ?? '') < 0) bySource.set(key, issue);
   }
   const items = prs
-    .map(pr => pullRequestItem(pr, attentionKind(pr, viewerLogin)))
+    .map(pr => pullRequestItem(pr, attentionKind(pr, viewerLogin), pr.workspaceId ?? null))
     .concat([...bySource.values()]);
   return items.sort(compareAttention);
 }
@@ -447,7 +466,7 @@ export type AttentionFilter = 'all' | AttentionSource;
  * reviewed or monitor; then circle members' own pull requests and issues. Null keeps it off the list, such as
  * a circle member's comment on someone else's pull request.
  */
-export function attentionRank(item: AttentionItem, circles: TeamCircle[], viewerLogin: string | null): number | null {
+export function attentionRank(item: AttentionItem, directories: TeamDirectory[], viewerLogin: string | null): number | null {
   if (item.task) return 0;
   // The Jira attention read lists only tickets assigned to the viewer.
   if (item.jira) return 2;
@@ -455,7 +474,7 @@ export function attentionRank(item: AttentionItem, circles: TeamCircle[], viewer
   if (pr !== null ? pullRequestIsMine(pr, viewerLogin) : viewerLogin !== null && item.author?.toLowerCase() === viewerLogin.toLowerCase()) return 0;
   // Approval keeps routine updates in Approved by me; an explicit re-request clears the approval in the backend.
   if (pr?.state === 'open' && pr.handledAction === 'APPROVED') return null;
-  const circle = teamAttentionMatch(item, circles, viewerLogin);
+  const circle = teamAttentionMatch(item, directories);
   if (item.kind === 'review' || item.kind === 'assigned' || pr?.mentioned === true) return circle === null ? 2 : 1;
   if (pr !== null && (pr.reviewedAt !== null || pr.handledAction !== null || pr.monitoredAt != null)) return 3;
   return circle === null ? null : 4;
@@ -466,11 +485,11 @@ const RANKED_WINDOW_MS = 7 * 86_400_000;
 
 /** The cards a filter draws, capped: the last week's activity by rank, then older items newest first. */
 export function attentionCards(live: AttentionItem[], filter: AttentionFilter, limit = ATTENTION_CARD_LIMIT,
-  team: TeamAttentionPreference = { circles: [], viewerLogin: null }, now = Date.now()): AttentionItem[] {
+  team: TeamAttentionPreference = { directories: [], viewerLogin: null }, now = Date.now()): AttentionItem[] {
   return live.flatMap(item => {
-    const rank = attentionRank(item, team.circles, team.viewerLogin);
+    const rank = attentionRank(item, team.directories, team.viewerLogin);
     if (rank === null || (filter !== 'all' && attentionSource(item) !== filter)
-      || (team.onlyTeam && teamAttentionMatch(item, team.circles, team.viewerLogin) === null)) return [];
+      || (team.onlyTeam && teamAttentionMatch(item, team.directories) === null)) return [];
     const recent = now - attentionAt(item) <= RANKED_WINDOW_MS;
     return [{ item, order: recent ? rank : Number.MAX_SAFE_INTEGER }];
   }).sort((left, right) => left.order - right.order || compareAttention(left.item, right.item)).slice(0, limit).map(entry => entry.item);
@@ -484,7 +503,7 @@ export type HandledEntry = {
   until: number | null;
   /** The item's updatedAt when it was handled, or a pull request's later attention activity. */
   seenUpdatedAt: string;
-  /** Includes the CI result and mergeability, which need not advance GitHub's updatedAt. */
+  /** Includes the CI result and mergeability, which need not advance the provider's updatedAt. */
   seenActivityVersion?: string;
   /** Toast/footer wording, e.g. "next monday". */
   label: string;
@@ -588,7 +607,7 @@ export function attentionActivityVersion(item: AttentionItem): string {
   if (item.jira) return JSON.stringify([item.updatedAt, item.title, item.jira.status.id, item.jira.assignee?.accountId,
     [...item.labels].sort(), item.jira.priority?.id, item.jira.dueDate]);
   const pr = item.pr;
-  // Not pr.activityAt: it moves whenever a single CI job starts or finishes. What people do on GitHub moves updatedAt instead.
+  // Not pr.activityAt: it moves whenever a single CI job starts or finishes. What people do on the provider moves updatedAt instead.
   // pullRequestNews reads these fields by position.
   return JSON.stringify(pr === null ? [item.updatedAt, item.title, item.body, item.commentCount, [...item.labels].sort(), item.issueState ?? 'open'] : [
     pr.updatedAt, pr.title, pr.state, pr.draft, pr.ciStatus, pr.mergeable, pr.mergeableState,

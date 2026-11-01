@@ -325,12 +325,12 @@ public record CherryPickExecution(
     }
 
     /** Records the provider pull request created from the previously pushed branch. */
-    public CherryPickExecution recordPullRequest(long providerId, int number, String url, Instant now)
+    public CherryPickExecution recordPullRequest(int number, String url, Instant now)
     {
         requireDeliverable(now);
         Delivery pushed = delivery.orElseThrow(() -> new IllegalStateException("execution branch is not pushed"));
-        checkState(pushed.pullRequestId().isEmpty(), "execution already has a pull request");
-        return edit(now, draft -> draft.delivery = Optional.of(pushed.withPullRequest(providerId, number, url)));
+        checkState(pushed.pullRequestNumber().isEmpty(), "execution already has a pull request");
+        return edit(now, draft -> draft.delivery = Optional.of(pushed.withPullRequest(number, url)));
     }
 
     private List<CherryPickItem> replace(String sourceSha, UnaryOperator<CherryPickItem> edit)
@@ -519,32 +519,28 @@ public record CherryPickExecution(
     }
 
     /** Durable remote-delivery facts for a successfully completed execution. */
-    public record Delivery(String pushRemote, String head, String sha, Optional<Long> pullRequestId, Optional<Integer> pullRequestNumber, Optional<String> pullRequestUrl)
+    public record Delivery(String pushRemote, String head, String sha, Optional<Integer> pullRequestNumber, Optional<String> pullRequestUrl)
     {
         public Delivery
         {
             checkText(pushRemote, "delivery pushRemote", 100);
             checkText(head, "delivery head", 255);
             checkSha(sha, "delivery sha");
-            requireNonNull(pullRequestId, "pullRequestId is null");
             requireNonNull(pullRequestNumber, "pullRequestNumber is null");
             requireNonNull(pullRequestUrl, "pullRequestUrl is null");
-            checkArgument(pullRequestId.isPresent() == pullRequestNumber.isPresent()
-                            && pullRequestId.isPresent() == pullRequestUrl.isPresent(),
-                    "pull-request delivery facts are incomplete");
-            pullRequestId.ifPresent(value -> checkArgument(value > 0, "pullRequestId is not positive"));
+            checkArgument(pullRequestNumber.isPresent() == pullRequestUrl.isPresent(), "pull-request delivery facts are incomplete");
             pullRequestNumber.ifPresent(value -> checkArgument(value > 0, "pullRequestNumber is not positive"));
             pullRequestUrl.ifPresent(value -> checkText(value, "pullRequestUrl", 2048));
         }
 
         private static Delivery pushed(String remote, String head, String sha)
         {
-            return new Delivery(remote, head, sha, Optional.empty(), Optional.empty(), Optional.empty());
+            return new Delivery(remote, head, sha, Optional.empty(), Optional.empty());
         }
 
-        private Delivery withPullRequest(long providerId, int number, String url)
+        private Delivery withPullRequest(int number, String url)
         {
-            return new Delivery(pushRemote, head, sha, Optional.of(providerId), Optional.of(number), Optional.of(url));
+            return new Delivery(pushRemote, head, sha, Optional.of(number), Optional.of(url));
         }
     }
 

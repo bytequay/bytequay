@@ -27,7 +27,7 @@ const target: AgendaTargetDto = { kind: 'PULL', workspaceId: 'ws', repo: 'owner/
 describe('screenRef', () => {
   it('names the top layer before the page under it', () => {
     expect(screenRef({ kind: 'pull', repo: 'Owner/Repository', number: 7 }, workspaceAgentTaskRoute('ws', 't1'), 'owner/repository')).toBe('pr:owner/repository#7');
-    expect(screenRef({ kind: 'issue', repo: 'a/B', number: 3, workspaceId: 'ws' }, '#/home', null)).toBe('issue:a/b#3');
+    expect(screenRef({ kind: 'issue', repo: 'a/B', number: 3, workspaceId: 'ws' }, '#/home', null)).toBe('issue:ws:a/b#3');
     expect(screenRef({ kind: 'jira', connectionId: 'c', cloudId: 'cloud', issueId: '10042' }, '#/home', null)).toBe('jira:cloud:10042');
     expect(screenRef({ kind: 'work', workspaceId: 'ws', itemId: 'w-22' }, '#/home', null)).toBe('work:w-22');
     expect(screenRef({ kind: 'task', workspaceId: 'ws', taskId: 't9' }, '#/home', null)).toBe('task:t9');
@@ -38,7 +38,7 @@ describe('screenRef', () => {
     expect(screenRef(undefined, workspaceAgentTaskRoute('ws', 't1'), null)).toBe('task:t1');
     expect(screenRef(undefined, workspaceReviewTaskRoute('ws', 'r1'), null)).toBe('review:r1');
     expect(screenRef(undefined, workspacePullRequestRoute('ws', 12), 'Owner/Repository')).toBe('pr:owner/repository#12');
-    expect(screenRef(undefined, workspaceIssueRoute('ws', 5), 'owner/repository')).toBe('issue:owner/repository#5');
+    expect(screenRef(undefined, workspaceIssueRoute('ws', 5), 'owner/repository')).toBe('issue:ws:owner/repository#5');
     expect(screenRef(undefined, workspacePullRequestRoute('ws', 12), null)).toBeNull();
     expect(screenRef(undefined, '#/home', 'owner/repository')).toBeNull();
   });
@@ -47,7 +47,7 @@ describe('screenRef', () => {
 describe('refLabel', () => {
   it('shows numbers for pull requests and issues, and the kind otherwise', () => {
     expect(refLabel('pr:owner/repository#31402')).toBe('#31402');
-    expect(refLabel('issue:owner/repository#9')).toBe('#9');
+    expect(refLabel('issue:ws:owner/repository#9')).toBe('#9');
     expect(refLabel('work:w-22')).toBe('work item');
     expect(refLabel('jira:cloud:10042')).toBe('Jira ticket');
   });
@@ -147,7 +147,7 @@ describe('lists', () => {
     // An Epic's done of total is a fact, so only its conclusion is a state.
     expect(rowState(row('epic:e1', 'EPIC', null, { done: 3, total: 6 }))).toBeNull();
     expect(rowState(row('epic:e1', 'EPIC', null, { state: 'concluded', done: 6, total: 6 }))).toBe('Concluded');
-    expect(rowState(row('issue:a#2', 'ISSUE', null))).toBeNull();
+    expect(rowState(row('issue:ws:a#2', 'ISSUE', null))).toBeNull();
   });
 
   it('names where each kind of row lives in its tooltip', () => {
@@ -170,7 +170,7 @@ describe('opens', () => {
     expect(pageRoute('settings/workflow')).toBe('#/settings/agents/workflow');
     expect(pageRoute('pulls')).toBe('#/pulls');
     expect(pageRoute('settings')).toBe('#/settings');
-    expect(pageRoute('settings/ws-token')).toBeNull();
+    expect(pageRoute('settings/ws-account')).toBeNull();
     expect(pageRoute('terminal')).toBeNull();
     expect(pageRoute('workspaces/ws1')).toBe(workspaceRoute('ws1'));
     expect(pageRoute('workspaces/ws1/tasks')).toBe(workspaceRoute('ws1', 'tasks'));

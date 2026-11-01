@@ -13,10 +13,10 @@
  */
 package com.bytequay.app.workspace;
 
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
 import com.bytequay.app.service.hosting.HostingReadSession;
+import com.bytequay.app.service.pr.PullRequestRows;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
@@ -26,6 +26,7 @@ import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import com.bytequay.core.store.HostingIdentityStore;
@@ -42,7 +43,6 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static com.bytequay.app.git.command.RepositoryUrls.isPlainHttps;
-import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.bytequay.core.hosting.HostingFailure.Kind.MISSING_OR_INACCESSIBLE;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
@@ -60,12 +60,12 @@ public class WorkspaceHostingService
     private final HostingConnectionService connections;
     private final HostingPullRequestService requests;
     private final PullRequestStore pullRequests;
-    private final CredentialService desktopCredentials;
+    private final PullRequestRows rows;
     private final WorkspacePaths paths;
     private final Clock clock;
 
     public WorkspaceHostingService(WorkspaceStore workspaces, HostingIdentityStore identities,
-            HostingConnectionService connections, HostingPullRequestService requests, CredentialService desktopCredentials,
+            HostingConnectionService connections, HostingPullRequestService requests,
             WorkspacePaths paths, Clock clock, PullRequestStore pullRequests)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
@@ -73,7 +73,7 @@ public class WorkspaceHostingService
         this.connections = requireNonNull(connections, "connections is null");
         this.requests = requireNonNull(requests, "requests is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
-        this.desktopCredentials = requireNonNull(desktopCredentials, "desktopCredentials is null");
+        this.rows = new PullRequestRows(pullRequests, workspaces);
         this.paths = requireNonNull(paths, "paths is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
@@ -89,7 +89,7 @@ public class WorkspaceHostingService
         checkArgument(accountId > 0, "accountId must be positive");
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
         HostingReadSession session = connections.readSession(accountId);
-        checkArgument(session.access().server().equals(workspace.hostingServer().orElse(GITHUB_SERVER)), "Hosting account belongs to another workspace server");
+        checkArgument(session.access().server().equals(workspace.server()), "Hosting account belongs to another workspace server");
         HostingRepository selected = connections.resolveRepositoryById(session, Long.toString(workspace.selectedRepositoryId()));
         Optional<Long> upstream = workspace.upstreamRepositoryId()
                 .map(id -> connections.resolveRepositoryById(session, id.toString()).id());
@@ -111,7 +111,7 @@ public class WorkspaceHostingService
         checkArgument(isPlainHttps(selected.httpCloneUrl()), "Workspace clone URL must use HTTPS");
         Optional<Workspace> existing = workspaces.findBySelectedHostingRepositoryId(selected.id());
         if (existing.isPresent()) {
-            return workspaces.createHosted(existing.orElseThrow(), accountId, selected.id());
+            return workspaces.createHosted(existing.orElseThrow(), accountId, selected.id(), Optional.empty());
         }
         String branch = selected.defaultBranch().orElseThrow(() -> WorkspaceException.invalidRepository("The repository has no default branch to clone."));
         String id = UUID.randomUUID().toString();
@@ -121,8 +121,8 @@ public class WorkspaceHostingService
         long remoteId = Long.parseLong(selected.remoteId());
         Workspace workspace = new Workspace(id, name.map(String::trim).orElse(selected.fullPath()), remoteId, coordinates, Optional.empty(), Optional.empty(),
                 remoteId, coordinates, Workspace.Topology.DIRECT, branch, selected.httpCloneUrl().toString(), Optional.empty(), Optional.empty(), paths.repository(id).toString(),
-                Optional.empty(), Optional.empty(), order, now, now, Optional.of(server));
-        return workspaces.createHosted(workspace, accountId, selected.id());
+                Optional.empty(), Optional.empty(), order, now, now, server);
+        return workspaces.createHosted(workspace, accountId, selected.id(), Optional.empty());
     }
 
     static RepoRef repositoryRef(HostingRepository repository)
@@ -133,41 +133,95 @@ public class WorkspaceHostingService
         return RepoRef.of(path.substring(0, slash), path.substring(slash + 1));
     }
 
+    /** Reads the workspace repository from its provider to verify it is still the same one, and stores it. */
     public WorkspaceHostingRead captureRead(String workspaceId)
     {
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
-        Optional<WorkspaceHostingBinding> binding = workspaces.findHostingBinding(workspaceId);
-        HostingReadSession session = binding.map(value -> connections.readSession(value.accountId()))
-                .orElseGet(() -> desktopCredentials.captureWorkspaceHostingRead(workspaceId));
-        checkArgument(session.access().server().equals(workspace.hostingServer().orElse(GITHUB_SERVER)), "Hosting account belongs to another workspace server");
+        WorkspaceHostingBinding binding = binding(workspaceId);
+        HostingReadSession session = session(workspace, binding);
         HostingRepository repository = connections.resolveRepositoryById(session, Long.toString(workspace.monitoredRepositoryId()));
+        HostingAccount account = account(session);
+        checkArgument(repository.remoteId().equals(Long.toString(workspace.monitoredRepositoryId())), "Workspace repository identity changed");
+        checkArgument(repository.id() == binding.monitoredRepositoryId(), "Workspace repository identity changed");
+        return new WorkspaceHostingRead(session, repository, account.login());
+    }
+
+    /** Another repository on the workspace's server, read with the workspace's account, such as a cherry-pick source. */
+    public HostingTarget repositoryTarget(String workspaceId, String fullPath)
+    {
+        HostingReadSession session = session(requireWorkspace(workspaces, workspaceId), binding(workspaceId));
+        return new HostingTarget(session.access(), connections.resolveRepository(session, fullPath));
+    }
+
+    /** A repository on the workspace's server as last read from its provider, found without contacting it. */
+    public Optional<HostingRepository> storedRepository(String workspaceId, long remoteId)
+    {
+        return identities.findRepository(requireWorkspace(workspaces, workspaceId).server(), Long.toString(remoteId));
+    }
+
+    /**
+     * The verified repository a workspace pushes its branches to: the read's own repository, or the fork the workspace selected. Both must
+     * still have the workspace's coordinates, so a renamed or moved repository waits for a sync.
+     */
+    public HostingTarget pushTarget(String workspaceId, WorkspaceHostingRead read)
+    {
+        Workspace workspace = requireWorkspace(workspaces, workspaceId);
+        HostingRepository selected = workspace.selectedRepositoryId() == workspace.monitoredRepositoryId()
+                ? read.repository()
+                : connections.resolveRepositoryById(read.session(), Long.toString(workspace.selectedRepositoryId()));
+        checkArgument(selected.remoteId().equals(Long.toString(workspace.selectedRepositoryId())), "Workspace repository identity changed");
+        if (!read.repositoryRef().equals(workspace.monitoredRepository()) || !repositoryRef(selected).equals(workspace.selectedRepository())) {
+            throw WorkspaceException.deliveryUnavailable("Repository routing changed. Synchronize the workspace before delivery.");
+        }
+        return new HostingTarget(read.session().access(), selected);
+    }
+
+    /**
+     * The route the workspace's binding names, without contacting the provider; for steps that repeat often, such as CI polling. A
+     * monitored repository whose stored coordinates no longer match the workspace verifies once.
+     */
+    public WorkspaceHostingRead storedRead(String workspaceId)
+    {
+        Workspace workspace = requireWorkspace(workspaces, workspaceId);
+        WorkspaceHostingBinding binding = binding(workspaceId);
+        HostingReadSession session = session(workspace, binding);
+        return identities.findRepository(binding.monitoredRepositoryId())
+                .filter(repository -> repository.remoteId().equals(Long.toString(workspace.monitoredRepositoryId())))
+                .map(repository -> new WorkspaceHostingRead(session, repository, account(session).login()))
+                .orElseGet(() -> captureRead(workspaceId));
+    }
+
+    private WorkspaceHostingBinding binding(String workspaceId)
+    {
+        return workspaces.findHostingBinding(workspaceId).orElseThrow(WorkspaceException::accountRequired);
+    }
+
+    private HostingReadSession session(Workspace workspace, WorkspaceHostingBinding binding)
+    {
+        HostingReadSession session = connections.readSession(binding.accountId());
+        checkArgument(session.access().server().equals(workspace.server()), "Hosting account belongs to another workspace server");
+        return session;
+    }
+
+    private HostingAccount account(HostingReadSession session)
+    {
         HostingAccount account = identities.findAccount(session.accountId())
                 .orElseThrow(() -> new HostingFailure(MISSING_OR_INACCESSIBLE, "Hosting account is unavailable"));
         checkArgument(account.instanceId() == session.access().instanceId().orElseThrow(), "Hosting account belongs to another instance");
-        checkArgument(repository.remoteId().equals(Long.toString(workspace.monitoredRepositoryId())), "Workspace repository identity changed");
-        binding.ifPresent(value -> checkArgument(repository.id() == value.monitoredRepositoryId(), "Workspace repository identity changed"));
-        if (binding.isEmpty()) {
-            workspaces.saveHostingCacheTarget(workspaceId, new HostingCacheTarget(session.accountId(), repository.id(), session.credentialScope()));
-        }
-        return new WorkspaceHostingRead(session, repository, account.login());
+        return account;
     }
 
     public WorkspacePullRequestPage cachedPullRequests(String workspaceId, int page, int pageSize)
     {
         checkArgument(page > 0, "page must be positive");
         checkArgument(pageSize > 0 && pageSize <= 100, "pageSize must be between 1 and 100");
-        Workspace workspace = requireWorkspace(workspaces, workspaceId);
+        requireWorkspace(workspaces, workspaceId);
         Optional<HostingCacheTarget> target = cacheTarget(workspaceId);
         PullRequestListPage found = target.map(value -> requests.cachedPage(value, page, pageSize))
                 .orElseGet(() -> new PullRequestListPage(ImmutableList.of(), false));
-        return new WorkspacePullRequestPage(found.items().stream().map(summary -> {
-            PullRequest row = workspace.isGitHub()
-                    ? pullRequests.findIdByRepoAndNumber(summary.repo(), summary.number()).flatMap(pullRequests::findById)
-                            .orElseGet(() -> pullRequests.saveObserved(summary))
-                    : pullRequests.findByHostingRepository(target.orElseThrow().repositoryId(), summary.number())
-                            .orElseGet(() -> pullRequests.saveHosted(target.orElseThrow().repositoryId(), summary));
-            return new WorkspacePullRequestRow(summary, row);
-        }).collect(toImmutableList()), found.hasNext());
+        return new WorkspacePullRequestPage(found.items().stream()
+                .map(summary -> new WorkspacePullRequestRow(summary, rows.findOrCreate(target.orElseThrow().repositoryId(), summary)))
+                .collect(toImmutableList()), found.hasNext());
     }
 
     public Optional<Long> cachedRepositoryId(String workspaceId)
@@ -220,7 +274,6 @@ public class WorkspaceHostingService
     private Optional<HostingCacheTarget> cacheTarget(String workspaceId)
     {
         return workspaces.findHostingBinding(workspaceId)
-                .map(binding -> new HostingCacheTarget(binding.accountId(), binding.monitoredRepositoryId(), CONNECTED_ACCOUNT))
-                .or(() -> workspaces.findHostingCacheTarget(workspaceId));
+                .map(binding -> new HostingCacheTarget(binding.accountId(), binding.monitoredRepositoryId(), CONNECTED_ACCOUNT));
     }
 }

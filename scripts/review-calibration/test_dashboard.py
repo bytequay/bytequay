@@ -693,7 +693,7 @@ class Page(unittest.TestCase):
         page = self.page()
         page.button(key="refresh").click().run()
         self.assertEqual([note.value for note in page.warning], ["Application records could not be refreshed; agent statistics may be stale."])
-        database(self.folder / "bytequay-1.0.db")
+        database(self.folder / "bytequay-055.db")
         self.write_log(ended(43200, 43800))
         page.button(key="refresh").click().run()
         self.assertEqual((list(page.error), list(page.exception)), ([], []))

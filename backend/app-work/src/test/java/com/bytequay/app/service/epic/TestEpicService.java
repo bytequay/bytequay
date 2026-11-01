@@ -15,20 +15,28 @@ package com.bytequay.app.service.epic;
 
 import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.jira.JiraService;
-import com.bytequay.app.repository.github.GitHubRepoClient;
-import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.workitem.WorkItemService;
+import com.bytequay.app.workspace.WorkspaceHostingRead;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.core.domain.Epic;
 import com.bytequay.core.domain.EpicChild;
 import com.bytequay.core.domain.EpicProposal;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.IssueEpic;
-import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.ChildIssue;
+import com.bytequay.core.hosting.ChildIssues;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.IssueClient;
 import com.bytequay.core.store.IssueDevelopmentStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -41,11 +49,14 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.net.URI;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
 
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.issues;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
@@ -67,14 +78,13 @@ class TestEpicService
     private static final Instant NOW = Instant.EPOCH;
     private static final String EPIC = "ISSUE:github.com:1";
     private static final String JIRA_EPIC = "JIRA:5:cloud:10";
-    private static final RepoRef REPOSITORY = RepoRef.of("org", "repo");
 
     private final InMemoryEpicStore records = new InMemoryEpicStore();
     private final EpicSources sources = mock(EpicSources.class);
     private final WorkItemService work = mock(WorkItemService.class);
     private final IssueDevelopmentStore markers = mock(IssueDevelopmentStore.class);
-    private final GitHubRepoClient github = mock(GitHubRepoClient.class);
-    private final CredentialService credentials = mock(CredentialService.class);
+    private final WorkspaceHostingService hosting = mock(WorkspaceHostingService.class);
+    private final IssueClient children = mock(IssueClient.class);
     private final JiraService jira = mock(JiraService.class);
     @SuppressWarnings("unchecked")
     private final ObjectProvider<JiraService> tickets = mock(ObjectProvider.class);
@@ -89,26 +99,29 @@ class TestEpicService
     private final RepositoryIssueStore issues = mock(RepositoryIssueStore.class);
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final EpicBreakdowns breakdowns = mock(EpicBreakdowns.class);
-    private final EpicService service = new EpicService(records, sources, work, markers, github, credentials, tickets, transactions, issues, workspaces, breakdowns,
+    private final EpicService service = new EpicService(records, sources, work, markers, hosting,
+            integrations(issues(HostingProvider.GITHUB, children), issues(HostingProvider.GITLAB, children)), tickets, transactions, issues, workspaces, breakdowns,
             Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach
     void setUp()
     {
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
-        when(workspace.isGitHub()).thenReturn(true);
+        when(workspace.provider()).thenReturn(HostingProvider.GITHUB);
+        when(workspace.server()).thenReturn(HostingServer.GITHUB_COM);
+        when(workspace.issueHost()).thenReturn("github.com");
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
         when(markers.findEpic("github.com", 1)).thenReturn(Optional.of(new IssueEpic("github.com", 1, "org/repo", 7, true, NOW)));
-        when(credentials.resolveGitHubToken()).thenReturn("pat");
+        when(hosting.captureRead("workspace")).thenReturn(read(HostingProvider.GITHUB, "https://github.com", "org/repo"));
         when(tickets.getObject()).thenReturn(jira);
     }
 
     @Test
     void subIssuesJoinOnlyOnSyncOnceAndOneRemovedUpstreamIsNoLongerAChild()
     {
-        GitHubRepoClient.SubIssue parse = new GitHubRepoClient.SubIssue(81, 8, "Parse", false, Optional.of("https://github.com/org/repo/issues/8"), REPOSITORY);
-        GitHubRepoClient.SubIssue docs = new GitHubRepoClient.SubIssue(82, 3, "Docs", true, Optional.empty(), RepoRef.of("Other", "Docs"));
-        when(github.fetchSubIssues("pat", REPOSITORY, 7)).thenReturn(ImmutableList.of(parse, docs));
+        ChildIssue parse = new ChildIssue(81, 8, "Parse", false, Optional.of("https://github.com/org/repo/issues/8"), "org/repo");
+        ChildIssue docs = new ChildIssue(82, 3, "Docs", true, Optional.empty(), "Other/Docs");
+        when(children.children(any(), eq(7))).thenReturn(new ChildIssues(ImmutableList.of(parse, docs), false));
         assertThat(service.view("workspace", EPIC).offered()).as("nothing read yet").isFalse();
 
         EpicView read = service.refreshChildren("workspace", EPIC, Optional.empty());
@@ -126,8 +139,8 @@ class TestEpicService
         assertThat(synced.offered()).isFalse();
         assertThat(service.sync("workspace", EPIC)).as("syncing again changes nothing").isEqualTo(synced);
 
-        GitHubRepoClient.SubIssue later = new GitHubRepoClient.SubIssue(83, 9, "Ship", false, Optional.empty(), REPOSITORY);
-        when(github.fetchSubIssues("pat", REPOSITORY, 7)).thenReturn(ImmutableList.of(docs, later));
+        ChildIssue later = new ChildIssue(83, 9, "Ship", false, Optional.empty(), "org/repo");
+        when(children.children(any(), eq(7))).thenReturn(new ChildIssues(ImmutableList.of(docs, later), false));
         EpicView changed = service.refreshChildren("workspace", EPIC, Optional.empty());
         assertThat(changed.former()).extracting(EpicChild::identity).containsExactly("ISSUE:github.com:81");
         assertThat(changed.synced()).as("its work stays").contains("ISSUE:github.com:81");
@@ -135,19 +148,30 @@ class TestEpicService
 
         assertThat(service.dismiss("workspace", EPIC).offered()).isFalse();
         assertThat(service.refreshChildren("workspace", EPIC, Optional.empty()).offered()).as("Not now lasts while the children stay the same").isFalse();
-        when(github.fetchSubIssues("pat", REPOSITORY, 7)).thenReturn(ImmutableList.of(docs, later, new GitHubRepoClient.SubIssue(84, 10, "Tune", false, Optional.empty(),
-                REPOSITORY)));
+        when(children.children(any(), eq(7))).thenReturn(new ChildIssues(ImmutableList.of(docs, later, new ChildIssue(84, 10, "Tune", false, Optional.empty(), "org/repo")),
+                false));
         assertThat(service.refreshChildren("workspace", EPIC, Optional.empty()).offered()).isTrue();
     }
 
     @Test
-    void gitLabEpicDoesNotReadGitHubChildrenWithTheSameIssueId()
+    void gitLabEpicReadsItsChildTasksWithTheWorkspacesHost()
     {
+        String host = "gitlab.example.test/gitlab";
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(workspace.provider()).thenReturn(HostingProvider.GITLAB);
+        when(workspace.server()).thenReturn(new HostingServer(HostingProvider.GITLAB, URI.create("https://" + host), URI.create("https://" + host + "/api/v4")));
+        when(workspace.issueHost()).thenReturn(host);
         when(workspaces.findById("gitlab-workspace")).thenReturn(Optional.of(workspace));
-        assertThatThrownBy(() -> service.refreshChildren("gitlab-workspace", "ISSUE:https://gitlab.example.test/gitlab:1", Optional.empty()))
-                .isInstanceOf(ResponseStatusException.class).hasMessageContaining("Fetching GitLab issue children is not supported yet");
-        verifyNoInteractions(github, credentials, markers);
+        when(markers.findEpic(host, 1)).thenReturn(Optional.of(new IssueEpic(host, 1, "group/project", 5, true, NOW)));
+        WorkspaceHostingRead route = read(HostingProvider.GITLAB, "https://gitlab.example.test/gitlab", "group/project");
+        when(hosting.captureRead("gitlab-workspace")).thenReturn(route);
+        when(children.children(route.target(), 5)).thenReturn(new ChildIssues(ImmutableList.of(
+                new ChildIssue(91, 6, "Write the parser", false, Optional.of("https://gitlab.example.test/gitlab/group/project/-/issues/6"), "group/project")), true));
+
+        EpicView read = service.refreshChildren("gitlab-workspace", "ISSUE:" + host + ":1", Optional.empty());
+
+        assertThat(read.children()).extracting(EpicChild::identity, EpicChild::key, EpicChild::label).containsExactly(tuple("ISSUE:" + host + ":91", "group/project#6", "#6"));
+        assertThat(read.childrenTruncated()).isTrue();
     }
 
     @Test
@@ -171,7 +195,7 @@ class TestEpicService
     void proposingReadsTheEpicsIssueAndAnAcceptedProposalBecomesItsWorkOnce()
     {
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
-        when(workspace.isGitHub()).thenReturn(true);
+        when(workspace.provider()).thenReturn(HostingProvider.GITHUB);
         when(workspace.issueHost()).thenReturn("github.com");
         when(workspace.monitoredRepositoryId()).thenReturn(5L);
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
@@ -233,7 +257,7 @@ class TestEpicService
         assertThat(records.find(epicId)).as("marking again retains planning work").contains(planned);
         service.setLocalEpic("workspace", item.id(), false);
         verify(work).releaseEpic("workspace", epicId);
-        verifyNoInteractions(github, jira, credentials, tickets, markers, issues);
+        verifyNoInteractions(hosting, children, jira, tickets, markers, issues);
     }
 
     @Test
@@ -263,7 +287,7 @@ class TestEpicService
         verify(work).create("workspace", item.id(), "Cache metadata", WorkItem.Kind.DEVELOP, "### Context\n\nOnly context", WorkItem.CompletionRule.MERGED_DELIVERY);
         assertThatThrownBy(() -> service.createLocalEpic("workspace", "work-2", "Too long", "x".repeat(65_537), ""))
                 .hasMessageContaining("exceed 65536 characters");
-        verifyNoInteractions(github, jira, credentials, tickets, markers, issues);
+        verifyNoInteractions(hosting, children, jira, tickets, markers, issues);
     }
 
     @Test
@@ -279,7 +303,7 @@ class TestEpicService
         assertThat(before.childrenReadAt()).as("there is no remote child collection to refresh").isEmpty();
         service.propose("workspace", epicId, Optional.empty());
         verify(breakdowns).start("workspace", epicId, new EpicBreakdowns.Source("Local", item.title(), item.acceptanceCriteria()));
-        verifyNoInteractions(github, jira, credentials, tickets, markers, issues);
+        verifyNoInteractions(hosting, children, jira, tickets, markers, issues);
     }
 
     private static WorkItem localItem(Optional<String> epicId)
@@ -287,5 +311,13 @@ class TestEpicService
         return new WorkItem("work-1", "workspace", "Hive field names", WorkItem.Kind.DEVELOP, "Read fields containing slash characters",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW,
                 WorkItem.Priority.NORMAL, ImmutableList.of(), epicId, 0, ImmutableList.of());
+    }
+
+    private static WorkspaceHostingRead read(HostingProvider provider, String webBaseUrl, String path)
+    {
+        HostingInstance instance = new HostingInstance(1, provider, URI.create(webBaseUrl), URI.create(webBaseUrl + "/api/v4"));
+        HostingRepository repository = new HostingRepository(2, 1, "3", path, URI.create(webBaseUrl + "/" + path), URI.create(webBaseUrl + "/" + path + ".git"),
+                Optional.empty(), Optional.of("main"));
+        return new WorkspaceHostingRead(new HostingReadSession(4, "workspace", new HostingAccess(instance, "token")), repository, "viewer");
     }
 }

@@ -74,7 +74,10 @@ import com.bytequay.core.domain.ServedRef;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingPullRequest;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.review.AgentReviewStore;
+import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -90,6 +93,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.net.URI;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -110,6 +114,7 @@ import static com.bytequay.core.domain.AssistantReceipt.Fix.SETTINGS;
 import static com.bytequay.core.domain.AssistantReceipt.Outcome.DONE;
 import static com.bytequay.core.domain.AssistantReceipt.Outcome.FAILED;
 import static com.bytequay.core.domain.AssistantReceipt.Outcome.REFUSED;
+import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -146,6 +151,7 @@ class TestAssistantActions
     private final AgentTurnService turns = mock(AgentTurnService.class);
     private final InteractiveAgentTaskStarter starter = mock(InteractiveAgentTaskStarter.class);
     private final PullRequestTaskService pullRequestTasks = mock(PullRequestTaskService.class);
+    private final PullRequestStore pullRequests = mock(PullRequestStore.class);
     private final AppNoticeService notices = mock(AppNoticeService.class);
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
@@ -166,7 +172,7 @@ class TestAssistantActions
     private final Workspace repository = new Workspace("ws1", "Repository", 1, RepoRef.of("owner", "repository"), Optional.empty(), Optional.empty(), 1,
             RepoRef.of("owner", "repository"),
             Workspace.Topology.DIRECT, "master", "https://github.com/owner/repository.git", Optional.empty(), Optional.empty(), "/managed/repository", Optional.empty(),
-            Optional.empty(), 0, NOW, NOW);
+            Optional.empty(), 0, NOW, NOW, HostingServer.GITHUB_COM);
     private AssistantActions actions;
     private AssistantWork work;
 
@@ -181,6 +187,10 @@ class TestAssistantActions
         });
         when(workspaces.findAll()).thenReturn(ImmutableList.of(repository));
         when(workspaces.findById("ws1")).thenReturn(Optional.of(repository));
+        when(pullRequests.findIdByRepoAndNumber("owner/repository", 31402)).thenReturn(Optional.of(5L));
+        when(pullRequests.findHostingIdentity(5)).thenReturn(Optional.of(new HostingPullRequest(5, 20, 31402)));
+        when(workspaces.findByHostingRepositoryId(20)).thenReturn(Optional.of(repository));
+        when(workspaces.isWatched("ws1")).thenReturn(true);
         when(models.agentModel(AgentModelType.DEVELOPMENT, Optional.of("ws1")))
                 .thenReturn(new AgentModelSetting(AgentModelType.DEVELOPMENT, true, "claude", "Claude Code", "opus", "Opus 5.5", Optional.of("high")));
         when(models.get()).thenReturn(new ModelSettingsService.ModelSettings(ImmutableList.of(),
@@ -199,7 +209,7 @@ class TestAssistantActions
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         work = new AssistantWork(issueDevelopment, jira, epics, workItemService, workItems, workspaces, rows, attentionMarks);
         actions = new AssistantActions(store, permissions, approvals, approvalService, tasks, turns, new ItemTaskStarter(starter, models, settings, workspaces, workItems,
-                issues, jira), pullRequestTasks, workspaces, notices, reviews, work, mapper, clock);
+                issues, jira), pullRequestTasks, pullRequests, workspaces, notices, reviews, work, mapper, clock);
     }
 
     @Test
@@ -661,6 +671,22 @@ class TestAssistantActions
     }
 
     @Test
+    void marksAnIssueAsAnEpicInTheWorkspaceItsRefNames()
+    {
+        Workspace gitlab = new Workspace("ws2", "Project", 2, RepoRef.of("group", "project"), Optional.empty(), Optional.empty(), 2, RepoRef.of("group", "project"),
+                Workspace.Topology.DIRECT, "main", "https://gitlab.example.com/group/project.git", Optional.empty(), Optional.empty(), "/managed/project", Optional.empty(),
+                Optional.empty(), 0, NOW, NOW, new HostingServer(GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4")));
+        when(workspaces.findById("ws2")).thenReturn(Optional.of(gitlab));
+        named("issue:ws2:group/project#5", "Merge train", AgendaTarget.issue("group/project", 5, "ws2"));
+
+        act(message("make #5 an epic", ImmutableList.of()), ImmutableMap.of("issue:ws2:group/project#5", SERVED),
+                "{\"op\":\"mark_epic\",\"item\":\"issue:ws2:group/project#5\",\"words\":\"make #5 an epic\"}");
+
+        verify(issueDevelopment).setEpic("ws2", 5, true);
+        assertThat(receipts.getLast().text()).isEqualTo("Marked “Merge train” as an Epic");
+    }
+
+    @Test
     void addsWorkToAnEpicThatTheUserCouldSee()
     {
         Map<String, ServedRef> served = ImmutableMap.of("epic:LOCAL:w1", SERVED, "work:w22", SERVED, "issue:owner/repository#77", SERVED);
@@ -726,13 +752,13 @@ class TestAssistantActions
     {
         String taskRef = "task:" + task.id();
         Map<String, ServedRef> served = ImmutableMap.of("pr:owner/repository#31402", SERVED, taskRef, SERVED);
-        AgendaTarget pull = AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1"));
+        AgendaTarget pull = AgendaTarget.pull(1, "owner/repository", 31402, Optional.of("ws1"));
         named("pr:owner/repository#31402", "Add Iceberg metadata cache", pull);
-        when(rows.attentionKey("pr:owner/repository#31402")).thenReturn(Optional.of("Owner/repository#31402"));
+        when(rows.attentionKey("pr:owner/repository#31402")).thenReturn(Optional.of("pr:7"));
         act(message("clear the metadata cache PR", ImmutableList.of()), served,
                 "{\"op\":\"acknowledge\",\"item\":\"pr:owner/repository#31402\",\"words\":\"clear the metadata cache PR\"}");
-        // The list's own key, in the repository's own spelling, so the row that goes is the one the user meant.
-        verify(attentionMarks).acknowledge("Owner/repository#31402");
+        // The list's own key, so the row that goes is the one the user meant.
+        verify(attentionMarks).acknowledge("pr:7");
         AssistantReceipt acknowledged = receipts.getLast().receipt().orElseThrow();
         assertThat(receipts.getLast().text()).isEqualTo("Acknowledged “Add Iceberg metadata cache”");
         assertThat(acknowledged.operation()).isEqualTo(AssistantReceipt.Operation.ACKNOWLEDGE);

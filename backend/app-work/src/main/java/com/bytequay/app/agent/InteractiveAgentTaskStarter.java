@@ -26,7 +26,7 @@ import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workitem.WorkItemService;
-import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hasher;
@@ -97,7 +97,7 @@ public class InteractiveAgentTaskStarter
                 .orElseGet(() -> create(start, Optional.empty(), Optional.empty()));
     }
 
-    private AgentTask create(InteractiveTaskStart start, Optional<GitHubIssueSource> source, Optional<JiraIssueSource> jiraSource)
+    private AgentTask create(InteractiveTaskStart start, Optional<HostedIssueSource> source, Optional<JiraIssueSource> jiraSource)
     {
         TaskId taskId = start.taskId();
         List<StoreAgentAttachmentCommand> uploads = start.uploads();
@@ -138,7 +138,7 @@ public class InteractiveAgentTaskStarter
                     start.idempotencyKey()).withDevelopmentAutomation(start.initialAutomation()));
             AgentTask task = taskService.get(taskId);
             if (!replay) {
-                String context = source.map(issue -> "GitHub issue #" + issue.number() + ": " + issue.title() + "\n" + issue.body()
+                String context = source.map(issue -> "Issue #" + issue.number() + ": " + issue.title() + "\n" + issue.body()
                                 + "\n\nUser request:\n" + start.message())
                         .or(() -> jiraSource.map(issue -> "Jira " + issue.key() + ": " + issue.title() + "\n" + issue.body()
                                 + "\n\nUser request:\n" + start.message())).orElse(start.message());

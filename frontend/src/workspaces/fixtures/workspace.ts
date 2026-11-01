@@ -34,6 +34,7 @@ export function workspaceFixture(overrides: Partial<WorkspaceDto> = {}): Workspa
     lastCodeSyncAt: null,
     lastMetadataSyncAt: null,
     displayOrder: 0,
+    hostingServer: { provider: 'GITHUB', webBaseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' },
     ...overrides,
   };
 }

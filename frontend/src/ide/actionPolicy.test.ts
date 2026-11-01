@@ -72,7 +72,7 @@ describe('IDE action boundary', () => {
   it('stages replies only to a known root in the current PR', () => {
     const current = { ...context, comments: { repo: 'owner/repo', number: 1, canReview: true,
       threads: { activities: [{ eventType: 'review_thread', payload: { path: 'A.java', comments: [
-        { githubId: 20, inReplyToId: null }, { githubId: 21, inReplyToId: 20 },
+        { remoteId: 20, inReplyToId: null }, { remoteId: 21, inReplyToId: 20 },
       ] } }] } } } as unknown as IdeContext;
     const reply = { path: 'A.java', line: 1, body: 'Reply', replyToCommentId: 20 };
     expect(() => validateIdeAction('comments.pending', [[reply]], current, true)).not.toThrow();
@@ -83,7 +83,7 @@ describe('IDE action boundary', () => {
   it('limits GitHub actions to direct gestures on the current PR and known comments', () => {
     const current = { ...context, comments: { repo: 'owner/repo', number: 1, canReview: true, viewer: { login: 'viewer' },
       threads: { activities: [{ eventType: 'review_thread', payload: { comments: [
-        { githubId: 20, inReplyToId: null, actor: 'viewer' }, { githubId: 21, inReplyToId: 20, actor: 'other' },
+        { remoteId: 20, inReplyToId: null, actor: 'viewer' }, { remoteId: 21, inReplyToId: 20, actor: 'other' },
       ] } }] } } } as unknown as IdeContext;
     expect(() => validateIdeAction('github.reply', ['owner/repo', 1, 20, 'Reply'], current, true)).not.toThrow();
     expect(() => validateIdeAction('github.reply', ['owner/repo', 1, 20, 'Reply'], current, false)).toThrow('user click');

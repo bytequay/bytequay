@@ -18,6 +18,7 @@ import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.HostingUrls;
+import com.bytequay.core.hosting.HostingVersion;
 import com.bytequay.core.hosting.RemoteHostingAccount;
 import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.bytequay.core.store.HostingIdentityStore;
@@ -35,7 +36,6 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkOptionalText;
-import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -66,6 +66,21 @@ public class SqliteHostingIdentityStore
         HostingInstance instance = entity.toDomain();
         checkArgument(instance.apiBaseUrl().equals(server.apiBaseUrl()), "An existing instance cannot change its API endpoint");
         return instance;
+    }
+
+    @Override
+    public Optional<HostingVersion> findVersion(HostingServer server)
+    {
+        requireNonNull(server, "server is null");
+        return instances.findByProviderAndWebBaseUrl(server.provider(), server.webBaseUrl().toASCIIString()).flatMap(HostingInstanceEntity::serverVersion);
+    }
+
+    @Override
+    @Transactional
+    public void updateVersion(long instanceId, Optional<HostingVersion> version)
+    {
+        HostingInstanceEntity entity = instances.findById(instanceId).orElseThrow(() -> new IllegalArgumentException("hosting instance not found: " + instanceId));
+        entity.setServerVersion(version);
     }
 
     @Override
@@ -135,13 +150,24 @@ public class SqliteHostingIdentityStore
     }
 
     @Override
+    public Optional<HostingRepository> findRepository(HostingServer server, String remoteId)
+    {
+        requireNonNull(server, "server is null");
+        requireNonNull(remoteId, "remoteId is null");
+        return instances.findByProviderAndWebBaseUrl(server.provider(), server.webBaseUrl().toASCIIString())
+                .filter(instance -> instance.toDomain().apiBaseUrl().equals(server.apiBaseUrl()))
+                .flatMap(instance -> repositories.findByInstanceIdAndRemoteId(instance.getId(), remoteId))
+                .map(HostingRepositoryEntity::toDomain);
+    }
+
+    @Override
     public List<HostingRepository> findRepositories(HostingServer server, String fullPath)
     {
         requireNonNull(server, "server is null");
         HostingUrls.checkRepositoryPath(fullPath);
         return instances.findByProviderAndWebBaseUrl(server.provider(), server.webBaseUrl().toASCIIString())
                 .filter(instance -> instance.toDomain().apiBaseUrl().equals(server.apiBaseUrl()))
-                .stream().flatMap(instance -> (server.provider() == GITHUB
+                .stream().flatMap(instance -> (server.provider().pathsIgnoreCase()
                         ? repositories.findByInstanceIdAndFullPathIgnoreCase(instance.getId(), fullPath)
                         : repositories.findByInstanceIdAndFullPath(instance.getId(), fullPath)).stream())
                 .map(HostingRepositoryEntity::toDomain).collect(toImmutableList());

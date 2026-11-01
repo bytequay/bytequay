@@ -39,16 +39,16 @@ const local: LocalReviewThreadDto = {
     createdAt: timestamp, turnId: null, queuedInputId: null, messageEventId: null, deliveryState: null, deliveryError: null })),
 };
 const localReview = { threads: [local], onReply: async () => {}, onResolve: async () => {}, onRetry: async () => {} };
-const comment = (githubId: number, actor: string, actorBot: boolean, body: string): PullTimelineCommentDto => (timelineComment({ githubId, actor, actorBot, body, timestamp, reviewId: 2, inReplyToId: githubId === 4 ? 3 : null }));
+const comment = (remoteId: number, actor: string, actorBot: boolean, body: string): PullTimelineCommentDto => (timelineComment({ remoteId, actor, actorBot, body, timestamp, reviewId: 2, inReplyToId: remoteId === 4 ? 3 : null }));
 const detail = prDetail({
   repo: base.repo, number: base.number, title: 'Review nested field lookup', htmlUrl: null,
   mergeable: null, mergeableState: null, author: 'alice', createdAt: timestamp, updatedAt: timestamp,
   baseRef: 'master', body: 'Resolve nested fields safely.\n\n'.repeat(12),
   additions: 12, deletions: 4, viewerCanWrite: false,
   recentActivity: [
-    timelineActivity({ actor: 'alice', eventType: 'commented', timestamp, body: 'Please check the nested field lookup.', githubId: 1 }),
-    timelineActivity({ actor: 'reviewer[bot]', eventType: 'reviewed', timestamp, body: 'One issue needs attention.', githubId: 2 }, { actorBot: true, state: 'COMMENTED' }),
-    timelineActivity({ actor: 'reviewer[bot]', timestamp, githubId: 30 }, { resolved: false, outdated: true, path: 'src/Example.java', line: 12, side: 'RIGHT',
+    timelineActivity({ actor: 'alice', eventType: 'commented', timestamp, body: 'Please check the nested field lookup.', remoteId: 1 }),
+    timelineActivity({ actor: 'reviewer[bot]', eventType: 'reviewed', timestamp, body: 'One issue needs attention.', remoteId: 2 }, { actorBot: true, state: 'COMMENTED' }),
+    timelineActivity({ actor: 'reviewer[bot]', timestamp, remoteId: 30 }, { resolved: false, outdated: true, path: 'src/Example.java', line: 12, side: 'RIGHT',
         comments: [comment(3, 'reviewer[bot]', true, 'Preserve the leaf field ID.'), comment(4, 'alice', false, 'Fixed the lookup.')] }),
   ],
 });

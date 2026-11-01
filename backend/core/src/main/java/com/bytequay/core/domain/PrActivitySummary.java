@@ -20,7 +20,7 @@ import java.util.OptionalInt;
 import static java.util.Objects.requireNonNull;
 
 /**
- * A timestamped GitHub action, without its locally observed refresh time. A comment or review keeps
+ * A timestamped remote action, without its locally observed refresh time. A comment or review keeps
  * the start of its text, and an inline review comment the file and line it was left on.
  */
 public record PrActivitySummary(

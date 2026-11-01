@@ -19,7 +19,7 @@ import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.domain.DiffFile;
-import com.bytequay.core.domain.GitHubIssuePreview;
+import com.bytequay.core.domain.HostedIssuePreview;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestDetail;
@@ -319,7 +319,7 @@ class TestContextHistoryReader
     private void preview(String state, boolean pullRequest, Instant updated)
     {
         when(issues.preview("workspace", NUMBER)).thenReturn(
-                new GitHubIssuePreview("Issue title", "Issue body", "alice", ImmutableList.of(), updated, state, pullRequest, "https://github.com/owner/repo/issues/42", ""));
+                new HostedIssuePreview("Issue title", "Issue body", "alice", ImmutableList.of(), updated, state, pullRequest, "https://github.com/owner/repo/issues/42", ""));
     }
 
     private static SelectedPullRequestDiffReader.Read diff(List<DiffFile> files)

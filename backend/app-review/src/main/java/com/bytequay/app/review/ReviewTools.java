@@ -33,7 +33,7 @@ import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.DiffFile;
-import com.bytequay.core.domain.GitHubIssuePreview;
+import com.bytequay.core.domain.HostedIssuePreview;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.RepositoryIssue;
@@ -341,7 +341,7 @@ public class ReviewTools
                                 + "Lead with the request, a question or the change you want, within the first two sentences, and do not hedge it. "
                                 + "Preserve the trigger, consequence and uncertainty. "
                                 + "Keep the example brief; retain full reproduction code, commands and results in captured evidence. For an exact replacement, "
-                                + "include one GitHub ```suggestion block replacing the complete RIGHT-side startAnchor/endAnchor range. "
+                                + "include one ```suggestion block replacing the complete RIGHT-side startAnchor/endAnchor range. "
                                 + "Revisions require findingId and expectedRevision; nothing is published. "
                                 + "Save every supported claim, deduplicating shared root causes by findingId; "
                                 + "select at most " + ReviewValidation.MAX_SELECTED + " final comments in review_finish. "
@@ -1675,14 +1675,14 @@ public class ReviewTools
             String body = Optional.ofNullable(item.body()).orElse("");
             if (item.payload() != null && !item.payload().comments().isEmpty()) {
                 body = Optional.ofNullable(item.payload().comments().getFirst().body()).orElse("");
-                entry.put("threadId", item.githubId() == null ? null : item.githubId().toString());
+                entry.put("threadId", item.remoteId() == null ? null : item.remoteId().toString());
                 entry.put("commentCount", item.payload().comments().size());
                 entry.put("note", "Use kind thread with threadId to read every comment and reply.");
             }
             entry.put("body", bounded(body, 2000));
             entry.put("bodyTruncated", body.length() > 2000);
-            if (item.githubId() != null) {
-                entry.put("id", item.githubId());
+            if (item.remoteId() != null) {
+                entry.put("id", item.remoteId());
             }
             if (item.payload() != null && item.payload().path() != null) {
                 entry.put("path", bounded(item.payload().path(), 1000));
@@ -1706,12 +1706,12 @@ public class ReviewTools
         }
         SelectedPullRequestReader.Read read = selectedPullRequest(call, number, SelectedPullRequestReader.Section.TIMELINE);
         PullRequestDetail.ActivityItem thread = read.detail().recentActivity().stream()
-                .filter(item -> item.githubId() != null && item.githubId().toString().equals(id)
+                .filter(item -> item.remoteId() != null && item.remoteId().toString().equals(id)
                         && item.payload() != null && !item.payload().comments().isEmpty())
                 .findFirst().orElseThrow(() -> new ReviewInvalidRequestException(
                         "threadId: thread is not available in this PR's captured timeline; read timeline and its freshness gaps"));
         StringBuilder text = new StringBuilder();
-        thread.payload().comments().forEach(comment -> text.append("Comment ").append(comment.githubId())
+        thread.payload().comments().forEach(comment -> text.append("Comment ").append(comment.remoteId())
                 .append(" by ").append(Optional.ofNullable(comment.actor()).orElse("unknown"))
                 .append(" at ").append(comment.timestamp()).append("; replyTo=").append(comment.inReplyToId())
                 .append("\n").append(Optional.ofNullable(comment.body()).orElse("")).append("\n\n"));
@@ -1755,7 +1755,7 @@ public class ReviewTools
                 bounded(Optional.ofNullable(check.name()).orElse(""), 200), bounded(Optional.ofNullable(check.status()).orElse(""), 100),
                 bounded(Optional.ofNullable(check.conclusion()).orElse(""), 100), bounded(Optional.ofNullable(check.category()).orElse(""), 100),
                 bounded(Optional.ofNullable(check.detailsUrl()).orElse(""), 1000), Optional.ofNullable(check.startedAt()).map(Instant::toString).orElse(""),
-                Optional.ofNullable(check.completedAt()).map(Instant::toString).orElse(""), Optional.ofNullable(check.githubId())))
+                Optional.ofNullable(check.completedAt()).map(Instant::toString).orElse(""), Optional.ofNullable(check.remoteId())))
                 .collect(toImmutableList());
         node.putPOJO("checks", retainPageEvidence(call, call.review().repo() + "#" + number + " check", ignored -> provenance, entries));
         return node;
@@ -1883,7 +1883,7 @@ public class ReviewTools
                 return cachedIssue(call, cached.orElseThrow(), page);
             }
         }
-        GitHubIssuePreview preview = issues.preview(call.review().workspaceId(), number);
+        HostedIssuePreview preview = issues.preview(call.review().workspaceId(), number);
         ObjectNode node = issueNode(call, number, preview, "hosting-selected-preview",
                 "Remote " + (preview.pullRequest() ? "pull request" : "issue") + " selected preview read by ByteQuay at " + now());
         node.set("activity", objectMapper.createObjectNode().put("missing", true).put("completeness", "unavailable")
@@ -1905,8 +1905,8 @@ public class ReviewTools
                 refreshFailed = true;
             }
         }
-        String provenance = "Cached open issue projection; synced at " + syncedAt.map(Instant::toString).orElse("unknown") + "; GitHub issue updated at " + issue.updatedAt();
-        GitHubIssuePreview preview = new GitHubIssuePreview(issue.title(), issue.body(), issue.author(), issue.labels(), issue.updatedAt(), "open", false,
+        String provenance = "Cached open issue projection; synced at " + syncedAt.map(Instant::toString).orElse("unknown") + "; issue updated at " + issue.updatedAt();
+        HostedIssuePreview preview = new HostedIssuePreview(issue.title(), issue.body(), issue.author(), issue.labels(), issue.updatedAt(), "open", false,
                 issue.htmlUrl(), issue.authorAvatarUrl());
         ObjectNode node = issueNode(call, issue.number(), preview, "workspace-issue-cache", provenance);
         syncedAt.ifPresentOrElse(at -> node.put("projectionSyncedAt", at.toString()), () -> node.putNull("projectionSyncedAt"));
@@ -1943,21 +1943,21 @@ public class ReviewTools
                 .put("at", item.timestamp() == null ? "" : item.timestamp().toString())
                 .put("body", excerpt)
                 .put("bodyTruncated", body.length() > 2000);
-        if (item.githubId() != null) {
-            node.put("id", item.githubId());
+        if (item.remoteId() != null) {
+            node.put("id", item.remoteId());
         }
         node.put("evidenceRef", registerEvidence(call, call.review().repo() + "#" + number + " activity",
                 provenance, item.actor() + " " + item.event() + " at " + node.path("at").asText() + "\n" + excerpt));
         return node;
     }
 
-    private ObjectNode issueNode(Call call, int number, GitHubIssuePreview preview, String source, String provenance)
+    private ObjectNode issueNode(Call call, int number, HostedIssuePreview preview, String source, String provenance)
     {
         String excerpt = bounded(preview.body(), MAX_EXCERPT);
         String ref = registerEvidence(
                 call,
                 call.review().repo() + "#" + number + ": " + preview.title(),
-                provenance + "; GitHub object updated at " + preview.updatedAt(),
+                provenance + "; updated at " + preview.updatedAt(),
                 excerpt);
         ObjectNode node = objectMapper.createObjectNode()
                 .put("number", number)

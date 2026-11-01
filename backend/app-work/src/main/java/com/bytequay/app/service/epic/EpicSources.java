@@ -30,7 +30,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Resolves the workspace's locally marked Epics: local work, GitHub issues and assigned Jira tickets.
+ * Resolves the workspace's locally marked Epics: local work, the hosting provider's issues and assigned Jira tickets.
  */
 @Component
 public class EpicSources
@@ -82,7 +82,7 @@ public class EpicSources
         return tickets.isEpic(cloudId, issueId) && tickets.assignedWorkspace(cloudId, issueId).filter(workspaceId::equals).isPresent();
     }
 
-    /** The stable GitHub issue id of an issue Epic. */
+    /** The provider's stable issue id of an issue Epic. */
     public static long issueId(String epicId)
     {
         checkArgument(epicId.startsWith(ISSUE), "Expected an issue Epic identity");

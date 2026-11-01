@@ -11,12 +11,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Check, Clock, GitMerge, GitPullRequest, Pause, Play, RotateCcw, Square, X } from 'lucide-react';
+import { Pill, type CardTone } from '@bytequay/ui/cards';
 import { useAsyncAction } from '../useAsyncAction';
 import type { BackportChainPrDto, BackportChainViewDto, BackportChainRouteDto, GitCommitDto } from '../types';
 import { workspaceAgentTaskRoute, workspaceCherryPickRoute, workspacePullRequestRoute } from '../workspaces/model';
-import RepoAvatar from '../RepoAvatar';
 import SelectRangeDialog from '../commits/SelectRangeDialog';
+import { Spinner } from './AgentConversation';
 import '../css/linked-work.css';
 import '../css/backport-chains.css';
 
@@ -42,11 +44,33 @@ export function useBackportChains(workspaceId?: string) {
   return { chains, error };
 }
 
-function PrLink({ pr, workspaceId }: { pr: BackportChainPrDto; workspaceId: string }) {
-  return <a href={workspacePullRequestRoute(workspaceId, pr.number)}>PR #{pr.number} ›</a>;
+type Status = 'waiting' | 'running' | 'stopped' | 'blocked' | 'done';
+const TONE: Record<Status, CardTone> = { waiting: 'neutral', running: 'blue', stopped: 'amber', blocked: 'red', done: 'green' };
+
+function StatusIcon({ status }: { status: Status }) {
+  if (status === 'running') return <Spinner />;
+  if (status === 'stopped') return <Pause fill="currentColor" stroke="none" aria-hidden="true" />;
+  const Icon = { waiting: Clock, blocked: X, done: Check }[status];
+  return <Icon aria-hidden="true" />;
 }
 
-const labels = { ACTIVE: 'Active', BLOCKED: 'Blocked', STOPPING: 'Stopping', STOPPED: 'Stopped', COMPLETED: 'Completed' };
+/** One repository on the route: its state is the dot, then its name, its PR or branch, and what is happening there. */
+function RouteNode({ dot, route, href, pr, note, status }: {
+  dot: ReactNode; route: BackportChainRouteDto; href?: string; pr: BackportChainPrDto | null; note: string; status?: Status;
+}) {
+  const name = `${route.repository.owner}/${route.repository.repo}`;
+  return <li className="backport-node">
+    {dot}
+    <div className="backport-node__body">
+      <div className="backport-node__line">
+        {href ? <a className="backport-node__repo" href={href} title={name}>{name}</a> : <span className="backport-node__repo" title={name}>{name}</span>}
+        {pr ? <a className="backport-node__pr" href={workspacePullRequestRoute(route.workspaceId, pr.number)}>#{pr.number}</a>
+          : <code className="backport-node__branch">{route.branch}</code>}
+      </div>
+      <span className={`backport-node__note${status === undefined ? '' : ` is-${status}`}`}>{note}</span>
+    </div>
+  </li>;
+}
 
 export function BackportChainCard({ view, source = false }: { view: BackportChainViewDto; source?: boolean }) {
   const [picker, setPicker] = useState<{ source: BackportChainRouteDto; hopIndex: number; commits: GitCommitDto[]; version: number } | null>(null);
@@ -73,9 +97,30 @@ export function BackportChainCard({ view, source = false }: { view: BackportChai
   };
   const repoName = (item: BackportChainRouteDto) => `${item.repository.owner}/${item.repository.repo}`;
   const sequential = chain.hops.every((hop, index) => hop.sourceHop === index - 1);
-  const route = sequential ? [chain.source, ...chain.hops.map(hop => hop.route)].map(repoName).join(' → ')
-    : chain.hops.map(hop => `${repoName(hop.sourceHop < 0 ? chain.source : chain.hops[hop.sourceHop].route)} → ${repoName(hop.route)}`).join(' · ');
-  const sourceMerged = chain.sourceMerged;
+  const stopped = chain.state === 'STOPPED' || chain.state === 'STOPPING';
+  const hops = chain.hops.map((hop, index) => {
+    const previous = hop.sourceHop < 0 ? chain.source : chain.hops[hop.sourceHop].route;
+    const currentHop = !hop.completed && (hop.sourceHop < 0 || chain.hops[hop.sourceHop].completed);
+    const step = progress[index]?.status;
+    const [status, note]: [Status, string] = hop.noOp ? ['done', 'Already present — no PR needed']
+      : hop.completed ? ['done', 'Backport merged']
+      : currentHop && stopped ? ['stopped', 'Stopped · work and PRs kept']
+      : currentHop && chain.state === 'BLOCKED' ? ['blocked', chain.reason ?? 'Needs your attention']
+      : hop.pullRequest ? ['done', 'Opened backport PR']
+      : step === 'RUNNING' ? ['running', `Cherry-picking onto ${hop.route.branch}`]
+      : step === 'PAUSED' ? ['blocked', 'Cherry-pick needs your input']
+      : step === 'FINISHED' ? ['running', 'Cherry-pick finished']
+      : currentHop && (hop.landedSource || hop.selection) ? ['running', 'Preparing cherry-pick']
+      : ['waiting', hop.sourceHop < 0 && !chain.sourceMerged ? 'Starts automatically after merge' : `Starts after ${repoName(previous)} merges`];
+    return { hop, index, previous, currentHop, status, note: sequential ? note : `From ${repoName(previous)} · ${note}` };
+  });
+  const [status, label]: [Status, string] = chain.state === 'COMPLETED' ? ['done', 'Done']
+    : stopped ? ['stopped', chain.state === 'STOPPING' ? 'Stopping' : 'Stopped']
+    : chain.state === 'BLOCKED' ? ['blocked', 'Blocked']
+    : hops.some(item => item.status === 'running') ? ['running', 'Running'] : ['waiting', 'Queued'];
+  const blocked = chain.state === 'BLOCKED' ? hops.find(item => item.currentHop) : undefined;
+  const action = (text: string, icon: ReactNode, onClick: () => void) =>
+    <button type="button" className="bq-button backport-chain__action" disabled={busy} onClick={onClick}>{icon}{text}</button>;
   return <div className="linked-work-entry">
     {picker && <SelectRangeDialog commits={picker.commits} scope={`${picker.source.repository.owner}/${picker.source.repository.repo} · ${picker.source.branch}`}
       pullRequestRepo={`${picker.source.repository.owner}/${picker.source.repository.repo}`}
@@ -84,55 +129,33 @@ export function BackportChainCard({ view, source = false }: { view: BackportChai
     {source && (chain.requestingTaskId === null
       ? <div className="linked-work-source">Started from Commits in {current.requestingRepository}</div>
       : <div className="linked-work-source">Requested in <a href={workspaceAgentTaskRoute(chain.workspaceId, chain.requestingTaskId)}>“{current.title}”</a> in {current.requestingRepository}</div>)}
-    <article className="linked-work-card backport-chain">
-      <div className="linked-work-head"><strong>Backport chain</strong><span className="backport-route">· {route}</span>
-        <span className={`linked-work-state is-${chain.state.toLowerCase()}`}>{labels[chain.state]}</span>
-        {(chain.state === 'BLOCKED' || chain.state === 'STOPPED') && <button className="setw-btn" disabled={busy} onClick={() => void change('resume')}>Resume</button>}
-        {(chain.state === 'ACTIVE' || chain.state === 'BLOCKED') && <button className="setw-btn" disabled={busy} onClick={() => void change('stop')}>Stop</button>}
+    <article className="backport-chain">
+      <div className="backport-chain__head">
+        <span className="backport-chain__title">Backport</span>
+        <Pill tone={TONE[status]}><StatusIcon status={status} />{label}</Pill>
+        <span className="backport-chain__actions">
+          {chain.state === 'STOPPED' && action('Resume', <Play fill="currentColor" aria-hidden="true" />, () => void change('resume'))}
+          {blocked && !blocked.hop.executionId && !blocked.hop.landedSource && !blocked.hop.selection
+            ? action('Select commits', null, () => void selectCommits(blocked.previous, blocked.index))
+            : chain.state === 'BLOCKED' && (blocked?.hop.selection
+              ? action('Resume', <Play fill="currentColor" aria-hidden="true" />, () => void change('resume'))
+              : action('Retry', <RotateCcw aria-hidden="true" />, () => void change('resume')))}
+          {/* Stop stays on a queued or blocked chain too: it is the only way to end one. */}
+          {(chain.state === 'ACTIVE' || chain.state === 'BLOCKED') && action('Stop', <Square fill="currentColor" aria-hidden="true" />, () => void change('stop'))}
+        </span>
       </div>
-      <ol className="backport-steps">
-        <li className={sourceMerged ? 'is-complete' : 'is-current'}>
-          <div className="backport-step-title"><span className="backport-marker" aria-hidden="true">{sourceMerged ? '✓' : '○'}</span>
-            <RepoAvatar owner={chain.source.repository.owner} repo={chain.source.repository.repo} size={16} radius={3} />
-            <strong>{chain.source.repository.owner}/{chain.source.repository.repo}</strong><span>Source PR</span>
-            <span className="backport-links">{chain.sourceTaskId && <a href={workspaceAgentTaskRoute(chain.source.workspaceId, chain.sourceTaskId)}>Conversation ›</a>}
-              {chain.sourcePullRequest && <PrLink pr={chain.sourcePullRequest} workspaceId={chain.source.workspaceId} />}</span>
-          </div>
-          <p>{sourceMerged ? 'PR merged' : chain.sourcePullRequest ? `Waiting for #${chain.sourcePullRequest.number} to merge` : 'Waiting for the conversation’s published PR'}</p>
-        </li>
-        {chain.hops.map((hop, index) => {
-          const state = progress[index];
-          const previous = hop.sourceHop < 0 ? chain.source : chain.hops[hop.sourceHop].route;
-          const currentHop = !hop.completed && (hop.sourceHop < 0 || chain.hops[hop.sourceHop].completed);
-          const caption = hop.noOp ? 'Already present — no PR needed' : hop.completed ? 'Backport merged'
-            : currentHop && chain.state === 'STOPPED' ? 'Stopped — work kept'
-            : currentHop && chain.state === 'BLOCKED' ? hop.selection ? 'Selected commits ready' : 'Needs your attention'
-            : hop.pullRequest ? `Waiting for #${hop.pullRequest.number} to merge`
-            : state?.status === 'RUNNING' ? 'Cherry-pick in progress'
-            : state?.status === 'PAUSED' ? 'Cherry-pick needs your input'
-            : state?.status === 'FINISHED' ? 'Cherry-pick finished'
-            : currentHop && (hop.landedSource || hop.selection) ? 'Preparing cherry-pick' : `Starts after ${repoName(previous)} merges`;
-          return <li key={hop.route.workspaceId} className={hop.completed ? 'is-complete' : currentHop ? 'is-current' : ''}>
-            <div className="backport-step-title"><span className="backport-marker" aria-hidden="true">{hop.completed ? '✓' : chain.state === 'STOPPED' && currentHop ? '■' : '○'}</span>
-              <RepoAvatar owner={hop.route.repository.owner} repo={hop.route.repository.repo} size={16} radius={3} />
-              <strong>{hop.route.repository.owner}/{hop.route.repository.repo}</strong><span>Backport</span>
-              <span className="backport-links">{hop.executionId && <a href={workspaceCherryPickRoute(hop.route.workspaceId, hop.executionId)}>Cherry-pick ›</a>}
-                {hop.pullRequest && <PrLink pr={hop.pullRequest} workspaceId={hop.route.workspaceId} />}</span>
-            </div>
-            <p>From {repoName(previous)} · {caption}</p>
-            {currentHop && chain.reason && <div className="backport-block"><p>{chain.reason}</p>
-              {chain.state === 'BLOCKED' && !hop.executionId && !hop.landedSource && <button className="setw-btn" disabled={busy} onClick={() => void selectCommits(previous, index)}>Select commits</button>}
-              {state?.ciRunId && hop.pullRequest && <a className="setw-btn" href={workspacePullRequestRoute(hop.route.workspaceId, hop.pullRequest.number)}>Open CI run</a>}
-            </div>}
-            {currentHop && state?.summary && <p className="backport-summary">{state.summary}</p>}
-          </li>;
-        })}
+      <ol className={`backport-rail${status === 'waiting' || status === 'stopped' ? ' is-dashed' : ''}`}>
+        <RouteNode route={chain.source} pr={chain.sourcePullRequest}
+          href={chain.sourceTaskId ? workspaceAgentTaskRoute(chain.source.workspaceId, chain.sourceTaskId) : undefined}
+          dot={<Pill className="is-dot" tone={chain.sourceMerged ? 'purple' : chain.sourcePullRequest ? 'green' : 'neutral'}>
+            {chain.sourceMerged ? <GitMerge aria-hidden="true" /> : <GitPullRequest aria-hidden="true" />}</Pill>}
+          note={chain.sourceMerged ? 'Merged' : chain.sourcePullRequest ? 'Open · waiting to merge' : 'Waiting for the conversation’s published PR'} />
+        {hops.map(item => <RouteNode key={item.hop.route.workspaceId} route={item.hop.route} pr={item.hop.pullRequest}
+          href={item.hop.executionId ? workspaceCherryPickRoute(item.hop.route.workspaceId, item.hop.executionId) : undefined}
+          dot={<Pill className="is-dot" tone={TONE[item.status]}><StatusIcon status={item.status} /></Pill>}
+          note={item.note} status={item.status} />)}
       </ol>
       {error && <p role="alert" className="cmt-error">{error}</p>}
-      <div className="linked-work-foot">{chain.state === 'STOPPED' ? 'Stopped. Existing work and PRs are kept. Resume rechecks current facts.'
-        : chain.state === 'BLOCKED' ? 'Paused. Resume rechecks relationships, routing and PR state before continuing.'
-        : chain.state === 'COMPLETED' ? 'Complete. Every backport merged or was already present.'
-        : 'Each step waits for its source PR to merge. Independent destinations run in parallel. ByteQuay never merges PRs.'}</div>
     </article>
   </div>;
 }

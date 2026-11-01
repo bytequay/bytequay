@@ -26,7 +26,7 @@ import com.bytequay.app.workitem.GoalReferenceReader;
 import com.bytequay.app.workitem.WorkItemService;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.app.workspace.WorkspaceIssueService;
-import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.IssueEpic;
 import com.bytequay.core.domain.IssueTask;
 import com.bytequay.core.domain.JiraIssueSource;
@@ -94,7 +94,7 @@ public class IssueDevelopmentService
     public Metadata metadata(String workspaceId, long issueId)
     {
         String host = workspace(workspaceId).issueHost();
-        return new Metadata(sources.findEpic(host, issueId).map(IssueEpic::isEpic).orElse(false),
+        return new Metadata(WorkItemLink.issueIdentity(host, issueId), sources.findEpic(host, issueId).map(IssueEpic::isEpic).orElse(false),
                 sources.findTask(host, issueId).map(link -> new TaskLink(link.taskId(), link.workspaceId())));
     }
 
@@ -120,7 +120,7 @@ public class IssueDevelopmentService
         return issues.findPage(workspaces, workspace, 0, Integer.MAX_VALUE);
     }
 
-    public Optional<Source<GitHubIssueSource>> source(String taskId)
+    public Optional<Source<HostedIssueSource>> source(String taskId)
     {
         return sources.findByTaskId(taskId).map(link -> source(taskId, link.source(), link.instructions().orElse("")));
     }
@@ -147,7 +147,7 @@ public class IssueDevelopmentService
     }
 
     /** Holds the same canonical issue lock as Epic changes through task creation and initial-turn admission. */
-    public AgentTask start(String workspaceId, TaskId taskId, IssueSourceInput input, String instructions, Function<GitHubIssueSource, AgentTask> create)
+    public AgentTask start(String workspaceId, TaskId taskId, IssueSourceInput input, String instructions, Function<HostedIssueSource, AgentTask> create)
     {
         Workspace workspace = WorkspaceException.requireWorkspace(workspaces, workspaceId);
         Lock lock = sourceLocks.get(workspace.issueHost() + ":" + input.issueId());
@@ -173,7 +173,7 @@ public class IssueDevelopmentService
             if (!cached.updatedAt().equals(input.updatedAt())) {
                 throw changed();
             }
-            GitHubIssueSource fresh = remote.source(workspaceId, input.number(), true);
+            HostedIssueSource fresh = remote.source(workspaceId, input.number(), true);
             checkArgument(fresh.issueId() == input.issueId(), "Issue identity changed");
             if (!fresh.title().equals(cached.title()) || !fresh.body().equals(cached.body())) {
                 workspaces.findHostingRepositoryId(workspaceId).ifPresent(id -> issues.updateContent(id, input.number(), fresh.title(), fresh.body(), fresh.updatedAt()));
@@ -187,7 +187,7 @@ public class IssueDevelopmentService
     }
 
     /** Called only after worktree preparation; these two durable facts commit together. */
-    public void persistTask(AgentTask task, GitHubIssueSource source, String instructions)
+    public void persistTask(AgentTask task, HostedIssueSource source, String instructions)
     {
         unitOfWork.execute(() -> {
             Workspace current = workspace(task.workspaceId().orElseThrow());
@@ -316,5 +316,6 @@ public class IssueDevelopmentService
 
     public record TaskLink(String taskId, String workspaceId) {}
 
-    public record Metadata(boolean isEpic, Optional<TaskLink> developmentTask) {}
+    /** {@code epicId} is the identity work items name this issue by once it is an Epic. */
+    public record Metadata(String epicId, boolean isEpic, Optional<TaskLink> developmentTask) {}
 }

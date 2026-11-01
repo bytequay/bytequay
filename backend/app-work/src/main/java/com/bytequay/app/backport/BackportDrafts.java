@@ -17,10 +17,11 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.app.cherrypick.CherryPickPreview;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.git.command.GitCommandRunner.Result;
-import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.service.ai.TextOnlyHelper;
+import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.app.service.settings.AgentSkillService;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.app.workspace.WorkspaceHostingRead;
 import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.core.backport.BackportChain;
@@ -28,6 +29,8 @@ import com.bytequay.core.cherrypick.CherryPickExecution.PullRequestDraft;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.hosting.HostingFailure;
+import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -43,8 +46,6 @@ import org.springframework.stereotype.Component;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
-import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -68,9 +69,6 @@ public class BackportDrafts
                 .setCoercion(CoercionInputShape.Boolean, CoercionAction.Fail);
     }
 
-    private static final List<String> TEMPLATES = ImmutableList.of(
-            ".github/pull_request_template.md", ".github/PULL_REQUEST_TEMPLATE.md", "pull_request_template.md", "PULL_REQUEST_TEMPLATE.md",
-            "docs/pull_request_template.md", "docs/PULL_REQUEST_TEMPLATE.md");
     private static final Pattern HEADINGS = Pattern.compile("(?m)^ {0,3}#{1,6}[ \\t]+[^\\r\\n]+$|^\\S[^\\r\\n]*\\R {0,3}(?:={3,}|-{3,})[ \\t]*$");
     private static final String INSTRUCTIONS = """
             Draft the title and body of a backport pull request. Return only one JSON object with string fields "title" and "body".
@@ -92,19 +90,21 @@ public class BackportDrafts
             Source material as JSON:
             """;
 
-    private final GitHubPullRequestReadClient pullRequests;
+    private final HostingIntegrations integrations;
     private final WorkspaceHostingService hosting;
+    private final WorkspaceStore workspaces;
     private final GitCommandRunner git;
     private final ModelSettingsService models;
     private final TextOnlyHelper helper;
     private final AgentSkillService skills;
     private final Clock clock;
 
-    public BackportDrafts(GitHubPullRequestReadClient pullRequests, WorkspaceHostingService hosting, GitCommandRunner git,
+    public BackportDrafts(HostingIntegrations integrations, WorkspaceHostingService hosting, WorkspaceStore workspaces, GitCommandRunner git,
             ModelSettingsService models, TextOnlyHelper helper, AgentSkillService skills, Clock clock)
     {
-        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.integrations = requireNonNull(integrations, "integrations is null");
         this.hosting = requireNonNull(hosting, "hosting is null");
+        this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.git = requireNonNull(git, "git is null");
         this.models = requireNonNull(models, "models is null");
         this.helper = requireNonNull(helper, "helper is null");
@@ -122,10 +122,11 @@ public class BackportDrafts
         String sourceTitle = root.map(PrRawDetail::title).filter(value -> !value.isBlank())
                 .orElseGet(() -> preview.commits().isEmpty() ? "Selected changes" : preview.commits().getLast().title());
         String fallbackTitle = clip("Backport: " + sourceTitle.replaceAll("[\\r\\n]+", " ").strip(), 240);
-        String template = template(repository, preview.targetSha()).orElse("");
-        String sourceReference = chain.sourcePr(index).map(BackportDrafts::url)
-                .orElse("https://github.com/" + chain.sourceRoute(index).repository().fullName() + "/commit/" + hop.sourceTipSha());
-        String rootReference = chain.sourcePullRequest().map(BackportDrafts::url).orElse(sourceReference);
+        String template = template(target.session().access().server().provider().pullRequestTemplates(), repository, preview.targetSha()).orElse("");
+        HostingServer sourceServer = server(chain.sourceRoute(index));
+        String sourceReference = chain.sourcePr(index).map(pr -> url(sourceServer, pr))
+                .orElse(sourceServer.provider().commitUrl(sourceServer.webBaseUrl(), chain.sourceRoute(index).repository().fullName(), hop.sourceTipSha()).toString());
+        String rootReference = chain.sourcePullRequest().map(pr -> url(server(chain.source()), pr)).orElse(sourceReference);
         String provenance = "Backport of " + sourceReference + "."
                 + (rootReference.equals(sourceReference) ? "" : "\n\nOriginal change: " + rootReference + ".")
                 + "\n\nLanded source: `" + hop.sourceTipSha() + "`.";
@@ -175,7 +176,6 @@ public class BackportDrafts
         if (!selected.repository().remoteId().equals(Long.toString(route.repositoryId()))) {
             throw new HostingFailure(HostingFailure.Kind.REVISION_CONFLICT, "Backport workspace repository changed; refresh the accepted route");
         }
-        selected.githubRepository(); // Backport publication and provenance still require GitHub.com.
         return selected;
     }
 
@@ -193,10 +193,8 @@ public class BackportDrafts
     private List<String> recentTitles(BackportChain.Route route, WorkspaceHostingRead selected)
     {
         try {
-            String query = "repo:" + selected.githubRepository().fullName() + " is:pr is:merged merged:>=" + LocalDate.now(clock.withZone(ZoneOffset.UTC)).minusDays(90)
-                    + " base:\"" + route.branch().replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
-            return pullRequests.searchPullRequestsPaged(selected.githubToken(), query, 1, 20).items().stream()
-                    .map(pr -> clip(pr.title(), 1024)).filter(title -> !title.isBlank()).collect(toImmutableList());
+            return integrations.of(selected.target()).contents().recentMergedTitles(selected.target(), route.branch(), clock.instant().minus(Duration.ofDays(90)), 20).stream()
+                    .map(title -> clip(title, 1024)).filter(title -> !title.isBlank()).collect(toImmutableList());
         }
         catch (RuntimeException failure) {
             log.debug("Backport title examples are unavailable for {}", route.repository().fullName(), failure);
@@ -206,9 +204,9 @@ public class BackportDrafts
 
     private record Draft(String title, String body) {}
 
-    private Optional<String> template(Path repository, String targetSha)
+    private Optional<String> template(List<String> paths, Path repository, String targetSha)
     {
-        for (String path : TEMPLATES) {
+        for (String path : paths) {
             Result result;
             try {
                 result = git.runLocalBoundedStdout(repository, Duration.ofSeconds(30), 32000, ImmutableList.of("show", targetSha + ":" + path));
@@ -239,9 +237,14 @@ public class BackportDrafts
         return true;
     }
 
-    private static String url(PullRequestRef pr)
+    private HostingServer server(BackportChain.Route route)
     {
-        return "https://github.com/" + pr.repoFullName() + "/pull/" + pr.number();
+        return WorkspaceException.requireWorkspace(workspaces, route.workspaceId()).server();
+    }
+
+    private static String url(HostingServer server, PullRequestRef pr)
+    {
+        return server.provider().pullRequestUrl(server.webBaseUrl(), pr.repoFullName(), pr.number()).toString();
     }
 
     private static String clip(String text, int maximum)

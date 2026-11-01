@@ -371,17 +371,16 @@ class TestTaskDiscussionAnswers
     }
 
     @Test
-    void aBlankAskBeforeTheFirstAnswerIsRefusedAndStoresNothing()
+    void aTaskWithNoAnswerYetAnswersAboutACommentFromAnEmptyHistory()
     {
-        assertThatThrownBy(() -> service.askComment(askComment(KEY, "")))
-                .isInstanceOf(AgentUnavailableException.class)
-                .hasMessage("Waiting for the agent's first answer");
-        assertThat(rows).isEmpty();
+        driver.answers.add("It limits only this node's pool.");
 
-        // The refusal gave the task's slot back.
-        answered(TurnId.random(), "Done.");
-        driver.answers.add(VERDICT);
-        assertThat(service.askComment(askComment(KEY, "")).messages()).hasSize(1);
+        TaskDiscussionView view = service.askComment(askComment(KEY, "Does this cap per-node memory?"));
+
+        assertThat(rows.get(view.id()).messages()).extracting(DiscussionMessage::body)
+                .containsExactly("Does this cap per-node memory?", "It limits only this node's pool.");
+        assertThat(savedContext("history")).isEqualTo("--- conversation so far ---");
+        assertThat(savedContext("source")).contains("Please rename this flag.");
     }
 
     @Test

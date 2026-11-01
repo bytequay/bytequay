@@ -63,7 +63,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 
-/** Reads only ByteQuay's durable source, work items and local caches; it has no GitHub client or credentials. */
+/** Reads only ByteQuay's durable source, work items and local caches; it has no hosting client or credentials. */
 @Component
 public class IssueContextBridgeResolverImpl
         implements BridgeResolver<IssueContextBridge>

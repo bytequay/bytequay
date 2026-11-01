@@ -13,22 +13,22 @@
  */
 package com.bytequay.app.service.epic;
 
-import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.jira.JiraService;
-import com.bytequay.app.repository.github.GitHubRepoClient;
-import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.app.workitem.WorkItemService;
+import com.bytequay.app.workspace.WorkspaceHostingRead;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.core.domain.Epic;
 import com.bytequay.core.domain.EpicChild;
 import com.bytequay.core.domain.EpicProposal;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.IssueEpic;
-import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemLink;
+import com.bytequay.core.hosting.ChildIssues;
 import com.bytequay.core.store.EpicStore;
 import com.bytequay.core.store.IssueDevelopmentStore;
 import com.bytequay.core.store.RepositoryIssueStore;
@@ -53,12 +53,11 @@ import static java.util.stream.Collectors.joining;
 
 /**
  * An Epic's children: reads the sub-issues or child tickets its source reports, and on the user's Sync makes each one work of the Epic.
- * Showing them is a local read; only a refresh reads GitHub or Jira, and nothing here writes to either.
+ * Showing them is a local read; only a refresh reads the hosting provider or Jira, and nothing here writes to either.
  */
 @Service
 public class EpicService
 {
-    private static final String HOST = "github.com";
     // The most a Local work item's context holds, as its own form allows.
     private static final int MAX_CONTEXT = 65_536;
 
@@ -66,8 +65,8 @@ public class EpicService
     private final EpicSources sources;
     private final WorkItemService work;
     private final IssueDevelopmentStore markers;
-    private final GitHubRepoClient github;
-    private final CredentialService credentials;
+    private final WorkspaceHostingService hosting;
+    private final HostingIntegrations integrations;
     // JiraService needs work items, so it is looked up when a Jira Epic's children are read.
     private final ObjectProvider<JiraService> jira;
     private final AgentUnitOfWork unitOfWork;
@@ -76,15 +75,15 @@ public class EpicService
     private final EpicBreakdowns breakdowns;
     private final Clock clock;
 
-    public EpicService(EpicStore epics, EpicSources sources, WorkItemService work, IssueDevelopmentStore markers, GitHubRepoClient github, CredentialService credentials,
+    public EpicService(EpicStore epics, EpicSources sources, WorkItemService work, IssueDevelopmentStore markers, WorkspaceHostingService hosting, HostingIntegrations integrations,
             ObjectProvider<JiraService> jira, AgentUnitOfWork unitOfWork, RepositoryIssueStore issues, WorkspaceStore workspaces, EpicBreakdowns breakdowns, Clock clock)
     {
         this.epics = requireNonNull(epics, "epics is null");
         this.sources = requireNonNull(sources, "sources is null");
         this.work = requireNonNull(work, "work is null");
         this.markers = requireNonNull(markers, "markers is null");
-        this.github = requireNonNull(github, "github is null");
-        this.credentials = requireNonNull(credentials, "credentials is null");
+        this.hosting = requireNonNull(hosting, "hosting is null");
+        this.integrations = requireNonNull(integrations, "integrations is null");
         this.jira = requireNonNull(jira, "jira is null");
         this.unitOfWork = requireNonNull(unitOfWork, "unitOfWork is null");
         this.issues = requireNonNull(issues, "issues is null");
@@ -270,23 +269,22 @@ public class EpicService
     private Read subIssues(String workspaceId, String epicId)
     {
         var workspace = workspaces.findById(workspaceId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Workspace not found"));
-        if (!workspace.isGitHub()) {
-            throw new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED, "Fetching GitLab issue children is not supported yet");
+        if (!integrations.of(workspace.server()).capabilities().issueChildren()) {
+            throw new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED, "This workspace's hosting server cannot list an issue's child items");
         }
-        long issueId = EpicSources.issueId(epicId);
-        IssueEpic marker = markers.findEpic(HOST, issueId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Epic not found"));
-        RepositoryIdentity identity = RepositoryIdentity.valueOf(marker.repo());
-        RepoRef repository = RepoRef.of(identity.owner(), identity.name());
-        List<EpicChild> children = github.fetchSubIssues(credentials.resolveGitHubToken(), repository, marker.number()).stream()
+        IssueEpic marker = markers.findEpic(workspace.issueHost(), EpicSources.issueId(epicId))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Epic not found"));
+        WorkspaceHostingRead route = hosting.captureRead(workspaceId);
+        ChildIssues read = integrations.of(route.target()).issues().children(route.target(), marker.number());
+        List<EpicChild> children = read.children().stream()
                 .map(issue -> {
-                    String repo = issue.repository().fullName();
-                    // A sub-issue of another repository names its repository, as GitHub does.
-                    String label = repo.equalsIgnoreCase(marker.repo()) ? "#" + issue.number() : repo + "#" + issue.number();
-                    return new EpicChild(WorkItemLink.issueIdentity(HOST, issue.id()), GoalItemKind.ISSUE, GoalItem.numberedKey(repo, issue.number()), label,
-                            issue.title(), issue.closed() ? "Closed" : "Open", issue.closed(), issue.url());
+                    // A child in another repository names its repository, as both providers do.
+                    String label = issue.repository().equalsIgnoreCase(marker.repo()) ? "#" + issue.number() : issue.repository() + "#" + issue.number();
+                    return new EpicChild(WorkItemLink.issueIdentity(workspace.issueHost(), issue.id()), GoalItemKind.ISSUE, GoalItem.numberedKey(issue.repository(),
+                            issue.number()), label, issue.title(), issue.closed() ? "Closed" : "Open", issue.closed(), issue.url());
                 })
                 .collect(toImmutableList());
-        return new Read(children, false);
+        return new Read(children, read.truncated());
     }
 
     private Read childTickets(EpicSources.Ticket ticket, String connectionId)

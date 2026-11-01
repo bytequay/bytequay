@@ -45,7 +45,7 @@ import static java.util.Objects.requireNonNull;
 /**
  * What the assistant's work operations do once its checks pass: mark an Epic, add work to one, create a work item, and acknowledge or
  * snooze a Needs attention item. Each goes through the service the app's own buttons use, and all of it stays local: nothing here asks
- * GitHub or Jira.
+ * the provider or Jira.
  */
 @Component
 class AssistantWork
@@ -90,7 +90,8 @@ class AssistantWork
         switch (AgendaRefs.kind(item)) {
             case "issue" -> {
                 AgendaRefs.Numbered numbered = AgendaRefs.numbered(item).orElseThrow(() -> new IllegalArgumentException("That issue ref is not valid"));
-                issues.setEpic(watched(numbered.repo()).id(), numbered.number(), true);
+                Workspace workspace = AgendaRefs.issueWorkspace(numbered, workspaces).orElseThrow(() -> new IllegalArgumentException("That repository is not watched"));
+                issues.setEpic(workspace.id(), numbered.number(), true);
             }
             case "jira" -> {
                 JiraIssue ticket = ticket(item);
@@ -168,7 +169,7 @@ class AssistantWork
     }
 
     /**
-     * The receipt for a draft the user created with its own button: the Epic it became, and the GitHub issue it was published as.
+     * The receipt for a draft the user created with its own button: the Epic it became, and the issue it was published as.
      *
      * @throws IllegalArgumentException when the draft's work item was not created
      */
@@ -186,12 +187,6 @@ class AssistantWork
     private Optional<AssistantRow> row(String ref)
     {
         return Optional.ofNullable(rows.rows(ImmutableList.of(ref)).get(ref));
-    }
-
-    private Workspace watched(String repo)
-    {
-        return workspaces.findAll().stream().filter(Workspace::isGitHub).filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(repo)).findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("That repository is not watched"));
     }
 
     private JiraIssue ticket(String ref)

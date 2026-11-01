@@ -36,7 +36,7 @@ import com.bytequay.app.discussion.ReviewFixService;
 import com.bytequay.app.merge.AutoMergeService;
 import com.bytequay.app.web.DevelopmentAutomationDto;
 import com.bytequay.app.web.ci.CiAutofixHttpModels;
-import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import com.google.common.collect.ImmutableList;
@@ -322,7 +322,7 @@ final class InteractiveAgentHttpContract
         }
     }
 
-    record IssueSourceResponse(@JsonUnwrapped GitHubIssueSource source, Optional<String> initialTurnId, String instructions) {}
+    record IssueSourceResponse(@JsonUnwrapped HostedIssueSource source, Optional<String> initialTurnId, String instructions) {}
 
     record JiraSourceResponse(@JsonUnwrapped JiraIssueSource source, Optional<String> initialTurnId, String instructions) {}
 

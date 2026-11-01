@@ -48,7 +48,7 @@ public record StoredPrDetail(
 
     /**
      * Whether every source behind a section answered. A section that failed
-     * arrives as an empty list, which is indistinguishable from "GitHub says
+     * arrives as an empty list, which is indistinguishable from "the provider says
      * there are none" — so callers that would delete rows the list omits must
      * check this first.
      */

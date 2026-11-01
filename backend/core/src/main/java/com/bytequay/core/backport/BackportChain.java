@@ -161,6 +161,11 @@ public record BackportChain(
             return toBuilder().executionId(Optional.of(id)).build();
         }
 
+        public Hop withAgent(String lane, Optional<String> agentModel, Optional<String> agentEffort)
+        {
+            return toBuilder().laneId(lane).model(agentModel).effort(agentEffort).build();
+        }
+
         public Hop publishing()
         {
             return toBuilder().publicationAttempted(true).build();

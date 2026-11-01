@@ -17,49 +17,50 @@ import com.bytequay.core.domain.CreatedPullRequest;
 import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.MergeResult;
 import com.bytequay.core.domain.PrTimelineEvent;
+import com.bytequay.core.domain.RepoRef;
 
 import java.util.List;
 
 /** Provider operations performed only after an application-authorized write. */
 public interface PullRequestWriter
 {
-    HostingProvider provider();
-
     /** Returns the note, or a command result with no remote ID when no note was created. */
-    PrTimelineEvent comment(HostingAccess access, HostingRepository repository, int number, String body);
+    PrTimelineEvent comment(HostingTarget target, int number, String body);
 
     /** Returns the thread, or a command result with no remote ID when no note was created. */
-    PrTimelineEvent createReviewComment(HostingAccess access, HostingRepository repository, int number, InlineReviewComment comment);
+    PrTimelineEvent createReviewComment(HostingTarget target, int number, InlineReviewComment comment);
 
-    void replyToReviewComment(HostingAccess access, HostingRepository repository, int number, long commentId, String body);
+    void replyToReviewComment(HostingTarget target, int number, long commentId, String body);
 
-    void editComment(HostingAccess access, HostingRepository repository, int number, String target, long commentId, String body);
+    void editComment(HostingTarget target, int number, CommentTarget comment, long commentId, String body);
 
-    boolean toggleReaction(HostingAccess access, HostingRepository repository, int number, String target, Long commentId, String content, Boolean viewerHasReacted);
+    /** The comment ID is absent when the reaction is on the request itself. */
+    boolean toggleReaction(HostingTarget target, int number, CommentTarget comment, Long commentId, Reaction reaction, Boolean viewerHasReacted);
 
-    void updateTitle(HostingAccess access, HostingRepository repository, int number, String title);
+    void updateTitle(HostingTarget target, int number, String title);
 
-    void updateDescription(HostingAccess access, HostingRepository repository, int number, String description);
+    void updateDescription(HostingTarget target, int number, String description);
 
-    void close(HostingAccess access, HostingRepository repository, int number);
+    void close(HostingTarget target, int number);
 
-    void markReady(HostingAccess access, HostingRepository repository, int number);
+    void markReady(HostingTarget target, int number);
 
-    void updateMetadata(HostingAccess access, HostingRepository repository, int number, List<String> assignees, List<String> labels);
+    void updateMetadata(HostingTarget target, int number, List<String> assignees, List<String> labels);
 
-    void updateReviewer(HostingAccess access, HostingRepository repository, int number, String login, boolean requested);
+    void updateReviewer(HostingTarget target, int number, String login, boolean requested);
 
-    void resolveThread(HostingAccess access, HostingRepository repository, int number, long commentId, boolean resolved);
+    void resolveThread(HostingTarget target, int number, long commentId, boolean resolved);
 
-    SubmittedReview submitReview(HostingAccess access, HostingRepository repository, int number, String event, String body, List<InlineReviewComment> comments, String commitId);
+    SubmittedReview submitReview(HostingTarget target, int number, ReviewVerdict verdict, String body, List<InlineReviewComment> comments, String commitId);
 
-    MergeResult merge(HostingAccess access, HostingRepository repository, int number, String strategy, String headSha);
+    MergeResult merge(HostingTarget target, int number, MergeStrategy strategy, String headSha);
 
-    void rerunFailedChecks(HostingAccess access, HostingRepository repository, int number);
+    void rerunFailedChecks(HostingTarget target, int number);
 
-    void removeFromMergeQueue(HostingAccess access, HostingRepository repository, int number, boolean autoMerge);
+    void removeFromMergeQueue(HostingTarget target, int number, boolean autoMerge);
 
-    boolean hasMergeQueue(HostingAccess access, HostingRepository repository, String baseRef);
+    boolean hasMergeQueue(HostingTarget target, String baseRef);
 
-    CreatedPullRequest create(HostingAccess access, HostingRepository repository, String head, String base, String title, String body, boolean draft);
+    /** Opens a request from {@code branch} of {@code headRepository}, the target repository itself or a fork of it. */
+    CreatedPullRequest create(HostingTarget target, RepoRef headRepository, String branch, String base, String title, String body, boolean draft);
 }

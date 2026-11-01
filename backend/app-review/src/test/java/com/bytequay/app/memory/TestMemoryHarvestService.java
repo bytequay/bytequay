@@ -111,7 +111,7 @@ class TestMemoryHarvestService
         MemoryHarvestService.Harvested harvested = MemoryHarvestService.harvest(ImmutableList.of(merged, unexplained, explained), ImmutableList.of("t4"));
 
         assertThat(harvested.pulls()).extracting(ContextBuild.HarvestPull::number).containsExactly(31201, 31203);
-        assertThat(harvested.threads()).extracting(ContextBuild.HarvestThread::githubId).containsExactly("t1", "r1", "k1", "k3");
+        assertThat(harvested.threads()).extracting(ContextBuild.HarvestThread::remoteId).containsExactly("t1", "r1", "k1", "k3");
         assertThat(harvested.threads()).extracting(ContextBuild.HarvestThread::part).containsExactly(MemorySource.Part.REVIEW_COMMENT, MemorySource.Part.REVIEW,
                 MemorySource.Part.COMMENT, MemorySource.Part.CLOSE);
         assertThat(harvested.threads().getFirst().notes()).extracting(ContextBuild.HarvestNote::key).containsExactly("c1", "c2");

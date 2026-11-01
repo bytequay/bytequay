@@ -12,29 +12,35 @@
  * limitations under the License.
  */
 import type { AttentionItem } from '../home/attention';
-import type { TeamCircle, TeamMember } from './types';
+import { onServer } from './contracts';
+import type { TeamCircle, TeamDirectory, TeamMember } from './types';
 
 export type TeamAttentionMatch = { circle: TeamCircle; member: TeamMember; reason: 'author' | 'review-requester' };
 
 export type TeamAttentionPreference = {
-  circles: TeamCircle[];
+  directories: TeamDirectory[];
   viewerLogin: string | null;
   onlyTeam?: boolean;
 };
 
-/** Local circles match GitHub identities, never a Jira display name or an agent lane. */
-export function teamAttentionMatch(item: AttentionItem, circles: TeamCircle[], viewerLogin: string | null): TeamAttentionMatch | null {
+/** Local circles match people on their own account's server, never a Jira display name or an agent lane. */
+export function teamAttentionMatch(item: AttentionItem, directories: TeamDirectory[]): TeamAttentionMatch | null {
   // ponytail: attention projections expose logins; match numeric IDs when those projections carry author/requester IDs.
   if (item.task || item.jira) return null;
+  const url = item.pr?.htmlUrl ?? item.htmlUrl;
   const activity = item.pr?.latestActivity;
-  const requester = item.kind === 'review' && activity?.event === 'review_requested'
-    && viewerLogin !== null && activity.requestedReviewer?.toLowerCase() === viewerLogin.toLowerCase() ? activity.actor : null;
-  for (const circle of circles) {
-    if (circle.repositories.length > 0 && !circle.repositories.some(repo => repo.toLowerCase() === item.repo.toLowerCase())) continue;
-    const author = circle.members.find(member => member.login.toLowerCase() === item.author?.toLowerCase());
-    if (author) return { circle, member: author, reason: 'author' };
-    const member = circle.members.find(person => person.login.toLowerCase() === requester?.toLowerCase());
-    if (member) return { circle, member, reason: 'review-requester' };
+  for (const directory of directories) {
+    // The same login on another server is someone else.
+    if (!onServer(url, directory.server.webBaseUrl)) continue;
+    const requester = item.kind === 'review' && activity?.event === 'review_requested'
+      && activity.requestedReviewer?.toLowerCase() === directory.accountLogin.toLowerCase() ? activity.actor : null;
+    for (const circle of directory.circles) {
+      if (circle.repositories.length > 0 && !circle.repositories.some(repo => repo.toLowerCase() === item.repo.toLowerCase())) continue;
+      const author = circle.members.find(member => member.login.toLowerCase() === item.author?.toLowerCase());
+      if (author) return { circle, member: author, reason: 'author' };
+      const member = circle.members.find(person => person.login.toLowerCase() === requester?.toLowerCase());
+      if (member) return { circle, member, reason: 'review-requester' };
+    }
   }
   return null;
 }
@@ -42,11 +48,11 @@ export function teamAttentionMatch(item: AttentionItem, circles: TeamCircle[], v
 export type CircleNeed = { item: AttentionItem; match: TeamAttentionMatch; action: 'review' | 'assigned' };
 
 /** Needs you: review requests (new commits since a review included) and assigned issues from circle people; other updates stay in Activity. */
-export function circleNeeds(items: AttentionItem[], circles: TeamCircle[], viewerLogin: string | null): CircleNeed[] {
+export function circleNeeds(items: AttentionItem[], directories: TeamDirectory[]): CircleNeed[] {
   return items.flatMap(item => {
     const action = item.type === 'issue' ? item.kind === 'assigned' ? 'assigned' : null
       : item.type === 'pr' && (item.kind === 'review' || item.kind === 'commits') ? 'review' : null;
-    const match = action === null ? null : teamAttentionMatch(item, circles, viewerLogin);
+    const match = action === null ? null : teamAttentionMatch(item, directories);
     return action === null || match === null ? [] : [{ item, match, action }];
   });
 }

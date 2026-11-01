@@ -266,7 +266,7 @@ class TestReviewFixService
 
         verify(pullRequests, times(1)).replyToReviewComment(REPO, 12, 10, "Renamed it.");
         verify(pullRequests, never()).setReviewThreadResolved(anyString(), eq(12), anyLong(), eq(true));
-        assertThat(rows.values()).singleElement().satisfies(reply -> assertThat(reply.failure().orElseThrow()).startsWith("The reply may not have reached GitHub"));
+        assertThat(rows.values()).singleElement().satisfies(reply -> assertThat(reply.failure().orElseThrow()).startsWith("The reply may not have been posted"));
 
         // A post interrupted before its outcome was saved is given up on the next pass, not repeated.
         rows.replaceAll((id, reply) -> new ReviewFixReply(reply.taskId(), reply.repo(), reply.number(), reply.rootCommentId(), reply.commentId(), reply.requestKey(),
@@ -321,7 +321,7 @@ class TestReviewFixService
         List<PrTimelineComment> withRoot = ImmutableList.<PrTimelineComment>builder()
                 .add(new PrTimelineComment(id, "reviewer", null, false, CREATED.plusSeconds(1), "Thread opened.", URL + "#r" + id, null, null, ImmutableList.of()))
                 .addAll(ImmutableList.copyOf(comments).stream()
-                        .map(comment -> new PrTimelineComment(comment.githubId(), comment.actor(), null, comment.actorBot(), comment.timestamp(), comment.body(),
+                        .map(comment -> new PrTimelineComment(comment.remoteId(), comment.actor(), null, comment.actorBot(), comment.timestamp(), comment.body(),
                                 comment.htmlUrl(), null, id, ImmutableList.of()))
                         .collect(toImmutableList()))
                 .build();

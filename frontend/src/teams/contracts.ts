@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { RepositoryMetadataDto } from '../types';
+import type { HostingServerDto, RepositoryMetadataDto } from '../types';
 import { parseList } from '../workitems/contracts';
 import { object, oneOf, optionalText, text } from '../pulls/wireParse';
 import {
@@ -30,12 +30,22 @@ export function teamId(value: unknown): string {
   return id;
 }
 
-export function teamMemberId(value: unknown): number { return integer(value, 'GitHub user ID', 1); }
+export function teamAccountId(value: unknown): number { return integer(value, 'account ID', 1); }
 
+export function teamMemberId(value: unknown): number { return integer(value, 'User ID', 1); }
+
+/** GitHub logins and GitLab usernames, which may also contain dots and underscores. */
 export function teamLogin(value: unknown): string {
-  const login = text(value, 'GitHub username').trim().replace(/^@/, '');
-  if (!/^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?(?:\[bot\])?$/.test(login)) throw new Error('Enter a valid GitHub username');
+  const login = text(value, 'login').trim().replace(/^@/, '');
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,99}(?:\[bot\])?$/.test(login)) throw new Error('Enter a valid login');
   return login;
+}
+
+/** Whether a URL is a page on the server, so a link cannot lead elsewhere or mix two servers' people. */
+export function onServer(url: string | null | undefined, webBaseUrl: string): boolean {
+  const base = URL.parse(webBaseUrl.replace(/\/*$/, '/'));
+  const target = url == null ? null : URL.parse(url);
+  return base !== null && target !== null && !target.username && !target.password && target.origin === base.origin && target.pathname.startsWith(base.pathname);
 }
 
 export function parseTeamInput(value: unknown): TeamCircleInput {
@@ -45,8 +55,11 @@ export function parseTeamInput(value: unknown): TeamCircleInput {
   const description = text(input.description, 'circle description').trim();
   if (description.length > 2000) throw new Error('Circle description must contain at most 2000 characters');
   const repositories = parseList(input.repositories, value => {
+    // GitLab projects can sit in nested groups.
     const repo = text(value, 'repository').trim().toLowerCase();
-    if (!/^[a-z0-9_-]{1,100}\/[a-z0-9_.-]{1,100}$/.test(repo) || repo.endsWith('/.') || repo.endsWith('/..')) throw new Error('Use owner/repository for each repository');
+    if (!/^[a-z0-9_.-]{1,100}(?:\/[a-z0-9_.-]{1,100}){1,20}$/.test(repo) || repo.split('/').some(part => part === '.' || part === '..')) {
+      throw new Error('Use owner/repository for each repository');
+    }
     return repo;
   }, 'repositories');
   const avatar = object(input.avatar, 'avatar');
@@ -58,13 +71,13 @@ export function parseTeamInput(value: unknown): TeamCircleInput {
 
 export function parseTeamMemberInput(value: unknown): TeamMemberInput {
   const member = object(value, 'member');
-  return { githubId: teamMemberId(member.githubId), login: teamLogin(member.login) };
+  return { remoteId: teamMemberId(member.remoteId), login: teamLogin(member.login) };
 }
 
 export function parseTeamCreateInput(value: unknown): TeamCreateInput {
   const input = object(value, 'circle');
   const members = parseList(input.members, parseTeamMemberInput, 'members');
-  return { ...parseTeamInput(input), members: [...new Map(members.map(member => [member.githubId, member])).values()] };
+  return { ...parseTeamInput(input), members: [...new Map(members.map(member => [member.remoteId, member])).values()] };
 }
 
 export function parseTeamContributors(value: unknown): RepositoryMetadataDto['contributors'] {
@@ -86,17 +99,34 @@ export function parseTeamQuery(value?: unknown): TeamActivityQuery {
   };
 }
 
-export function parseTeams(value: unknown): TeamDirectory {
+function webUrl(value: unknown, field: string): string {
+  const url = text(value, field);
+  const parsed = URL.parse(url);
+  if (parsed === null || (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') || parsed.username || parsed.password) throw new Error(`Invalid ${field}`);
+  return url;
+}
+
+function hostingServer(value: unknown): HostingServerDto {
+  const server = object(value, 'server');
+  return { provider: oneOf(server.provider, ['GITHUB', 'GITLAB'] as const, 'provider'), webBaseUrl: webUrl(server.webBaseUrl, 'server URL'),
+    apiBaseUrl: webUrl(server.apiBaseUrl, 'server API URL') };
+}
+
+export function parseTeams(value: unknown): TeamDirectory[] {
+  return parseList(value, parseTeamDirectory, 'teams');
+}
+
+export function parseTeamDirectory(value: unknown): TeamDirectory {
   const directory = object(value, 'teams');
   return {
-    accountLogin: text(directory.accountLogin, 'account login'),
+    accountId: teamAccountId(directory.accountId), accountLogin: text(directory.accountLogin, 'account login'), server: hostingServer(directory.server),
     circles: parseList(directory.circles, value => {
       const circle = object(value, 'circle');
       return {
         id: teamId(circle.id), ...parseTeamInput(circle),
         members: parseList(circle.members, value => {
           const member = object(value, 'member');
-          return { githubId: teamMemberId(member.githubId), login: text(member.login, 'login'), name: text(member.name, 'name'), avatarUrl: text(member.avatarUrl, 'avatar') };
+          return { remoteId: teamMemberId(member.remoteId), login: text(member.login, 'login'), name: text(member.name, 'name'), avatarUrl: text(member.avatarUrl, 'avatar') };
         }, 'members'),
       };
     }, 'circles'),
@@ -117,7 +147,8 @@ function statistics(value: unknown): TeamStatistics {
   return Object.fromEntries(STATISTICS.map(field => [field, integer(counts[field], field)])) as TeamStatistics;
 }
 
-export function parseTeamActivity(value: unknown): TeamActivitySnapshot {
+/** Every event must link into the account's own server. */
+export function parseTeamActivity(value: unknown, webBaseUrl: string): TeamActivitySnapshot {
   const snapshot = object(value, 'team activity');
   const coverage = object(snapshot.coverage, 'coverage');
   if (typeof coverage.partial !== 'boolean') throw new Error('Invalid team coverage');
@@ -125,13 +156,13 @@ export function parseTeamActivity(value: unknown): TeamActivitySnapshot {
     accountLogin: text(snapshot.accountLogin, 'account login'),
     events: parseList(snapshot.events, value => {
       const event = object(value, 'team event');
-      const url = new URL(text(event.url, 'event URL'));
-      if (url.origin !== 'https://github.com' || url.username || url.password) throw new Error('Invalid GitHub event URL');
+      const url = text(event.url, 'event URL');
+      if (!onServer(url, webBaseUrl)) throw new Error('Invalid event URL');
       return {
         id: text(event.id, 'event ID'), kind: oneOf(event.kind, TEAM_EVENT_KINDS, 'event kind'),
         actorId: integer(event.actorId, 'actor ID'), actorLogin: text(event.actorLogin, 'actor login'),
         repository: text(event.repository, 'repository'), number: integer(event.number, 'item number', 1),
-        title: text(event.title, 'title'), url: url.toString(), occurredAt: time(event.occurredAt, 'event time'),
+        title: text(event.title, 'title'), url: new URL(url).toString(), occurredAt: time(event.occurredAt, 'event time'),
         subjectAuthorId: event.subjectAuthorId == null ? null : teamMemberId(event.subjectAuthorId),
         subjectAuthorLogin: optionalText(event.subjectAuthorLogin),
         source: oneOf(event.source, ['PUBLIC_EVENTS', 'REPOSITORY', 'CACHED_DETAIL'] as const, 'event source'),

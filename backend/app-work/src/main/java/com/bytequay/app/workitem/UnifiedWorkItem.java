@@ -22,5 +22,5 @@ import java.util.Optional;
 public record UnifiedWorkItem(String id, Source source, String title, String description, String status, boolean closed,
         Instant updatedAt, Optional<GoalItem> reference, Optional<WorkItemView> work)
 {
-    public enum Source { LOCAL, GITHUB, JIRA }
+    public enum Source { LOCAL, ISSUE, JIRA }
 }

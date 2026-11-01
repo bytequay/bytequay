@@ -62,6 +62,7 @@ async function boundedHistory(): Promise<void> {
     offers: [], pages: [], questions: [], pendingApprovals: [] };
   const bridge = {
     listArtifacts: async () => [{ artifact: view.artifact, pages: 0 }],
+    onArtifactReading: () => () => undefined,
     viewArtifact: async () => view,
     artifactEvents: async (_workspace, _artifact, before, after) => {
       const events = before !== undefined ? all.filter(event => event.sequence < Number(before)).slice(-500)
@@ -161,6 +162,7 @@ async function approvalAuthority(): Promise<void> {
   const answers: { approvalId: string; allow: boolean; answers: Record<string, string> }[] = [];
   window.bridge = {
     listArtifacts: async () => [{ artifact: view.artifact, pages: 0 }],
+    onArtifactReading: () => () => undefined,
     viewArtifact: async () => view,
     artifactEvents: async (_workspace, _artifact, before, after) => {
       const events = before !== undefined ? all.filter(event => event.sequence < Number(before)).slice(-500)
@@ -216,6 +218,7 @@ async function openFromNotice(): Promise<void> {
   const views = [view('first', 'First conversation'), view('missed', 'Missed question')];
   window.bridge = {
     listArtifacts: async () => views.map(each => ({ artifact: each.artifact, pages: 0 })),
+    onArtifactReading: () => () => undefined,
     viewArtifact: async (_workspace, artifact) => views.find(each => each.artifact.id === artifact) ?? views[0],
     artifactEvents: async () => ({ events: [], beforeCursor: null, afterCursor: null, latestSequence: 0 }),
   } satisfies Partial<Bridge> as unknown as Bridge;
@@ -242,6 +245,7 @@ async function resumeFollowing(): Promise<void> {
   const reads: { before?: string; after?: string }[] = [];
   window.bridge = {
     listArtifacts: async () => [{ artifact: view.artifact, pages: 0 }],
+    onArtifactReading: () => () => undefined,
     viewArtifact: async () => { viewReads++; return view; },
     artifactEvents: async (_workspace, _artifact, before, after) => {
       reads.push({ before, after });
@@ -296,6 +300,7 @@ async function answerDuringRead(): Promise<void> {
   let pendingRead: PromiseWithResolvers<void> | null = null;
   window.bridge = {
     listArtifacts: async () => [{ artifact: view.artifact, pages: 0 }],
+    onArtifactReading: () => () => undefined,
     viewArtifact: async () => view,
     artifactEvents: async (_workspace, _artifact, _before, after) => {
       const events = after === undefined ? [...all] : all.filter(event => event.sequence > Number(after));

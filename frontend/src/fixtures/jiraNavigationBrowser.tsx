@@ -31,7 +31,7 @@ const connected: JiraConnection = {
 
 const jiraButton = () => document.querySelector<HTMLButtonElement>('.app-sidebar [aria-label="Jira"]');
 const workspace: WorkspaceDto = {
-  id: 'workspace', name: 'Example', selectedRepositoryId: 1, selectedOwner: 'example', selectedRepo: 'app',
+  id: 'workspace', name: 'Example', hostingServer: { provider: 'GITHUB', webBaseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' }, selectedRepositoryId: 1, selectedOwner: 'example', selectedRepo: 'app',
   monitoredRepositoryId: 1, monitoredOwner: 'example', monitoredRepo: 'app', topology: 'DIRECT', defaultBranch: 'main',
   upstreamRepositoryId: null, upstreamOwner: null, upstreamRepo: null, upstreamDefaultBranch: null,
   localRepositoryPath: '/fixture/app', lastCodeSyncAt: null, lastMetadataSyncAt: null, displayOrder: 0,

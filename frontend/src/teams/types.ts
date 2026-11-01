@@ -11,16 +11,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-export type TeamMember = { githubId: number; login: string; name: string; avatarUrl: string };
+import type { HostingServerDto } from '../types';
+
+/** A user on the circle's server, keyed by the provider's numeric user ID. */
+export type TeamMember = { remoteId: number; login: string; name: string; avatarUrl: string };
 /** Keep in step with TeamCircle.Avatar in the backend. */
 export const CIRCLE_COLORS = ['blue', 'green', 'purple', 'orange', 'red', 'pink', 'teal', 'gray'] as const;
 export const CIRCLE_SHAPES = ['square', 'circle'] as const;
 /** A circle's avatar: a solid palette color, drawn as a rounded square or a circle. */
 export type CircleAvatar = { color: typeof CIRCLE_COLORS[number]; shape: typeof CIRCLE_SHAPES[number] };
 export type TeamCircle = { id: string; name: string; description: string; avatar: CircleAvatar; repositories: string[]; members: TeamMember[] };
-export type TeamDirectory = { accountLogin: string; circles: TeamCircle[] };
+/** One hosting account's private circles; their people are users on that account's server. */
+export type TeamDirectory = { accountId: number; accountLogin: string; server: HostingServerDto; circles: TeamCircle[] };
 export type TeamCircleInput = { name: string; description: string; avatar: CircleAvatar; repositories: string[] };
-export type TeamMemberInput = Pick<TeamMember, 'githubId' | 'login'>;
+export type TeamMemberInput = Pick<TeamMember, 'remoteId' | 'login'>;
 export type TeamCreateInput = TeamCircleInput & { members: TeamMemberInput[] };
 /** Activity's type chips, then the drill-down metrics every count links to. */
 export const TEAM_ACTIVITY_FILTERS = ['all', 'merged', 'reviews', 'issues', 'prs-opened', 'authored-merges', 'merges-performed', 'reviews-performed',

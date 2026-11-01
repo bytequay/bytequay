@@ -166,18 +166,17 @@ describe('issue development conversation', () => {
     initialTurnId: opening.turnId, instructions: 'Keep the **public API** stable.',
   };
 
-  it.each([source.instructions, ''])('shows a compact source request without disclosing instructions (%s)', instructions => {
+  it.each([source.instructions, ''])('shows a compact source request over its prompt without the source instructions (%s)', instructions => {
     const markup = body({ task: { ...task('t-1', 'OPEN', 'Issue development'), issueSource: { ...source, instructions } },
       connection: 'open', events: [message] });
     expect(markup).toContain('Start development');
-    expect(markup).toContain('class="agt-issue-request"');
+    expect(markup).toContain('aria-label="Start development: upstream/app#7"');
     expect(markup).toContain('Fix upload timeout');
-    expect(markup).toContain('upstream/app#7');
-    expect(markup).not.toContain(rawPrompt);
+    expect(markup.match(new RegExp(rawPrompt, 'g'))).toEqual([rawPrompt]);
+    expect(markup).toContain(`<pre>${rawPrompt}</pre>`);
     expect(markup).toContain('flow.png');
     expect(markup.indexOf('agt-issue-attachment')).toBeGreaterThan(markup.indexOf('agt-transcript'));
     expect(markup.indexOf('agt-issue-attachment')).toBeLessThan(markup.indexOf('agt-compose-dock is-task'));
-    expect(markup).not.toContain('Show request details');
     expect(markup).not.toContain('public API');
   });
 
@@ -188,9 +187,9 @@ describe('issue development conversation', () => {
     const jiraTask = { ...task('t-1', 'OPEN', 'Jira development'), jiraSource };
     const markup = body({ task: jiraTask, connection: 'open', events: [message] });
     expect(markup).toContain('Start development');
-    expect(markup).toContain('ENG-1007');
+    expect(markup).toContain('aria-label="Start development: ENG-1007"');
     expect(markup).toContain('flow.png');
-    expect(markup).not.toContain(rawPrompt);
+    expect(markup).toContain(`<pre>${rawPrompt}</pre>`);
     expect(markup).not.toContain('Internal source instructions');
     expect(markup.indexOf('agt-issue-attachment')).toBeGreaterThan(markup.indexOf('agt-transcript'));
     expect(markup.indexOf('agt-issue-attachment')).toBeLessThan(markup.indexOf('agt-compose-dock is-task'));
@@ -203,13 +202,13 @@ describe('issue development conversation', () => {
       payload: { ...message.payload, text: 'Keep this follow-up visible.' } };
     const firstPage: AgentTaskState['historyPages'][number] = { events: [message, later], beforeCursor: null, afterCursor: null, latestSequence: later.sequence };
     const markup = body({ task: legacyTask, connection: 'open', events: firstPage.events, historyPages: [firstPage] });
-    expect(markup.match(/class="agt-issue-request"/g)).toHaveLength(1);
-    expect(markup).not.toContain(rawPrompt);
+    expect(markup.match(/class="agt-instruction"/g)).toHaveLength(1);
+    expect(markup).toContain(`<pre>${rawPrompt}</pre>`);
     expect(markup).toContain('Keep this follow-up visible.');
 
     const partialPage = { ...firstPage, events: [later], beforeCursor: 'earlier-history' };
     const partial = body({ task: legacyTask, connection: 'open', events: partialPage.events, historyPages: [partialPage] });
-    expect(partial).not.toContain('class="agt-issue-request"');
+    expect(partial).not.toContain('class="agt-instruction"');
     expect(partial).toContain('Keep this follow-up visible.');
   });
 
@@ -449,7 +448,7 @@ function reviewedDetail(): PullRequestDetailDto {
       eventType: 'review_thread',
       timestamp: '2026-08-20T10:30:00Z',
       body: null,
-      githubId: 9,
+      remoteId: 9,
       payload: { ...EMPTY_TIMELINE_PAYLOAD, path: 'src/Example.java', line: 2, side: 'RIGHT' },
     }],
   });

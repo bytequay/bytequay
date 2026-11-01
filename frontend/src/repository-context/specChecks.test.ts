@@ -35,7 +35,7 @@ describe('spec check report', () => {
   });
 
   it('lists only confirmed findings nobody dismissed', () => {
-    const value = check([candidate('c1', 'BUG', 'CONFIRMED'), candidate('c2', 'BUG', 'CONFIRMED', { dismissed: 'Filed on GitHub' }),
+    const value = check([candidate('c1', 'BUG', 'CONFIRMED'), candidate('c2', 'BUG', 'CONFIRMED', { dismissed: 'Filed as an issue' }),
       candidate('c3', 'BUG', 'NOT_REPRODUCED')]);
     expect(openFindings(value).map(item => item.id)).toEqual(['c1']);
   });
@@ -98,7 +98,7 @@ describe('spec check links', () => {
     expect(findingFile('plugin/x/', [])).toBeNull();
     expect(parseDismissContextSpecFindingRequest({ reason: 'Not a real gap', rule: 'Paths stay keys here on purpose.' }))
       .toEqual({ reason: 'Not a real gap', rule: 'Paths stay keys here on purpose.' });
-    expect(parseDismissContextSpecFindingRequest({ reason: 'Filed on GitHub' })).toEqual({ reason: 'Filed on GitHub' });
+    expect(parseDismissContextSpecFindingRequest({ reason: 'Filed as an issue' })).toEqual({ reason: 'Filed as an issue' });
     expect(() => parseDismissContextSpecFindingRequest({ reason: 'Not a real gap', rule: ' ' })).toThrow();
     expect(() => parseDismissContextSpecFindingRequest({ reason: 'Not a real gap', note: 'x' })).toThrow();
   });

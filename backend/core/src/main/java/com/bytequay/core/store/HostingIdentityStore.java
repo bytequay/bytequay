@@ -17,6 +17,7 @@ import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.HostingVersion;
 import com.bytequay.core.hosting.RemoteHostingAccount;
 import com.bytequay.core.hosting.RemoteHostingRepository;
 
@@ -32,6 +33,11 @@ public interface HostingIdentityStore
 
     List<HostingInstance> listInstances();
 
+    /** The release last read from this server; empty until an account on it is verified, or for a provider that reports none. */
+    Optional<HostingVersion> findVersion(HostingServer server);
+
+    void updateVersion(long instanceId, Optional<HostingVersion> version);
+
     HostingAccount upsertAccount(long instanceId, RemoteHostingAccount remote);
 
     Optional<HostingAccount> findAccount(long id);
@@ -41,6 +47,9 @@ public interface HostingIdentityStore
     HostingRepository upsertRepository(long instanceId, RemoteHostingRepository remote);
 
     Optional<HostingRepository> findRepository(long id);
+
+    /** The repository with this remote id on this server, as last read from the provider. */
+    Optional<HostingRepository> findRepository(HostingServer server, String remoteId);
 
     /** All retained identities at these coordinates, including a path later assigned to another remote repository. */
     List<HostingRepository> findRepositories(HostingServer server, String fullPath);

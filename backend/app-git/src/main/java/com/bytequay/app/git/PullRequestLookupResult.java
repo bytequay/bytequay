@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.git;
 
+import com.bytequay.core.hosting.PullRequestAssociation;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 

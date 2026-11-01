@@ -167,7 +167,7 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
       if (!mounted.current) return;
       setChecks(value => (value ?? []).map(item => item.id === saved.id ? saved : item));
       if (rule !== null) await load();
-      say(rule === null ? 'Finding dismissed · nothing was sent to GitHub' : 'Finding dismissed · your rule is in memory · nothing was sent to GitHub');
+      say(rule === null ? 'Finding dismissed · nothing was posted' : 'Finding dismissed · your rule is in memory · nothing was posted');
     }),
     openIssue: (check, candidate) => void perform(async () => {
       const item = await window.bridge.specWorkItem(workspaceId, check.id, candidate.id);

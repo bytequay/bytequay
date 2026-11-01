@@ -18,18 +18,24 @@ import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.impl.FileAgentResourceService;
-import com.bytequay.app.repository.github.actions.BoundedCiLog;
-import com.bytequay.app.repository.github.actions.CiHeadSnapshot;
-import com.bytequay.app.repository.github.actions.CiJob;
-import com.bytequay.app.repository.github.actions.CiRawLogStore;
-import com.bytequay.app.repository.github.actions.CiRerunResult;
-import com.bytequay.app.repository.github.actions.CiStep;
-import com.bytequay.app.repository.github.actions.CiWorkflowRun;
-import com.bytequay.app.repository.github.actions.ReadCiLogQuery;
-import com.bytequay.app.repository.github.actions.RerunFailedJobsCommand;
+import com.bytequay.agent.core.store.TaskLogStore;
+import com.bytequay.app.service.ci.BoundedCiLog;
+import com.bytequay.app.service.ci.CiLogReader;
+import com.bytequay.app.service.ci.CiRawLogStore;
+import com.bytequay.app.service.ci.ReadCiLogQuery;
+import com.bytequay.core.ci.CiHeadSnapshot;
+import com.bytequay.core.ci.CiJob;
+import com.bytequay.core.ci.CiRerunResult;
+import com.bytequay.core.ci.CiRun;
+import com.bytequay.core.ci.CiStep;
+import com.bytequay.core.ci.RerunFailedJobsCommand;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -46,6 +52,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.net.SocketTimeoutException;
+import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -57,9 +64,10 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 
-import static com.bytequay.app.repository.github.actions.CiRerunResult.Outcome.ACCEPTED;
-import static com.bytequay.app.repository.github.actions.CiRerunResult.Outcome.OBSOLETE;
-import static com.bytequay.app.repository.github.actions.CiRerunResult.Outcome.REJECTED;
+import static com.bytequay.core.ci.CiRerunResult.Outcome.ACCEPTED;
+import static com.bytequay.core.ci.CiRerunResult.Outcome.OBSOLETE;
+import static com.bytequay.core.ci.CiRerunResult.Outcome.REJECTED;
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -100,8 +108,8 @@ class TestGitHubActionsClient
                 {"total_count":1,"jobs":[{"id":902,"name":"check-description","run_attempt":1,
                   "status":"completed","conclusion":"success","steps":[]}]}
                 """, MediaType.APPLICATION_JSON));
-        CiHeadSnapshot snapshot = fixture.client.inspect(PULL_REQUEST);
-        assertThat(snapshot.workflowRuns()).extracting(CiWorkflowRun::id).containsExactly(901L);
+        CiHeadSnapshot snapshot = fixture.client.inspect(fixture.target(), 7);
+        assertThat(snapshot.runs()).extracting(CiRun::id).containsExactly(901L);
         assertThat(snapshot.green()).isTrue();
         fixture.verify();
     }
@@ -138,12 +146,12 @@ class TestGitHubActionsClient
                         {"total_count":1,"jobs":[{"id":902,"name":"Compile","run_attempt":1,"status":"completed","conclusion":"success","steps":[]}]}
                         """, MediaType.APPLICATION_JSON).header(HttpHeaders.ETAG, "\"jobs-2\""));
 
-        CiHeadSnapshot first = fixture.client.inspect(PULL_REQUEST);
-        CiHeadSnapshot second = fixture.client.inspect(PULL_REQUEST);
+        CiHeadSnapshot first = fixture.client.inspect(fixture.target(), 7);
+        CiHeadSnapshot second = fixture.client.inspect(fixture.target(), 7);
 
         assertThat(second.headSha()).isEqualTo(first.headSha()).isEqualTo(HEAD_SHA);
-        assertThat(second.workflowRuns()).extracting(CiWorkflowRun::status).containsExactly("in_progress");
-        assertThat(second.workflowRuns().getFirst().jobs()).extracting(CiJob::status).containsExactly("completed");
+        assertThat(second.runs()).extracting(CiRun::status).containsExactly("in_progress");
+        assertThat(second.runs().getFirst().jobs()).extracting(CiJob::status).containsExactly("completed");
         fixture.verify();
     }
 
@@ -165,8 +173,8 @@ class TestGitHubActionsClient
                       "status":"completed","conclusion":"%s","steps":[]}]}
                     """.formatted(runId + 10, runId == 900 ? "failure" : "success"), MediaType.APPLICATION_JSON));
         }
-        CiHeadSnapshot snapshot = fixture.client.inspect(PULL_REQUEST);
-        assertThat(snapshot.workflowRuns()).hasSize(2);
+        CiHeadSnapshot snapshot = fixture.client.inspect(fixture.target(), 7);
+        assertThat(snapshot.runs()).hasSize(2);
         assertThat(snapshot.green()).isFalse();
         fixture.verify();
     }
@@ -177,7 +185,7 @@ class TestGitHubActionsClient
         Fixture fixture = fixture();
         fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/7"))
                 .andRespond(withSuccess("{\"body\":\"Fixes #1.\\n\\nRelease notes\"}", MediaType.APPLICATION_JSON));
-        assertThat(fixture.client.readDescription(PULL_REQUEST)).isEqualTo("Fixes #1.\n\nRelease notes");
+        assertThat(fixture.client.description(PAT, PULL_REQUEST)).isEqualTo("Fixes #1.\n\nRelease notes");
         fixture.verify();
     }
 
@@ -221,14 +229,14 @@ class TestGitHubActionsClient
                         ]}
                         """, MediaType.APPLICATION_JSON));
 
-        CiHeadSnapshot snapshot = fixture.client.inspect(PULL_REQUEST);
+        CiHeadSnapshot snapshot = fixture.client.inspect(fixture.target(), 7);
 
         assertThat(snapshot.open()).isTrue();
         assertThat(snapshot.author()).isEqualTo("author");
         assertThat(snapshot.headRepository()).isEqualTo(RepoRef.of("owner", "repo"));
         assertThat(snapshot.headRef()).isEqualTo("feature");
         assertThat(snapshot.baseRef()).isEqualTo("main");
-        assertThat(snapshot.workflowRuns()).singleElement().satisfies(run -> {
+        assertThat(snapshot.runs()).singleElement().satisfies(run -> {
             assertThat(run.attempt()).isEqualTo(2);
             assertThat(run.status()).isEqualTo("in_progress");
         });
@@ -247,7 +255,7 @@ class TestGitHubActionsClient
         fixture.apiServer.expect(requestTo(runsUrl(1)))
                 .andRespond(withSuccess("{\"total_count\":0,\"workflow_runs\":[]}", MediaType.APPLICATION_JSON));
 
-        CiHeadSnapshot snapshot = fixture.client.inspect(PULL_REQUEST);
+        CiHeadSnapshot snapshot = fixture.client.inspect(fixture.target(), 7);
 
         assertThat(snapshot.pullRequest()).isEqualTo(PULL_REQUEST);
         assertThat(snapshot.headRepository()).isEqualTo(RepoRef.of("author", "fork"));
@@ -267,7 +275,7 @@ class TestGitHubActionsClient
                          "html_url":"https://github.com/owner/repo/pull/7"}
                         """.formatted(HEAD_SHA, BASE_SHA), MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(() -> fixture.client.inspect(PULL_REQUEST))
+        assertThatThrownBy(() -> fixture.client.inspect(fixture.target(), 7))
                 .hasMessageContaining("incomplete pull-request head facts");
         fixture.verify();
     }
@@ -278,7 +286,7 @@ class TestGitHubActionsClient
         Fixture fixture = fixture();
         expectSingleHead(fixture, "in_progress", null, "queued", null);
 
-        CiHeadSnapshot snapshot = fixture.client.inspect(PULL_REQUEST);
+        CiHeadSnapshot snapshot = fixture.client.inspect(fixture.target(), 7);
 
         assertThat(snapshot.actionableFailures()).isEmpty();
         assertThat(snapshot.pending()).isTrue();
@@ -292,7 +300,7 @@ class TestGitHubActionsClient
         Fixture fixture = fixture();
         expectSingleHead(fixture, "completed", "success", "completed", "success");
 
-        CiHeadSnapshot snapshot = fixture.client.inspect(PULL_REQUEST);
+        CiHeadSnapshot snapshot = fixture.client.inspect(fixture.target(), 7);
 
         assertThat(snapshot.actionableFailures()).isEmpty();
         assertThat(snapshot.pending()).isFalse();
@@ -306,7 +314,7 @@ class TestGitHubActionsClient
         Fixture fixture = fixture();
         expectRerun(fixture, "in_progress", null, true);
 
-        CiHeadSnapshot snapshot = fixture.client.inspect(PULL_REQUEST);
+        CiHeadSnapshot snapshot = fixture.client.inspect(fixture.target(), 7);
 
         assertThat(snapshot.jobs()).extracting(CiJob::id).containsExactly(902L, 903L);
         assertThat(snapshot.jobs().getFirst().status()).isEqualTo("queued");
@@ -321,7 +329,7 @@ class TestGitHubActionsClient
         Fixture fixture = fixture();
         expectRerun(fixture, "completed", "failure", false);
 
-        CiHeadSnapshot snapshot = fixture.client.inspect(PULL_REQUEST);
+        CiHeadSnapshot snapshot = fixture.client.inspect(fixture.target(), 7);
 
         assertThat(snapshot.actionableFailures()).extracting(CiJob::id).containsExactly(902L, 901L);
         assertThat(snapshot.pending()).isFalse();
@@ -335,7 +343,7 @@ class TestGitHubActionsClient
         expectPullRequest(fixture);
         fixture.apiServer.expect(requestTo(runsUrl(1))).andRespond(withSuccess("{\"total_count\":1,\"workflow_runs\":[]}", MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(() -> fixture.client.inspect(PULL_REQUEST)).hasMessageContaining("incomplete workflow-run pages");
+        assertThatThrownBy(() -> fixture.client.inspect(fixture.target(), 7)).hasMessageContaining("incomplete workflow-run pages");
         fixture.verify();
     }
 
@@ -359,11 +367,11 @@ class TestGitHubActionsClient
             fixture.apiServer.expect(requestTo(jobsUrl(900, 1))).andRespond(withSuccess("{\"total_count\":0,\"jobs\":[]}", MediaType.APPLICATION_JSON));
         }
         if (total == 10) {
-            CiWorkflowRun latest = fixture.client.inspect(PULL_REQUEST).workflowRuns().getFirst();
+            CiRun latest = fixture.client.inspect(fixture.target(), 7).runs().getFirst();
             assertThat(jobs ? latest.jobs().getFirst().attempt() : latest.attempt()).isEqualTo(10);
         }
         else {
-            assertThatThrownBy(() -> fixture.client.inspect(PULL_REQUEST)).hasMessageContaining("exceed the complete inspection limit");
+            assertThatThrownBy(() -> fixture.client.inspect(fixture.target(), 7)).hasMessageContaining("exceed the complete inspection limit");
         }
         fixture.verify();
     }
@@ -383,7 +391,7 @@ class TestGitHubActionsClient
         fixture.apiServer.expect(requestTo(runsUrl(1))).andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
         fixture.apiServer.expect(requestTo(runsUrl(2))).andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(() -> fixture.client.inspect(PULL_REQUEST)).hasMessageContaining("duplicate workflow attempts");
+        assertThatThrownBy(() -> fixture.client.inspect(fixture.target(), 7)).hasMessageContaining("duplicate workflow attempts");
         fixture.verify();
     }
 
@@ -408,7 +416,7 @@ class TestGitHubActionsClient
         fixture.apiServer.expect(requestTo(jobsUrl(900, 1))).andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
         fixture.apiServer.expect(requestTo(jobsUrl(900, 2))).andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(() -> fixture.client.inspect(PULL_REQUEST)).hasMessageContaining("duplicate workflow jobs");
+        assertThatThrownBy(() -> fixture.client.inspect(fixture.target(), 7)).hasMessageContaining("duplicate workflow jobs");
         fixture.verify();
     }
 
@@ -419,7 +427,7 @@ class TestGitHubActionsClient
             Fixture fixture = fixture();
             expectPullRequest(fixture);
             fixture.apiServer.expect(requestTo(runsUrl(1))).andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
-            assertThatThrownBy(() -> fixture.client.inspect(PULL_REQUEST)).hasMessageContaining("incomplete workflow-run evidence");
+            assertThatThrownBy(() -> fixture.client.inspect(fixture.target(), 7)).hasMessageContaining("incomplete workflow-run evidence");
             fixture.verify();
         }
     }
@@ -432,7 +440,7 @@ class TestGitHubActionsClient
                 .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer " + PAT))
                 .andRespond(withSuccess("2026-01-01T00:00:00Z error: failed with " + PAT + "\n", MediaType.TEXT_PLAIN));
 
-        assertThat(fixture.client.readJobLog(PULL_REQUEST, 902)).isEqualTo("2026-01-01T00:00:00Z error: failed with [REDACTED]\n");
+        assertThat(fixture.client.readJobLog(fixture.target(), 7, 902)).isEqualTo("2026-01-01T00:00:00Z error: failed with [REDACTED]\n");
         assertThat(fixture.stored.get()).isNull();
         fixture.verify();
     }
@@ -444,7 +452,7 @@ class TestGitHubActionsClient
         fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
                 .andRespond(withStatus(HttpStatus.NOT_FOUND));
 
-        assertThatThrownBy(() -> fixture.client.readJobLog(PULL_REQUEST, 902))
+        assertThatThrownBy(() -> fixture.client.readJobLog(fixture.target(), 7, 902))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("missing or expired");
         assertThat(fixture.stored.get()).isNull();
@@ -468,9 +476,9 @@ class TestGitHubActionsClient
                         """.formatted(PAT), MediaType.APPLICATION_JSON));
         fixture.apiServer.expect(requestTo(annotationsUrl)).andRespond(withStatus(HttpStatus.FORBIDDEN));
 
-        assertThat(fixture.client.readFailureAnnotations(PULL_REQUEST, 902))
+        assertThat(fixture.client.failureNotes(fixture.target(), 7, 902))
                 .containsExactly("The self-hosted runner lost communication with the server.", "ExampleTest: failed with [REDACTED]");
-        assertThat(fixture.client.readFailureAnnotations(PULL_REQUEST, 902)).isEmpty();
+        assertThat(fixture.client.failureNotes(fixture.target(), 7, 902)).isEmpty();
         fixture.verify();
     }
 
@@ -494,7 +502,7 @@ class TestGitHubActionsClient
             assertThat(request.getHeaders().getFirst(HttpHeaders.ACCEPT_ENCODING)).isEqualTo("identity");
         }).andRespond(withSuccess(rawLog, MediaType.TEXT_PLAIN));
 
-        BoundedCiLog log = fixture.client.readLog(logQuery(1024));
+        BoundedCiLog log = fixture.readLog(logQuery(1024));
         String stored = new String(fixture.stored.get(), StandardCharsets.UTF_8);
 
         assertThat(log.blob()).isPresent();
@@ -516,7 +524,7 @@ class TestGitHubActionsClient
         fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
                 .andRespond(withSuccess(rawLog, MediaType.TEXT_PLAIN));
 
-        BoundedCiLog log = fixture.client.readLog(logQuery(1024 * 1024));
+        BoundedCiLog log = fixture.readLog(logQuery(1024 * 1024));
         String stored = new String(fixture.stored.get(), StandardCharsets.UTF_8);
 
         assertThat(log.compacted()).isTrue();
@@ -542,9 +550,9 @@ class TestGitHubActionsClient
         fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
                 .andRespond(withSuccess(rawLog, MediaType.TEXT_PLAIN));
 
-        BoundedCiLog log = fixture.client.readLog(logQuery(1024 * 1024));
+        BoundedCiLog log = fixture.readLog(logQuery(1024 * 1024));
         String stored = new String(fixture.stored.get(), StandardCharsets.UTF_8);
-        String inline = fixture.client.readJobLog(PULL_REQUEST, 902);
+        String inline = fixture.client.readJobLog(fixture.target(), 7, 902);
 
         assertThat(stored).endsWith(inline);
         assertThat(inline).contains(failure.replace(PAT, "[REDACTED]")).doesNotContain(PAT, "line shortened", "previous line repeated");
@@ -570,9 +578,9 @@ class TestGitHubActionsClient
                 .andRespond(withSuccess(rawLog, MediaType.TEXT_PLAIN));
 
         ReadCiLogQuery query = logQuery(1024 * 1024);
-        BoundedCiLog log = fixture.client.readLog(query);
+        BoundedCiLog log = fixture.readLog(query);
         String stored = new String(fixture.stored.get(), StandardCharsets.UTF_8);
-        String inline = fixture.client.readJobLog(PULL_REQUEST, 902);
+        String inline = fixture.client.readJobLog(fixture.target(), 7, 902);
 
         assertThat(stored).endsWith(inline);
         assertThat(inline).contains(failure).doesNotContain("[new branch]", "[new tag]", "digest-mismatch");
@@ -592,7 +600,7 @@ class TestGitHubActionsClient
                 .andRespond(withSuccess(source, MediaType.TEXT_PLAIN));
         ReadCiLogQuery query = logQuery(1024 * 1024);
 
-        BoundedCiLog log = fixture.client.readLog(query);
+        BoundedCiLog log = fixture.readLog(query);
         String stored = new String(fixture.stored.get(), StandardCharsets.UTF_8);
         assertThat(log.diagnosticsMatched()).isFalse();
         assertThat(log.compacted()).isTrue();
@@ -602,7 +610,7 @@ class TestGitHubActionsClient
         String id = log.rawLogId().orElseThrow();
         assertThat(fixture.rawLogs.read(query.taskId(), id)).isEqualTo(source.replace(PAT, "[REDACTED]"));
         assertThat(fixture.rawLogs.page(query.taskId(), id, 0, 32768).text()).startsWith("original beginning\r\n");
-        assertThat(fixture.client.readLog(query).rawLogId()).contains(id);
+        assertThat(fixture.readLog(query).rawLogId()).contains(id);
         fixture.verify();
     }
 
@@ -614,7 +622,7 @@ class TestGitHubActionsClient
             fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
                     .andRespond(withStatus(status));
 
-            BoundedCiLog log = fixture.client.readLog(logQuery(1024));
+            BoundedCiLog log = fixture.readLog(logQuery(1024));
 
             assertThat(log.blob()).isEmpty();
             assertThat(log.unavailableReason()).contains("GitHub Actions log is missing or expired");
@@ -634,7 +642,7 @@ class TestGitHubActionsClient
                     .andExpect(headerDoesNotExist(HttpHeaders.AUTHORIZATION))
                     .andRespond(withStatus(status));
 
-            BoundedCiLog log = fixture.client.readLog(logQuery(1024));
+            BoundedCiLog log = fixture.readLog(logQuery(1024));
 
             assertThat(log.blob()).isEmpty();
             assertThat(log.unavailableReason()).contains("GitHub Actions log is missing or expired");
@@ -652,7 +660,7 @@ class TestGitHubActionsClient
         fixture.logServer.expect(requestTo("https://logs.github.test/job-902"))
                 .andRespond(withStatus(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE));
 
-        BoundedCiLog log = fixture.client.readLog(logQuery(1024));
+        BoundedCiLog log = fixture.readLog(logQuery(1024));
 
         assertThat(log.blob()).isEmpty();
         assertThat(log.unavailableReason()).contains("GitHub did not return a complete raw log");
@@ -669,7 +677,7 @@ class TestGitHubActionsClient
             fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
                     .andRespond(withSuccess("error: failed\n", MediaType.TEXT_PLAIN));
 
-            assertThat(fixture.client.readLog(logQuery(1024)).terminalErrorLines()).containsExactly("error: failed");
+            assertThat(fixture.readLog(logQuery(1024)).terminalErrorLines()).containsExactly("error: failed");
             fixture.verify();
         }
     }
@@ -689,7 +697,7 @@ class TestGitHubActionsClient
                     .andExpect(method(HttpMethod.GET)).andExpect(headerDoesNotExist(HttpHeaders.AUTHORIZATION))
                     .andRespond(withSuccess("error: failed\n", MediaType.TEXT_PLAIN));
 
-            assertThat(fixture.client.readLog(logQuery(1024)).terminalErrorLines()).containsExactly("error: failed");
+            assertThat(fixture.readLog(logQuery(1024)).terminalErrorLines()).containsExactly("error: failed");
             fixture.verify();
         }
     }
@@ -711,7 +719,7 @@ class TestGitHubActionsClient
                     }
                 }
 
-                BoundedCiLog log = fixture.client.readLog(logQuery(1024));
+                BoundedCiLog log = fixture.readLog(logQuery(1024));
 
                 assertThat(log.blob()).isEmpty();
                 assertThat(log.unavailableReason()).contains("GitHub Actions log retrieval failed after 2 attempts (HTTP " + status.value() + ")");
@@ -738,7 +746,7 @@ class TestGitHubActionsClient
                     }
                 }
 
-                BoundedCiLog log = fixture.client.readLog(logQuery(1024));
+                BoundedCiLog log = fixture.readLog(logQuery(1024));
 
                 assertThat(log.blob()).isEmpty();
                 assertThat(log.unavailableReason()).contains("GitHub Actions log retrieval failed after 2 attempts because of a network or read timeout error");
@@ -765,11 +773,11 @@ class TestGitHubActionsClient
                 }
 
                 if (status == HttpStatus.TOO_MANY_REQUESTS) {
-                    assertThat(fixture.client.readLog(logQuery(1024)).unavailableReason())
+                    assertThat(fixture.readLog(logQuery(1024)).unavailableReason())
                             .contains("GitHub Actions log retrieval is rate limited; no immediate retry was attempted");
                 }
                 else {
-                    assertThatThrownBy(() -> fixture.client.readLog(logQuery(1024))).isInstanceOfSatisfying(ResponseStatusException.class,
+                    assertThatThrownBy(() -> fixture.readLog(logQuery(1024))).isInstanceOfSatisfying(ResponseStatusException.class,
                             failure -> assertThat(failure.getStatusCode()).isEqualTo(status));
                 }
                 assertThat(fixture.stored.get()).isNull();
@@ -796,7 +804,7 @@ class TestGitHubActionsClient
             });
 
             try {
-                assertThatThrownBy(() -> fixture.client.readLog(logQuery(1024))).isInstanceOf(ResourceAccessException.class);
+                assertThatThrownBy(() -> fixture.readLog(logQuery(1024))).isInstanceOf(ResourceAccessException.class);
                 assertThat(Thread.currentThread().isInterrupted()).isTrue();
             }
             finally {
@@ -816,7 +824,7 @@ class TestGitHubActionsClient
                 throw failure;
             });
 
-            assertThatThrownBy(() -> fixture.client.readLog(logQuery(1024))).isSameAs(failure);
+            assertThatThrownBy(() -> fixture.readLog(logQuery(1024))).isSameAs(failure);
             assertThat(fixture.stored.get()).isNull();
             fixture.verify();
         }
@@ -829,7 +837,7 @@ class TestGitHubActionsClient
         fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
                 .andRespond(withSuccess("error: failed\n", MediaType.TEXT_PLAIN));
 
-        assertThatThrownBy(() -> fixture.client.readLog(logQuery(1024))).isInstanceOf(AgentStorageException.class).hasMessage("disk unavailable");
+        assertThatThrownBy(() -> fixture.readLog(logQuery(1024))).isInstanceOf(AgentStorageException.class).hasMessage("disk unavailable");
         assertThat(fixture.stored.get()).isNull();
         fixture.verify();
     }
@@ -842,7 +850,7 @@ class TestGitHubActionsClient
                 .andRespond(withStatus(HttpStatus.FOUND)
                         .header(HttpHeaders.LOCATION, "http://logs.github.test/job-902"));
 
-        BoundedCiLog log = fixture.client.readLog(logQuery(1024));
+        BoundedCiLog log = fixture.readLog(logQuery(1024));
 
         assertThat(log.blob()).isEmpty();
         assertThat(log.unavailableReason()).contains("GitHub returned an unsafe or missing log location");
@@ -859,7 +867,7 @@ class TestGitHubActionsClient
                 .andExpect(method(HttpMethod.POST))
                 .andRespond(withStatus(HttpStatus.CREATED));
 
-        CiRerunResult result = fixture.client.rerunFailedJobs(rerunCommand(true));
+        CiRerunResult result = fixture.client.rerunFailedJobs(fixture.target(), 7, rerunCommand(true));
 
         assertThat(result.outcome()).isEqualTo(ACCEPTED);
         fixture.verify();
@@ -876,7 +884,7 @@ class TestGitHubActionsClient
                         .contentType(MediaType.APPLICATION_JSON)
                         .body("{\"message\":\"Actions write permission is required\"}"));
 
-        CiRerunResult result = fixture.client.rerunFailedJobs(rerunCommand(true));
+        CiRerunResult result = fixture.client.rerunFailedJobs(fixture.target(), 7, rerunCommand(true));
 
         assertThat(result.outcome()).isEqualTo(REJECTED);
         assertThat(result.reason()).isEqualTo("Actions write permission is required");
@@ -888,7 +896,7 @@ class TestGitHubActionsClient
     {
         Fixture fixture = fixture();
 
-        CiRerunResult result = fixture.client.rerunFailedJobs(rerunCommand(false));
+        CiRerunResult result = fixture.client.rerunFailedJobs(fixture.target(), 7, rerunCommand(false));
 
         assertThat(result.outcome()).isEqualTo(REJECTED);
         fixture.verify();
@@ -905,7 +913,7 @@ class TestGitHubActionsClient
                          "html_url":"https://github.com/owner/repo/actions/runs/900"}
                         """.formatted(HEAD_SHA), MediaType.APPLICATION_JSON));
 
-        CiRerunResult result = fixture.client.rerunFailedJobs(rerunCommand(true));
+        CiRerunResult result = fixture.client.rerunFailedJobs(fixture.target(), 7, rerunCommand(true));
 
         assertThat(result.outcome()).isEqualTo(OBSOLETE);
         fixture.verify();
@@ -940,7 +948,7 @@ class TestGitHubActionsClient
         List<PrCheckRunState> checks = fixture.client.refreshPrCheckRuns("pat", "owner", "repo", "head", ImmutableList.of(), Optional.empty(), Optional.empty()).checkRuns();
         PrCheckRunState check = checks.getFirst();
 
-        assertThat(check.githubId()).isEqualTo(99L);
+        assertThat(check.remoteId()).isEqualTo(99L);
         assertThat(check.name()).isEqualTo("build");
         assertThat(check.conclusion()).isEqualTo("failure");
         assertThat(check.startedAt()).isEqualTo(Instant.parse("2026-08-25T12:30:00Z"));
@@ -1133,7 +1141,7 @@ class TestGitHubActionsClient
     private static ReadCiLogQuery logQuery(int maximumBytes)
     {
         CiJob job = failedJob();
-        CiWorkflowRun workflow = new CiWorkflowRun(
+        CiRun workflow = new CiRun(
                 900,
                 80,
                 "Build",
@@ -1161,7 +1169,7 @@ class TestGitHubActionsClient
 
     private static RerunFailedJobsCommand rerunCommand(boolean authorized)
     {
-        return new RerunFailedJobsCommand(PULL_REQUEST, 900, HEAD_SHA, 2, authorized);
+        return new RerunFailedJobsCommand(900, HEAD_SHA, 2, authorized);
     }
 
     private static String runsUrl(int page)
@@ -1200,17 +1208,19 @@ class TestGitHubActionsClient
         AgentResourceService resources = mock(AgentResourceService.class);
         when(resources.require(any())).thenAnswer(call -> files.allocate(call.getArgument(0)));
         CiRawLogStore rawLogs = new CiRawLogStore(resources);
-        GitHubActionsClient client = new GitHubActionsClient(
-                apiBuilder.build(),
-                logBuilder.build(),
-                () -> token,
-                (taskId, content, mediaType) -> {
-                    if (failBlobWrite) {
-                        throw new AgentStorageException("disk unavailable");
-                    }
-                    return storeBlob(stored, content, mediaType);
-                }, rawLogs);
-        return new Fixture(client, apiServer, logServer, stored, rawLogs);
+        TaskLogStore taskLogs = mock(TaskLogStore.class);
+        when(taskLogs.writeBlob(any(), any(), any())).thenAnswer(call -> {
+            if (failBlobWrite) {
+                throw new AgentStorageException("disk unavailable");
+            }
+            return storeBlob(stored, call.getArgument(1), call.getArgument(2));
+        });
+        GitHubActionsClient client = new GitHubActionsClient(apiBuilder.build(), logBuilder.build(), mock(GitHubPullRequestReadClient.class));
+        HostingInstance instance = new HostingInstance(1, GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
+        URI url = URI.create("https://github.com/owner/repo");
+        HostingTarget target = new HostingTarget(new HostingAccess(instance, token),
+                new HostingRepository(2, instance.id(), "42", "owner/repo", url, url, Optional.empty(), Optional.of("main")));
+        return new Fixture(client, new CiLogReader(rawLogs, taskLogs), target, apiServer, logServer, stored, rawLogs);
     }
 
     private static BlobRef storeBlob(AtomicReference<byte[]> stored, ByteBuffer content, String mediaType)
@@ -1221,8 +1231,20 @@ class TestGitHubActionsClient
         return new BlobRef("blobs/ci-log", mediaType, bytes.length);
     }
 
-    private record Fixture(GitHubActionsClient client, MockRestServiceServer apiServer, MockRestServiceServer logServer, AtomicReference<byte[]> stored, CiRawLogStore rawLogs)
+    private record Fixture(
+            GitHubActionsClient client,
+            CiLogReader logs,
+            HostingTarget target,
+            MockRestServiceServer apiServer,
+            MockRestServiceServer logServer,
+            AtomicReference<byte[]> stored,
+            CiRawLogStore rawLogs)
     {
+        private BoundedCiLog readLog(ReadCiLogQuery query)
+        {
+            return logs.read(target, client, query);
+        }
+
         private void verify()
         {
             apiServer.verify();

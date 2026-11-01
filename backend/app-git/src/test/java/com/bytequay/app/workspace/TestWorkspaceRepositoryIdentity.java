@@ -15,11 +15,13 @@ package com.bytequay.app.workspace;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.store.RemoteSourceStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -32,6 +34,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
 
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.bothProviders;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -55,9 +58,9 @@ class TestWorkspaceRepositoryIdentity
         gitHub = mock(GitHubAccountClient.class);
         remoteSources = mock(RemoteSourceStore.class);
         workspaces = mock(WorkspaceStore.class);
-        service = new WorkspaceRepositoryService(workspaces, remoteSources, gitHub, mock(CredentialService.class), Clock.fixed(NOW, ZoneOffset.UTC),
-                new WorkspacePaths("/managed"), mock(WorkspaceProvisioningService.class), mock(WorkspaceMetadataService.class),
-                mock(PullRequestRefreshService.class), Runnable::run);
+        service = new WorkspaceRepositoryService(workspaces, remoteSources, gitHub, mock(CredentialService.class), mock(HostingConnectionService.class),
+                Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/managed"), mock(WorkspaceProvisioningService.class), mock(WorkspaceMetadataService.class),
+                mock(PullRequestRefreshService.class), bothProviders(), Runnable::run);
         when(workspaces.findById("target")).thenReturn(Optional.of(directWorkspace("target", 404, RepoRef.of("target", "project"))));
     }
 
@@ -136,7 +139,8 @@ class TestWorkspaceRepositoryIdentity
                 Optional.of(NOW),
                 0,
                 NOW,
-                NOW);
+                NOW,
+                HostingServer.GITHUB_COM);
     }
 
     private static Workspace linkedWorkspace(String id, long selectedRepositoryId, RepoRef selectedRepository, long upstreamRepositoryId, RepoRef upstreamRepository)
@@ -160,7 +164,8 @@ class TestWorkspaceRepositoryIdentity
                 Optional.of(NOW),
                 0,
                 NOW,
-                NOW);
+                NOW,
+                HostingServer.GITHUB_COM);
     }
 
     private static String cloneUrl(RepoRef repository)

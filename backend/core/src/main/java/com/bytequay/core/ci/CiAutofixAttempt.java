@@ -203,14 +203,14 @@ public record CiAutofixAttempt(
         }
     }
 
-    public record FailureEvidence(String signature, String summary, long workflowRunId, int workflowAttempt, long jobId, int jobAttempt, Optional<LogReference> log)
+    public record FailureEvidence(String signature, String summary, long runId, int runAttempt, long jobId, int jobAttempt, Optional<LogReference> log)
     {
         public FailureEvidence
         {
             checkText(signature, "signature", 200);
             checkText(summary, "summary", 4 * 1024);
-            checkArgument(workflowRunId > 0 && jobId > 0, "GitHub workflow and job IDs must be positive");
-            checkArgument(workflowAttempt > 0 && jobAttempt > 0, "workflow and job attempts must be positive");
+            checkArgument(runId > 0 && jobId > 0, "run and job IDs must be positive");
+            checkArgument(runAttempt > 0 && jobAttempt > 0, "run and job attempts must be positive");
             requireNonNull(log, "log is null");
         }
     }

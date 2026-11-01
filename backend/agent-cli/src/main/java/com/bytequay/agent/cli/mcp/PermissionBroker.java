@@ -16,6 +16,7 @@ package com.bytequay.agent.cli.mcp;
 import com.bytequay.agent.cli.development.DevelopmentResultTool;
 import com.bytequay.agent.cli.process.AgentPermissionManager;
 import com.bytequay.agent.cli.process.BuildCacheRoots;
+import com.bytequay.agent.cli.process.CherryPickCommands;
 import com.bytequay.agent.cli.process.GitWorktreeWriteRoots;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentApprovalHandler;
@@ -162,12 +163,6 @@ public final class PermissionBroker
     private static final int MAXIMUM_BODY_CHARACTERS = 60_000;
     private static final Set<String> PUBLISH_ARGUMENTS = ImmutableSet.of("title", "body");
     private static final SecureRandom RANDOM = new SecureRandom();
-    private static final Pattern CHERRY_PICK_FIXUP = Pattern.compile(
-            "^git\\s+commit\\s+(?:(?:--allow-empty\\s+--fixup=)|(?:--fixup=))([0-9a-f]{40}|[0-9a-f]{64})(?:\\s+--allow-empty)?$");
-    private static final Pattern CHERRY_PICK_AMEND = Pattern.compile(
-            "^git\\s+commit\\s+--amend\\s+--no-edit$");
-    private static final Pattern HISTORY_MUTATION = Pattern.compile(
-            "(?m)\\bgit\\b[^\\n;&|]*\\b(?:commit|cherry-pick|rebase|reset|merge|switch|checkout|branch|tag|push|fetch|pull|update-ref|restore)\\b");
 
     private final Supplier<URI> endpoint;
     private final ObjectMapper objectMapper;
@@ -1345,7 +1340,7 @@ public final class PermissionBroker
                         "branch", ImmutableMap.of("type", "string", "minLength", 3, "maxLength", 64)), "title"))));
         context.development().ifPresent(ignored -> tools.add(new ToolDefinition(
                 DevelopmentResultBridge.PUBLISH_TOOL_NAME,
-                "Publish this task's verified revision as a draft pull request; ByteQuay owns the push and the GitHub write",
+                "Publish this task's verified revision as a draft pull request; ByteQuay owns the push and the pull request",
                 ToolSchemas.object(ImmutableMap.of(
                         "title", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAXIMUM_TITLE_CHARACTERS),
                         "body", ImmutableMap.of("type", "string", "maxLength", MAXIMUM_BODY_CHARACTERS)), "title", "body"))));
@@ -1396,9 +1391,7 @@ public final class PermissionBroker
                     .map(JsonNode::asText)
                     .map(String::strip)
                     .orElse("");
-            if (CHERRY_PICK_FIXUP.matcher(command).matches()
-                    || CHERRY_PICK_AMEND.matcher(command).matches()
-                    || (!command.isBlank() && !HISTORY_MUTATION.matcher(command).find())) {
+            if (CherryPickCommands.allows(command)) {
                 return new PermissionResult("allow", Optional.of(arguments.input()), Optional.empty());
             }
             return new PermissionResult("deny", Optional.empty(), Optional.of("Cherry-pick tasks allow only the expected fixup-shaped history change"));

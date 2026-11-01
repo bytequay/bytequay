@@ -24,14 +24,10 @@ export function developmentTurnRequest(turn: AgentTurnDto | null | undefined) {
   if (turn?.developmentOrigin?.kind === 'PRIVACY_REPAIR') return {
     action: 'ByteQuay · Check for private information',
     topic: 'Publication privacy',
-    body: 'Sanitize private information in outgoing files and commits before publication.',
-    detail: 'Local repair · Publication requires a fresh privacy check',
   };
   if (turn?.developmentOrigin?.kind === 'AUTO_COMMIT') return {
     action: 'ByteQuay · Auto commit',
     topic: 'Working changes',
-    body: 'Commit the completed changes in this task’s worktree.',
-    detail: 'Authorized local commits · Publication is a separate step',
   };
   return null;
 }

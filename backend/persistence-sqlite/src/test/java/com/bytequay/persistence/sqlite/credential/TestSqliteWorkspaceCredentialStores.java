@@ -40,13 +40,7 @@ class TestSqliteWorkspaceCredentialStores
     private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-credential-store-" + UUID.randomUUID() + ".db").toString();
 
     @Autowired
-    private SqliteWorkspaceCredentialStore workspaceCredentials;
-
-    @Autowired
     private SqliteModelApiKeyStore apiKeys;
-
-    @Autowired
-    private SqliteCredentialStore credentials;
 
     @Autowired
     private SqliteJiraConnectionStore jiraConnections;
@@ -63,9 +57,6 @@ class TestSqliteWorkspaceCredentialStores
     @Autowired
     private EntityManager entityManager;
 
-    @Autowired
-    private WorkspaceCredentialJpaRepository workspaceCredentialRows;
-
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
@@ -73,27 +64,6 @@ class TestSqliteWorkspaceCredentialStores
         registry.add("spring.datasource.driver-class-name", () -> "org.sqlite.JDBC");
         registry.add("spring.jpa.database-platform", () -> "com.bytequay.persistence.sqlite.config.SqliteDialect");
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "update");
-    }
-
-    @Test
-    void workspaceTokenIsEncryptedAtRestAndRoundTrips()
-    {
-        workspaceCredentials.save("ws-1", "github_pat_secretvalue", "jack-work");
-
-        assertThat(workspaceCredentials.getSecret("ws-1")).contains("github_pat_secretvalue");
-        assertThat(workspaceCredentials.getLogin("ws-1")).contains("jack-work");
-        assertThat(workspaceCredentialRows.findById("ws-1").orElseThrow().getCiphertext())
-                .doesNotContain("secretvalue");
-
-        workspaceCredentials.save("ws-1", "github_pat_rotated", "jack-work-2");
-        workspaceCredentialRows.flush();
-        entityManager.clear();
-        assertThat(workspaceCredentials.getSecret("ws-1")).contains("github_pat_rotated");
-        assertThat(workspaceCredentials.getLogin("ws-1")).contains("jack-work-2");
-        assertThat(workspaceCredentialRows.count()).isEqualTo(1);
-
-        workspaceCredentials.delete("ws-1");
-        assertThat(workspaceCredentials.getSecret("ws-1")).isEmpty();
     }
 
     @Test
@@ -142,17 +112,5 @@ class TestSqliteWorkspaceCredentialStores
         assertThat(replacement.id()).isNotEqualTo(key.id());
         assertThat(apiKeys.findSecretById(key.id())).isEmpty();
         assertThat(apiKeys.findSecretById(replacement.id())).contains("sk-other");
-    }
-
-    @Test
-    void accountTokenDeleteClearsTheStoredCredential()
-    {
-        credentials.save("ghp_token", null);
-        assertThat(credentials.exists()).isTrue();
-
-        credentials.delete();
-
-        assertThat(credentials.exists()).isFalse();
-        assertThat(credentials.getSecret()).isEmpty();
     }
 }

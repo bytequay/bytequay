@@ -20,8 +20,10 @@ import { itemRelation } from '../home/AttentionRow';
 import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import { activityVerb, METRICS, type Metric } from './activity';
+import { providerName } from '../pulls/PullRequestWorkspace';
 import { needAge, openAttentionItem } from './NeedsYou';
 import type { CircleNeed } from './priority';
+import type { HostingServerDto } from '../types';
 import type { TeamActivitySnapshot, TeamCircle, TeamEventKind, TeamMember, TeamStatistics } from './types';
 
 const KIND_ICONS: Record<TeamEventKind, ReactNode> = {
@@ -37,9 +39,11 @@ const PANEL_METRICS: [Metric, keyof TeamStatistics][] = [
 ];
 
 /** Who a person is, their circles, what needs you from them, and what they did, kept in three separate blocks. */
-export default function PersonPanel({ member, circles, backLabel, needs, snapshot, periodLabel, viewerLogin, circlesOpen, busy,
+export default function PersonPanel({ member, server, circles, backLabel, needs, snapshot, periodLabel, viewerLogin, circlesOpen, busy,
   onClose, onCircles, onSelectCircle, onToggleCircle, onDrill, onAllActivity }: {
   member: TeamMember;
+  /** The server the person is a user on. */
+  server: HostingServerDto;
   circles: TeamCircle[];
   backLabel: string;
   needs: CircleNeed[];
@@ -55,17 +59,18 @@ export default function PersonPanel({ member, circles, backLabel, needs, snapsho
   onDrill: (metric: Metric) => void;
   onAllActivity: () => void;
 }) {
-  const statistics = snapshot?.people.find(person => person.memberId === member.githubId)?.statistics ?? null;
-  const recent = (snapshot?.events ?? []).filter(event => event.actorId === member.githubId).slice(0, 6);
-  const names = new Map(circles.flatMap(circle => circle.members.map(person => [person.githubId, person.login] as const)));
-  const memberOf = circles.filter(circle => circle.members.some(person => person.githubId === member.githubId));
+  const statistics = snapshot?.people.find(person => person.memberId === member.remoteId)?.statistics ?? null;
+  const recent = (snapshot?.events ?? []).filter(event => event.actorId === member.remoteId).slice(0, 6);
+  const names = new Map(circles.flatMap(circle => circle.members.map(person => [person.remoteId, person.login] as const)));
+  const memberOf = circles.filter(circle => circle.members.some(person => person.remoteId === member.remoteId));
+  const profile = `Open ${providerName(server)} profile`;
   const named = member.name !== '' && member.name !== member.login;
   return <aside className="cir-person" aria-label="Person details">
     <div className="cir-person__bar">
       <button type="button" className="cir-back" onClick={onClose}><ChevronLeft size={14} strokeWidth={2} aria-hidden="true" /><span>{backLabel}</span></button>
       <span className="cir-spacer" />
-      <button type="button" className="cir-iconbtn" aria-label="Open GitHub profile" title="Open GitHub profile"
-        onClick={() => { void window.bridge.openInAppBrowser(`https://github.com/${encodeURIComponent(member.login)}`); }}>
+      <button type="button" className="cir-iconbtn" aria-label={profile} title={profile}
+        onClick={() => { void window.bridge.openInAppBrowser(`${server.webBaseUrl.replace(/\/+$/, '')}/${encodeURIComponent(member.login)}`); }}>
         <ArrowUpRight size={14} aria-hidden="true" />
       </button>
       <button type="button" className="cir-iconbtn" aria-label="Close person details" title="Close (Esc)" onClick={onClose}><X size={16} aria-hidden="true" /></button>
@@ -143,7 +148,7 @@ function CirclesMenu({ member, circles, busy, onToggle, onClose }: {
   const host = usePopoverDismiss(onClose, true);
   return <div ref={host} className="cir-popover cir-menu" role="menu" aria-label="Circles for this person">
     {circles.map(circle => {
-      const on = circle.members.some(person => person.githubId === member.githubId);
+      const on = circle.members.some(person => person.remoteId === member.remoteId);
       return <button type="button" key={circle.id} role="menuitemcheckbox" aria-checked={on} disabled={busy} className="cir-menu__item" onClick={() => onToggle(circle, !on)}>
         <span className={`cir-check${on ? ' is-on' : ''}`} aria-hidden="true">{on && <Check size={11} strokeWidth={3} />}</span>
         <span className="cir-ellipsis">{circle.name}</span>

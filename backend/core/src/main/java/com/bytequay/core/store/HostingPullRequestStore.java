@@ -20,7 +20,9 @@ import com.bytequay.core.hosting.PullRequestListPage;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 public interface HostingPullRequestStore
 {
@@ -39,4 +41,7 @@ public interface HostingPullRequestStore
 
     /** Invalidates every account's snapshot after a local action without deleting retained request identity. */
     void evictRepository(long repositoryId, int number);
+
+    /** The accounts holding a snapshot of each request, which are the accounts that can read it again. */
+    Map<Long, Set<Long>> findReadingAccounts(Set<Long> prIds);
 }

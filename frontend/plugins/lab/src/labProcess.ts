@@ -35,7 +35,7 @@ function locations() {
   const source = app.isPackaged ? path.join(bundle, 'app') : path.join(app.getAppPath(), '..', 'scripts', 'review-calibration');
   const data = path.join(homedir(), 'Library', 'Application Support', 'ByteQuay');
   const folder = `${data} Lab`;
-  const args = ['--runtime', path.join(data, 'agent-runtime'), '--database', path.join(data, 'bytequay-1.0.db')];
+  const args = ['--runtime', path.join(data, 'agent-runtime'), '--database', path.join(data, 'bytequay-055.db')];
   return { python: path.join(bundle, 'python', 'bin', 'python3'), source, folder, args };
 }
 

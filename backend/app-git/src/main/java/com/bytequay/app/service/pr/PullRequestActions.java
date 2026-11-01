@@ -13,8 +13,8 @@
  */
 package com.bytequay.app.service.pr;
 
+import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
-import com.bytequay.app.service.hosting.HostingPullRequestWrites;
 import com.bytequay.app.service.pr.PullRequestService.Posted;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.core.domain.HandledAction;
@@ -28,6 +28,10 @@ import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.RecentReason;
 import com.bytequay.core.domain.RecentTextKind;
 import com.bytequay.core.domain.StoredPrDetail;
+import com.bytequay.core.hosting.CommentTarget;
+import com.bytequay.core.hosting.MergeStrategy;
+import com.bytequay.core.hosting.Reaction;
+import com.bytequay.core.hosting.ReviewVerdict;
 import com.bytequay.core.hosting.SubmittedReview;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrViewStateStore;
@@ -46,7 +50,6 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -59,9 +62,8 @@ import static java.util.Objects.requireNonNull;
 final class PullRequestActions
 {
     private static final Logger log = LoggerFactory.getLogger(PullRequestActions.class);
-    private static final Set<String> REACTION_CONTENTS = ImmutableSet.of("+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes");
 
-    private final HostingPullRequestWrites writes;
+    private final HostingIntegrations integrations;
     private final PullRequestStore store;
     private final PullRequestSnapshotService snapshots;
     private final PrDetailStore details;
@@ -72,7 +74,7 @@ final class PullRequestActions
     private final Function<PullRequestRead, Optional<Long>> rowId;
 
     PullRequestActions(
-            HostingPullRequestWrites writes,
+            HostingIntegrations integrations,
             PullRequestStore store,
             PullRequestSnapshotService snapshots,
             PrDetailStore details,
@@ -81,7 +83,7 @@ final class PullRequestActions
             HostingPullRequestService requests,
             Function<PullRequestRead, PullRequestDetail> readDetail, Function<PullRequestRead, Optional<Long>> rowId)
     {
-        this.writes = requireNonNull(writes, "writes is null");
+        this.integrations = requireNonNull(integrations, "integrations is null");
         this.store = requireNonNull(store, "store is null");
         this.snapshots = requireNonNull(snapshots, "snapshots is null");
         this.details = requireNonNull(details, "details is null");
@@ -95,7 +97,7 @@ final class PullRequestActions
     boolean hasMergeQueue(PullRequestRead route, String baseRef)
     {
         checkText(baseRef, "baseRef");
-        return writes.forSession(route.session()).hasMergeQueue(route.session().access(), route.repository(), baseRef);
+        return integrations.of(route.target()).writer().hasMergeQueue(route.target(), baseRef);
     }
 
     Posted createReviewComment(PullRequestRead route, InlineReviewComment comment)
@@ -107,26 +109,26 @@ final class PullRequestActions
             replyToReviewComment(route, comment.replyToCommentId().getAsLong(), comment.body());
             return new Posted(afterWrite(route, () -> readDetail.apply(route), before), OptionalLong.empty(), ImmutableList.of());
         }
-        PrTimelineEvent created = writes.forSession(route.session()).createReviewComment(route.session().access(), route.repository(), route.number(), comment);
+        PrTimelineEvent created = integrations.of(route.target()).writer().createReviewComment(route.target(), route.number(), comment);
         PullRequestDetail detail = afterWrite(route, () -> {
             PullRequestDetail patched = patchCachedTimeline(route, prId, created);
-            if (created.githubId() != null) {
-                prId.ifPresent(id -> markReviewed(id, "COMMENT", comment.commitId()));
+            if (created.remoteId() != null) {
+                prId.ifPresent(id -> markReviewed(id, ReviewVerdict.COMMENT, comment.commitId()));
                 recordComment(route, "review-comment", created, comment.body());
             }
             return patched;
         }, before);
-        return new Posted(detail, OptionalLong.empty(), created.githubId() == null ? ImmutableList.of() : ImmutableList.of(created));
+        return new Posted(detail, OptionalLong.empty(), created.remoteId() == null ? ImmutableList.of() : ImmutableList.of(created));
     }
 
     PullRequestDetail commentOnPullRequest(PullRequestRead route, String body)
     {
         checkText(body, "comment body");
         PullRequestDetail before = readDetail.apply(route);
-        PrTimelineEvent created = writes.forSession(route.session()).comment(route.session().access(), route.repository(), route.number(), body);
+        PrTimelineEvent created = integrations.of(route.target()).writer().comment(route.target(), route.number(), body);
         return afterWrite(route, () -> {
             PullRequestDetail detail = patchCachedTimeline(route, rowId.apply(route), created);
-            if (created.githubId() != null) {
+            if (created.remoteId() != null) {
                 recordComment(route, "comment", created, body);
             }
             return detail;
@@ -163,28 +165,25 @@ final class PullRequestActions
     {
         checkText(target, "reaction target");
         checkText(content, "reaction content");
-        String normalizedTarget = target.trim().toLowerCase(Locale.ROOT);
-        String normalizedContent = content.trim().toLowerCase(Locale.ROOT);
-        if (!REACTION_CONTENTS.contains(normalizedContent)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported reaction content");
-        }
-        switch (normalizedTarget) {
-            case "pull_request" -> {
+        Reaction reaction = Reaction.parse(content).orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported reaction content"));
+        CommentTarget comment = CommentTarget.parse(target).orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported reaction target"));
+        switch (comment) {
+            case PULL_REQUEST -> {
                 if (commentId != null) {
                     throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "pull request reaction must not include a comment id");
                 }
             }
-            case "issue_comment", "review_comment" -> {
+            case ISSUE_COMMENT, REVIEW_COMMENT -> {
                 if (commentId == null || commentId <= 0) {
                     throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "comment reaction requires a positive comment id");
                 }
             }
-            default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported reaction target");
+            case REVIEW -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported reaction target");
         }
 
         try {
-            return writes.forSession(route.session()).toggleReaction(route.session().access(), route.repository(), route.number(),
-                    normalizedTarget, commentId, normalizedContent, viewerHasReacted);
+            return integrations.of(route.target()).writer().toggleReaction(route.target(), route.number(),
+                    comment, commentId, reaction, viewerHasReacted);
         }
         finally {
             afterWrite(route, () -> invalidatePullRequestDetail(route));
@@ -195,7 +194,7 @@ final class PullRequestActions
     {
         checkText(title, "pull request title");
         String normalizedTitle = title.trim();
-        writes.forSession(route.session()).updateTitle(route.session().access(), route.repository(), route.number(), normalizedTitle);
+        integrations.of(route.target()).writer().updateTitle(route.target(), route.number(), normalizedTitle);
         afterWrite(route, () -> {
             rowId.apply(route).ifPresent(prId -> {
                 snapshots.patchDetail(prId, cached -> new StoredPrDetail(cached.raw().withTitle(normalizedTitle), cached.reviews(), cached.timeline(),
@@ -209,7 +208,8 @@ final class PullRequestActions
 
     void updateDescription(PullRequestRead route, String description)
     {
-        writes.forSession(route.session()).updateDescription(route.session().access(), route.repository(), route.number(), requireNonNull(description, "description is null"));
+        String body = requireNonNull(description, "description is null");
+        integrations.of(route.target()).writer().updateDescription(route.target(), route.number(), body);
         afterWrite(route, () -> {
             recent.pullRequestAction(rowId.apply(route).orElseThrow(), RecentReason.EDITED, 0);
             invalidatePullRequestDetail(route);
@@ -218,7 +218,7 @@ final class PullRequestActions
 
     void closePullRequest(PullRequestRead route)
     {
-        writes.forSession(route.session()).close(route.session().access(), route.repository(), route.number());
+        integrations.of(route.target()).writer().close(route.target(), route.number());
         afterWrite(route, () -> {
             recent.pullRequestAction(rowId.apply(route).orElseThrow(), RecentReason.EDITED, 0);
             invalidatePullRequestCaches(route);
@@ -228,7 +228,7 @@ final class PullRequestActions
     void markReadyForReview(PullRequestRead route)
     {
         try {
-            writes.forSession(route.session()).markReady(route.session().access(), route.repository(), route.number());
+            integrations.of(route.target()).writer().markReady(route.target(), route.number());
         }
         finally {
             // A lost response may still have promoted the draft; refresh without repeating the write.
@@ -239,8 +239,8 @@ final class PullRequestActions
 
     void updateMetadata(PullRequestRead route, List<String> assignees, List<String> labels)
     {
-        writes.forSession(route.session()).updateMetadata(
-                route.session().access(), route.repository(), route.number(),
+        integrations.of(route.target()).writer().updateMetadata(
+                route.target(), route.number(),
                 normalizeNames(assignees, "assignees"),
                 normalizeNames(labels, "labels"));
         afterWrite(route, () -> {
@@ -252,7 +252,7 @@ final class PullRequestActions
     void updateReviewerRequest(PullRequestRead route, String login, boolean requested)
     {
         checkText(login, "reviewer login");
-        writes.forSession(route.session()).updateReviewer(route.session().access(), route.repository(), route.number(), login.trim(), requested);
+        integrations.of(route.target()).writer().updateReviewer(route.target(), route.number(), login.trim(), requested);
         afterWrite(route, () -> {
             recent.pullRequestAction(rowId.apply(route).orElseThrow(), RecentReason.EDITED, 0);
             invalidatePullRequestDetail(route);
@@ -262,7 +262,7 @@ final class PullRequestActions
     void replyToReviewComment(PullRequestRead route, long commentId, String body)
     {
         checkText(body, "reply body");
-        writes.forSession(route.session()).replyToReviewComment(route.session().access(), route.repository(), route.number(), commentId, body);
+        integrations.of(route.target()).writer().replyToReviewComment(route.target(), route.number(), commentId, body);
         afterWrite(route, () -> {
             invalidatePullRequestCaches(route);
             recent.pullRequestAction(rowId.apply(route).orElseThrow(), RecentReason.COMMENTED, 0);
@@ -274,13 +274,13 @@ final class PullRequestActions
     PullRequestDetail editComment(PullRequestRead route, String target, long commentId, String body)
     {
         checkText(target, "comment target");
-        String normalizedTarget = target.trim().toLowerCase(Locale.ROOT);
+        CommentTarget comment = CommentTarget.parse(target).orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported comment target"));
         // The keys the create paths index, so an edit replaces the written text instead of adding a copy.
-        String textKey = switch (normalizedTarget) {
-            case "issue_comment" -> "comment:" + commentId;
-            case "review_comment" -> "review-comment:" + commentId;
-            case "review" -> "review:" + commentId;
-            default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported comment target");
+        String textKey = switch (comment) {
+            case ISSUE_COMMENT -> "comment:" + commentId;
+            case REVIEW_COMMENT -> "review-comment:" + commentId;
+            case REVIEW -> "review:" + commentId;
+            case PULL_REQUEST -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported comment target");
         };
         if (commentId <= 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "comment edit requires a positive comment id");
@@ -288,31 +288,31 @@ final class PullRequestActions
         checkText(body, "comment body");
 
         PullRequestDetail before = readDetail.apply(route);
-        writes.forSession(route.session()).editComment(route.session().access(), route.repository(), route.number(), normalizedTarget, commentId, body);
+        integrations.of(route.target()).writer().editComment(route.target(), route.number(), comment, commentId, body);
         Optional<PullRequestDetail> patched = afterWrite(route, () -> {
             Optional<Long> prId = rowId.apply(route);
-            return prId.flatMap(id -> snapshots.patchDetail(id, cached -> withEditedBody(cached, normalizedTarget, commentId, body)))
+            return prId.flatMap(id -> snapshots.patchDetail(id, cached -> withEditedBody(cached, comment, commentId, body)))
                     .map(stored -> PullRequestDetailMapper.toPullRequestDetail(prId.orElseThrow(), route.repository().fullPath(), route.number(), stored, stored.viewerCanWrite()));
         }, Optional.empty());
         afterWrite(route, () -> {
             recent.pullRequestAction(rowId.apply(route).orElseThrow(), RecentReason.EDITED, 0);
-            recent.wroteOnPullRequest(rowId.apply(route).orElseThrow(), "review".equals(normalizedTarget) ? RecentTextKind.REVIEW_BODY : RecentTextKind.COMMENT, textKey, body);
+            recent.wroteOnPullRequest(rowId.apply(route).orElseThrow(), comment == CommentTarget.REVIEW ? RecentTextKind.REVIEW_BODY : RecentTextKind.COMMENT, textKey, body);
         });
         return patched.orElse(before);
     }
 
-    /** GitHub ids are unique only within one resource type, so each target patches only its own kind of copy. */
-    private static StoredPrDetail withEditedBody(StoredPrDetail cached, String target, Long commentId, String body)
+    /** Remote ids are unique only within one resource type, so each target patches only its own kind of copy. */
+    private static StoredPrDetail withEditedBody(StoredPrDetail cached, CommentTarget target, Long commentId, String body)
     {
         List<PrReviewState> reviews = cached.reviews().stream()
-                .map(review -> "review".equals(target) && commentId.equals(review.githubId()) ? withBody(review, body) : review)
+                .map(review -> target == CommentTarget.REVIEW && commentId.equals(review.remoteId()) ? withBody(review, body) : review)
                 .collect(toImmutableList());
         List<PrTimelineEvent> timeline = cached.timeline().stream()
                 .map(event -> switch (target) {
-                    case "issue_comment" -> "commented".equals(event.event()) && commentId.equals(event.githubId()) ? withBody(event, body) : event;
-                    case "review" -> "reviewed".equals(event.event()) && commentId.equals(event.githubId()) ? withBody(event, body) : event;
-                    case "review_comment" -> "review_thread".equals(event.event()) ? withThreadCommentBody(event, commentId, body) : event;
-                    default -> throw new IllegalStateException("unsupported comment target: " + target);
+                    case ISSUE_COMMENT -> "commented".equals(event.event()) && commentId.equals(event.remoteId()) ? withBody(event, body) : event;
+                    case REVIEW -> "reviewed".equals(event.event()) && commentId.equals(event.remoteId()) ? withBody(event, body) : event;
+                    case REVIEW_COMMENT -> "review_thread".equals(event.event()) ? withThreadCommentBody(event, commentId, body) : event;
+                    case PULL_REQUEST -> throw new IllegalStateException("unsupported comment target: " + target);
                 })
                 .collect(toImmutableList());
         return new StoredPrDetail(cached.raw(), reviews, timeline, cached.checkRuns(), cached.unavailableSections(), cached.viewerCanWrite());
@@ -321,25 +321,25 @@ final class PullRequestActions
     private static PrReviewState withBody(PrReviewState review, String body)
     {
         return new PrReviewState(
-                review.githubId(), review.login(), review.avatarUrl(), review.bot(), review.state(), review.submittedAt(), body, review.htmlUrl(), review.commitId());
+                review.remoteId(), review.login(), review.avatarUrl(), review.bot(), review.state(), review.submittedAt(), body, review.htmlUrl(), review.commitId());
     }
 
     private static PrTimelineEvent withBody(PrTimelineEvent event, String body)
     {
-        return new PrTimelineEvent(event.githubId(), event.event(), event.actor(), event.timestamp(), body, event.payload(), event.localEventKey());
+        return new PrTimelineEvent(event.remoteId(), event.event(), event.actor(), event.timestamp(), body, event.payload(), event.localEventKey());
     }
 
     private static PrTimelineEvent withThreadCommentBody(PrTimelineEvent thread, Long commentId, String body)
     {
         List<PrTimelineComment> comments = thread.payload().comments().stream()
-                .map(comment -> commentId.equals(comment.githubId())
+                .map(comment -> commentId.equals(comment.remoteId())
                         ? new PrTimelineComment(
-                                comment.githubId(), comment.actor(), comment.actorAvatarUrl(), comment.actorBot(), comment.timestamp(),
+                                comment.remoteId(), comment.actor(), comment.actorAvatarUrl(), comment.actorBot(), comment.timestamp(),
                                 body, comment.htmlUrl(), comment.reviewId(), comment.inReplyToId(), comment.reactions())
                         : comment)
                 .collect(toImmutableList());
         return new PrTimelineEvent(
-                thread.githubId(),
+                thread.remoteId(),
                 thread.event(),
                 thread.actor(),
                 thread.timestamp(),
@@ -350,7 +350,7 @@ final class PullRequestActions
 
     void setReviewThreadResolved(PullRequestRead route, long rootCommentId, boolean resolved)
     {
-        writes.forSession(route.session()).resolveThread(route.session().access(), route.repository(), route.number(), rootCommentId, resolved);
+        integrations.of(route.target()).writer().resolveThread(route.target(), route.number(), rootCommentId, resolved);
         afterWrite(route, () -> invalidatePullRequestDetail(route));
     }
 
@@ -362,10 +362,7 @@ final class PullRequestActions
     {
         checkText(commitId, "review commit");
         checkText(event, "review event");
-        String normalizedEvent = event.toUpperCase(Locale.ROOT);
-        if (!ImmutableSet.of("COMMENT", "APPROVE", "REQUEST_CHANGES").contains(normalizedEvent)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported review event");
-        }
+        ReviewVerdict verdict = ReviewVerdict.parse(event).orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported review event"));
         List<InlineReviewComment> reviewComments = comments == null ? ImmutableList.of() : comments;
         reviewComments.forEach(comment -> validateReviewComment(comment, false));
         // GitHub anchors a whole review at one commit and resolves every comment's path and line
@@ -379,30 +376,30 @@ final class PullRequestActions
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "review comments must match the review commit");
         }
         String reviewBody = body == null ? "" : body.trim();
-        if (!"APPROVE".equals(normalizedEvent) && reviewBody.isBlank() && reviewComments.isEmpty()) {
+        if (verdict != ReviewVerdict.APPROVE && reviewBody.isBlank() && reviewComments.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "review body or inline comment must not be blank");
         }
 
         PullRequestDetail before = readDetail.apply(route);
-        SubmittedReview submitted = writes.forSession(route.session()).submitReview(route.session().access(), route.repository(), route.number(),
-                normalizedEvent, reviewBody, reviewComments, commitId);
+        SubmittedReview submitted = integrations.of(route.target()).writer().submitReview(route.target(), route.number(),
+                verdict, reviewBody, reviewComments, commitId);
         Optional<PrReviewState> created = submitted.review();
         List<PrTimelineEvent> events = submitted.events();
         PullRequestDetail detail = afterWrite(route, () -> {
             PullRequestDetail patched = patchCachedReview(route, prId, created, events);
-            if (created.isEmpty() && events.stream().allMatch(item -> item.githubId() == null)) {
+            if (created.isEmpty() && events.stream().allMatch(item -> item.remoteId() == null)) {
                 return patched;
             }
-            markReviewed(prId, normalizedEvent, commitId);
-            recordReview(route, normalizedEvent, reviewBody, created.orElse(null));
+            markReviewed(prId, verdict, commitId);
+            recordReview(route, verdict, reviewBody, created.orElse(null));
             reviewComments.forEach(inline -> recent.wroteOnPullRequest(
                     rowId.apply(route).orElseThrow(),
                     RecentTextKind.COMMENT,
-                    "review-comment:" + created.map(PrReviewState::githubId).map(Object::toString).orElse("latest") + ":" + inline.path() + ":" + inline.line(),
+                    "review-comment:" + created.map(PrReviewState::remoteId).map(Object::toString).orElse("latest") + ":" + inline.path() + ":" + inline.line(),
                     inline.body()));
             return patched;
         }, before);
-        OptionalLong reviewId = created.map(PrReviewState::githubId).map(OptionalLong::of).orElse(OptionalLong.empty());
+        OptionalLong reviewId = created.map(PrReviewState::remoteId).map(OptionalLong::of).orElse(OptionalLong.empty());
         return new Posted(detail, reviewId, events.stream().filter(item -> "review_thread".equals(item.event())).collect(toImmutableList()));
     }
 
@@ -414,25 +411,25 @@ final class PullRequestActions
     private PullRequestDetail patchCachedReview(PullRequestRead route, long prId, Optional<PrReviewState> created, List<PrTimelineEvent> events)
     {
         requireNonNull(created, "created is null");
-        if (events.stream().anyMatch(event -> event.githubId() == null)) {
+        if (events.stream().anyMatch(event -> event.remoteId() == null)) {
             invalidatePullRequestCaches(route);
             return readDetail.apply(route);
         }
         Optional<StoredPrDetail> patched = snapshots.patchDetail(prId, cached -> {
             List<PrReviewState> reviews = new ArrayList<>(cached.reviews());
             created.ifPresent(value -> {
-                reviews.removeIf(review -> Objects.equals(review.githubId(), value.githubId())
-                        && (value.githubId() != null || review.login().equalsIgnoreCase(value.login())));
+                reviews.removeIf(review -> Objects.equals(review.remoteId(), value.remoteId())
+                        && (value.remoteId() != null || review.login().equalsIgnoreCase(value.login())));
                 reviews.add(value);
             });
             List<PrTimelineEvent> timeline = new ArrayList<>(cached.timeline());
-            created.filter(review -> review.githubId() != null && review.submittedAt() != null).ifPresent(review -> {
+            created.filter(review -> review.remoteId() != null && review.submittedAt() != null).ifPresent(review -> {
                 PrTimelineEvent reviewed = reviewedTimelineEvent(review);
-                timeline.removeIf(event -> Objects.equals(event.githubId(), reviewed.githubId()) && reviewed.event().equals(event.event()));
+                timeline.removeIf(event -> Objects.equals(event.remoteId(), reviewed.remoteId()) && reviewed.event().equals(event.event()));
                 timeline.add(reviewed);
             });
             for (PrTimelineEvent thread : events) {
-                timeline.removeIf(event -> Objects.equals(event.githubId(), thread.githubId())
+                timeline.removeIf(event -> Objects.equals(event.remoteId(), thread.remoteId())
                         && thread.event().equals(event.event()));
                 timeline.add(thread);
             }
@@ -446,7 +443,7 @@ final class PullRequestActions
     private static PrTimelineEvent reviewedTimelineEvent(PrReviewState review)
     {
         return new PrTimelineEvent(
-                review.githubId(),
+                review.remoteId(),
                 "reviewed",
                 review.login(),
                 review.submittedAt(),
@@ -460,12 +457,12 @@ final class PullRequestActions
                 Optional.empty());
     }
 
-    private void markReviewed(long prId, String event, String commitId)
+    private void markReviewed(long prId, ReviewVerdict verdict, String commitId)
     {
-        HandledAction action = switch (event) {
-            case "APPROVE" -> HandledAction.APPROVED;
-            case "REQUEST_CHANGES" -> HandledAction.CHANGES_REQUESTED;
-            default -> HandledAction.COMMENTED;
+        HandledAction action = switch (verdict) {
+            case APPROVE -> HandledAction.APPROVED;
+            case REQUEST_CHANGES -> HandledAction.CHANGES_REQUESTED;
+            case COMMENT -> HandledAction.COMMENTED;
         };
         viewStateStore.markReviewed(prId, action, commitId, Instant.now());
     }
@@ -476,23 +473,23 @@ final class PullRequestActions
         recent.wroteOnPullRequest(rowId.apply(route).orElseThrow(), RecentTextKind.COMMENT, textKey(kind, created), body);
     }
 
-    private void recordReview(PullRequestRead route, String event, String body, PrReviewState created)
+    private void recordReview(PullRequestRead route, ReviewVerdict verdict, String body, PrReviewState created)
     {
-        RecentReason reason = switch (event) {
-            case "APPROVE" -> RecentReason.APPROVED;
-            case "REQUEST_CHANGES" -> RecentReason.CHANGES_REQUESTED;
-            default -> RecentReason.COMMENTED;
+        RecentReason reason = switch (verdict) {
+            case APPROVE -> RecentReason.APPROVED;
+            case REQUEST_CHANGES -> RecentReason.CHANGES_REQUESTED;
+            case COMMENT -> RecentReason.COMMENTED;
         };
         recent.pullRequestAction(rowId.apply(route).orElseThrow(), reason, 0);
         recent.wroteOnPullRequest(rowId.apply(route).orElseThrow(), RecentTextKind.REVIEW_BODY,
-                "review:" + Objects.toString(created == null ? null : created.githubId(), "latest"), body);
+                "review:" + Objects.toString(created == null ? null : created.remoteId(), "latest"), body);
     }
 
     /** Stable id for one written body, so re-posting cannot pile up duplicates. */
     private static String textKey(String kind, PrTimelineEvent created)
     {
-        Long githubId = created == null ? null : created.githubId();
-        return kind + ":" + (githubId != null ? githubId : Objects.toString(created == null ? null : created.timestamp(), "local"));
+        Long remoteId = created == null ? null : created.remoteId();
+        return kind + ":" + (remoteId != null ? remoteId : Objects.toString(created == null ? null : created.timestamp(), "local"));
     }
 
     private static void validateReviewComment(InlineReviewComment comment, boolean requireCommit)
@@ -527,12 +524,13 @@ final class PullRequestActions
     MergeResult mergePullRequest(PullRequestRead route, long prId, String strategy, String headSha)
     {
         checkText(headSha, "pull request head commit");
+        MergeStrategy method = MergeStrategy.parse(strategy).orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported merge strategy"));
         if (rowId.apply(route).filter(id -> id == prId).isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Pull request identity does not match; reopen it before merging");
         }
         MergeResult result;
         try {
-            result = writes.forSession(route.session()).merge(route.session().access(), route.repository(), route.number(), strategy, headSha);
+            result = integrations.of(route.target()).writer().merge(route.target(), route.number(), method, headSha);
         }
         finally {
             afterWrite(route, () -> invalidatePullRequestDetail(route));
@@ -550,7 +548,7 @@ final class PullRequestActions
     void removeFromMergeQueue(PullRequestRead route, boolean autoMerge)
     {
         try {
-            writes.forSession(route.session()).removeFromMergeQueue(route.session().access(), route.repository(), route.number(), autoMerge);
+            integrations.of(route.target()).writer().removeFromMergeQueue(route.target(), route.number(), autoMerge);
         }
         finally {
             afterWrite(route, () -> invalidatePullRequestDetail(route));
@@ -574,14 +572,14 @@ final class PullRequestActions
     private PullRequestDetail patchCachedTimeline(PullRequestRead route, Optional<Long> prId, PrTimelineEvent created)
     {
         requireNonNull(created, "created is null");
-        if (created.githubId() == null) {
+        if (created.remoteId() == null) {
             // A command-only comment changes remote state without creating a note.
             invalidatePullRequestCaches(route);
             return readDetail.apply(route);
         }
         Optional<StoredPrDetail> patched = prId.flatMap(id -> snapshots.patchDetail(id, cached -> {
             List<PrTimelineEvent> timeline = new ArrayList<>(cached.timeline());
-            timeline.removeIf(event -> created.githubId().equals(event.githubId())
+            timeline.removeIf(event -> created.remoteId().equals(event.remoteId())
                     && created.event().equals(event.event()));
             timeline.add(created);
             return new StoredPrDetail(cached.raw(), cached.reviews(), timeline, cached.checkRuns(), cached.unavailableSections(), cached.viewerCanWrite());

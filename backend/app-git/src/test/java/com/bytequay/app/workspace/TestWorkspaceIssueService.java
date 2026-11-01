@@ -45,6 +45,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.issues;
 import static com.bytequay.app.workspace.WorkspaceIssueTestData.NOW;
 import static com.bytequay.app.workspace.WorkspaceIssueTestData.event;
 import static com.bytequay.app.workspace.WorkspaceIssueTestData.issue;
@@ -85,7 +87,8 @@ class TestWorkspaceIssueService
         when(hosting.captureRead(org.mockito.ArgumentMatchers.anyString()))
                 .thenAnswer(invocation -> WorkspaceIssueTestData.route(workspaces.get(invocation.getArgument(0))));
         service = new WorkspaceIssueService(workspaceStore, issueStore, detailStore, hosting,
-                ImmutableList.of(new GitHubIssueClient(issueReads, timelineReads, issueWrites)), recent, Clock.fixed(NOW, ZoneOffset.UTC), mock(AppSettingsStore.class));
+                integrations(issues(GITHUB, new GitHubIssueClient(issueReads, timelineReads, issueWrites))), recent, Clock.fixed(NOW, ZoneOffset.UTC),
+                mock(AppSettingsStore.class));
     }
 
     @Test
@@ -94,21 +97,20 @@ class TestWorkspaceIssueService
         Workspace gitlab = new Workspace("gitlab", "GitLab project", 100, DIRECT, Optional.empty(), Optional.empty(), 100, DIRECT,
                 Topology.DIRECT, "main", "https://gitlab.com/owner/project.git", Optional.empty(), Optional.empty(), "/tmp/gitlab-project",
                 Optional.empty(), Optional.empty(), 0, NOW, NOW,
-                Optional.of(new HostingServer(GITLAB, URI.create("https://gitlab.com"), URI.create("https://gitlab.com/api/v4"))));
+                new HostingServer(GITLAB, URI.create("https://gitlab.com"), URI.create("https://gitlab.com/api/v4")));
         workspaces.put("gitlab", gitlab);
         var route = WorkspaceIssueTestData.route(gitlab);
         var client = mock(com.bytequay.core.hosting.IssueClient.class);
-        when(client.provider()).thenReturn(GITLAB);
-        when(client.comment(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(7), org.mockito.ArgumentMatchers.eq("Comment")))
+        when(client.comment(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(7), org.mockito.ArgumentMatchers.eq("Comment")))
                 .thenReturn(event(1, "commented", NOW));
-        when(client.activity(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(7)))
+        when(client.activity(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(7)))
                 .thenReturn(new com.bytequay.core.hosting.IssueActivity(1, NOW));
-        service = new WorkspaceIssueService(workspaceStore, issueStore, detailStore, hosting, ImmutableList.of(client), recent,
+        service = new WorkspaceIssueService(workspaceStore, issueStore, detailStore, hosting, integrations(issues(GITLAB, client)), recent,
                 Clock.fixed(NOW, ZoneOffset.UTC), mock(AppSettingsStore.class));
         when(hosting.captureRead("gitlab")).thenReturn(route);
 
         assertThat(service.comment("gitlab", 7, "Comment").event()).isEqualTo("commented");
-        verify(client).comment(route.session().access(), route.repository(), 7, "Comment");
+        verify(client).comment(route.target(), 7, "Comment");
         verifyNoInteractions(issueReads, issueWrites, timelineReads);
     }
 
@@ -121,14 +123,13 @@ class TestWorkspaceIssueService
         var route = WorkspaceIssueTestData.route(workspace);
         when(hosting.captureRead("direct")).thenReturn(route);
         var client = mock(IssueClient.class);
-        when(client.provider()).thenReturn(GITHUB);
         PrTimelineEvent result = new PrTimelineEvent(null, "system", null, null, "Command applied", Optional.empty());
         String command = closed ? "/close" : "/label ~bug";
-        when(client.comment(route.session().access(), route.repository(), 7, command)).thenReturn(result);
-        when(client.find(route.session().access(), route.repository(), 7)).thenReturn(closed ? Optional.empty() : Optional.of(issue(7)));
+        when(client.comment(route.target(), 7, command)).thenReturn(result);
+        when(client.find(route.target(), 7)).thenReturn(closed ? Optional.empty() : Optional.of(issue(7)));
         var refreshed = detail(100, 7, "Task", event(12, "system", NOW));
-        when(client.detail(route.session().access(), route.repository(), 7)).thenReturn(refreshed);
-        service = new WorkspaceIssueService(workspaceStore, issueStore, detailStore, hosting, ImmutableList.of(client), recent,
+        when(client.detail(route.target(), 7)).thenReturn(refreshed);
+        service = new WorkspaceIssueService(workspaceStore, issueStore, detailStore, hosting, integrations(issues(GITHUB, client)), recent,
                 Clock.fixed(NOW, ZoneOffset.UTC), mock(AppSettingsStore.class));
 
         assertThat(service.comment("direct", 7, command)).isSameAs(result);
@@ -153,11 +154,10 @@ class TestWorkspaceIssueService
         var route = WorkspaceIssueTestData.route(workspace);
         when(hosting.captureRead("direct")).thenReturn(route);
         var client = mock(IssueClient.class);
-        when(client.provider()).thenReturn(GITHUB);
         PrTimelineEvent result = new PrTimelineEvent(null, "system", null, null, "Closed", Optional.empty());
-        when(client.comment(route.session().access(), route.repository(), 7, "/close")).thenReturn(result);
-        when(client.find(route.session().access(), route.repository(), 7)).thenThrow(new IllegalStateException("unavailable"));
-        service = new WorkspaceIssueService(workspaceStore, issueStore, detailStore, hosting, ImmutableList.of(client), recent,
+        when(client.comment(route.target(), 7, "/close")).thenReturn(result);
+        when(client.find(route.target(), 7)).thenThrow(new IllegalStateException("unavailable"));
+        service = new WorkspaceIssueService(workspaceStore, issueStore, detailStore, hosting, integrations(issues(GITHUB, client)), recent,
                 Clock.fixed(NOW, ZoneOffset.UTC), mock(AppSettingsStore.class));
 
         assertThat(service.comment("direct", 7, "/close")).isSameAs(result);

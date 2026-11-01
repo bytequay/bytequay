@@ -13,11 +13,14 @@
  */
 import { describe, expect, it } from 'vitest';
 import { activityVerb, actorRole, contributionSummary, firstWords, groupTeamActivity, membersOf, workByline, workState } from './activity';
-import { parseTeamActivity, parseTeamContributors, parseTeamCreateInput, parseTeamInput, parseTeamMemberInput, parseTeamQuery, parseTeams, teamLogin } from './contracts';
+import {
+  onServer, parseTeamActivity, parseTeamContributors, parseTeamCreateInput, parseTeamDirectory, parseTeamInput, parseTeamMemberInput, parseTeamQuery, parseTeams, teamLogin,
+} from './contracts';
 import type { TeamActivityEvent, TeamActivitySnapshot, TeamDirectory } from './types';
 
-const member = { githubId: 2, login: 'alice', name: 'Alice', avatarUrl: 'https://avatars.githubusercontent.com/u/2' };
-const directory: TeamDirectory = { accountLogin: 'viewer', circles: [{ id: 'circle-1', name: 'Trusted OSS', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: ['owner/repo'], members: [member] }] };
+const member = { remoteId: 2, login: 'alice', name: 'Alice', avatarUrl: 'https://avatars.githubusercontent.com/u/2' };
+const GITHUB = 'https://github.com';
+const directory: TeamDirectory = { accountId: 7, accountLogin: 'viewer', server: { provider: 'GITHUB', webBaseUrl: GITHUB, apiBaseUrl: 'https://api.github.com' }, circles: [{ id: 'circle-1', name: 'Trusted OSS', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: ['owner/repo'], members: [member] }] };
 const event: TeamActivityEvent = {
   id: 'comment:123', kind: 'PR_COMMENT', actorId: 2, actorLogin: 'alice', repository: 'owner/repo', number: 42, title: 'A change',
   url: 'https://github.com/owner/repo/pull/42#issuecomment-123', occurredAt: '2026-09-20T12:00:00Z', subjectAuthorId: 3, subjectAuthorLogin: 'bob',
@@ -35,20 +38,26 @@ const snapshot: TeamActivitySnapshot = {
 describe('Team IPC boundary', () => {
   it('normalizes repository scopes without capping people or conflating identities', () => {
     expect(parseTeamInput({ name: ' Internal ', description: ' Colleagues ', avatar: { color: 'gray', shape: 'square' }, repositories: ['Owner/Repo', 'owner/repo'] })).toEqual({ name: 'Internal', description: 'Colleagues', avatar: { color: 'gray', shape: 'square' }, repositories: ['owner/repo'] });
-    const many = { ...directory, circles: [{ ...directory.circles[0], members: Array.from({ length: 300 }, (_, i) => ({ ...member, githubId: i + 1, login: `user${i}` })) }] };
-    expect(parseTeams(many).circles[0].members).toHaveLength(300);
+    const many = { ...directory, circles: [{ ...directory.circles[0], members: Array.from({ length: 300 }, (_, i) => ({ ...member, remoteId: i + 1, login: `user${i}` })) }] };
+    expect(parseTeams([many])[0].circles[0].members).toHaveLength(300);
+    expect(parseTeamDirectory(directory)).toEqual(directory);
+    expect(() => parseTeamDirectory({ ...directory, accountId: 0 })).toThrow('Invalid account ID');
+    expect(() => parseTeamDirectory({ ...directory, server: { ...directory.server, webBaseUrl: 'https://user:secret@github.com' } })).toThrow();
     expect(teamLogin(' @Alice ')).toBe('Alice');
-    expect(parseTeamCreateInput({ name: 'New circle', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: [], members: [{ githubId: 1, login: ' @Alice ' }, { githubId: 1, login: 'alice' }, { githubId: 2, login: 'bob' }] }))
-      .toEqual({ name: 'New circle', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: [], members: [{ githubId: 1, login: 'alice' }, { githubId: 2, login: 'bob' }] });
+    expect(parseTeamCreateInput({ name: 'New circle', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: [], members: [{ remoteId: 1, login: ' @Alice ' }, { remoteId: 1, login: 'alice' }, { remoteId: 2, login: 'bob' }] }))
+      .toEqual({ name: 'New circle', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: [], members: [{ remoteId: 1, login: 'alice' }, { remoteId: 2, login: 'bob' }] });
     const contributor = { id: 2, login: 'alice', avatarUrl: '', bot: false };
     expect(parseTeamContributors([contributor])).toEqual([contributor]);
     const bot = { ...contributor, id: 3, login: 'github-actions[bot]', bot: true };
     expect(parseTeamContributors([contributor, bot])).toEqual([contributor, bot]);
-    expect(parseTeamCreateInput({ name: 'Automation', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: [], members: [{ githubId: bot.id, login: bot.login }] }).members).toEqual([{ githubId: bot.id, login: bot.login }]);
+    expect(parseTeamCreateInput({ name: 'Automation', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: [], members: [{ remoteId: bot.id, login: bot.login }] }).members).toEqual([{ remoteId: bot.id, login: bot.login }]);
     expect(teamLogin(bot.login)).toBe(bot.login);
-    expect(parseTeamMemberInput({ githubId: 42, login: ' @Alice ' })).toEqual({ githubId: 42, login: 'Alice' });
+    expect(parseTeamMemberInput({ remoteId: 42, login: ' @Alice ' })).toEqual({ remoteId: 42, login: 'Alice' });
     expect(() => parseTeamMemberInput({ login: 'alice' })).toThrow();
-    expect(() => parseTeamMemberInput({ githubId: 0, login: 'alice' })).toThrow();
+    expect(() => parseTeamMemberInput({ remoteId: 0, login: 'alice' })).toThrow('Invalid User ID');
+    expect(teamLogin('jane.doe_1')).toBe('jane.doe_1');
+    expect(parseTeamInput({ name: 'Team', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: ['Group/Sub/Project'] }).repositories)
+      .toEqual(['group/sub/project']);
     expect(() => parseTeamContributors([{ ...contributor, id: 0 }])).toThrow();
     expect(() => parseTeamContributors([{ ...contributor, bot: 'false' }])).toThrow();
 
@@ -64,18 +73,23 @@ describe('Team IPC boundary', () => {
     expect(() => parseTeamInput({ name: 'Team', description: '', avatar: { color: 'chartreuse', shape: 'square' }, repositories: [] })).toThrow();
     expect(() => parseTeamInput({ name: 'Team', description: '', avatar: { color: 'teal', shape: 'hexagon' }, repositories: [] })).toThrow();
     expect(() => parseTeamInput({ name: 'Team', description: '', repositories: [] })).toThrow();
-    expect(() => parseTeamCreateInput({ name: 'Team', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: [], members: [{ githubId: 1, login: 'alice/../bob' }] })).toThrow();
+    expect(() => parseTeamCreateInput({ name: 'Team', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: [], members: [{ remoteId: 1, login: 'alice/../bob' }] })).toThrow();
     expect(() => parseTeamInput({ name: 'Team', description: 'a'.repeat(2001), avatar: { color: 'gray', shape: 'square' }, repositories: [] })).toThrow();
     expect(() => parseTeamQuery({ days: 91 })).toThrow();
     expect(() => parseTeamQuery({ filter: 'anything' })).toThrow();
     expect(() => parseTeamQuery({ memberId: -2 })).toThrow();
-    expect(() => parseTeamActivity({ ...snapshot, events: [{ ...event, url: 'https://github.com.evil.test/repo' }] })).toThrow();
-    expect(() => parseTeamActivity({ ...snapshot, events: [{ ...event, occurredAt: 'yesterday' }] })).toThrow();
-    expect(() => parseTeamActivity({ ...snapshot, days: [{ date: 'Sep 20', updates: 1, collected: true }] })).toThrow();
-    expect(() => parseTeamActivity({ ...snapshot, totals: { ...statistics, comments: -1 } })).toThrow();
+    expect(() => parseTeamInput({ name: 'Team', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: ['group/../project'] })).toThrow();
+    expect(() => parseTeamActivity({ ...snapshot, events: [{ ...event, url: 'https://github.com.evil.test/repo' }] }, GITHUB)).toThrow();
+    expect(() => parseTeamActivity(snapshot, 'https://gitlab.example.com')).toThrow('Invalid event URL');
+    expect(() => parseTeamActivity({ ...snapshot, events: [{ ...event, occurredAt: 'yesterday' }] }, GITHUB)).toThrow();
+    expect(() => parseTeamActivity({ ...snapshot, days: [{ date: 'Sep 20', updates: 1, collected: true }] }, GITHUB)).toThrow();
+    expect(() => parseTeamActivity({ ...snapshot, totals: { ...statistics, comments: -1 } }, GITHUB)).toThrow();
     expect(parseTeamQuery({ filter: 'shared' })).toEqual({ filter: 'shared', days: 7, limit: 100 });
     expect(parseTeamQuery()).toEqual({ days: 7, limit: 100 });
-    expect(parseTeamActivity(snapshot)).toEqual(snapshot);
+    expect(parseTeamActivity(snapshot, GITHUB)).toEqual(snapshot);
+    expect(onServer('https://example.com/gitlab/group/project/-/merge_requests/1', 'https://example.com/gitlab')).toBe(true);
+    expect(onServer('https://example.com/gitlabx/group/project', 'https://example.com/gitlab/')).toBe(false);
+    expect(onServer(undefined, GITHUB)).toBe(false);
   });
 });
 

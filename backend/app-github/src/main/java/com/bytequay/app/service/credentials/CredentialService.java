@@ -15,13 +15,15 @@ package com.bytequay.app.service.credentials;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.github.GhCliService;
+import com.bytequay.app.service.hosting.HostingConnection;
 import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.core.domain.UserProfile;
+import com.bytequay.core.hosting.HostingCredential.Source;
+import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.HostingUrls;
-import com.bytequay.core.store.CredentialStore;
-import com.bytequay.core.store.WorkspaceCredentialStore;
+import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatusCode;
@@ -36,19 +38,19 @@ import java.util.Map;
 import java.util.Optional;
 
 import static com.bytequay.app.git.command.RepositoryUrls.isPlainHttps;
-import static com.bytequay.core.domain.Checks.checkText;
-import static com.bytequay.core.hosting.HostingProvider.GITHUB;
+import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
+/** The app's main GitHub sign-in: one connected github.com hosting account, saved with a token or the GitHub CLI, that one setting names. */
 @Service
 public class CredentialService
 {
-    public static final HostingServer GITHUB_SERVER = new HostingServer(GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
-    static final String GITHUB_CLI_SOURCE = "{\"source\":\"gh-cli\"}";
+    public static final HostingServer GITHUB_SERVER = HostingServer.GITHUB_COM;
+    /** The id of the connected GitHub account that is the app's main sign-in. */
+    public static final String GITHUB_ACCOUNT_SETTING = "github.account";
 
-    private final CredentialStore credentialStore;
-    private final WorkspaceCredentialStore workspaceCredentials;
+    private final AppSettingsStore settings;
     private final GhCliService ghCli;
     private final GitHubAccountClient gitHubAccount;
     private final HostingConnectionService hosting;
@@ -56,11 +58,10 @@ public class CredentialService
     private volatile GitHubCredential cachedGitHubCredential;
     private volatile Optional<HostingReadSession> cachedHostingRead = Optional.empty();
 
-    public CredentialService(CredentialStore credentialStore, WorkspaceCredentialStore workspaceCredentials, GhCliService ghCli,
+    public CredentialService(AppSettingsStore settings, GhCliService ghCli,
             GitHubAccountClient gitHubAccount, HostingConnectionService hosting, WorkspaceStore workspaces)
     {
-        this.credentialStore = requireNonNull(credentialStore, "credentialStore is null");
-        this.workspaceCredentials = requireNonNull(workspaceCredentials, "workspaceCredentials is null");
+        this.settings = requireNonNull(settings, "settings is null");
         this.ghCli = requireNonNull(ghCli, "ghCli is null");
         this.gitHubAccount = requireNonNull(gitHubAccount, "gitHubAccount is null");
         this.hosting = requireNonNull(hosting, "hosting is null");
@@ -70,51 +71,37 @@ public class CredentialService
     public synchronized void saveGitHubToken(String token)
     {
         String trimmed = requireNonNull(token, "token is null").trim();
-        if ((trimmed == null || trimmed.isBlank())) {
+        if (trimmed.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(422), "Token must not be blank.");
         }
         UserProfile profile = gitHubAccount.fetchUserProfile(trimmed);
-        credentialStore.save(trimmed, null);
-        cachedGitHubCredential = new GitHubCredential(trimmed, profile);
-        cachedHostingRead = Optional.empty();
+        signIn(hosting.connect(GITHUB_SERVER.provider(), GITHUB_SERVER.webBaseUrl(), GITHUB_SERVER.apiBaseUrl(), trimmed), new GitHubCredential(trimmed, profile));
     }
 
     public boolean isGitHubAccountConfigured()
     {
-        return credentialStore.exists();
+        return account().flatMap(hosting::credentialSource).isPresent();
     }
 
-    /**
-     * Returns the current GitHub account token. Credentials imported from
-     * {@code gh} track its live token and fall back to the stored copy when
-     * the CLI is unavailable; pasted PATs always use the stored value.
-     */
+    /** Returns the current GitHub account token: {@code gh}'s live token for an account connected through it, else the pasted PAT. */
     public String resolveGitHubToken()
     {
-        return liveGhCliToken().or(this::storedGitHubToken)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(401), "GitHub PAT not configured. Add it in Settings → GitHub token."));
+        return captureHostingRead().access().token();
     }
 
     public HostingReadSession captureHostingRead()
     {
-        String token = resolveGitHubToken();
-        Optional<HostingReadSession> cached = cachedHostingRead.filter(session -> session.access().token().equals(token));
-        if (cached.isPresent()) {
-            return cached.orElseThrow();
-        }
-        HostingReadSession session = hosting.verifySession(GITHUB_SERVER, "github-global", token);
+        long accountId = account().filter(id -> hosting.credentialSource(id).isPresent())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(401), "GitHub PAT not configured. Add it in Settings → GitHub token."));
+        HostingReadSession session = hosting.readSession(accountId);
         cachedHostingRead = Optional.of(session);
         return session;
     }
 
-    public HostingReadSession captureWorkspaceHostingRead(String workspaceId)
+    /** The desktop sign-in's last verified session, without CLI or network work; a token change shows once a session is captured again. */
+    public Optional<HostingReadSession> cachedHostingRead()
     {
-        checkText(workspaceId, "workspaceId");
-        // Inheriting the global credential must not invalidate the same PR's global detail and diff.
-        return workspaceCredentials.getSecret(workspaceId)
-                .filter(value -> !value.isBlank())
-                .map(token -> hosting.verifySession(GITHUB_SERVER, "github-workspace:" + workspaceId, token))
-                .orElseGet(this::captureHostingRead);
+        return isGitHubAccountConfigured() ? cachedHostingRead : Optional.empty();
     }
 
     /**
@@ -144,26 +131,15 @@ public class CredentialService
         return cachedGitHubCredential;
     }
 
-    /**
-     * Returns the token used for one workspace's Git and GitHub traffic: the
-     * workspace override when one is stored, otherwise the global account token.
-     */
-    public String resolveGitHubToken(String workspaceId)
-    {
-        requireNonNull(workspaceId, "workspaceId is null");
-        return workspaceCredentials.getSecret(workspaceId)
-                .filter(value -> !value.isBlank())
-                .orElseGet(this::resolveGitHubToken);
-    }
-
-    /** Git credentials stay within the selected account's server and configured path. */
+    /** Git credentials of the workspace's bound account stay within that account's server and configured path. */
     public Map<String, String> gitAuthenticationEnvironment(String workspaceId, Collection<String> remoteUrls)
     {
         requireNonNull(workspaceId, "workspaceId is null");
         requireNonNull(remoteUrls, "remoteUrls is null");
         checkArgument(!remoteUrls.isEmpty(), "remoteUrls is empty");
-        Optional<HostingReadSession> selected = workspaces.findHostingBinding(workspaceId).map(binding -> hosting.readSession(binding.accountId()));
-        String base = selected.map(session -> session.access().server().webBaseUrl()).orElse(GITHUB_SERVER.webBaseUrl()).toASCIIString() + "/";
+        HostingReadSession selected = workspaces.findHostingBinding(workspaceId).map(binding -> hosting.readSession(binding.accountId()))
+                .orElseThrow(() -> new HostingFailure(AUTHENTICATION_REQUIRED, "Choose the account this workspace uses in its settings."));
+        String base = selected.access().server().webBaseUrl().toASCIIString() + "/";
         boolean matches = false;
         for (String remoteUrl : remoteUrls) {
             URI uri = URI.create(requireNonNull(remoteUrl, "remoteUrl is null"));
@@ -173,108 +149,71 @@ public class CredentialService
         if (!matches) {
             return ImmutableMap.of("GIT_CONFIG_COUNT", "0");
         }
-        String token = selected.map(session -> session.access().token()).orElseGet(() -> resolveGitHubToken(workspaceId));
-        String header = "Authorization: Basic " + Base64.getEncoder().encodeToString(("x-access-token:" + token).getBytes(StandardCharsets.UTF_8));
-        ImmutableMap.Builder<String, String> environment = ImmutableMap.<String, String>builder()
-                .put("GIT_CONFIG_COUNT", selected.isPresent() ? "2" : "1")
-                .put("GIT_CONFIG_KEY_0", "http." + base + ".extraHeader")
-                .put("GIT_CONFIG_VALUE_0", header);
-        if (selected.isPresent()) {
-            environment.put("GIT_CONFIG_KEY_1", "http.followRedirects").put("GIT_CONFIG_VALUE_1", "false");
-        }
-        return environment.buildOrThrow();
+        String credential = selected.access().server().provider().gitUser() + ":" + selected.access().token();
+        String header = "Authorization: Basic " + Base64.getEncoder().encodeToString(credential.getBytes(StandardCharsets.UTF_8));
+        return ImmutableMap.of(
+                "GIT_CONFIG_COUNT", "2",
+                "GIT_CONFIG_KEY_0", "http." + base + ".extraHeader",
+                "GIT_CONFIG_VALUE_0", header,
+                "GIT_CONFIG_KEY_1", "http.followRedirects",
+                "GIT_CONFIG_VALUE_1", "false");
     }
 
-    /** Masked display form of the stored account token; never the full value. */
+    /** Masked display form of the account token; never the full value. */
     public Optional<String> maskedGitHubToken()
     {
-        return storedGitHubToken().map(SecretMasker::mask);
+        return gitHubTokenValue().map(SecretMasker::mask);
     }
 
     /**
-     * Where the stored account token came from, so the settings page can name
-     * it instead of assuming a personal access token.
+     * Where the account token comes from, so the settings page can name it
+     * instead of assuming a personal access token.
      */
     public GitHubTokenSource gitHubTokenSource()
     {
-        return credentialStore.source().filter(GITHUB_CLI_SOURCE::equals).isPresent() ? GitHubTokenSource.GITHUB_CLI : GitHubTokenSource.PERSONAL_ACCESS_TOKEN;
+        return account().flatMap(hosting::credentialSource).filter(Source.CLI::equals).isPresent() ? GitHubTokenSource.GITHUB_CLI : GitHubTokenSource.PERSONAL_ACCESS_TOKEN;
     }
 
-    /** The full stored account token for clipboard copy; the UI never renders it. */
+    /** The full account token for clipboard copy; the UI never renders it. */
     public Optional<String> gitHubTokenValue()
     {
-        return credentialStore.exists() ? Optional.of(resolveGitHubToken()) : Optional.empty();
+        return isGitHubAccountConfigured() ? Optional.of(resolveGitHubToken()) : Optional.empty();
     }
 
+    /** Signs out: the account stops being connected, and nothing names a main GitHub account. */
     public synchronized void deleteGitHubToken()
     {
-        credentialStore.delete();
+        account().ifPresent(hosting::disconnect);
+        settings.delete(GITHUB_ACCOUNT_SETTING);
         cachedGitHubCredential = null;
         cachedHostingRead = Optional.empty();
     }
 
-    /**
-     * Validates the token against GitHub, records the account it authenticates
-     * as, and stores it as this workspace's override.
-     *
-     * @return the login the token authenticates as
-     */
-    public String saveWorkspaceGitHubToken(String workspaceId, String token)
-    {
-        requireNonNull(workspaceId, "workspaceId is null");
-        if ((token == null || token.isBlank())) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(422), "Token must not be blank.");
-        }
-        String login = gitHubAccount.fetchUserProfile(token.trim()).login();
-        workspaceCredentials.save(workspaceId, token.trim(), login);
-        return login;
-    }
-
-    public Optional<WorkspaceToken> workspaceGitHubToken(String workspaceId)
-    {
-        return workspaceCredentials.getSecret(workspaceId)
-                .map(secret -> new WorkspaceToken(SecretMasker.mask(secret), workspaceCredentials.getLogin(workspaceId).orElse("")));
-    }
-
-    public Optional<String> workspaceGitHubTokenValue(String workspaceId)
-    {
-        return workspaceCredentials.getSecret(workspaceId);
-    }
-
-    public void deleteWorkspaceGitHubToken(String workspaceId)
-    {
-        workspaceCredentials.delete(workspaceId);
-    }
-
-    public record WorkspaceToken(String maskedToken, String login) {}
-
     public synchronized String importGitHubCliToken()
     {
-        String token = ghCli.readToken();
+        HostingConnection connection = hosting.connectCli(GITHUB_SERVER.provider(), GITHUB_SERVER.webBaseUrl(), GITHUB_SERVER.apiBaseUrl());
+        String token = hosting.readSession(connection.account().id()).access().token();
         UserProfile profile = gitHubAccount.fetchUserProfile(token);
-        credentialStore.save(token, GITHUB_CLI_SOURCE);
-        cachedGitHubCredential = new GitHubCredential(token, profile);
-        cachedHostingRead = Optional.empty();
+        signIn(connection, new GitHubCredential(token, profile));
         return profile.login();
+    }
+
+    private void signIn(HostingConnection connection, GitHubCredential credential)
+    {
+        settings.put(GITHUB_ACCOUNT_SETTING, Long.toString(connection.account().id()));
+        cachedGitHubCredential = credential;
+        cachedHostingRead = Optional.empty();
+    }
+
+    /** The connected GitHub account that is the app's main sign-in. */
+    private Optional<Long> account()
+    {
+        return settings.get(GITHUB_ACCOUNT_SETTING).map(Long::parseLong);
     }
 
     public boolean isGitHubCliAvailable()
     {
         return ghCli.findBinary().isPresent();
-    }
-
-    private Optional<String> liveGhCliToken()
-    {
-        return credentialStore.source()
-                .filter(GITHUB_CLI_SOURCE::equals)
-                .flatMap(marker -> ghCli.currentToken())
-                .filter(value -> !value.isBlank());
-    }
-
-    private Optional<String> storedGitHubToken()
-    {
-        return credentialStore.getSecret()
-                .filter(value -> !value.isBlank());
     }
 
     public record GitHubCredential(String token, UserProfile profile)

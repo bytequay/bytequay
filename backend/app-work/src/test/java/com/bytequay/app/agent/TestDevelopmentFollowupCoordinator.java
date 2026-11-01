@@ -41,16 +41,18 @@ import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.StartCiAutofixCommand;
 import com.bytequay.app.discussion.ReviewFixService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
-import com.bytequay.app.service.hosting.HostingPullRequestWrites;
+import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.domain.CreatedPullRequest;
-import com.bytequay.core.domain.GitHubPullRequestIdentity;
+import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.HostingTarget;
+import com.bytequay.core.hosting.PullRequestContentReader;
 import com.bytequay.core.hosting.PullRequestWriter;
 import com.bytequay.core.hosting.RepositoryVisibility;
 import com.google.common.collect.ImmutableList;
@@ -81,6 +83,7 @@ import static com.bytequay.agent.core.DevelopmentTurnOrigin.Kind.AUTO_COMMIT;
 import static com.bytequay.agent.core.DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR;
 import static com.bytequay.agent.core.DevelopmentTurnOrigin.Kind.REFINE_SUMMARY;
 import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.pullRequests;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -115,7 +118,7 @@ class TestDevelopmentFollowupCoordinator
     private final CiAutofixService ci = mock(CiAutofixService.class);
     private final WorkspaceHostingService hosting = mock(WorkspaceHostingService.class);
     private final HostingConnectionService connections = mock(HostingConnectionService.class);
-    private final HostingPullRequestWrites dispatch = mock(HostingPullRequestWrites.class);
+    private final HostingIntegrations dispatch = mock(HostingIntegrations.class);
     private final PullRequestWriter writes = mock(PullRequestWriter.class);
     private final Clock clock = mock(Clock.class);
     private final ArrayDeque<Runnable> pending = new ArrayDeque<>();
@@ -162,7 +165,7 @@ class TestDevelopmentFollowupCoordinator
         when(git.branchHeld(eq(worktree), anyString())).thenAnswer(call -> held.contains(call.<String>getArgument(1)));
         when(ci.startDevelopment(any(), any(), any(), any())).thenAnswer(ignored -> ciRun());
         when(hosting.captureRead("workspace")).thenAnswer(ignored -> HostingTestFixture.route(route.server(), route.baseRepository().fullName(), "token"));
-        when(dispatch.forSession(any())).thenReturn(writes);
+        when(dispatch.of(any(HostingTarget.class))).thenReturn(pullRequests(HostingProvider.GITHUB, mock(PullRequestContentReader.class), writes));
         when(connections.visibility(any(), anyString())).thenReturn(RepositoryVisibility.PUBLIC);
         doAnswer(call -> {
             Runnable action = call.getArgument(2);
@@ -341,7 +344,7 @@ class TestDevelopmentFollowupCoordinator
         verify(turns).startGeneratedTurn(eq(taskId), eq(origin(AUTO_COMMIT)), contains("Do not push"));
         verify(turns).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), contains(DevelopmentResultBridge.PUBLISH_TOOL_NAME));
         verify(ci).startDevelopment(any(), eq(taskId), eq(pr(HEAD, true)), eq(NOW));
-        verify(writes, never()).markReady(any(), any(), anyInt());
+        verify(writes, never()).markReady(any(), anyInt());
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
     }
@@ -420,7 +423,7 @@ class TestDevelopmentFollowupCoordinator
         advance();
         noFollowup();
         verify(ci).startDevelopment(any(), eq(taskId), eq(pr(HEAD, true)), eq(NOW));
-        verify(writes, never()).markReady(any(), any(), anyInt());
+        verify(writes, never()).markReady(any(), anyInt());
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
     }
 
@@ -628,7 +631,7 @@ class TestDevelopmentFollowupCoordinator
 
         verify(turns).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), anyString());
         verify(git, never()).pushDevelopmentHead(any(), any(), anyString(), any());
-        verifyCreated(route.headBranch(), route.baseBranch(), "Add a thing", "Body", true);
+        verifyCreated(route.headRepository(), route.headBranch(), route.baseBranch(), "Add a thing", "Body", true);
         assertThat(remote.get().matchingPullRequests()).containsExactly(pr(HEAD, true));
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
@@ -638,7 +641,7 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void laterRevisionReusesExistingPr()
     {
-        GitHubPullRequestIdentity existing = pr(HEAD, false);
+        PullRequestIdentity existing = pr(HEAD, false);
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(existing)));
         prepare(local(HEAD, false), local(NEXT, false), FULL, true);
         when(git.inspectPublication(worktree, route)).thenReturn(
@@ -654,7 +657,7 @@ class TestDevelopmentFollowupCoordinator
     void rewrittenPublishedHistoryIsPushedAndMonitoredAtTheNewHead(boolean unpublishedCommit)
     {
         String startingHead = unpublishedCommit ? "d".repeat(40) : NEXT;
-        GitHubPullRequestIdentity existing = pr(NEXT, true);
+        PullRequestIdentity existing = pr(NEXT, true);
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(existing)));
         held.add(NEXT);
         DevelopmentLocalFacts rewritten = new DevelopmentLocalFacts(route.headBranch(), HEAD, HEAD + ":false", 0, 1, true, false);
@@ -676,7 +679,7 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void queuedTurnPublishesTheRewriteItsPreviousTurnLeftUnpushed()
     {
-        GitHubPullRequestIdentity existing = pr(NEXT, true);
+        PullRequestIdentity existing = pr(NEXT, true);
         AtomicReference<DevelopmentPublicationFacts> remote = trackedRemote(Optional.of(NEXT), Optional.of(existing));
         prepare(local(NEXT, false), local(HEAD, false), FULL, true);
         TurnId rewrite = source.id();
@@ -749,9 +752,9 @@ class TestDevelopmentFollowupCoordinator
     void closedPrCannotBeReplaced()
     {
         prepare(local(BASE, false), local(HEAD, false), FULL, true);
-        GitHubPullRequestIdentity open = pr(HEAD, true);
-        GitHubPullRequestIdentity closed = new GitHubPullRequestIdentity(open.pullRequest(), open.url(), open.headRepository(), open.headBranch(), open.headSha(),
-                open.baseRepository(), open.baseBranch(), open.baseSha(), GitHubPullRequestIdentity.State.CLOSED, open.draft(), open.author());
+        PullRequestIdentity open = pr(HEAD, true);
+        PullRequestIdentity closed = new PullRequestIdentity(open.pullRequest(), open.url(), open.headRepository(), open.headBranch(), open.headSha(),
+                open.baseRepository(), open.baseBranch(), open.baseSha(), PullRequestIdentity.State.CLOSED, open.draft(), open.author());
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(closed)));
         advance();
         noFollowup();
@@ -978,9 +981,9 @@ class TestDevelopmentFollowupCoordinator
     void wrongBasePrIsNotReused()
     {
         prepare(local(BASE, false), local(HEAD, false), FULL, true);
-        GitHubPullRequestIdentity wrongBase = new GitHubPullRequestIdentity(new PullRequestRef("owner", "repo", 7),
+        PullRequestIdentity wrongBase = new PullRequestIdentity(new PullRequestRef("owner", "repo", 7),
                 "https://github.com/owner/repo/pull/7", route.headRepository(), route.headBranch(), HEAD,
-                route.baseRepository(), "other", BASE, GitHubPullRequestIdentity.State.OPEN, true, "owner");
+                route.baseRepository(), "other", BASE, PullRequestIdentity.State.OPEN, true, "owner");
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(wrongBase)));
         advance();
         noFollowup();
@@ -1264,7 +1267,7 @@ class TestDevelopmentFollowupCoordinator
         advance();
 
         verify(git).pushDevelopmentHead(worktree, route, HEAD, Optional.empty());
-        verifyCreated(route.headBranch(), route.baseBranch(), "Add a thing", "Body", true);
+        verifyCreated(route.headRepository(), route.headBranch(), route.baseBranch(), "Add a thing", "Body", true);
         assertThat(remote.get().remoteHeadSha()).contains(HEAD);
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
     }
@@ -1292,7 +1295,7 @@ class TestDevelopmentFollowupCoordinator
         advance();
 
         verify(git).pushDevelopmentHead(renamed, route, HEAD, Optional.empty());
-        verifyCreated(renamed.generatedBranch(), "main", "Convert Parquet time", "Body", true);
+        verifyCreated(route.headRepository(), renamed.generatedBranch(), "main", "Convert Parquet time", "Body", true);
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
         verify(git, never()).pushDevelopmentHead(eq(worktree), any(), anyString(), any());
@@ -1368,7 +1371,7 @@ class TestDevelopmentFollowupCoordinator
             route = new DevelopmentPublicationRoute(route.server(), route.headRepository(), route.baseRepository(), route.pushUrl(), route.sourceRemote(),
                     route.baseBranch(), route.baseSha(), "existing-pr", Optional.of(PullRequestRef.of("owner", "repo", 7)));
         }
-        GitHubPullRequestIdentity existing = pr(BASE, true);
+        PullRequestIdentity existing = pr(BASE, true);
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(BASE), Optional.of(existing)));
         prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
         AtomicReference<DevelopmentPublicationFacts> remote = trackedRemote(Optional.of(BASE), Optional.of(existing));
@@ -1412,7 +1415,7 @@ class TestDevelopmentFollowupCoordinator
     }
 
     @Test
-    void publishSendsAForkQualifiedHeadForACrossRepositoryRoute()
+    void publishNamesTheForkAsHeadForACrossRepositoryRoute()
     {
         route = new DevelopmentPublicationRoute(GITHUB_SERVER, new RepoRef("forker", "repo"), new RepoRef("upstream", "repo"),
                 "https://github.com/forker/repo.git", "upstream", "release", BASE, worktree.generatedBranch(), Optional.empty());
@@ -1423,23 +1426,23 @@ class TestDevelopmentFollowupCoordinator
 
         advance();
 
-        verifyCreated("forker:" + route.headBranch(), "release", "Add a thing", "Body", true);
+        verifyCreated(new RepoRef("forker", "repo"), route.headBranch(), "release", "Add a thing", "Body", true);
     }
 
     /**
      * Models the remote the way publication moves it: the push lands the revision, and creating the
      * pull request is what makes one appear on the branch.
      */
-    private void verifyCreated(String head, String base, String title, String body, boolean draft)
+    private void verifyCreated(RepoRef headRepository, String branch, String base, String title, String body, boolean draft)
     {
-        var access = org.mockito.ArgumentCaptor.forClass(com.bytequay.core.hosting.HostingAccess.class);
-        verify(writes).create(access.capture(), eq(HostingTestFixture.route(route.server(), route.baseRepository().fullName(), "token").repository()),
-                eq(head), eq(base), eq(title), eq(body), eq(draft));
-        assertThat(access.getValue().token()).isEqualTo("token");
-        assertThat(access.getValue().server()).isEqualTo(route.server());
+        var target = org.mockito.ArgumentCaptor.forClass(HostingTarget.class);
+        verify(writes).create(target.capture(), eq(headRepository), eq(branch), eq(base), eq(title), eq(body), eq(draft));
+        assertThat(target.getValue().repository()).isEqualTo(HostingTestFixture.route(route.server(), route.baseRepository().fullName(), "token").repository());
+        assertThat(target.getValue().access().token()).isEqualTo("token");
+        assertThat(target.getValue().access().server()).isEqualTo(route.server());
     }
 
-    private AtomicReference<DevelopmentPublicationFacts> trackedRemote(Optional<String> remoteHead, Optional<GitHubPullRequestIdentity> existing)
+    private AtomicReference<DevelopmentPublicationFacts> trackedRemote(Optional<String> remoteHead, Optional<PullRequestIdentity> existing)
     {
         AtomicReference<DevelopmentPublicationFacts> remote = new AtomicReference<>(publication(remoteHead, existing));
         when(git.inspectPublication(worktree, route)).thenAnswer(ignored -> remote.get());
@@ -1472,8 +1475,8 @@ class TestDevelopmentFollowupCoordinator
         String prompt = DevelopmentFollowupCoordinator.publicationPrompt(new DevelopmentBaseline(worktree, route, local(BASE, false)),
                 local(HEAD, false), Optional.of(pr(BASE, true)), true);
         assertThat(prompt).contains(DevelopmentResultBridge.PUBLISH_TOOL_NAME, "already tracks this branch",
-                "ByteQuay owns the push and the GitHub write", "never read or ask for credentials");
-        assertThat(prompt).contains("Never run git push, a GitHub CLI command");
+                "ByteQuay owns the push and the pull request", "never read or ask for credentials");
+        assertThat(prompt).contains("Never run git push, a gh or glab command");
         assertThat(prompt).doesNotContain("--force-with-lease", "pr create", "--body-file");
     }
 
@@ -1492,7 +1495,7 @@ class TestDevelopmentFollowupCoordinator
                 "development-ci:" + taskId + ":" + HEAD)), eq(taskId), eq(pr(HEAD, true)), eq(NOW));
         order.verify(turns).finishDevelopmentContinuation(taskId, source.id());
         verify(ci, never()).advance(any());
-        verify(writes, never()).markReady(any(), any(), anyInt());
+        verify(writes, never()).markReady(any(), anyInt());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
     }
 
@@ -1547,7 +1550,7 @@ class TestDevelopmentFollowupCoordinator
         else {
             verify(ci, never()).startDevelopment(any(), any(), any(), any());
         }
-        verify(writes, never()).markReady(any(), any(), anyInt());
+        verify(writes, never()).markReady(any(), anyInt());
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
     }
@@ -1662,24 +1665,24 @@ class TestDevelopmentFollowupCoordinator
         return new DevelopmentResultReport(ready, ready ? Optional.empty() : Optional.of("Which implementation?"), Optional.empty(), reviewReplies);
     }
 
-    private GitHubPullRequestIdentity pr(String head, boolean draft)
+    private PullRequestIdentity pr(String head, boolean draft)
     {
-        return new GitHubPullRequestIdentity(new PullRequestRef(
+        return new PullRequestIdentity(new PullRequestRef(
                 route.baseRepository().owner(),
                 route.baseRepository().repo(),
                 7), route.server().webBaseUrl() + "/" + route.baseRepository().fullName()
                 + (route.server().provider() == HostingProvider.GITLAB ? "/-/merge_requests/7" : "/pull/7"), route.headRepository(), route.headBranch(), head,
-                route.baseRepository(), route.baseBranch(), BASE, GitHubPullRequestIdentity.State.OPEN, draft, "owner");
+                route.baseRepository(), route.baseBranch(), BASE, PullRequestIdentity.State.OPEN, draft, "owner");
     }
 
-    private GitHubPullRequestIdentity mergedPr()
+    private PullRequestIdentity mergedPr()
     {
-        GitHubPullRequestIdentity open = pr(HEAD, false);
-        return new GitHubPullRequestIdentity(open.pullRequest(), open.url(), open.headRepository(), open.headBranch(), open.headSha(),
-                open.baseRepository(), open.baseBranch(), open.baseSha(), GitHubPullRequestIdentity.State.MERGED, false, open.author());
+        PullRequestIdentity open = pr(HEAD, false);
+        return new PullRequestIdentity(open.pullRequest(), open.url(), open.headRepository(), open.headBranch(), open.headSha(),
+                open.baseRepository(), open.baseBranch(), open.baseSha(), PullRequestIdentity.State.MERGED, false, open.author());
     }
 
-    private static DevelopmentPublicationFacts publication(Optional<String> head, Optional<GitHubPullRequestIdentity> pr)
+    private static DevelopmentPublicationFacts publication(Optional<String> head, Optional<PullRequestIdentity> pr)
     {
         return new DevelopmentPublicationFacts(head, pr.stream().collect(ImmutableList.toImmutableList()));
     }

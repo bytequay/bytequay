@@ -44,7 +44,6 @@ import {
   WorkspaceAdvancedPage,
   WorkspaceAgentsPage,
   WorkspaceRepositoryPage,
-  WorkspaceTokenPage,
 } from './WorkspacePages';
 import { isWorkspaceSection, type SettingsSection } from './routes';
 import type { ClaudeLogin } from './model';
@@ -153,9 +152,9 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   }, [report]);
 
   useEffect(() => {
-    if (section !== 'github' && (section !== 'ws-token' || workspace?.hostingServer?.provider === 'GITLAB')) return;
+    if (section !== 'github') return;
     loadAccount();
-  }, [section, loadAccount, workspace?.hostingServer?.provider]);
+  }, [section, loadAccount]);
 
   useEffect(() => {
     if (section !== 'general' && section !== 'features' || quietHoursSaving.current) return;
@@ -442,7 +441,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
               <div className="setw-row-empty">Watch a repository to get workspace settings.</div>
             </div>
           )}
-          {section === 'ws-token' && workspace?.hostingServer?.provider === 'GITLAB' && <WorkspaceHostingAccount key={workspace.id} workspace={workspace} />}
+          {section === 'ws-account' && workspace !== null && <WorkspaceHostingAccount key={workspace.id} workspace={workspace} />}
           {section === 'ws-repository' && workspace !== null && (
             <WorkspaceRepositoryPage
               key={workspace.id}
@@ -450,7 +449,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
               settings={wsSettings}
               error={error}
               onUnlinkUpstream={() => {
-                window.bridge.setWorkspaceUpstream(workspace.id, null).then(refreshWorkspaceSettings).catch(report);
+                window.bridge.unlinkWorkspaceUpstream(workspace.id).then(refreshWorkspaceSettings).catch(report);
               }}
               onSaveTarget={branch => {
                 window.bridge.setWorkspaceCommitsTarget(workspace.id, branch).then(refreshWorkspaceSettings).catch(report);
@@ -486,23 +485,6 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
               onAddClaudeAccount={addClaudeAccount}
               onRemoveClaudeAccount={removeClaudeAccount}
               onRestrictClaudeAccount={restrictClaudeAccount}
-            />
-          )}
-          {section === 'ws-token' && workspace !== null && workspace.hostingServer?.provider !== 'GITLAB' && (
-            <WorkspaceTokenPage
-              key={workspace.id}
-              workspace={workspace}
-              settings={wsSettings}
-              login={login}
-              copied={copied}
-              error={error}
-              onSave={token => {
-                window.bridge.saveWorkspaceGitHubToken(workspace.id, token).then(refreshWorkspaceSettings).catch(report);
-              }}
-              onDelete={() => {
-                window.bridge.deleteWorkspaceGitHubToken(workspace.id).then(refreshWorkspaceSettings).catch(report);
-              }}
-              onCopy={() => copyToken(window.bridge.copyWorkspaceGitHubToken(workspace.id))}
             />
           )}
           {section === 'ws-advanced' && workspace !== null && (

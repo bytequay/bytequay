@@ -45,8 +45,8 @@ describe('Local review conversation projection', () => {
     const review: LocalReviewThreads = { ...actions, threads: [learning], disabledReason: 'Code feedback requires an open pull request.', learningDisabledReason: null };
     const html = render(turn, review);
     expect(html).toContain('Makes the result reusable.');
-    expect(html).not.toContain('agt-review-request__prompt');
-    expect(html).not.toContain('PRIVATE INTERNAL CONTEXT PROMPT');
+    expect(html).toContain('<pre>PRIVATE INTERNAL CONTEXT PROMPT</pre>');
+    expect(html).not.toContain('<div>PRIVATE INTERNAL CONTEXT PROMPT</div>');
     expect(html).not.toContain('Code feedback requires an open pull request.');
     expect(html).not.toContain('disabled=""');
     expect(render(turn, { ...review, learningDisabledReason: 'Reconnect to the task.' })).toContain('Reconnect to the task.');
@@ -59,16 +59,16 @@ describe('Local review conversation projection', () => {
     expect(html).toContain('<span class="hljs-keyword">private</span> <span class="hljs-type">Result</span> <span class="hljs-title function_">result</span>');
     expect(html).toContain('src/Example.java:R12–R13');
     expect(html).toContain('class="lrc is-local is-compact"');
-    expect(html).not.toContain('agt-review-request__prompt');
-    expect(html).not.toContain('PRIVATE INTERNAL CONTEXT PROMPT');
+    expect(html).toContain('<pre>PRIVATE INTERNAL CONTEXT PROMPT</pre>');
+    expect(html).not.toContain('<div>PRIVATE INTERNAL CONTEXT PROMPT</div>');
   });
 
   it('matches queued input by the durable message event even when the current turn association changed', () => {
     const queued = { ...thread, messages: [{ ...thread.messages[0], turnId: 'retry-turn', queuedInputId: 'queue-1', messageEventId: 'event-1' }] };
     const html = render({ ...turn, users: [{ ...turn.users[0], delivery: 'QUEUED' }] }, { ...actions, threads: [queued] });
     expect(html).toContain('Can this method be static?');
-    expect(html).not.toContain('agt-review-request__prompt');
-    expect(html).not.toContain('PRIVATE INTERNAL CONTEXT PROMPT');
+    expect(html).toContain('<pre>PRIVATE INTERNAL CONTEXT PROMPT</pre>');
+    expect(html).not.toContain('<div>PRIVATE INTERNAL CONTEXT PROMPT</div>');
   });
 
   it('does not replace an ordinary user request because an agent replied to a local review during that turn', () => {
@@ -83,8 +83,8 @@ describe('Local review conversation projection', () => {
       { ...actions, threads: [thread] });
     expect(html).toContain('Can this method be static?');
     expect(html).toContain('Also run the focused tests');
-    expect(html).not.toContain('agt-review-request__prompt');
-    expect(html).not.toContain('PRIVATE INTERNAL CONTEXT PROMPT');
+    expect(html).toContain('<pre>PRIVATE INTERNAL CONTEXT PROMPT</pre>');
+    expect(html).not.toContain('<div>PRIVATE INTERNAL CONTEXT PROMPT</div>');
   });
 
   it('rejects malformed ranges and narrows internal storage fields at the desktop boundary', () => {
@@ -98,15 +98,14 @@ describe('Local review conversation projection', () => {
 it('folds local review replies around the specific saved user message', () => {
   const reply = { ...thread.messages[0], id: 'reply', turnId: 'turn-2', body: 'Why does it need instance state?' };
   const html = render({ ...turn, turnId: reply.turnId }, { ...actions, threads: [{ ...thread, messages: [...thread.messages, reply] }] });
-  const summary = html.match(/<div class="agt-review-request__bar">[^]*?<\/button>/)?.[0];
-  expect(summary).toContain('Reply to review');
-  expect(html.match(/<div class="agt-review-request__preview">[^]*?<\/div>/)?.[0]).toContain(reply.body);
-  expect(summary).not.toContain(thread.messages[0].body);
-  expect(html).toContain('<article class="agt-user__request agt-review-request">');
+  const row = html.match(/<div class="agt-instruction__row">[^]*?<\/button>/)?.[0];
+  expect(row).toContain('Reply to review');
+  expect(row).not.toContain(thread.messages[0].body);
+  expect(html).toContain(reply.body);
+  expect(html).toContain('<article class="agt-instruction">');
   expect(html).toContain('>Reply</button>');
   expect(html).toContain('>Resolve</button>');
-  expect(html).not.toContain('agt-review-request__prompt');
-  expect(html).not.toContain('PRIVATE INTERNAL CONTEXT PROMPT');
+  expect(html).toContain('<pre>PRIVATE INTERNAL CONTEXT PROMPT</pre>');
 });
 
 it("shows the agent's reply with its provider's logo", () => {

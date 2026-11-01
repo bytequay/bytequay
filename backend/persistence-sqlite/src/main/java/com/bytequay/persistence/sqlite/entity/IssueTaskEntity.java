@@ -13,7 +13,7 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
-import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.IssueTask;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -77,7 +77,7 @@ public class IssueTaskEntity
     {
         id = task.taskId();
         workspaceId = task.workspaceId();
-        GitHubIssueSource source = task.source();
+        HostedIssueSource source = task.source();
         host = source.host();
         issueId = source.issueId();
         sourceSlot = slot(host, issueId);
@@ -104,7 +104,7 @@ public class IssueTaskEntity
 
     public IssueTask toDomain()
     {
-        GitHubIssueSource source = new GitHubIssueSource(host, issueId, repo, number, url, title, body, sourceUpdatedAt);
+        HostedIssueSource source = new HostedIssueSource(host, issueId, repo, number, url, title, body, sourceUpdatedAt);
         return new IssueTask(id, workspaceId, source, Optional.ofNullable(instructions), createdAt);
     }
 }

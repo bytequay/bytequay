@@ -14,13 +14,17 @@
 package com.bytequay.app.context;
 
 import com.bytequay.app.git.CherryPickPullRequestLookup;
-import com.bytequay.app.git.PullRequestAssociation;
 import com.bytequay.app.git.PullRequestLookupResult;
 import com.bytequay.app.git.command.GitCommandRunner;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.domain.CommitEnrichment;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
+import com.bytequay.core.hosting.PullRequestAssociation;
 import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,13 +61,15 @@ public class SelectedCommitPullRequestReader
     private final CommitHistoryStore enrichment;
     private final GitCommandRunner git;
     private final CherryPickPullRequestLookup lookup;
+    private final WorkspaceHostingService hosting;
     private final Clock clock;
 
-    public SelectedCommitPullRequestReader(CommitHistoryStore enrichment, GitCommandRunner git, CherryPickPullRequestLookup lookup, Clock clock)
+    public SelectedCommitPullRequestReader(CommitHistoryStore enrichment, GitCommandRunner git, CherryPickPullRequestLookup lookup, WorkspaceHostingService hosting, Clock clock)
     {
         this.enrichment = requireNonNull(enrichment, "enrichment is null");
         this.git = requireNonNull(git, "git is null");
         this.lookup = requireNonNull(lookup, "lookup is null");
+        this.hosting = requireNonNull(hosting, "hosting is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -91,7 +97,8 @@ public class SelectedCommitPullRequestReader
         long repositoryId = workspace.monitoredRepositoryId();
         checkArgument(repositoryId > 0, "Monitored repository identity is invalid");
         Instant now = Instant.now(clock);
-        Map<String, CommitEnrichment> existing = stored(repositoryId, selected);
+        Optional<HostingRepository> hosted = hosting.storedRepository(workspace.workspaceId(), repositoryId);
+        Map<String, CommitEnrichment> existing = hosted.isPresent() ? stored(hosted.orElseThrow().id(), selected) : ImmutableMap.of();
         Map<String, Item> items = new LinkedHashMap<>();
         List<String> due = new ArrayList<>();
         List<String> gaps = new ArrayList<>();
@@ -133,12 +140,12 @@ public class SelectedCommitPullRequestReader
         }
     }
 
-    private Map<String, CommitEnrichment> stored(long repositoryId, List<String> shas)
+    private Map<String, CommitEnrichment> stored(long hostingRepositoryId, List<String> shas)
     {
         Set<String> selected = ImmutableSet.copyOf(shas);
         Map<String, CommitEnrichment> result = new LinkedHashMap<>();
-        for (CommitEnrichment value : enrichment.findEnrichment(repositoryId, shas).commits()) {
-            checkState(value.repositoryId() == repositoryId && selected.contains(value.sha()), "Stored association identity differs from selected repository or commit");
+        for (CommitEnrichment value : enrichment.findEnrichment(hostingRepositoryId, shas).commits()) {
+            checkState(value.hostingRepositoryId() == hostingRepositoryId && selected.contains(value.sha()), "Stored association differs from the selected repository or commit");
             checkState(result.putIfAbsent(value.sha(), value) == null, "Stored associations contain a duplicate commit");
         }
         return result;
@@ -148,10 +155,12 @@ public class SelectedCommitPullRequestReader
             WorkspaceRepositoryContext workspace, long repositoryId, List<String> due, Map<String, CommitEnrichment> existing,
             Map<String, Item> items, List<String> gaps)
     {
+        HostingTarget target;
         PullRequestLookupResult response;
         Map<String, PullRequestAssociation> associations = new LinkedHashMap<>();
         try {
-            response = lookup.lookUpResult(workspace.monitoredRepository(), ImmutableList.copyOf(due), workspace.defaultBranch(), gaps);
+            target = hosting.captureRead(workspace.workspaceId()).target();
+            response = lookup.lookUpResult(target, ImmutableList.copyOf(due), workspace.defaultBranch(), gaps);
             checkState(due.containsAll(response.failedShas()), "Provider failures contain an unrequested commit");
             for (PullRequestLookupResult.Association association : response.associations()) {
                 checkState(due.contains(association.sha()) && !response.failedShas().contains(association.sha()), "Provider association identity or outcome is invalid");
@@ -177,7 +186,7 @@ public class SelectedCommitPullRequestReader
                 continue;
             }
             Optional<PullRequestAssociation> association = Optional.ofNullable(associations.get(sha));
-            CommitEnrichment observed = new CommitEnrichment(repositoryId, sha, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+            CommitEnrichment observed = new CommitEnrichment(target.repository().id(), sha, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
                     association.map(PullRequestAssociation::number), association.map(PullRequestAssociation::title).filter(value -> !value.isBlank()),
                     association.map(PullRequestAssociation::url).filter(value -> !value.isBlank()), association.flatMap(PullRequestAssociation::mergedTime),
                     Optional.empty(), Optional.of(checkedAt), checkedAt);
@@ -190,7 +199,7 @@ public class SelectedCommitPullRequestReader
         try {
             enrichment.upsertEnrichment(ImmutableList.copyOf(updates));
             List<String> savedShas = updates.stream().map(CommitEnrichment::sha).collect(toImmutableList());
-            Map<String, CommitEnrichment> saved = stored(repositoryId, savedShas);
+            Map<String, CommitEnrichment> saved = stored(target.repository().id(), savedShas);
             checkState(savedShas.stream().allMatch(sha -> Optional.ofNullable(saved.get(sha)).flatMap(CommitEnrichment::associationCheckedAt)
                             .filter(value -> !value.isBefore(checkedAt)).isPresent()),
                     "Saved association observations could not be confirmed");

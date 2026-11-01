@@ -16,6 +16,8 @@ import type { AttentionMarkDto, PullRequestDto, RepositoryIssueSnapshotDto } fro
 import {
   issueAttentionItems,
   attentionCandidates,
+  pullReferenceRoute,
+  pullRoute,
   attentionCards,
   attentionEnded,
   attentionKind,
@@ -45,7 +47,7 @@ import type { JiraActivity, JiraUser } from '../jira/contracts';
 import { jiraIssue } from '../jira/fixtures/jira';
 import { taskAttentionItem } from '../agents/attention';
 import { previewTask } from '../agents/fixtures/previewBridge';
-import type { TeamCircle } from '../teams/types';
+import type { TeamCircle, TeamDirectory } from '../teams/types';
 
 
 describe('attentionKind', () => {
@@ -56,6 +58,25 @@ describe('attentionKind', () => {
 
     expect(withAvatar.authorAvatarUrl).toBe(avatarUrl);
     expect(withoutAvatar.authorAvatarUrl).toBeNull();
+  });
+
+  it('opens a discovered request through its account when no workspace lists it', () => {
+    const [discovered] = attentionCandidates([pr({ accountId: 11 })]);
+    const [listed] = attentionCandidates([pr({ workspaceId: 'gitlab-workspace', accountId: 11 })]);
+    const [pathKeyed] = attentionCandidates([pr({})]);
+
+    expect(pullReferenceRoute(discovered)).toEqual({ accountId: 11 });
+    expect(pullRoute(discovered)).toEqual({ accountId: 11 });
+    expect(pullRoute(listed)).toBe('gitlab-workspace');
+    expect(pullRoute(pathKeyed)).toBeUndefined();
+  });
+
+  it('opens a hosted request through the watched workspace that lists it', () => {
+    const [hosted] = attentionCandidates([pr({ workspaceId: 'gitlab-workspace' })]);
+    const [pathKeyed] = attentionCandidates([pr({})]);
+
+    expect(hosted.workspaceId).toBe('gitlab-workspace');
+    expect(pathKeyed.workspaceId).toBeNull();
   });
 
   it('keeps every authored PR eligible, with truthful status reasons', () => {
@@ -216,7 +237,7 @@ describe('approvedPullRequestCards', () => {
     const second = approved({ number: 2, updatedAt: '2026-08-16T00:00:00Z', headPushedAt: '2026-08-16T00:00:00Z', commentCount: 4 });
     const handled = { [first.key]: handledEntry(first, 'ack', null, 'Viewed'), [second.key]: handledEntry(second, 'ack', null, 'acknowledged') };
     expect(approvedPullRequestCards([first, second], handled, 'riley', now)).toEqual([second, first]);
-    expect(attentionCards([first, second], 'all', undefined, { circles: [], viewerLogin: 'riley' }, now)).toEqual([]);
+    expect(attentionCards([first, second], 'all', undefined, { directories: [], viewerLogin: 'riley' }, now)).toEqual([]);
   });
 
   it('uses my approval rather than the overall verdict or another reviewer’s approval', () => {
@@ -225,7 +246,7 @@ describe('approvedPullRequestCards', () => {
       latestActivity: { event: 'reviewed', actor: 'bob', timestamp: '2026-08-15T00:00:00Z', state: 'APPROVED', label: null, requestedReviewer: null } });
     const onlyCommented = approved({ number: 3, handledAction: 'COMMENTED', reviewDecision: 'APPROVED' });
     expect(approvedPullRequestCards([mine, someoneElse, onlyCommented], {}, 'riley', now)).toEqual([mine]);
-    expect(attentionCards([mine, someoneElse, onlyCommented], 'all', undefined, { circles: [], viewerLogin: 'riley' }, now))
+    expect(attentionCards([mine, someoneElse, onlyCommented], 'all', undefined, { directories: [], viewerLogin: 'riley' }, now))
       .toEqual([someoneElse, onlyCommented]);
   });
 
@@ -242,13 +263,15 @@ describe('approvedPullRequestCards', () => {
 
 describe('attentionRank', () => {
   const circles: TeamCircle[] = [{ id: 'engine', name: 'Engine', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: [],
-    members: [{ githubId: 1, login: 'Alice', name: 'Alice', avatarUrl: '' }] }];
+    members: [{ remoteId: 1, login: 'Alice', name: 'Alice', avatarUrl: '' }] }];
+  const directories: TeamDirectory[] = [{ accountId: 1, accountLogin: 'riley', circles,
+    server: { provider: 'GITHUB', webBaseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' } }];
   const theirs: Partial<PullRequestDto> = { origin: 'OTHER', author: 'bob' };
   const row = (overrides: Partial<PullRequestDto>) => {
     const pull = pr({ ...theirs, ...overrides });
     return pullRequestItem(pull, attentionKind(pull, 'riley'));
   };
-  const rank = (overrides: Partial<PullRequestDto>) => attentionRank(row(overrides), circles, 'riley');
+  const rank = (overrides: Partial<PullRequestDto>) => attentionRank(row(overrides), directories, 'riley');
   const activity = (event: string, actor: string): NonNullable<PullRequestDto['latestActivity']> =>
     ({ event, actor, timestamp: '2026-08-15T00:00:00Z', state: null, label: null, requestedReviewer: null });
 
@@ -290,7 +313,7 @@ describe('attentionRank', () => {
     expect(rank({ latestActivity: activity('commented', 'alice') })).toBeNull();
     expect(rank({ requestedReviewers: ['alice'], latestActivity: activity('added_to_merge_queue', 'alice') })).toBeNull();
     const cards = attentionCards([row({ number: 1, author: 'alice' }), row({ number: 2 }), row({ number: 3, author: 'riley', updatedAt: '2026-08-10T00:00:00Z' })],
-      'all', 4, { circles, viewerLogin: 'riley' }, Date.parse('2026-08-16T00:00:00Z'));
+      'all', 4, { directories, viewerLogin: 'riley' }, Date.parse('2026-08-16T00:00:00Z'));
     expect(cards.map(card => card.number)).toEqual([3, 1]);
   });
 
@@ -299,21 +322,21 @@ describe('attentionRank', () => {
     const staleAsk = row({ number: 2, origin: 'REVIEW_REQUESTED', updatedAt: '2026-08-05T00:00:00Z' });
     const circle = row({ number: 3, author: 'alice', updatedAt: '2026-08-19T00:00:00Z' });
     const ask = row({ number: 4, origin: 'REVIEW_REQUESTED', updatedAt: '2026-08-14T00:00:00Z' });
-    const cards = attentionCards([staleMine, staleAsk, circle, ask], 'all', 4, { circles, viewerLogin: 'riley' }, Date.parse('2026-08-20T00:00:00Z'));
+    const cards = attentionCards([staleMine, staleAsk, circle, ask], 'all', 4, { directories, viewerLogin: 'riley' }, Date.parse('2026-08-20T00:00:00Z'));
     expect(cards.map(card => card.number)).toEqual([4, 3, 2, 1]);
   });
 
   it('ranks tasks, issues and assigned Jira tickets by the same ties', () => {
     const [assigned] = issueAttentionItems(snapshot(), 'workspace-id', 'riley');
     const [unassigned] = issueAttentionItems(snapshot(), 'workspace-id', 'someone-else');
-    expect(attentionRank(assigned, circles, 'riley')).toBe(2);
-    expect(attentionRank({ ...assigned, author: 'alice' }, circles, 'riley')).toBe(1);
-    expect(attentionRank({ ...unassigned, author: 'RILEY' }, circles, 'riley')).toBe(0);
-    expect(attentionRank({ ...unassigned, author: 'alice' }, circles, 'riley')).toBe(4);
-    expect(attentionRank(unassigned, circles, 'riley')).toBeNull();
-    expect(attentionRank(jiraAttentionItems([jiraIssue])[0], circles, 'riley')).toBe(2);
+    expect(attentionRank(assigned, directories, 'riley')).toBe(2);
+    expect(attentionRank({ ...assigned, author: 'alice' }, directories, 'riley')).toBe(1);
+    expect(attentionRank({ ...unassigned, author: 'RILEY' }, directories, 'riley')).toBe(0);
+    expect(attentionRank({ ...unassigned, author: 'alice' }, directories, 'riley')).toBe(4);
+    expect(attentionRank(unassigned, directories, 'riley')).toBeNull();
+    expect(attentionRank(jiraAttentionItems([jiraIssue])[0], directories, 'riley')).toBe(2);
     const task = taskAttentionItem(previewTask('workspace', '1'), null, { id: 'workspace', name: '', repository: 'bytequay/app' });
-    expect(attentionRank(task, circles, 'riley')).toBe(0);
+    expect(attentionRank(task, directories, 'riley')).toBe(0);
   });
 });
 
@@ -458,6 +481,7 @@ function snapshot(): RepositoryIssueSnapshotDto {
     repository: { owner: 'bytequay', repo: 'app' },
     issues: [{
       id: 9,
+      epicId: 'ISSUE:github.com:9',
       number: 7,
       title: 'Kudu connector fails to start',
       body: 'Full stack trace in the first comment.',

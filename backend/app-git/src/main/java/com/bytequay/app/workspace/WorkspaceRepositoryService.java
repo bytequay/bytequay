@@ -16,12 +16,18 @@ package com.bytequay.app.workspace;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.HostingConnectionService;
+import com.bytequay.app.service.hosting.HostingIntegrations;
+import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingCapabilities;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import com.bytequay.core.store.RemoteSourceStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -51,8 +57,9 @@ import java.util.concurrent.Executor;
 
 import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static com.bytequay.app.git.command.RepositoryUrls.isPlainHttps;
-import static com.bytequay.app.workspace.WorkspaceException.requireGitHubWorkspace;
+import static com.bytequay.app.workspace.WorkspaceException.requireFeature;
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
+import static com.bytequay.core.hosting.HostingServer.GITHUB_COM;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
@@ -69,11 +76,13 @@ public class WorkspaceRepositoryService
     private final RemoteSourceStore remoteSources;
     private final GitHubAccountClient gitHub;
     private final CredentialService credentials;
+    private final HostingConnectionService connections;
     private final Clock clock;
     private final WorkspacePaths paths;
     private final WorkspaceProvisioningService provisioning;
     private final WorkspaceMetadataService metadata;
     private final PullRequestRefreshService pullRequestRefresh;
+    private final HostingIntegrations integrations;
     private final Executor executor;
     private final Set<String> codeRefreshes = ConcurrentHashMap.newKeySet();
     private final Set<String> metadataRefreshes = ConcurrentHashMap.newKeySet();
@@ -83,22 +92,26 @@ public class WorkspaceRepositoryService
             RemoteSourceStore remoteSources,
             GitHubAccountClient gitHub,
             CredentialService credentials,
+            HostingConnectionService connections,
             Clock clock,
             WorkspacePaths paths,
             WorkspaceProvisioningService provisioning,
             WorkspaceMetadataService metadata,
             PullRequestRefreshService pullRequestRefresh,
+            HostingIntegrations integrations,
             @Qualifier(IO_EXECUTOR) Executor executor)
     {
         this.store = requireNonNull(store, "store is null");
         this.remoteSources = requireNonNull(remoteSources, "remoteSources is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
+        this.connections = requireNonNull(connections, "connections is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.paths = requireNonNull(paths, "paths is null");
         this.provisioning = requireNonNull(provisioning, "provisioning is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.pullRequestRefresh = requireNonNull(pullRequestRefresh, "pullRequestRefresh is null");
+        this.integrations = requireNonNull(integrations, "integrations is null");
         this.executor = requireNonNull(executor, "executor is null");
     }
 
@@ -169,7 +182,7 @@ public class WorkspaceRepositoryService
         requireNonNull(command, "command is null");
         var credential = credentials.resolveGitHubCredential();
         WatchRouting routing = resolveWatch(command.selectedRepositoryId(), Optional.of(command.topology()), credential.token(), credential.profile().login());
-        Optional<Workspace> existing = routing.pushRepository().flatMap(value -> store.findBySelectedRepositoryId(value.id()));
+        Optional<Workspace> existing = routing.pushRepository().flatMap(value -> store.findBySelectedRepository(GITHUB_COM, value.id()));
         if (existing.filter(value -> store.isWatched(value.id()) && matchesWatch(value, routing)).isPresent()) {
             Workspace workspace = existing.orElseThrow();
             scheduleIncompleteWork(workspace);
@@ -192,7 +205,7 @@ public class WorkspaceRepositoryService
         if (existing.isPresent()) {
             Workspace workspace = existing.orElseThrow();
             return WorkspaceOperationLocks.withLock(workspace.id(), () -> {
-                setUpstream(workspace.id(), routing.upstream().map(UserRepo::id));
+                routeUpstream(workspace.id(), routing.upstream());
                 store.setWatched(workspace.id(), true);
                 return requestSyncAfterConfigurationChange(workspace.id());
             });
@@ -207,7 +220,7 @@ public class WorkspaceRepositoryService
      */
     public List<WorkspaceSummary> listWorkspaces()
     {
-        return store.findAll().stream().map(WorkspaceSummary::of).collect(toImmutableList());
+        return store.findAll().stream().map(this::summary).collect(toImmutableList());
     }
 
     /**
@@ -220,7 +233,7 @@ public class WorkspaceRepositoryService
         Set<String> watchedIds = store.findAll().stream().map(Workspace::id).collect(toImmutableSet());
         return store.findAllRetained().stream()
                 .filter(workspace -> !watchedIds.contains(workspace.id()))
-                .map(WorkspaceSummary::of)
+                .map(this::summary)
                 .collect(toImmutableList());
     }
 
@@ -239,7 +252,13 @@ public class WorkspaceRepositoryService
      */
     public WorkspaceSummary getWorkspace(String workspaceId)
     {
-        return WorkspaceSummary.of(requireWorkspace(store, workspaceId));
+        return summary(requireWorkspace(store, workspaceId));
+    }
+
+    /** The workspace with what the app supports through the implementation chosen for its server. */
+    public WorkspaceSummary summary(Workspace workspace)
+    {
+        return WorkspaceSummary.of(workspace, integrations.of(workspace.server()).capabilities());
     }
 
     /**
@@ -330,23 +349,33 @@ public class WorkspaceRepositoryService
     }
 
     /**
-     * Selects a GitHub-readable repository as upstream, or unlinks it when empty.
+     * Unlinks the workspace's upstream; the workspace stays bound to its account.
      *
-     * @param workspaceId workspace whose upstream changes
-     * @param upstreamRepositoryId stable GitHub repository ID, or empty to unlink
+     * @param workspaceId workspace whose upstream is unlinked
      * @return the updated workspace after synchronization is accepted
      */
-    public Workspace setUpstream(String workspaceId, Optional<Long> upstreamRepositoryId)
+    public Workspace unlinkUpstream(String workspaceId)
     {
-        requireNonNull(upstreamRepositoryId, "upstreamRepositoryId is null");
-        Workspace workspace = requireGitHubWorkspace(store, workspaceId);
-        if (workspace.upstreamRepositoryId().equals(upstreamRepositoryId)) {
+        return routeUpstream(workspaceId, Optional.empty());
+    }
+
+    /** Monitors {@code upstream}, or the selected repository when empty, and binds the workspace again to the repositories it now reads. */
+    private Workspace routeUpstream(String workspaceId, Optional<UserRepo> upstream)
+    {
+        Workspace workspace = requireFeature(store, integrations, workspaceId, HostingCapabilities::forkWorkflows);
+        if (workspace.upstreamRepositoryId().equals(upstream.map(UserRepo::id))) {
             return workspace;
         }
         if (codeRefreshes.contains(workspace.id()) || store.hasActiveWorkflows(workspace.id())) {
             throw WorkspaceException.busy();
         }
-        Optional<UserRepo> upstream = upstreamRepositoryId.map(id -> requireUpstream(workspace, id));
+        upstream.ifPresent(value -> {
+            if (value.id() == workspace.selectedRepositoryId()) {
+                throw WorkspaceException.invalidUpstream("A workspace cannot use its selected repository as upstream.");
+            }
+            validate(value);
+        });
+        Optional<WorkspaceHostingBinding> binding = store.findHostingBinding(workspace.id());
         Instant now = clock.instant();
         Optional<RepoRef> upstreamRef = upstream.map(value -> RepoRef.of(value.owner(), value.name()));
         Workspace linked = workspace.withRepositoryRouting(
@@ -361,6 +390,12 @@ public class WorkspaceRepositoryService
                 upstream.map(UserRepo::cloneUrl),
                 now);
         Workspace saved = store.save(linked.withMetadataSyncAt(Optional.empty(), now));
+        // Saving new routing drops the binding; the account and selected repository stay, and the upstream follows the routing.
+        binding.ifPresent(value -> {
+            HostingReadSession session = connections.readSession(value.accountId());
+            store.bindHosting(saved.id(), value.accountId(), value.selectedRepositoryId(),
+                    upstream.map(repository -> connections.resolveRepositoryById(session, Long.toString(repository.id())).id()));
+        });
         return requestSyncAfterConfigurationChange(saved.id());
     }
 
@@ -403,7 +438,7 @@ public class WorkspaceRepositoryService
     {
         validate(selected);
 
-        Optional<Workspace> existing = store.findBySelectedRepositoryId(selected.id());
+        Optional<Workspace> existing = store.findBySelectedRepository(GITHUB_COM, selected.id());
         if (existing.isPresent()) {
             return existing.orElseThrow();
         }
@@ -432,35 +467,22 @@ public class WorkspaceRepositoryService
                 Optional.empty(),
                 displayOrder,
                 now,
-                now);
-        Workspace saved = store.createOrGet(proposed);
+                now,
+                GITHUB_COM);
+        // The main GitHub sign-in read these repositories, so the workspace is bound to that account and to them.
+        HostingReadSession session = credentials.captureHostingRead();
+        HostingRepository selectedRepository = connections.resolveRepositoryById(session, Long.toString(selected.id()));
+        Optional<Long> upstreamRepository = upstream.map(value -> connections.resolveRepositoryById(session, Long.toString(value.id())).id());
+        Workspace saved = store.createHosted(proposed, session.accountId(), selectedRepository.id(), upstreamRepository);
         scheduleIncompleteWork(saved);
         return saved;
-    }
-
-    private UserRepo requireUpstream(Workspace workspace, long upstreamRepositoryId)
-    {
-        if (upstreamRepositoryId <= 0) {
-            throw WorkspaceException.invalidUpstream("Choose a GitHub repository to link.");
-        }
-        if (workspace.selectedRepositoryId() == upstreamRepositoryId) {
-            throw WorkspaceException.invalidUpstream("A workspace cannot use its selected repository as upstream.");
-        }
-        UserRepo upstream = gitHub.fetchRepository(credentials.resolveGitHubToken(), upstreamRepositoryId)
-                .orElseThrow(() -> WorkspaceException.invalidUpstream(
-                        "The upstream repository is not readable by the connected GitHub account."));
-        if (upstream.id() != upstreamRepositoryId) {
-            throw WorkspaceException.invalidUpstream("The upstream repository identity changed. Search again.");
-        }
-        validate(upstream);
-        return upstream;
     }
 
     private RepositorySearchResult toSearchResult(UserRepo repository)
     {
         Optional<RepoRef> upstream = repository.upstream()
                 .map(value -> RepoRef.of(value.owner(), value.name()));
-        Optional<String> existingWorkspaceId = store.findBySelectedRepositoryId(repository.id())
+        Optional<String> existingWorkspaceId = store.findBySelectedRepository(GITHUB_COM, repository.id())
                 .filter(value -> store.isWatched(value.id())).map(Workspace::id);
         return new RepositorySearchResult(
                 repository.id(),
@@ -545,7 +567,7 @@ public class WorkspaceRepositoryService
                 monitoredRef,
                 fingerprint(routing.topology() + "\0" + routing.login() + "\0" + fingerprint(selected) + "\0" + fingerprint(monitored) + "\0"
                         + routing.pushRepository().map(WorkspaceRepositoryService::fingerprint).orElse("create-fork")),
-                routing.pushRepository().flatMap(value -> store.findBySelectedRepositoryId(value.id()))
+                routing.pushRepository().flatMap(value -> store.findBySelectedRepository(GITHUB_COM, value.id()))
                         .filter(value -> store.isWatched(value.id()) && matchesWatch(value, routing)).map(Workspace::id));
     }
 
@@ -691,7 +713,7 @@ public class WorkspaceRepositoryService
     private void submit(Runnable task, String workspaceId, Runnable finished)
     {
         try {
-            // Each task takes the workspace lock for its local part; holding it here would freeze the workspace while a PR refresh waits on GitHub.
+            // Each task takes the workspace lock for its local part; holding it here would freeze the workspace while a PR refresh waits on the provider.
             executor.execute(() -> {
                 try {
                     if (store.isWatched(workspaceId)) {
@@ -715,7 +737,7 @@ public class WorkspaceRepositoryService
     }
 
     /**
-     * Attaches stable GitHub identities to custom remotes when the same repository is already watched.
+     * Attaches stable remote identities to custom remotes when the same repository is already watched.
      * This lookup is local-only; an unknown remote never causes a provider request while History loads.
      */
     private List<RemoteSource> enrichRemoteSources(String workspaceId)

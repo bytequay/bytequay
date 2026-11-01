@@ -30,6 +30,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -71,7 +72,7 @@ public class PullRequestRefreshService
 
     public PullRequestDetailRefresh refreshDetail(PullRequestRead route)
     {
-        PullRequestService.DetailRefresh refresh = pullRequests.refreshPullRequestDetailFromGitHub(route);
+        PullRequestService.DetailRefresh refresh = pullRequests.refreshPullRequestDetailFromRemote(route);
         published(route, refresh.detail().id());
         return refresh.full() ? PullRequestDetailRefresh.full(refresh.detail()) : PullRequestDetailRefresh.status(refresh.detail());
     }
@@ -83,7 +84,7 @@ public class PullRequestRefreshService
 
     public PullRequestDetailRefresh refreshChecks(PullRequestRead route)
     {
-        PullRequestService.DetailRefresh refresh = pullRequests.refreshPullRequestChecksFromGitHub(route);
+        PullRequestService.DetailRefresh refresh = pullRequests.refreshPullRequestChecksFromRemote(route);
         published(route, refresh.detail().id());
         return refresh.full() ? PullRequestDetailRefresh.full(refresh.detail()) : PullRequestDetailRefresh.status(refresh.detail());
     }
@@ -95,7 +96,7 @@ public class PullRequestRefreshService
 
     public PullRequestDetailRefresh refreshOpenedDetail(PullRequestRead route)
     {
-        PullRequestService.DetailRefresh refresh = pullRequests.refreshOpenedPullRequestDetailFromGitHub(route);
+        PullRequestService.DetailRefresh refresh = pullRequests.refreshOpenedPullRequestDetailFromRemote(route);
         published(route, refresh.detail().id());
         // Another view may have refreshed the cache while this view was hidden.
         return PullRequestDetailRefresh.full(refresh.detail());
@@ -110,7 +111,7 @@ public class PullRequestRefreshService
     public void warmDetail(String workspaceId, String repo, int number)
     {
         PullRequestRead route = pullRequests.prepareRead(workspaceId, repo, number);
-        PullRequestService.DetailRefresh refresh = pullRequests.refreshPullRequestDetailFromGitHub(route, Duration.ofMinutes(10));
+        PullRequestService.DetailRefresh refresh = pullRequests.refreshPullRequestDetailFromRemote(route, Duration.ofMinutes(10));
         published(route, refresh.detail().id());
     }
 
@@ -122,7 +123,7 @@ public class PullRequestRefreshService
 
     public PullRequestDetail refreshAllDetail(PullRequestRead route)
     {
-        PullRequestDetail detail = pullRequests.refreshAllPullRequestDetailFromGitHub(route);
+        PullRequestDetail detail = pullRequests.refreshAllPullRequestDetailFromRemote(route);
         published(route, detail.id());
         return detail;
     }
@@ -135,7 +136,7 @@ public class PullRequestRefreshService
 
     public List<DiffFile> refreshDiffFiles(PullRequestRead route, String baseSha, String headSha)
     {
-        pullRequests.refreshPullRequestDiffFromGitHub(route, baseSha, headSha);
+        pullRequests.refreshPullRequestDiffFromRemote(route, baseSha, headSha);
         return pullRequests.getPullRequestDiffFiles(route, baseSha, headSha);
     }
 
@@ -147,15 +148,15 @@ public class PullRequestRefreshService
 
     public DiffFileContent refreshDiffFileContent(PullRequestRead route, String path, String baseSha, String headSha)
     {
-        pullRequests.refreshPullRequestDiffFileContentFromGitHub(route, path, baseSha, headSha);
+        pullRequests.refreshPullRequestDiffFileContentFromRemote(route, path, baseSha, headSha);
         return pullRequests.getPullRequestDiffFileContent(route, path, baseSha, headSha);
     }
 
-    /** Reuses a recent or in-flight dashboard refresh instead of queuing the same GitHub scan again. */
+    /** Reuses a recent or in-flight dashboard refresh instead of queuing the same account scan again. */
     public void refreshDashboard()
     {
-        GitHubCredential credential = credentials.resolveGitHubCredential();
-        if (!dashboardIsFresh(credential)) {
+        DiscoveryAccounts accounts = discoveryAccounts();
+        if (!dashboardIsFresh(accounts)) {
             refresh(this::refreshDashboardIfStale);
             events.publishEvent(new PullRequestsRefreshed());
         }
@@ -165,10 +166,10 @@ public class PullRequestRefreshService
     public void refreshScheduledDashboard()
     {
         refresh(() -> {
-            GitHubCredential credential = credentials.resolveGitHubCredential();
-            pullRequests.syncFromGitHub();
-            if (credentials.resolveGitHubCredential() == credential) {
-                dashboardSnapshot = new DashboardSnapshot(credential, Instant.now());
+            DiscoveryAccounts accounts = discoveryAccounts();
+            pullRequests.discoverAccountPullRequests();
+            if (discoveryAccounts().sameAs(accounts)) {
+                dashboardSnapshot = new DashboardSnapshot(accounts, Instant.now());
             }
         });
         events.publishEvent(new PullRequestsRefreshed());
@@ -181,7 +182,7 @@ public class PullRequestRefreshService
             throw new ResponseStatusException(HttpStatus.CONFLICT, "A pull request refresh is already in progress; try again shortly");
         }
         try {
-            pullRequests.syncFromGitHub();
+            pullRequests.discoverAccountPullRequests();
         }
         finally {
             refreshLock.unlock();
@@ -192,14 +193,14 @@ public class PullRequestRefreshService
 
     private void refreshDashboardIfStale()
     {
-        GitHubCredential credential = credentials.resolveGitHubCredential();
-        if (dashboardIsFresh(credential)) {
+        DiscoveryAccounts accounts = discoveryAccounts();
+        if (dashboardIsFresh(accounts)) {
             return;
         }
-        pullRequests.syncFromGitHub();
+        pullRequests.discoverAccountPullRequests();
         // A credential change during the scan must leave the new account stale.
-        if (credentials.resolveGitHubCredential() == credential) {
-            dashboardSnapshot = new DashboardSnapshot(credential, Instant.now());
+        if (discoveryAccounts().sameAs(accounts)) {
+            dashboardSnapshot = new DashboardSnapshot(accounts, Instant.now());
         }
     }
 
@@ -227,14 +228,34 @@ public class PullRequestRefreshService
         });
     }
 
-    private boolean dashboardIsFresh(GitHubCredential credential)
+    public boolean hasDiscoveryAccounts()
+    {
+        return pullRequests.hasDiscoveryAccounts();
+    }
+
+    private DiscoveryAccounts discoveryAccounts()
+    {
+        // Resolving the desktop credential also keeps its cached profile current.
+        Optional<GitHubCredential> desktop = credentials.isGitHubAccountConfigured() ? Optional.of(credentials.resolveGitHubCredential()) : Optional.empty();
+        return new DiscoveryAccounts(desktop, pullRequests.connectedDiscoveryAccounts());
+    }
+
+    private boolean dashboardIsFresh(DiscoveryAccounts accounts)
     {
         DashboardSnapshot snapshot = dashboardSnapshot;
         return snapshot != null
-                // CredentialService replaces the cached record when the token generation changes.
-                && snapshot.credential() == credential
+                && snapshot.accounts().sameAs(accounts)
                 && snapshot.refreshedAt().isAfter(Instant.now().minus(DASHBOARD_FRESHNESS));
     }
 
-    private record DashboardSnapshot(GitHubCredential credential, Instant refreshedAt) {}
+    private record DiscoveryAccounts(Optional<GitHubCredential> desktop, List<Long> connected)
+    {
+        boolean sameAs(DiscoveryAccounts other)
+        {
+            // CredentialService replaces the cached record when the token generation changes.
+            return desktop.orElse(null) == other.desktop().orElse(null) && connected.equals(other.connected());
+        }
+    }
+
+    private record DashboardSnapshot(DiscoveryAccounts accounts, Instant refreshedAt) {}
 }

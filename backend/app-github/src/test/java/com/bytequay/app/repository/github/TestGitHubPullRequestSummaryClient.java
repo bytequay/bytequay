@@ -16,6 +16,7 @@ package com.bytequay.app.repository.github;
 import com.bytequay.core.domain.PullRequest.Origin;
 import com.bytequay.core.domain.PullRequestDetail.CiStatus;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.hosting.PullRequestCardSummary;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
@@ -70,7 +71,7 @@ class TestGitHubPullRequestSummaryClient
                     assertThat(payload.path("variables").path("login").asText()).isEqualTo("viewer");
                 }).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
 
-        GitHubPullRequestSummary summary = client.fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
+        PullRequestCardSummary summary = client.fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
 
         assertThat(summary.pullRequest().origin()).isEqualTo(Origin.REVIEW_REQUESTED);
         assertThat(summary.pullRequest().requestedReviewers()).containsExactly("viewer");
@@ -98,7 +99,7 @@ class TestGitHubPullRequestSummaryClient
         row.withArray("/latestOpinionatedReviews/nodes").addObject().put("state", state);
         graphServer.expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
 
-        GitHubPullRequestSummary summary = client.fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
+        PullRequestCardSummary summary = client.fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
 
         assertThat(summary.reviewDecision()).isEqualTo(Optional.ofNullable(expected));
         assertThat(summary.pullRequest().mergeableState()).isEqualTo("blocked");
@@ -151,7 +152,7 @@ class TestGitHubPullRequestSummaryClient
                 """));
         graphServer.expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
 
-        GitHubPullRequestSummary summary = client.fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
+        PullRequestCardSummary summary = client.fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
 
         assertThat(summary.viewerReview().orElseThrow().commitId()).isNull();
     }
@@ -165,7 +166,7 @@ class TestGitHubPullRequestSummaryClient
         comment.put("__typename", "IssueComment").put("createdAt", "2026-09-21T11:00:00Z").put("body", "A new reply");
         comment.putObject("author").put("login", "reviewer");
         graphServer.expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(value), MediaType.APPLICATION_JSON));
-        GitHubPullRequestSummary summary = client.fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
+        PullRequestCardSummary summary = client.fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
         assertThat(summary.discussionUpdatedAt()).isEqualTo(Instant.parse("2026-09-21T11:00:00Z"));
         assertThat(summary.latestActivity()).isPresent();
         assertThat(summary.latestActivity().orElseThrow().actor()).contains("reviewer");
@@ -283,8 +284,8 @@ class TestGitHubPullRequestSummaryClient
             graphServer.expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
         }
 
-        GitHubPullRequestSummary baseline = client.fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
-        GitHubPullRequestSummary pending = client.fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
+        PullRequestCardSummary baseline = client.fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
+        PullRequestCardSummary pending = client.fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
 
         assertThat(baseline.reviewDecision()).isEmpty();
         assertThat(pending.reviewDecision()).isEmpty();

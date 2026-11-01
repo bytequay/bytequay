@@ -33,7 +33,7 @@ import static java.util.Objects.requireNonNull;
  * carry no reviewers, mergeability or head ref.
  */
 public record FetchedPullRequest(
-        Long githubId,
+        Long remoteId,
         String repo,
         int number,
         String title,
@@ -59,7 +59,7 @@ public record FetchedPullRequest(
     public FetchedPullRequest
     {
         author = author == null ? GHOST_AUTHOR : author;
-        requireNonNull(githubId, "githubId is null");
+        requireNonNull(remoteId, "remoteId is null");
         requireNonNull(repo, "repo is null");
         requireNonNull(title, "title is null");
         requireNonNull(origin, "origin is null");
@@ -72,7 +72,7 @@ public record FetchedPullRequest(
     public FetchedPullRequest withOrigin(PullRequest.Origin origin)
     {
         return new FetchedPullRequest(
-                githubId, repo, number, title, author, htmlUrl, createdAt, updatedAt, origin,
+                remoteId, repo, number, title, author, htmlUrl, createdAt, updatedAt, origin,
                 labels, labelColors, draft, state, closedAt, mergedAt, requestedReviewers,
                 mergeable, mergeableState, headRef);
     }

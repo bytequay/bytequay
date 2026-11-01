@@ -34,7 +34,7 @@ function avatarHandle(login: string): string {
 }
 
 /**
- * GitHub profile picture with a colored-initial fallback.
+ * Profile picture with a colored-initial fallback.
  *
  * If the image load fails — common for actors whose `login` isn't a real
  * GitHub handle (display names from commit authors like "Nazarii

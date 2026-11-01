@@ -29,7 +29,7 @@ import static java.util.Objects.requireNonNullElse;
 
 /**
  * What an Epic keeps beyond its work items: the children its source last reported, and what the user did with them. Syncing children never
- * writes to GitHub or Jira.
+ * writes to the provider or Jira.
  *
  * @param id the identity of the local work item, issue or ticket marked as the Epic
  * @param childrenTruncated whether the source had more children than one read returns

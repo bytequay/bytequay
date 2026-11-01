@@ -14,6 +14,7 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.service.pr.PullRequestRefreshService;
+import com.bytequay.app.service.pr.PullRequestRoute;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
@@ -80,6 +81,9 @@ public class PullRequestController
             return null;
         }
         List<PullRequest> candidates = workspaceId == null ? pullRequests.listAttentionCandidates() : pullRequests.listWorkspaceAttentionCandidates(workspaceId);
+        // A workspace's own list opens through that workspace; the shared list names each row's route.
+        Map<Long, PullRequestRoute> routes = workspaceId == null ? pullRequests.attentionRoutes(candidates) : ImmutableMap.of();
+        PullRequestRoute none = PullRequestRoute.of(null, null);
         Map<Long, String> avatars = pullRequests.findCachedAuthorAvatarUrls(candidates.stream().map(PullRequest::id).collect(toImmutableSet()));
         Map<Long, PrActivitySummary> activities = pullRequests.findCachedLatestActivities(candidates);
         Map<Long, Instant> attentionActivities = pullRequests.findCachedAttentionActivities(candidates);
@@ -89,13 +93,15 @@ public class PullRequestController
         return candidates.stream()
                 .map(pullRequest -> new AttentionPullRequest(pullRequest, avatars.get(pullRequest.id()), activities.get(pullRequest.id()),
                         attentionActivities.get(pullRequest.id()), commits.getOrDefault(pullRequest.id(), ImmutableList.of()),
-                        failingChecks.getOrDefault(pullRequest.id(), ImmutableList.of()), mentioned.contains(pullRequest.id())))
+                        failingChecks.getOrDefault(pullRequest.id(), ImmutableList.of()), mentioned.contains(pullRequest.id()),
+                        routes.getOrDefault(pullRequest.id(), none).workspaceId().orElse(null),
+                        routes.getOrDefault(pullRequest.id(), none).accountId().stream().boxed().findFirst().orElse(null)))
                 .collect(toImmutableList());
     }
 
     /**
-     * A pull request as Needs attention draws it, with the cached facts its card details: nothing here reads GitHub. Its attention activity
-     * is the latest that ends an acknowledgment.
+     * A pull request as Needs attention draws it, with the cached facts its card details: nothing here reads the provider. Its attention
+     * activity is the latest that ends an acknowledgment. A hosted request names the watched workspace or the account it opens through.
      */
     public record AttentionPullRequest(
             @JsonUnwrapped PullRequest pullRequest,
@@ -104,55 +110,61 @@ public class PullRequestController
             Instant attentionActivityAt,
             List<PrCommitLine> commitsSinceReview,
             List<String> failingChecks,
-            boolean mentioned) {}
+            boolean mentioned,
+            String workspaceId,
+            Long accountId) {}
 
     @GetMapping("/prs/stored")
-    public Optional<PullRequest> stored(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestParam(required = false) String workspaceId)
+    public Optional<PullRequest> stored(@RequestParam("repo") String repo, @RequestParam("number") int number,
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        return pullRequests.findStored(pullRequests.prepareRead(workspaceId, repo, number));
+        return pullRequests.findStored(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number));
     }
 
     @GetMapping("/prs/lookup")
-    public PullRequest lookup(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestParam(required = false) String workspaceId)
+    public PullRequest lookup(@RequestParam("repo") String repo, @RequestParam("number") int number,
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        return pullRequests.lookupPullRequest(pullRequests.prepareRead(workspaceId, repo, number));
+        return pullRequests.lookupPullRequest(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number));
     }
 
-    /** For a hover card, which must neither reach GitHub nor mark the pull request viewed the way opening its detail does. */
+    /** For a hover card, which must neither reach the provider nor mark the pull request viewed the way opening its detail does. */
     @GetMapping("/prs/stored/description")
-    public StoredDescription storedDescription(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestParam(required = false) String workspaceId)
+    public StoredDescription storedDescription(@RequestParam("repo") String repo, @RequestParam("number") int number,
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        return new StoredDescription(pullRequests.findStoredDescription(pullRequests.prepareRead(workspaceId, repo, number)));
+        return new StoredDescription(pullRequests.findStoredDescription(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number)));
     }
 
     /** Empty until a detail read has stored the pull request; an empty string is a pull request with no description. */
     public record StoredDescription(Optional<String> body) {}
 
     @PatchMapping("/prs/{prId}/monitor")
-    public PullRequest monitor(@PathVariable long prId, @RequestBody MonitorRequest request, @RequestParam(required = false) String workspaceId)
+    public PullRequest monitor(@PathVariable long prId, @RequestBody MonitorRequest request,
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
         checkArgument(request.monitored() != null, "monitored is required");
-        return pullRequests.setMonitored(prId, request.monitored(), workspaceId);
+        return pullRequests.setMonitored(prId, request.monitored(), PullRequestRoute.of(workspaceId, accountId));
     }
 
     public record MonitorRequest(Boolean monitored) {}
 
     @GetMapping("/prs/users")
-    public List<RepoUser> users(@RequestParam("repo") String repo, @RequestParam(required = false) String workspaceId)
+    public List<RepoUser> users(@RequestParam("repo") String repo, @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        return pullRequests.listRepositoryUsers(repo, workspaceId);
+        return pullRequests.listRepositoryUsers(repo, PullRequestRoute.of(workspaceId, accountId));
     }
 
     @GetMapping("/prs/teams")
-    public List<String> teams(@RequestParam("repo") String repo, @RequestParam(required = false) String workspaceId)
+    public List<String> teams(@RequestParam("repo") String repo, @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        return pullRequests.listRepositoryTeams(repo, workspaceId);
+        return pullRequests.listRepositoryTeams(repo, PullRequestRoute.of(workspaceId, accountId));
     }
 
     @GetMapping("/prs/labels")
-    public List<RepositoryLabel> labels(@RequestParam("repo") String repo, @RequestParam(required = false) String workspaceId)
+    public List<RepositoryLabel> labels(@RequestParam("repo") String repo, @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        return pullRequests.listRepositoryLabels(repo, workspaceId);
+        return pullRequests.listRepositoryLabels(repo, PullRequestRoute.of(workspaceId, accountId));
     }
 
     @PostMapping("/api/settings/sync/trigger")
@@ -167,9 +179,10 @@ public class PullRequestController
     }
 
     @GetMapping("/prs/detail")
-    public PullRequestDetail detail(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestParam(required = false) String workspaceId)
+    public PullRequestDetail detail(@RequestParam("repo") String repo, @RequestParam("number") int number,
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        return pullRequests.openPullRequestDetail(pullRequests.prepareRead(workspaceId, repo, number));
+        return pullRequests.openPullRequestDetail(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number));
     }
 
     @PostMapping("/prs/detail/refresh")
@@ -178,19 +191,20 @@ public class PullRequestController
             @RequestParam("number") int number,
             @RequestParam(value = "checksOnly", defaultValue = "false") boolean checksOnly,
             @RequestParam(value = "opened", defaultValue = "false") boolean opened,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
         if (opened) {
-            return refreshService.refreshOpenedDetail(pullRequests.prepareRead(workspaceId, repo, number));
+            return refreshService.refreshOpenedDetail(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number));
         }
-        return checksOnly ? refreshService.refreshChecks(pullRequests.prepareRead(workspaceId, repo, number))
-                : refreshService.refreshDetail(pullRequests.prepareRead(workspaceId, repo, number));
+        return checksOnly ? refreshService.refreshChecks(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number))
+                : refreshService.refreshDetail(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number));
     }
 
     @PostMapping("/prs/detail/refresh-all")
-    public PullRequestDetail refreshAllDetail(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestParam(required = false) String workspaceId)
+    public PullRequestDetail refreshAllDetail(@RequestParam("repo") String repo, @RequestParam("number") int number,
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        return refreshService.refreshAllDetail(pullRequests.prepareRead(workspaceId, repo, number));
+        return refreshService.refreshAllDetail(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number));
     }
 
     @GetMapping("/prs/diffFiles")
@@ -199,15 +213,16 @@ public class PullRequestController
             @RequestParam("number") int number,
             @RequestParam(value = "base", required = false) String baseSha,
             @RequestParam(value = "head", required = false) String headSha,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        return pullRequests.getPullRequestDiffFiles(pullRequests.prepareRead(workspaceId, repo, number), baseSha, headSha);
+        return pullRequests.getPullRequestDiffFiles(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number), baseSha, headSha);
     }
 
     @GetMapping("/prs/diffCommits")
-    public List<DiffCommit> diffCommits(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestParam(required = false) String workspaceId)
+    public List<DiffCommit> diffCommits(@RequestParam("repo") String repo, @RequestParam("number") int number,
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        return pullRequests.getPullRequestDiffCommits(pullRequests.prepareRead(workspaceId, repo, number));
+        return pullRequests.getPullRequestDiffCommits(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number));
     }
 
     @PostMapping("/prs/diffFiles/refresh")
@@ -216,9 +231,9 @@ public class PullRequestController
             @RequestParam("number") int number,
             @RequestParam(value = "base", required = false) String baseSha,
             @RequestParam(value = "head", required = false) String headSha,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        return refreshService.refreshDiffFiles(pullRequests.prepareRead(workspaceId, repo, number), baseSha, headSha);
+        return refreshService.refreshDiffFiles(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number), baseSha, headSha);
     }
 
     @PostMapping("/prs/diffContent/refresh")
@@ -228,15 +243,16 @@ public class PullRequestController
             @RequestParam("path") String path,
             @RequestParam(value = "base", required = false) String baseSha,
             @RequestParam(value = "head", required = false) String headSha,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        return refreshService.refreshDiffFileContent(pullRequests.prepareRead(workspaceId, repo, number), path, baseSha, headSha);
+        return refreshService.refreshDiffFileContent(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number), path, baseSha, headSha);
     }
 
     @GetMapping("/prs/merge-mode")
-    public Map<String, Boolean> mergeMode(@RequestParam("repo") String repo, @RequestParam("branch") String branch, @RequestParam(required = false) String workspaceId)
+    public Map<String, Boolean> mergeMode(@RequestParam("repo") String repo, @RequestParam("branch") String branch,
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        return ImmutableMap.of("mergeQueue", pullRequests.hasMergeQueue(repo, branch, workspaceId));
+        return ImmutableMap.of("mergeQueue", pullRequests.hasMergeQueue(repo, branch, PullRequestRoute.of(workspaceId, accountId)));
     }
 
     public record CommentRequest(String body) {}
@@ -267,9 +283,9 @@ public class PullRequestController
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
             @RequestBody TitleRequest request,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        pullRequests.updateTitle(pullRequests.prepareRead(workspaceId, repo, number), request.title());
+        pullRequests.updateTitle(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number), request.title());
     }
 
     @PatchMapping("/prs/description")
@@ -278,9 +294,9 @@ public class PullRequestController
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
             @RequestBody DescriptionRequest request,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        pullRequests.updateDescription(pullRequests.prepareRead(workspaceId, repo, number), request.body());
+        pullRequests.updateDescription(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number), request.body());
     }
 
     @PatchMapping("/prs/metadata")
@@ -289,9 +305,9 @@ public class PullRequestController
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
             @RequestBody MetadataRequest request,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        pullRequests.updateMetadata(pullRequests.prepareRead(workspaceId, repo, number), request.assignees(), request.labels());
+        pullRequests.updateMetadata(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number), request.assignees(), request.labels());
     }
 
     @PatchMapping("/prs/reviewers")
@@ -300,9 +316,9 @@ public class PullRequestController
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
             @RequestBody ReviewerRequest request,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        pullRequests.updateReviewerRequest(pullRequests.prepareRead(workspaceId, repo, number), request.login(), request.requested());
+        pullRequests.updateReviewerRequest(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number), request.login(), request.requested());
     }
 
     @PostMapping("/prs/comment")
@@ -310,9 +326,9 @@ public class PullRequestController
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
             @RequestBody CommentRequest request,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        return pullRequests.commentOnPullRequest(pullRequests.prepareRead(workspaceId, repo, number), request.body());
+        return pullRequests.commentOnPullRequest(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number), request.body());
     }
 
     @PatchMapping("/prs/comments")
@@ -320,10 +336,10 @@ public class PullRequestController
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
             @RequestBody CommentEditRequest request,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
         checkArgument(request.commentId() != null, "commentId is required");
-        return pullRequests.editComment(pullRequests.prepareRead(workspaceId, repo, number), request.target(), request.commentId(), request.body());
+        return pullRequests.editComment(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number), request.target(), request.commentId(), request.body());
     }
 
     @PostMapping("/prs/reactions")
@@ -331,24 +347,27 @@ public class PullRequestController
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
             @RequestBody ReactionRequest request,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
         return new ReactionResponse(pullRequests.toggleReaction(
-                pullRequests.prepareRead(workspaceId, repo, number), request.target(), request.commentId(), request.content(), request.viewerHasReacted()));
+                pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number),
+                request.target(), request.commentId(), request.content(), request.viewerHasReacted()));
     }
 
     @PostMapping("/prs/close")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void close(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestParam(required = false) String workspaceId)
+    public void close(@RequestParam("repo") String repo, @RequestParam("number") int number,
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        pullRequests.closePullRequest(pullRequests.prepareRead(workspaceId, repo, number));
+        pullRequests.closePullRequest(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number));
     }
 
     @PostMapping("/prs/ready-for-review")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void readyForReview(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestParam(required = false) String workspaceId)
+    public void readyForReview(@RequestParam("repo") String repo, @RequestParam("number") int number,
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        pullRequests.markReadyForReview(pullRequests.prepareRead(workspaceId, repo, number));
+        pullRequests.markReadyForReview(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number));
     }
 
     @GetMapping("/prs/checks/log")
@@ -356,16 +375,17 @@ public class PullRequestController
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
             @RequestParam("jobId") long jobId,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        return pullRequests.readCheckLog(pullRequests.prepareRead(workspaceId, repo, number), jobId);
+        return pullRequests.readCheckLog(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number), jobId);
     }
 
     @PostMapping("/prs/checks/rerun-failed")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void rerunFailedChecks(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestParam(required = false) String workspaceId)
+    public void rerunFailedChecks(@RequestParam("repo") String repo, @RequestParam("number") int number,
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        pullRequests.rerunFailedChecks(pullRequests.prepareRead(workspaceId, repo, number));
+        pullRequests.rerunFailedChecks(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number));
     }
 
     @PostMapping("/prs/review-comments/{commentId}/replies")
@@ -374,9 +394,9 @@ public class PullRequestController
             @RequestParam("number") int number,
             @PathVariable("commentId") long commentId,
             @RequestBody CommentRequest request,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        pullRequests.replyToReviewComment(pullRequests.prepareRead(workspaceId, repo, number), commentId, request.body());
+        pullRequests.replyToReviewComment(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number), commentId, request.body());
         return ImmutableMap.of("result", "replied");
     }
 
@@ -386,9 +406,9 @@ public class PullRequestController
             @RequestParam("number") int number,
             @PathVariable("commentId") long commentId,
             @RequestBody ResolutionRequest request,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        pullRequests.setReviewThreadResolved(pullRequests.prepareRead(workspaceId, repo, number), commentId, request.resolved());
+        pullRequests.setReviewThreadResolved(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number), commentId, request.resolved());
         return ImmutableMap.of("result", request.resolved() ? "resolved" : "unresolved");
     }
 
@@ -398,9 +418,9 @@ public class PullRequestController
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
             @RequestParam(value = "autoMerge", defaultValue = "false") boolean autoMerge,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        pullRequests.removeFromMergeQueue(pullRequests.prepareRead(workspaceId, repo, number), autoMerge);
+        pullRequests.removeFromMergeQueue(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number), autoMerge);
     }
 
     @PostMapping("/prs/merge")
@@ -410,8 +430,8 @@ public class PullRequestController
             @RequestParam("id") long prId,
             @RequestParam("headSha") String headSha,
             @RequestParam(value = "strategy", required = false) String strategy,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        return pullRequests.mergePullRequest(pullRequests.prepareRead(workspaceId, repo, number), prId, strategy, headSha);
+        return pullRequests.mergePullRequest(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number), prId, strategy, headSha);
     }
 }

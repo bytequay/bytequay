@@ -16,7 +16,7 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import type { Bridge, RepositoryIssueSnapshotDto, RepositoryMetadataDto, WorkspaceIssueDetailDto } from '../../types';
 import type { WorkItemDecision, WorkItemDto } from '../../workitems/contracts';
-import { issueEpicId, lendEpicWorkspace, takeEpicStart } from '../epics';
+import { lendEpicWorkspace, takeEpicStart } from '../epics';
 import { workspaceRoute } from '../model';
 import WorkspaceIssuesScreen from '../WorkspaceIssuesScreen';
 import { assert, changeInput, settle, element, button } from '../../fixtures/harness';
@@ -47,7 +47,7 @@ function issueReads(issues: () => Issue[], repository = { owner: 'upstream', rep
 async function closeKeepsIssue(): Promise<void> {
   const writes: string[] = [];
   let issues = [7, 8, 9].map((number): Issue => ({
-    id: 7000 + number, number, title: `Issue ${number}`, body: 'Details', author: 'alice', authorAvatarUrl: '',
+    id: 7000 + number, epicId: `ISSUE:github.com:${7000 + number}`, number, title: `Issue ${number}`, body: 'Details', author: 'alice', authorAvatarUrl: '',
     htmlUrl: `https://github.com/upstream/app/issues/${number}`, labels: [], assignees: [], commentCount: 0,
     createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z',
   }));
@@ -85,7 +85,7 @@ async function closeKeepsIssue(): Promise<void> {
   try {
     flushSync(() => root.render(<WorkspaceIssuesScreen workspaceId="workspace-1" repository="upstream/app" initialIssueNumber={7} onSelectIssue={() => {}} />));
     await settle();
-    assert(host.querySelector('.attention-visit-status') === null && loadHandled()['issue:workspace-1:7'] === undefined,
+    assert(host.querySelector('.attention-visit-status') === null && loadHandled()['issue:workspace-1:upstream/app#7'] === undefined,
       'Viewing an issue retains its notification without a visit label while its detail stays open');
     type('Fixed in #30786'); await settle();
     const close = host.querySelector<HTMLButtonElement>('.pr-composer__close');
@@ -98,19 +98,19 @@ async function closeKeepsIssue(): Promise<void> {
     assert(host.querySelector('.attention-visit-status') === null,
       'Completed issue actions do not add a visit label to the toolbar');
     open(8); await settle();
-    assert(loadHandled()['issue:workspace-1:7']?.label === 'Updated state · Posted 1 comment', 'Leaving the issue acknowledges the completed visit');
+    assert(loadHandled()['issue:workspace-1:upstream/app#7']?.label === 'Updated state · Posted 1 comment', 'Leaving the issue acknowledges the completed visit');
     assert(row(7) === undefined && host.querySelector('.issues-list__count')?.textContent === '2', 'Leaving the closed issue drops it from the open list');
     type('Draft for #8'); await settle();
     open(9); await settle();
     assert(composer().value === '', 'A draft never follows the reader to another issue');
-    assert(loadHandled()['issue:workspace-1:8']?.label === 'Viewed', 'Unsent draft text does not count as a posted comment');
+    assert(loadHandled()['issue:workspace-1:upstream/app#8']?.label === 'Viewed', 'Unsent draft text does not count as a posted comment');
   }
   finally { flushSync(() => root.unmount()); host.remove(); }
 }
 
 async function zoomsOneIssue(): Promise<void> {
   const issues = [7, 8].map((number): Issue => ({
-    id: 7000 + number, number, title: `Issue ${number}`, body: 'Details', author: 'alice', authorAvatarUrl: '',
+    id: 7000 + number, epicId: `ISSUE:github.com:${7000 + number}`, number, title: `Issue ${number}`, body: 'Details', author: 'alice', authorAvatarUrl: '',
     htmlUrl: `https://github.com/upstream/app/issues/${number}`, labels: [], assignees: [], commentCount: 0,
     createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z',
   }));
@@ -145,7 +145,7 @@ async function zoomsOneIssue(): Promise<void> {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     await settle();
     assert(closed === 1, 'Escape leaves the zoom layer');
-    assert(baseHost.querySelector('.issues-detail') !== null && loadHandled()['issue:workspace-1:8']?.label === 'Viewed',
+    assert(baseHost.querySelector('.issues-detail') !== null && loadHandled()['issue:workspace-1:upstream/app#8']?.label === 'Viewed',
       'Leaving zoom handles the issue while the original detail stays mounted');
   }
   finally { flushSync(() => { root.unmount(); baseRoot.unmount(); }); host.remove(); baseHost.remove(); }
@@ -153,7 +153,7 @@ async function zoomsOneIssue(): Promise<void> {
 
 async function epicTabs(): Promise<void> {
   const issues = [24, 25].map((number): Issue => ({
-    id: 7000 + number, number, title: number === 24 ? 'Migrate every connector to MemoryContext' : 'Not an Epic', body: 'Follows #23', author: 'alice',
+    id: 7000 + number, epicId: `ISSUE:github.com:${7000 + number}`, number, title: number === 24 ? 'Migrate every connector to MemoryContext' : 'Not an Epic', body: 'Follows #23', author: 'alice',
     authorAvatarUrl: '', htmlUrl: `https://github.com/upstream/app/issues/${number}`, labels: [], assignees: [], commentCount: 0,
     createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z', isEpic: number === 24, developmentTask: null,
   }));
@@ -161,7 +161,7 @@ async function epicTabs(): Promise<void> {
   const decisions: number[] = [];
   const work = (id: string, title: string, state: WorkItemDto['state'], links: WorkItemDto['links'] = []): WorkItemDto => ({
     id, workspaceId: 'workspace-1', isEpic: false, contextLinks: [], title, kind: 'DEVELOP', acceptanceCriteria: '', completionRule: 'MERGED_DELIVERY', state, revision: 0, links,
-    history: [], createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z', priority: 'NORMAL', blockedBy: [], epicId: issueEpicId(7024),
+    history: [], createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z', priority: 'NORMAL', blockedBy: [], epicId: 'ISSUE:github.com:7024',
     epicRank: 0 });
   window.bridge = {
     ...issueReads(() => issues),
@@ -235,7 +235,7 @@ async function filtersLoadedIssues(): Promise<void> {
     { number: 41, title: 'Backport 7', author: 'bob', labels: ['enhancement'] },
     { number: 42, title: 'Repair connector', author: 'alice', labels: ['ui'] },
   ].map((issue): Issue => ({
-    ...issue, id: 7000 + issue.number, body: 'Details', authorAvatarUrl: '',
+    ...issue, id: 7000 + issue.number, epicId: `ISSUE:github.com:${7000 + issue.number}`, body: 'Details', authorAvatarUrl: '',
     htmlUrl: `https://github.com/upstream/app/issues/${issue.number}`, assignees: [], commentCount: 0,
     createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z',
   }));
@@ -369,7 +369,7 @@ async function closedIssueReminder(): Promise<void> {
     getWorkspaceMetadata: async (): Promise<RepositoryMetadataDto> => ({ repositoryId: 40, repository, contributors: [], labels: [], topics: [], contributorsSyncedAt: null, labelsTopicsSyncedAt: null }),
     recordRecentTouch: async () => {},
   } as unknown as Bridge;
-  const reminder = issueAttentionItem({ id: 7099, number: 99, title: 'Original title', body: 'Original body', author: 'alice', authorAvatarUrl: '',
+  const reminder = issueAttentionItem({ id: 7099, epicId: 'ISSUE:github.com:7099', number: 99, title: 'Original title', body: 'Original body', author: 'alice', authorAvatarUrl: '',
     htmlUrl: 'https://github.com/upstream/app/issues/99', labels: [], assignees: ['bob'], commentCount: 7, createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z' },
   'upstream/app', 'workspace-1');
   saveHandled({ [reminder.key]: handledEntry(reminder, 'snooze', Date.now() - 1000, '1 hour') });
@@ -391,7 +391,7 @@ async function closedIssueReminder(): Promise<void> {
     host.querySelector<HTMLButtonElement>('[aria-label="Refresh"]')?.click(); await settle();
     assert(previewReads === 2 && host.textContent?.includes(preview.body), 'Manual refresh updates the closed issue preview');
     host.querySelector<HTMLButtonElement>('[aria-label="Close issue details"]')?.click(); await settle();
-    assert(loadHandled()['issue:workspace-1:99']?.label === 'Viewed' && loadHandled()['issue:workspace-1:99']?.seenUpdatedAt === preview.updatedAt,
+    assert(loadHandled()['issue:workspace-1:upstream/app#99']?.label === 'Viewed' && loadHandled()['issue:workspace-1:upstream/app#99']?.seenUpdatedAt === preview.updatedAt,
       'Closing acknowledges the exact latest preview that was read');
     const latestReminder = await refreshSnoozedItem(reminder, window.bridge);
     assert(visibleAttention([latestReminder], loadHandled(), Date.now()).length === 0,

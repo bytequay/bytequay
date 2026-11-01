@@ -30,6 +30,7 @@ import java.util.Optional;
 import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
 import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
 import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.encode;
+import static com.google.common.base.Preconditions.checkArgument;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 record GitLabMergeRequestResponse(
@@ -57,12 +58,24 @@ record GitLabMergeRequestResponse(
         @JsonProperty("target_branch") String targetBranch,
         String sha,
         @JsonProperty("merge_commit_sha") String mergeCommitSha,
+        @JsonProperty("squash_commit_sha") String squashCommitSha,
         @JsonProperty("diff_refs") DiffRefs diffRefs,
         @JsonProperty("head_pipeline") Pipeline headPipeline,
         @JsonProperty("changes_count") String changesCount,
         @JsonProperty("merge_status") String mergeStatus,
-        @JsonProperty("detailed_merge_status") String detailedMergeStatus)
+        @JsonProperty("detailed_merge_status") String detailedMergeStatus,
+        @JsonProperty("user_notes_count") Integer userNotesCount,
+        References references)
 {
+    /** A request listed outside its project names that project in its full reference, such as {@code group/project!4}. */
+    String referencedProject()
+    {
+        String full = references.full();
+        int bang = full.lastIndexOf('!');
+        checkArgument(bang > 0, "invalid merge request reference");
+        return full.substring(0, bang);
+    }
+
     // Servers before the draft field report only work_in_progress.
     boolean isDraft()
     {
@@ -89,12 +102,16 @@ record GitLabMergeRequestResponse(
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Milestone(String title) {}
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record References(String full) {}
+
     /** start_sha is the target tip; base_sha is the merge base. */
     @JsonIgnoreProperties(ignoreUnknown = true)
     record DiffRefs(@JsonProperty("head_sha") String headSha, @JsonProperty("start_sha") String startSha, @JsonProperty("base_sha") String baseSha) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record Pipeline(long id, @JsonProperty("project_id") Long projectId, String status, @JsonProperty("web_url") String webUrl)
+    record Pipeline(long id, @JsonProperty("project_id") Long projectId, String sha, String status, @JsonProperty("web_url") String webUrl,
+            @JsonProperty("yaml_errors") String yamlErrors, Long iid)
     {
         /** Fork pipelines run in their source project, not the request's target project. */
         String projectPath(HostingRepository target)

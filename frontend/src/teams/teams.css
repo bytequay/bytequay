@@ -99,6 +99,7 @@
 .cir-select:hover, .cir-select[aria-expanded="true"] { background: light-dark(rgba(31, 35, 40, 0.06), rgb(210 220 235 / 6%)); }
 .cir-select > svg { flex: none; color: var(--fg-muted); }
 .bq-page-filters .atn-filters { margin-left: 0; }
+.cir-accounts { margin: 0 6px 0 0; }
 .cir-days { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 12.5px; }
 .cir-days input { width: 56px; height: 28px; box-sizing: border-box; padding: 0 8px; border: 1px solid var(--control-border); border-radius: 6px; font: inherit; font-size: 12.5px; }
 .cir-metric-chip { display: inline-flex; align-items: center; gap: 4px; height: 26px; box-sizing: border-box; padding: 0 4px 0 10px; border: 1px solid var(--accent-border);
@@ -350,6 +351,7 @@
 /* ── First use and loading ── */
 .cir-first { flex: 1; display: flex; align-items: flex-start; justify-content: center; padding: 96px 28px 40px; overflow-y: auto; }
 .cir-first__inner { width: 100%; max-width: 520px; }
+.cir-first .cir-accounts { display: flex; width: fit-content; margin: 0 0 20px; }
 .cir-first__icon { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 10px; background: light-dark(#f4f4f5, var(--dark-subtle)); color: var(--text-2); }
 .cir-first h1 { margin: 16px 0 0; font-size: 20px; font-weight: 600; line-height: 26px; letter-spacing: -0.2px; }
 .cir-first p { margin: 6px 0 0; color: var(--text-2); font-size: 13.5px; line-height: 20px; text-wrap: pretty; }

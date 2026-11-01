@@ -41,10 +41,10 @@ describe('Recent navigation', () => {
       .toEqual({ kind: 'pull', repo: 'owner/repository', number: 42, workspaceId: undefined });
     expect(recentItemTarget({ ...reference, type: 'PULL_REQUEST', itemKey: 'pr:owner/repository#42', workspaceId: 'workspace-1' }))
       .toEqual({ kind: 'pull', repo: 'owner/repository', number: 42, workspaceId: 'workspace-1' });
-    expect(recentItemTarget({ ...reference, type: 'ISSUE', itemKey: 'issue:owner/repository#42', workspaceId: 'workspace-1' }))
+    expect(recentItemTarget({ ...reference, type: 'ISSUE', itemKey: 'issue:workspace-1:owner/repository#42', workspaceId: 'workspace-1' }))
       .toEqual({ kind: 'issue', repo: 'owner/repository', number: 42, workspaceId: 'workspace-1' });
     // Only a watched repository's issue has a view to zoom.
-    expect(recentItemTarget({ ...reference, type: 'ISSUE', itemKey: 'issue:owner/repository#42', workspaceId: null })).toBeNull();
+    expect(recentItemTarget({ ...reference, type: 'ISSUE', itemKey: 'issue:workspace-1:owner/repository#42', workspaceId: null })).toBeNull();
   });
 
   it('opens a hosted pull request from its repository and number instead of its local cache id', () => {

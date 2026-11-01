@@ -13,6 +13,7 @@
  */
 import { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, CircleCheck, CloudOff, Eye, GitMerge, ListChecks, SquareCheck, type LucideIcon } from 'lucide-react';
+import CopyLinkButton from '@bytequay/ui/CopyLinkButton';
 import { plural } from '@bytequay/ui/displayText';
 import { IconButton, ItemRow } from '../cards/Card';
 import { getCached, setCached } from '../dataCache';
@@ -20,7 +21,9 @@ import { remoteErrorMessage } from '../remoteError';
 import { isoDay, shiftDay } from '../recent/model';
 import type { AgendaTargetDto, DoneActivityDto, DoneItemDto } from '../types';
 import { openTarget } from './TodayList';
+import { standupText } from './done';
 import { clockTime, dayText, todayRef } from './today';
+import type { WorkItem } from './work';
 import '../css/done.css';
 
 type Group = 'merged' | 'reviewed' | 'closed' | 'done';
@@ -73,9 +76,10 @@ function useDone(day: string): { activity: DoneActivityDto | null; error: string
 
 /**
  * What the viewer finished on one day: pull requests merged and reviewed, issues closed, and tasks and work items done. The arrows
- * step through days, a heatmap day opens its own, and the date goes back to today.
+ * step through days, a heatmap day opens its own, and the date goes back to today. Copy takes the day as stand-up notes, with My work
+ * as what is in progress.
  */
-export default function DoneList({ day, onDay }: { day: string; onDay: (day: string) => void }): React.JSX.Element {
+export default function DoneList({ day, onDay, work }: { day: string; onDay: (day: string) => void; work: WorkItem[] }): React.JSX.Element {
   const [all, setAll] = useState(false);
   const { activity, error } = useDone(day);
   const today = isoDay(new Date());
@@ -109,6 +113,7 @@ export default function DoneList({ day, onDay }: { day: string; onDay: (day: str
               <CloudOff size={13} aria-hidden="true" />
             </span>
           )}
+          {activity !== null && <CopyLinkButton label="stand-up notes" value={standupText(day, today, items, work)} />}
         </span>
       </div>
       {activity === null

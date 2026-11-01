@@ -364,7 +364,7 @@ function HomePage({
   }
 
   const todayList = <TodayList today={today} scope="global" facts={candidates} />;
-  const doneList = <DoneList day={doneDay ?? isoDay(new Date())} onDay={setDoneDay} />;
+  const doneList = <DoneList day={doneDay ?? isoDay(new Date())} onDay={setDoneDay} work={work} />;
 
   if (allWork) {
     return (

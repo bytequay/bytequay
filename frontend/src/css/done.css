@@ -45,3 +45,44 @@
   align-self: flex-start;
   font-size: 12.5px;
 }
+
+/* Copy: a borderless icon in the header's facts, green for a moment once copied. */
+.done .pr-copy-button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.done .pr-copy-button:hover {
+  background: light-dark(#f0f1f3, var(--dark-border-muted));
+  color: var(--text-1);
+}
+
+.done .pr-copy-button:focus-visible {
+  outline: 2px solid var(--control-strong);
+  outline-offset: 2px;
+}
+
+.done .pr-copy-button.is-copied {
+  color: var(--fg-success);
+}
+
+.done .pr-copy-button svg {
+  width: 13px;
+  height: 13px;
+}
+
+.done .pr-copy-button__message {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}

@@ -16,7 +16,7 @@ import { createFixtureRoot } from '../../fixtures/reactFixture';
 import '../../index.css';
 import AppSidebar from '../../AppSidebar';
 import AssistantPanel from '../AssistantPanel';
-import { AgentTaskBody } from '../../agents/AgentTaskScreen';
+import { AgentTaskBody } from '../../agents/AgentTaskBody';
 import { initialAgentTaskState, type AgentTaskState } from '../../agents/model';
 import { TASK_BODY_NOOPS, agentTurn, previewTask } from '../../agents/fixtures/previewBridge';
 import type { AgentEventEnvelope } from '../../agents/events';

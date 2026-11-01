@@ -15,7 +15,7 @@
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import AgentTasksView, { type TaskLaunch } from '../../agents/AgentTasksView';
-import { AgentTaskBody } from '../../agents/AgentTaskScreen';
+import { AgentTaskBody } from '../../agents/AgentTaskBody';
 import { useTaskAttention } from '../../agents/attention';
 import { agentTurn, createPreviewBridge, previewTask, TASK_BODY_NOOPS } from '../../agents/fixtures/previewBridge';
 import { NO_AGENT_CAPABILITIES } from '../../agents/capabilities';

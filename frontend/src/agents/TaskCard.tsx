@@ -18,7 +18,7 @@ import { getCached, setCached } from '../dataCache';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import RepoAvatar from '../RepoAvatar';
 import { displayModelName, laneLabel } from '../settings/model';
-import { TurnView } from './AgentTaskScreen';
+import { TurnView } from './AgentConversation';
 import TaskHeader from './TaskHeader';
 import { ProviderIcon } from './ProviderIcon';
 import { taskStatePill } from './taskStatus';

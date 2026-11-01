@@ -14,7 +14,7 @@
 
 import type { ComponentProps } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { AgentTaskBody } from '../AgentTaskScreen';
+import { AgentTaskBody } from '../AgentTaskBody';
 import { initialAgentTaskState, type AgentTaskState } from '../model';
 import { TASK_BODY_NOOPS } from './previewBridge';
 

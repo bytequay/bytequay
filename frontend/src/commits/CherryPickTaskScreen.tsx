@@ -17,7 +17,7 @@ import { Pill } from '@bytequay/ui/cards';
 import { shortDate } from '@bytequay/ui/displayText';
 import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import { AgentConversation, ConversationComposer, Spinner, useConversationHistory, type ConversationHistory } from '../agents/AgentConversation';
-import { TaskStats } from '../agents/AgentTaskScreen';
+import { TaskStats } from '../agents/TaskStats';
 import TaskPaneDivider from '../agents/TaskPaneDivider';
 import TaskHeader from '../agents/TaskHeader';
 import { executionTitle } from '../agents/taskList';

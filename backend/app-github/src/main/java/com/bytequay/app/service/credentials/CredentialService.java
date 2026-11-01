@@ -149,7 +149,8 @@ public class CredentialService
         if (!matches) {
             return ImmutableMap.of("GIT_CONFIG_COUNT", "0");
         }
-        String header = "Authorization: Basic " + Base64.getEncoder().encodeToString(("x-access-token:" + selected.access().token()).getBytes(StandardCharsets.UTF_8));
+        String credential = selected.access().server().provider().gitUser() + ":" + selected.access().token();
+        String header = "Authorization: Basic " + Base64.getEncoder().encodeToString(credential.getBytes(StandardCharsets.UTF_8));
         return ImmutableMap.of(
                 "GIT_CONFIG_COUNT", "2",
                 "GIT_CONFIG_KEY_0", "http." + base + ".extraHeader",

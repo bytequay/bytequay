@@ -196,8 +196,8 @@ class TestCredentialService
     }
 
     @ParameterizedTest
-    @CsvSource({"GITHUB,https://github.com", "GITLAB,https://gitlab.com", "GITLAB,https://gitlab.example.test:8443/gitlab"})
-    void boundAccountSuppliesGitCredentialsOnlyWithinItsServer(HostingProvider provider, String base)
+    @CsvSource({"GITHUB,https://github.com,x-access-token", "GITLAB,https://gitlab.com,oauth2", "GITLAB,https://gitlab.example.test:8443/gitlab,oauth2"})
+    void boundAccountSuppliesGitCredentialsOnlyWithinItsServer(HostingProvider provider, String base, String gitUser)
     {
         AppSettingsStore global = mock(AppSettingsStore.class);
         WorkspaceStore workspaces = mock(WorkspaceStore.class);
@@ -209,7 +209,8 @@ class TestCredentialService
 
         Map<String, String> environment = service.gitAuthenticationEnvironment("workspace-id", ImmutableList.of(base + "/group/subgroup/project.git"));
 
-        String header = "Authorization: Basic " + Base64.getEncoder().encodeToString("x-access-token:selected-token".getBytes(StandardCharsets.UTF_8));
+        // GitLab before 17.1 takes an OAuth token only from the user oauth2.
+        String header = "Authorization: Basic " + Base64.getEncoder().encodeToString((gitUser + ":selected-token").getBytes(StandardCharsets.UTF_8));
         assertThat(environment).containsExactlyInAnyOrderEntriesOf(ImmutableMap.<String, String>builder()
                 .put("GIT_CONFIG_COUNT", "2")
                 .put("GIT_CONFIG_KEY_0", "http." + base + "/.extraHeader")

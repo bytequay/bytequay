@@ -20,24 +20,27 @@ import java.util.List;
 
 public enum HostingProvider
 {
-    GITHUB(true, HostingCapabilities.ALL, "/issues/", "/pull/", "/commit/", ImmutableList.of(
+    GITHUB(true, HostingCapabilities.ALL, "x-access-token", "/issues/", "/pull/", "/commit/", ImmutableList.of(
             ".github/pull_request_template.md", ".github/PULL_REQUEST_TEMPLATE.md", "pull_request_template.md", "PULL_REQUEST_TEMPLATE.md",
             "docs/pull_request_template.md", "docs/PULL_REQUEST_TEMPLATE.md")),
-    GITLAB(false, new HostingCapabilities(false, false, true, true, false, true), "/-/issues/", "/-/merge_requests/", "/-/commit/",
+    // GitLab before 17.1 accepts an OAuth token over Git only with the user oauth2; personal tokens take any user.
+    GITLAB(false, new HostingCapabilities(false, false, true, true, false, true), "oauth2", "/-/issues/", "/-/merge_requests/", "/-/commit/",
             ImmutableList.of(".gitlab/merge_request_templates/Default.md"));
 
     private final boolean pathsIgnoreCase;
     private final HostingCapabilities capabilities;
+    private final String gitUser;
     private final String issuesPath;
     private final String pullRequestsPath;
     private final String commitsPath;
     private final List<String> pullRequestTemplates;
 
-    HostingProvider(boolean pathsIgnoreCase, HostingCapabilities capabilities, String issuesPath, String pullRequestsPath, String commitsPath,
+    HostingProvider(boolean pathsIgnoreCase, HostingCapabilities capabilities, String gitUser, String issuesPath, String pullRequestsPath, String commitsPath,
             List<String> pullRequestTemplates)
     {
         this.pathsIgnoreCase = pathsIgnoreCase;
         this.capabilities = capabilities;
+        this.gitUser = gitUser;
         this.issuesPath = issuesPath;
         this.pullRequestsPath = pullRequestsPath;
         this.commitsPath = commitsPath;
@@ -47,6 +50,12 @@ public enum HostingProvider
     public HostingCapabilities capabilities()
     {
         return capabilities;
+    }
+
+    /** The user name Git sends with an account token over HTTPS. */
+    public String gitUser()
+    {
+        return gitUser;
     }
 
     /** Whether two repository paths that differ only in case name the same repository on this provider. */

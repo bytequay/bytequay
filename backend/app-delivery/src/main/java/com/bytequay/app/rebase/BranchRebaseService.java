@@ -99,7 +99,7 @@ public class BranchRebaseService
      */
     public BranchRebase start(StartBranchRebaseCommand command)
     {
-        return ownership.executeTask(command.taskWorktree().taskId(), () -> startLocked(command));
+        return ownership.executeTask(command.agentTaskId(), () -> startLocked(command));
     }
 
     private synchronized BranchRebase startLocked(StartBranchRebaseCommand command)
@@ -138,7 +138,7 @@ public class BranchRebaseService
         BranchRebase proposed = BranchRebase.create(
                 BranchRebaseId.random(),
                 command.idempotencyKey(),
-                taskWorktree.taskId().toString(),
+                command.agentTaskId().toString(),
                 RepoRef.of(taskWorktree.physicalRepository().owner(), taskWorktree.physicalRepository().name()),
                 worktree,
                 workBranch,
@@ -414,11 +414,13 @@ public class BranchRebaseService
     private WorktreeSnapshot requireCallerScope(StartBranchRebaseCommand command)
     {
         TaskWorktree taskWorktree = command.taskWorktree();
-        AgentTask task = tasks.get(taskWorktree.taskId());
+        AgentTask task = tasks.get(command.agentTaskId());
         if (task.state() != TaskState.OPEN) {
             throw new BranchRebaseException("Agent task is not live");
         }
-        if (task.taskWorktree().filter(taskWorktree::equals).isEmpty()) {
+        AgentTask owner = task.id().equals(taskWorktree.taskId()) ? task : tasks.get(taskWorktree.taskId());
+        if (task.taskWorktree().map(TaskWorktree::taskId).filter(taskWorktree.taskId()::equals).isEmpty()
+                || owner.taskWorktree().filter(taskWorktree::equals).isEmpty()) {
             throw new BranchRebaseException("Agent task does not own this repository worktree");
         }
         WorktreeSnapshot snapshot = worktrees.inspect(taskWorktree);
@@ -476,7 +478,7 @@ public class BranchRebaseService
 
     private static boolean sameRequest(BranchRebase rebase, StartBranchRebaseCommand command)
     {
-        return rebase.agentTaskId().equals(command.taskWorktree().taskId().toString())
+        return rebase.agentTaskId().equals(command.agentTaskId().toString())
                 && rebase.repository().equals(RepoRef.of(
                         command.taskWorktree().physicalRepository().owner(),
                         command.taskWorktree().physicalRepository().name()))

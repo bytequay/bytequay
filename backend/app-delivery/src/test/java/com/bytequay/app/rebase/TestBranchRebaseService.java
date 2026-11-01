@@ -109,6 +109,7 @@ class TestBranchRebaseService
     private RebaseSequencerDriver driver;
     private BranchRebaseService service;
     private CiAutofixStore ciRuns;
+    private AgentTaskService tasks;
 
     @BeforeEach
     void setUp()
@@ -124,7 +125,7 @@ class TestBranchRebaseService
         driver = new RebaseSequencerDriver(GIT);
         ciRuns = mock(CiAutofixStore.class);
 
-        AgentTaskService tasks = mock(AgentTaskService.class);
+        tasks = mock(AgentTaskService.class);
         WorktreeService worktrees = mock(WorktreeService.class);
         AgentTask task = created(
                 taskId,
@@ -488,15 +489,46 @@ class TestBranchRebaseService
                 .hasMessageContaining("generated task branch");
 
         git(repository, "checkout", "--quiet", workBranch());
-        StartBranchRebaseCommand same = new StartBranchRebaseCommand(taskWorktree, workBranch(), "same-branch");
+        StartBranchRebaseCommand same = new StartBranchRebaseCommand(taskId, taskWorktree, workBranch(), "same-branch");
         assertThatThrownBy(() -> service.start(same))
                 .isInstanceOf(BranchRebaseException.class)
                 .hasMessageContaining("same");
 
-        StartBranchRebaseCommand remote = new StartBranchRebaseCommand(taskWorktree, "refs/remotes/origin/main", "remote-ref");
+        StartBranchRebaseCommand remote = new StartBranchRebaseCommand(taskId, taskWorktree, "refs/remotes/origin/main", "remote-ref");
         assertThatThrownBy(() -> service.start(remote))
                 .isInstanceOf(BranchRebaseException.class)
                 .hasMessageContaining("valid local branch");
+    }
+
+    @Test
+    void resolvesConflictsWithTheNamedTaskInAnotherTasksWorktree()
+    {
+        TaskId borrowerId = TaskId.random();
+        when(tasks.get(borrowerId)).thenReturn(created(borrowerId, false, "CI Autofix", TitleSource.USER, AgentLaneId.CLAUDE_CLI, taskWorktree,
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.CI_AUTOFIX), NOW));
+        conflict();
+
+        BranchRebase rebase = service.start(new StartBranchRebaseCommand(borrowerId, taskWorktree, "main", "borrower"));
+        assertThat(rebase.agentTaskId()).isEqualTo(borrowerId.toString());
+        rebase = service.advance(service.advance(rebase.id()).id());
+
+        assertThat(turns.service.get(TurnId.valueOf(rebase.currentTurnId().orElseThrow())).taskId()).isEqualTo(borrowerId);
+    }
+
+    @Test
+    void refusesATaskThatWorksInAnotherWorktree()
+            throws IOException
+    {
+        TaskId otherId = TaskId.random();
+        Path otherCheckout = Files.createDirectories(temporaryDirectory.resolve(otherId.toString()));
+        TaskWorktree other = new TaskWorktree(otherId, "workspace-1", REPOSITORY_ID, otherCheckout, "bytequay/task/" + otherId, "a".repeat(40));
+        when(tasks.get(otherId)).thenReturn(created(otherId, false, "Other", TitleSource.USER, AgentLaneId.CLAUDE_CLI, other,
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.CI_AUTOFIX), NOW));
+        cleanDivergence();
+
+        assertThatThrownBy(() -> service.start(new StartBranchRebaseCommand(otherId, taskWorktree, "main", "outside")))
+                .isInstanceOf(BranchRebaseException.class)
+                .hasMessageContaining("does not own");
     }
 
     @Test
@@ -515,7 +547,7 @@ class TestBranchRebaseService
     {
         cleanDivergence();
         service.start(command("same-request-key"));
-        StartBranchRebaseCommand changed = new StartBranchRebaseCommand(taskWorktree, workBranch(), "same-request-key");
+        StartBranchRebaseCommand changed = new StartBranchRebaseCommand(taskId, taskWorktree, workBranch(), "same-request-key");
 
         assertThatThrownBy(() -> service.start(changed))
                 .isInstanceOf(BranchRebaseException.class)
@@ -548,7 +580,7 @@ class TestBranchRebaseService
 
     private StartBranchRebaseCommand command(String key)
     {
-        return new StartBranchRebaseCommand(taskWorktree, "main", key);
+        return new StartBranchRebaseCommand(taskId, taskWorktree, "main", key);
     }
 
     private void seed()

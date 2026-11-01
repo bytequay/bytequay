@@ -348,7 +348,8 @@ public class CherryPickDelivery
             // The execution's agent task is held to exactly this worktree each time the execution advances.
             TaskWorktree taskWorktree = new TaskWorktree(TaskId.valueOf(current.agentTaskId().orElseThrow()), current.workspace().workspaceId(),
                     repositoryIdentity(current.workspace().physicalRepository()), worktree, current.workspace().workBranch(), current.range().initialTargetSha());
-            rebase = rebases.start(new StartBranchRebaseCommand(taskWorktree, current.workspace().localTargetBranch(), "cherry-pick-rebase:" + current.id() + ":" + number));
+            rebase = rebases.start(new StartBranchRebaseCommand(
+                    taskWorktree.taskId(), taskWorktree, current.workspace().localTargetBranch(), "cherry-pick-rebase:" + current.id() + ":" + number));
         }
         catch (RuntimeException failure) {
             return hold(current, Reason.REBASE_FAILED, "Could not start the rebase: " + failure.getMessage());

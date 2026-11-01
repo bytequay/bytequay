@@ -1282,6 +1282,7 @@ public class CiAutofixService
         try {
             ownership.require(run);
             BranchRebase rebase = rebaseService.start(new StartBranchRebaseCommand(
+                    task.id(),
                     workspace.worktree(),
                     synchronization.localBaseBranch().orElseThrow(),
                     rebaseKey(run, workspace.head(), snapshot.baseSha())));

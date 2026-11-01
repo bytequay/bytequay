@@ -13,16 +13,18 @@
  */
 package com.bytequay.app.rebase;
 
+import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
-/** Exact local scope authorized for one branch rebase. */
-public record StartBranchRebaseCommand(TaskWorktree taskWorktree, String baseBranch, String idempotencyKey)
+/** Exact local scope authorized for one branch rebase; the agent task resolves its conflicts, possibly in another task's worktree. */
+public record StartBranchRebaseCommand(TaskId agentTaskId, TaskWorktree taskWorktree, String baseBranch, String idempotencyKey)
 {
     public StartBranchRebaseCommand
     {
+        requireNonNull(agentTaskId, "agentTaskId is null");
         requireNonNull(taskWorktree, "taskWorktree is null");
         checkText(baseBranch, "baseBranch", 255);
         checkText(idempotencyKey, "idempotencyKey", 200);

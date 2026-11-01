@@ -17,16 +17,17 @@ import YearInCodeHeatmap from '../YearInCodeHeatmap';
 
 type Props = {
   profile: UserProfileDto | null;
+  onSelectDay?: (date: string) => void;
 };
 
 /** The home page's lead card: contribution graph with a compact profile bio. */
-function ContributionCard({ profile }: Props) {
+function ContributionCard({ profile, onSelectDay }: Props) {
   return (
     <div className="home-card home-contrib">
       <div className="home-contrib__top">
         <div className="home-contrib__graph">
           {profile
-            ? <YearInCodeHeatmap login={profile.login} />
+            ? <YearInCodeHeatmap login={profile.login} onSelectDay={onSelectDay} />
             : <div className="hp-loading">Loading…</div>}
         </div>
         {profile && (

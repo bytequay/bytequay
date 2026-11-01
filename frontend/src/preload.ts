@@ -76,6 +76,7 @@ const bridge: Bridge = {
   fetchAttentionPrs: invoke('prs:attention'),
   findStoredPullRequest: invoke('prs:stored'),
   fetchAuthoredIssues: invoke('issues:authored'),
+  fetchDone: invoke('done:list'),
   findStoredPullRequestDescription: invoke('prs:stored:description'),
   setPrMonitored: invoke('prs:monitor'),
   setPrAttentionHandled: invoke('prs:attention:handled'),

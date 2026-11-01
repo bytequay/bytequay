@@ -1,0 +1,47 @@
+/* ── Done ────────────────────────────────────────────────────────
+   One day's finished work under Home's Today (home/DoneList.tsx): Today's header and the shared box of rows, an icon tinted by
+   what happened. */
+
+.done-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.done-nav__day {
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.done-nav__day:hover {
+  color: var(--text-1);
+}
+
+.done-nav__day:focus-visible,
+.done-more:focus-visible {
+  outline: 2px solid var(--control-strong);
+  outline-offset: 2px;
+}
+
+.done-list {
+  margin-top: 0;
+}
+
+.done-row__icon {
+  display: inline-flex;
+  color: var(--fg-success);
+}
+
+.done-row:is(.is-merged, .is-merged-by-you, .is-issue-closed) .done-row__icon { color: var(--fg-purple); }
+.done-row.is-changes-requested .done-row__icon { color: var(--fg-warning); }
+.done-row.is-reviewed .done-row__icon { color: var(--fg-muted); }
+
+.done-more {
+  align-self: flex-start;
+  font-size: 12.5px;
+}

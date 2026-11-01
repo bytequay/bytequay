@@ -101,8 +101,11 @@ function formatTipDate(iso: string): string {
  * <p>Each cell's intensity level comes from GitHub's GraphQL response
  * (its palette hex encodes the bucket), repainted with the app's warm
  * ramp so the graph matches the rest of the visual system.
+ *
+ * <p>onSelectDay hears every clicked day, so Home's Done can open it even
+ * when no commit was made.
  */
-export default function YearInCodeHeatmap({ login }: { login: string }) {
+export default function YearInCodeHeatmap({ login, onSelectDay }: { login: string; onSelectDay?: (date: string) => void }) {
   const [data, setData] = useState<ContributionCalendarDto | null>(
     () => getCached<ContributionCalendarDto>(cacheKey(login)) ?? getStoredCalendar(cacheKey(login))?.value ?? null,
   );
@@ -273,6 +276,7 @@ export default function YearInCodeHeatmap({ login }: { login: string }) {
                 onMouseMove={(e) => setHover({ day, clientX: e.clientX, clientY: e.clientY })}
                 onMouseLeave={() => setHover(null)}
                 onClick={(e) => {
+                  onSelectDay?.(day.date);
                   // Zero-commit cubes have nothing to unfold — skip
                   // the network roundtrip and the empty popover.
                   if (day.contributionCount === 0) return;

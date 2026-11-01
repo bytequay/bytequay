@@ -14,6 +14,8 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.core.domain.ContributionCalendar;
+import com.bytequay.core.domain.DoneActivity;
+import com.bytequay.core.domain.DoneItem;
 import com.bytequay.core.domain.RecentEvent;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserCommitSummary;
@@ -22,6 +24,8 @@ import com.bytequay.core.domain.UserRepo;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -34,9 +38,16 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
 import static com.bytequay.app.repository.github.GitHubApiSupport.get;
@@ -54,6 +65,22 @@ import static java.util.Objects.requireNonNull;
 public class GitHubAccountClient
 {
     private static final Logger log = LoggerFactory.getLogger(GitHubAccountClient.class);
+    private static final DateTimeFormatter SEARCH_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX");
+    private static final String DONE_QUERY = """
+            query($login: String!, $authored: String!, $reviewed: String!, $issues: String!, $from: DateTime!, $to: DateTime!) {
+              authored: search(query: $authored, type: ISSUE, first: 100) { nodes { ...pull } }
+              reviewed: search(query: $reviewed, type: ISSUE, first: 100) { nodes { ...pull } }
+              issues: search(query: $issues, type: ISSUE, first: 100) { nodes { ... on Issue { number title closedAt repository { nameWithOwner } } } }
+              user(login: $login) {
+                contributionsCollection(from: $from, to: $to) {
+                  pullRequestReviewContributions(first: 100) {
+                    nodes { occurredAt pullRequestReview { state } pullRequest { number title author { login } repository { nameWithOwner } } }
+                  }
+                }
+              }
+            }
+            fragment pull on PullRequest { number title mergedAt author { login } mergedBy { login } repository { nameWithOwner } }
+            """;
 
     private final RestClient gitHubRestClient;
     private final RestClient graphqlRestClient;
@@ -223,6 +250,120 @@ public class GitHubAccountClient
     record ContributionGqlWeek(List<ContributionGqlDay> contributionDays) {}
 
     record ContributionGqlDay(String date, Integer contributionCount, String color) {}
+
+    /**
+     * The viewer's pull requests merged, the ones they merged for others, their reviews, and the issues assigned to them that closed as
+     * completed, between {@code from} and {@code to} inclusive. Search takes the times with their offset, so days follow the wall clock.
+     * A pull request the viewer merged is found only when they also reviewed it, since search has no qualifier for who merged.
+     */
+    public DoneActivity fetchDone(String pat, String login, ZonedDateTime from, ZonedDateTime to)
+    {
+        String range = SEARCH_TIME.format(from) + ".." + SEARCH_TIME.format(to);
+        Map<String, Object> variables = ImmutableMap.of(
+                "login", login,
+                "authored", "is:pr is:merged author:" + login + " merged:" + range,
+                "reviewed", "is:pr is:merged reviewed-by:" + login + " merged:" + range,
+                "issues", "is:issue is:closed reason:completed assignee:" + login + " closed:" + range,
+                "from", from.toInstant().toString(),
+                "to", to.toInstant().toString());
+        DoneGqlResponse response = translating(() -> graphql(graphqlRestClient, pat, DONE_QUERY, variables).body(DoneGqlResponse.class));
+        if (response == null || response.data() == null) {
+            throw new IllegalStateException("GitHub returned no finished work: " + (response == null ? "empty response" : response.errors()));
+        }
+        DoneGqlData data = response.data();
+        Map<String, DoneItem> merges = new LinkedHashMap<>();
+        for (DoneGqlNode pull : Iterables.concat(nodes(data.authored()), nodes(data.reviewed()))) {
+            if (!pull.complete() || pull.mergedAt() == null) {
+                continue;
+            }
+            DoneItem.Kind kind = login.equalsIgnoreCase(pull.authorLogin()) ? DoneItem.Kind.MERGED
+                    : pull.mergedBy() != null && login.equalsIgnoreCase(pull.mergedBy().login()) ? DoneItem.Kind.MERGED_BY_YOU : null;
+            if (kind != null) {
+                merges.putIfAbsent(pull.key(), DoneItem.github(kind, pull.title(), pull.repo(), pull.number(), Instant.parse(pull.mergedAt())));
+            }
+        }
+        List<DoneItem> items = Lists.newArrayList(merges.values());
+        nodes(data.issues()).stream().filter(issue -> issue.complete() && issue.closedAt() != null)
+                .map(issue -> DoneItem.github(DoneItem.Kind.ISSUE_CLOSED, issue.title(), issue.repo(), issue.number(), Instant.parse(issue.closedAt())))
+                .forEach(items::add);
+        // One row per reviewed pull request: a verdict outranks a later comment, and a merge says more than the review before it.
+        Optional.ofNullable(data.user()).map(DoneGqlUser::contributionsCollection).map(DoneGqlContributions::pullRequestReviewContributions)
+                .map(DoneGqlReviews::nodes).orElse(ImmutableList.of()).stream()
+                .filter(review -> review != null && review.occurredAt() != null && review.pullRequest() != null && review.pullRequest().complete())
+                .filter(review -> !login.equalsIgnoreCase(review.pullRequest().authorLogin()) && !merges.containsKey(review.pullRequest().key()))
+                .collect(Collectors.groupingBy(review -> review.pullRequest().key(), LinkedHashMap::new,
+                        Collectors.maxBy(comparing((DoneGqlReview review) -> review.kind() != DoneItem.Kind.REVIEWED).thenComparing(DoneGqlReview::occurredAt))))
+                .values().stream().flatMap(Optional::stream)
+                .map(DoneGqlReview::item)
+                .forEach(items::add);
+        items.sort(comparing(DoneItem::at).reversed());
+        return new DoneActivity(items, response.errors() == null || response.errors().isEmpty());
+    }
+
+    private static List<DoneGqlNode> nodes(DoneGqlSearch search)
+    {
+        return search == null || search.nodes() == null ? ImmutableList.of() : search.nodes().stream().filter(Objects::nonNull).collect(toImmutableList());
+    }
+
+    record DoneGqlResponse(DoneGqlData data, List<ContributionGqlError> errors) {}
+
+    record DoneGqlData(DoneGqlSearch authored, DoneGqlSearch reviewed, DoneGqlSearch issues, DoneGqlUser user) {}
+
+    record DoneGqlSearch(List<DoneGqlNode> nodes) {}
+
+    /** A pull request or issue; search answers other kinds with an empty node. */
+    record DoneGqlNode(Integer number, String title, String mergedAt, String closedAt, DoneGqlLogin author, DoneGqlLogin mergedBy, DoneGqlRepository repository)
+    {
+        boolean complete()
+        {
+            return number != null && title != null && !title.isBlank() && repository != null && repository.nameWithOwner() != null;
+        }
+
+        String repo()
+        {
+            return repository.nameWithOwner();
+        }
+
+        String key()
+        {
+            return (repo() + "#" + number).toLowerCase(Locale.ROOT);
+        }
+
+        String authorLogin()
+        {
+            return author == null ? null : author.login();
+        }
+    }
+
+    record DoneGqlLogin(String login) {}
+
+    record DoneGqlRepository(String nameWithOwner) {}
+
+    record DoneGqlUser(DoneGqlContributions contributionsCollection) {}
+
+    record DoneGqlContributions(DoneGqlReviews pullRequestReviewContributions) {}
+
+    record DoneGqlReviews(List<DoneGqlReview> nodes) {}
+
+    record DoneGqlReview(String occurredAt, DoneGqlReviewState pullRequestReview, DoneGqlNode pullRequest)
+    {
+        DoneItem item()
+        {
+            return DoneItem.github(kind(), pullRequest.title(), pullRequest.repo(), pullRequest.number(), Instant.parse(occurredAt));
+        }
+
+        DoneItem.Kind kind()
+        {
+            String state = pullRequestReview == null ? "" : String.valueOf(pullRequestReview.state());
+            return switch (state) {
+                case "APPROVED" -> DoneItem.Kind.APPROVED;
+                case "CHANGES_REQUESTED" -> DoneItem.Kind.CHANGES_REQUESTED;
+                default -> DoneItem.Kind.REVIEWED;
+            };
+        }
+    }
+
+    record DoneGqlReviewState(String state) {}
 
     public List<UserCommitSummary> fetchUserCommitsOnDate(
             String pat, String login, String isoDate) {

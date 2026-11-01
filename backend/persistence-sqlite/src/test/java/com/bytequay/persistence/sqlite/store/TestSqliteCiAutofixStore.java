@@ -14,6 +14,13 @@
 package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.agent.core.AgentStorageException;
+import com.bytequay.agent.core.AgentTaskDefaults;
+import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskWorktree;
+import com.bytequay.agent.core.TitleSource;
+import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.core.ci.CiAutofixAttempt;
 import com.bytequay.core.ci.CiAutofixAttempt.CiResult;
 import com.bytequay.core.ci.CiAutofixAttempt.FailureEvidence;
@@ -61,6 +68,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -80,6 +88,9 @@ class TestSqliteCiAutofixStore
 
     @Autowired
     private BranchRebaseStore rebases;
+
+    @Autowired
+    private SqliteAgentTaskStore taskStore;
 
     @Autowired
     private CiAutofixAttemptJpaRepository attemptRepository;
@@ -341,25 +352,34 @@ class TestSqliteCiAutofixStore
     {
         CiAutofixRun prototype = newRun("owned", "owned-feature", NOW);
         Scope scope = prototype.scope();
+        TaskId parent = TaskId.random();
+        TaskWorktree checkout = new TaskWorktree(parent, scope.workspaceId(), new RepositoryIdentity("bytequay", "physical"), Path.of("/tmp/ci-store").resolve(parent.toString()),
+                "bytequay/task/" + parent, HEAD);
+        TaskId repair = TaskId.random();
+        taskStore.insert(created(parent, true, "Development", TitleSource.USER, AgentLaneId.CODEX_CLI, checkout, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW));
+        taskStore.insert(created(repair, false, "CI Autofix", TitleSource.USER, AgentLaneId.CODEX_CLI, checkout,
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.CI_AUTOFIX), NOW));
         CiAutofixRun owned = CiAutofixRun.create(prototype.id(), prototype.startIdempotencyKey(),
                 new Scope(scope.pullRequest(), scope.headRepository(), scope.workspaceId(), scope.physicalRepository(), scope.author(),
-                        scope.headRef(), scope.baseRef(), scope.laneId(), Optional.of("parent-task")), HEAD, HEAD, BASE, prototype.authorization(), NOW)
-                .assignAgentTask("owned-child", NOW);
+                        scope.headRef(), scope.baseRef(), scope.laneId(), Optional.of(parent.toString())), HEAD, HEAD, BASE, prototype.authorization(), NOW)
+                .assignAgentTask(repair.toString(), NOW);
         store.insert(owned);
         CiAutofixRun standalone = newRun("standalone", "standalone-feature", NOW.plusSeconds(1));
         store.insert(standalone);
-        BranchRebase rebase = rebases.createOrGet(BranchRebase.create(BranchRebaseId.random(), "owned-rebase", "owned-child", RepoRef.of("bytequay", "physical"),
-                Path.of("/tmp/owned-child"), "owned-feature", "main", HEAD, BASE, NOW));
+        BranchRebase rebase = rebases.createOrGet(BranchRebase.create(BranchRebaseId.random(), "owned-rebase", repair.toString(), RepoRef.of("bytequay", "physical"),
+                checkout.canonicalWorktree(), "owned-feature", "main", HEAD, BASE, NOW));
 
-        assertThat(store.listByParentTaskId("parent-task")).containsExactly(owned);
+        assertThat(store.listByParentTaskId(parent.toString())).containsExactly(owned);
         assertThat(store.findByActiveBranch("BYTEQUAY/SAMPLE", "owned-feature")).contains(owned);
         assertThat(store.listNonFinished(1)).containsExactly(owned);
         assertThat(store.listNonFinished(10)).containsExactly(owned, standalone);
         assertThat(rebases.listRunning(10)).contains(rebase);
         assertThat(rebases.listIndependentlyRunning(10)).doesNotContain(rebase);
 
+        // The finished run releases its development task's repair task, whose rebases still advance only through a run.
         CiAutofixRun terminal = store.update(owned.finish(FinishReason.CANCELLED, "Source deleted local child", NOW.plusSeconds(2)));
-        assertThat(store.listByParentTaskId("parent-task")).containsExactly(terminal);
+        assertThat(terminal.agentTaskId()).isEmpty();
+        assertThat(store.listByParentTaskId(parent.toString())).containsExactly(terminal);
         assertThat(store.findByActiveBranch("bytequay/sample", "owned-feature")).isEmpty();
         assertThat(rebases.listIndependentlyRunning(10)).doesNotContain(rebase);
     }

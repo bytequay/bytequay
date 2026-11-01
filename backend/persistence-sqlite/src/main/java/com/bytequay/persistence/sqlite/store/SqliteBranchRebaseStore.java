@@ -13,6 +13,7 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.core.rebase.BranchRebase;
 import com.bytequay.core.rebase.BranchRebase.Status;
 import com.bytequay.core.rebase.BranchRebaseId;
@@ -94,7 +95,7 @@ public class SqliteBranchRebaseStore
     {
         checkArgument(limit >= 1 && limit <= MAX_LIST_LIMIT, "limit must be between 1 and " + MAX_LIST_LIMIT);
         return read("Cannot list independently scheduled branch rebases",
-                () -> repository.findIndependentlyRunning(Status.RUNNING, PageRequest.of(0, limit)).stream()
+                () -> repository.findIndependentlyRunning(Status.RUNNING, AgentPermissionPolicy.CI_AUTOFIX, PageRequest.of(0, limit)).stream()
                         .map(BranchRebaseEntity::toRebase)
                         .collect(toImmutableList()),
                 StorageException::new);

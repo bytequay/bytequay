@@ -328,7 +328,7 @@ class TestAgentHttpErrors
         mvc.perform(get("/agent/tasks/{taskId}", task.id()).queryParam("workspaceId", "workspace-1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.developmentCi.runId").value(run.id().toString()))
-                .andExpect(jsonPath("$.developmentCi.activity").value("PREPARING_AGENT"))
+                .andExpect(jsonPath("$.developmentCi.activity").value("WATCHING_CI"))
                 .andExpect(jsonPath("$.developmentCi.attemptsUsed").value(0))
                 .andExpect(jsonPath("$.developmentCi.maxAttempts").value(3))
                 .andExpect(jsonPath("$.developmentCi.canMessage").value(false))

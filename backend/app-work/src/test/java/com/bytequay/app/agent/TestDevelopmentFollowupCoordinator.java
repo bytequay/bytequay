@@ -96,7 +96,6 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -1495,42 +1494,6 @@ class TestDevelopmentFollowupCoordinator
         verify(ci, never()).advance(any());
         verify(writes, never()).markReady(any(), any(), anyInt());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
-    }
-
-    @Test
-    void acceptedTurnStartsFromCiRepairsOfACleanSource()
-    {
-        when(ci.repairedHead(taskId, BASE)).thenReturn(Optional.of(NEXT));
-        when(git.capture(task)).thenReturn(new DevelopmentBaseline(worktree, route, local(BASE, false)), new DevelopmentBaseline(worktree, route, local(NEXT, false)));
-        AgentTurn turn = running(FULL);
-        history.add(turn);
-        coordinator.accepted(task, turn);
-        verify(git).synchronizeSource(new DevelopmentBaseline(worktree, route, local(BASE, false)), BASE, NEXT);
-        verify(git, times(2)).capture(task);
-    }
-
-    @Test
-    void acceptedTurnKeepsADirtySourceWhereItIs()
-    {
-        when(ci.repairedHead(taskId, BASE)).thenReturn(Optional.of(NEXT));
-        when(git.capture(task)).thenReturn(new DevelopmentBaseline(worktree, route, local(BASE, true)));
-        AgentTurn turn = running(FULL);
-        history.add(turn);
-        coordinator.accepted(task, turn);
-        verify(git, never()).synchronizeSource(any(), anyString(), anyString());
-    }
-
-    @Test
-    void failedRepairSynchronizationStillStartsTheTurn()
-    {
-        when(ci.repairedHead(taskId, BASE)).thenReturn(Optional.of(NEXT));
-        when(git.capture(task)).thenReturn(new DevelopmentBaseline(worktree, route, local(BASE, false)));
-        when(git.synchronizeSource(any(), anyString(), anyString())).thenThrow(new IllegalStateException("Source HEAD changed before synchronization"));
-        AgentTurn turn = running(FULL);
-        history.add(turn);
-        coordinator.accepted(task, turn);
-        verify(git, times(1)).capture(task);
-        verify(turnStore).findActive(taskId);
     }
 
     @Test

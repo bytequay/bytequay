@@ -215,7 +215,7 @@ class TestDevelopmentCiOwnership
     }
 
     @Test
-    void parentIsBusyWhileItsTurnOrAutomationOwnsTheBranchButNotForALocalRun()
+    void parentIsBusyWhileItsTurnAutomationOrALocalRunUsesTheCheckout()
     {
         AgentTask parent = task(FORK);
         CiAutofixRun run = run(parent, FORK, Optional.of(parent.id().toString()));
@@ -223,7 +223,7 @@ class TestDevelopmentCiOwnership
         assertThat(ownership.parentBusy(run)).isFalse();
 
         when(tasks.find(parent.id())).thenReturn(Optional.of(parent.claimWorktreeMutation(WorktreeMutationClaim.localRun("tears", NOW), NOW)));
-        assertThat(ownership.parentBusy(run)).isFalse();
+        assertThat(ownership.parentBusy(run)).isTrue();
 
         when(tasks.find(parent.id())).thenReturn(Optional.of(parent.claimWorktreeMutation(WorktreeMutationClaim.turn(TurnId.random(), NOW), NOW)));
         assertThat(ownership.parentBusy(run)).isTrue();

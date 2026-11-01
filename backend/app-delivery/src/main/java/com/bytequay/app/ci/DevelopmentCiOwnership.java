@@ -22,7 +22,6 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnId;
-import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
@@ -110,13 +109,20 @@ public final class DevelopmentCiOwnership
         }
     }
 
-    /** Whether the development task is working on its branch, so its CI runs must not start another repair. */
+    /** Whether the development task is working in its checkout, a local command included, so its CI runs must not write it. */
     public boolean parentBusy(CiAutofixRun run)
     {
         return run.scope().parentTaskId().isPresent() && tasks.find(parent(run))
-                .filter(task -> task.developmentContinuationUnfinished()
-                        || task.worktreeMutationClaim().filter(claim -> claim.kind() != WorktreeMutationClaim.Kind.LOCAL_RUN).isPresent())
+                .filter(task -> task.developmentContinuationUnfinished() || task.worktreeMutationClaim().isPresent())
                 .isPresent();
+    }
+
+    /** The development task's checkout, which its CI repairs work in. */
+    TaskWorktree parentWorktree(CiAutofixRun run)
+    {
+        TaskId parent = parent(run);
+        return tasks.find(parent).flatMap(AgentTask::taskWorktree).filter(worktree -> worktree.taskId().equals(parent))
+                .orElseThrow(() -> new CiAutofixConflictException("The development task's checkout is unavailable"));
     }
 
     public void requireSourceAdmission(AgentTask task)

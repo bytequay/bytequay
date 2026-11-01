@@ -129,6 +129,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
@@ -254,6 +255,12 @@ class TestCiAutofixService
                 Files.size(log))), false, ImmutableList.of("error: compilation failed"), Optional.empty(), Optional.empty(), true));
         when(worktreeService.inspect(any())).thenAnswer(invocation -> new WorktreeSnapshot(invocation.getArgument(0), HEAD, false, false, false));
         when(taskService.create(any())).thenAnswer(invocation -> task(invocation.getArgument(0)));
+        when(taskService.createShared(any(), any())).thenAnswer(invocation -> sharedTask(invocation.getArgument(0), invocation.getArgument(1)));
+        doAnswer(invocation -> {
+            Consumer<AgentTask> action = invocation.getArgument(1);
+            action.accept(taskStore.find(invocation.getArgument(0)).orElseThrow());
+            return null;
+        }).when(turnService).shareWorktree(any(), any());
         when(taskService.get(any())).thenAnswer(invocation -> {
             TaskId requested = invocation.getArgument(0);
             if (!requested.equals(taskId)) {
@@ -1980,15 +1987,16 @@ class TestCiAutofixService
         Instant activated = NOW.minus(Duration.ofDays(3));
         doAnswer(invocation -> {
             assertThat(store.run.scope().parentTaskId()).contains(parent.id().toString());
-            return task(invocation.getArgument(0));
-        }).when(taskService).create(any());
+            return sharedTask(invocation.getArgument(0), invocation.getArgument(1));
+        }).when(taskService).createShared(any(), any());
 
         CiAutofixRun run = service.startDevelopment(startCommand("development"), parent.id(), publishedPr(), activated);
         assertThat(run.authorization().authorizedAt()).isEqualTo(activated);
         assertThat(run.status()).isEqualTo(Status.ACTIVE);
         assertThat(service.startDevelopment(startCommand("development"), parent.id(), publishedPr(), NOW).authorization()).isEqualTo(run.authorization());
         assertThatThrownBy(() -> service.start(startCommand("development"))).isInstanceOf(CiAutofixConflictException.class);
-        verify(taskService).create(any());
+        verify(taskService).createShared(any(), eq(parent.id()));
+        verify(taskService, never()).create(any());
     }
 
     @Test
@@ -2012,7 +2020,7 @@ class TestCiAutofixService
         assertThat(stopped.summary()).contains("The development task closed; local and remote results were preserved");
         verify(gitService, never()).push(any());
         verify(turnService).stopRuntime(taskId, "generation");
-        verify(taskService).create(any());
+        verify(taskService).createShared(any(), eq(parent.id()));
     }
 
     @Test
@@ -2039,6 +2047,7 @@ class TestCiAutofixService
     {
         AgentTask parent = developmentParent();
         CiAutofixRun run = service.startDevelopment(startCommand("owned-delete"), openParent(parent), publishedPr(), NOW);
+        when(taskStore.listByWorkspace("workspace-1")).thenReturn(ImmutableList.of(parent, activeTask()));
         when(turnService.stopImpact(taskId)).thenReturn(new AgentRuntimeStopImpact(taskId, "generation", Optional.empty(), false));
         when(turnService.stopRuntime(taskId, "generation")).thenReturn(activeTask());
         doAnswer(_ -> {
@@ -2058,7 +2067,7 @@ class TestCiAutofixService
     }
 
     @Test
-    void stoppedDevelopmentReleasesTheBranchAndClosesItsChildOnTheNextCheck()
+    void stoppedDevelopmentReleasesTheBranchAndKeepsItsRepairTaskForTheNextPush()
     {
         AgentTask parent = developmentParent();
         CiAutofixRun run = service.startDevelopment(startCommand("owned-stop"), openParent(parent), publishedPr(), NOW);
@@ -2072,14 +2081,14 @@ class TestCiAutofixService
 
         ownership.requireSourceAdmission(idle);
         assertThat(store.run.finishReason()).contains(FinishReason.CANCELLED);
-        assertThat(store.run.agentTaskId()).isEqualTo(run.agentTaskId());
+        assertThat(run.agentTaskId()).contains(taskId.toString());
+        assertThat(store.run.agentTaskId()).isEmpty();
         assertThat(store.run.scope()).isEqualTo(run.scope());
         assertThat(service.canMessage(store.run)).isFalse();
-        verify(completionService, never()).cleanupWorktree(any());
 
         assertThat(service.advance(run.id()).status()).isEqualTo(Status.FINISHED);
-        verify(completionService).complete(any());
-        verify(completionService).cleanupWorktree(taskId);
+        verify(completionService, never()).complete(any());
+        verify(completionService, never()).cleanupWorktree(any());
         verify(completionService, never()).delete(any());
         verify(gitService, never()).push(any());
     }
@@ -2161,8 +2170,8 @@ class TestCiAutofixService
         doAnswer(invocation -> {
             provisioningStarted.countDown();
             assertThat(releaseProvisioning.await(5, TimeUnit.SECONDS)).isTrue();
-            return task(invocation.getArgument(0));
-        }).when(taskService).create(any());
+            return sharedTask(invocation.getArgument(0), invocation.getArgument(1));
+        }).when(taskService).createShared(any(), any());
         when(turnService.stopImpact(any())).thenAnswer(invocation -> new AgentRuntimeStopImpact(invocation.getArgument(0), "stopped", Optional.empty(), false));
         when(turnService.stopRuntime(any(), eq("stopped"))).thenAnswer(_ -> activeTask());
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -2179,7 +2188,7 @@ class TestCiAutofixService
             starting.get(5, TimeUnit.SECONDS);
             stopping.get(5, TimeUnit.SECONDS);
         }
-        verify(taskService).create(any());
+        verify(taskService).createShared(any(), eq(parent.id()));
         verify(turnService).stopRuntime(taskId, "stopped");
         verify(turnService, never()).start(any());
         assertThat(service.advance(store.run.id()).status()).isEqualTo(Status.FINISHED);
@@ -2312,7 +2321,7 @@ class TestCiAutofixService
         when(taskStore.find(parent.id())).thenReturn(Optional.of(parent));
         CiAutofixRun run = service.startDevelopment(startCommand("owned-writer"), parent.id(), publishedPr(), NOW);
         when(turnService.stopImpact(any())).thenAnswer(invocation -> new AgentRuntimeStopImpact(invocation.getArgument(0), "stop", Optional.empty(), false));
-        when(turnService.stopRuntime(taskId, "stop")).thenReturn(activeTask());
+        when(turnService.stopRuntime(any(), eq("stop"))).thenAnswer(_ -> activeTask());
 
         service.stopWriters(parent.id());
         assertThat(store.run.status()).isEqualTo(Status.ACTIVE);
@@ -2335,6 +2344,8 @@ class TestCiAutofixService
         CiAutofixRun older = service.startDevelopment(startCommand("development-ci:older"), openParent(parent), publishedPr(), NOW);
         when(turnService.stopImpact(any())).thenAnswer(invocation -> new AgentRuntimeStopImpact(invocation.getArgument(0), "stop", Optional.empty(), false));
         when(turnService.stopRuntime(taskId, "stop")).thenReturn(activeTask());
+        assertThat(older.agentTaskId()).contains(taskId.toString());
+        when(taskStore.listByWorkspace("workspace-1")).thenReturn(ImmutableList.of(parent, activeTask()));
 
         CiAutofixRun newer = service.startDevelopment(startCommand("development-ci:newer"), parent.id(), publishedPr(), NOW);
 
@@ -2342,9 +2353,15 @@ class TestCiAutofixService
             assertThat(replaced.id()).isEqualTo(older.id());
             assertThat(replaced.finishReason()).contains(FinishReason.STALE_HEAD);
             assertThat(replaced.summary()).contains("A newer push replaced this CI Autofix run");
+            assertThat(replaced.agentTaskId()).isEmpty();
         });
         assertThat(newer.id()).isNotEqualTo(older.id());
         assertThat(newer.status()).isEqualTo(Status.ACTIVE);
+        // The development task keeps one repair task, working in its checkout, for each push.
+        assertThat(newer.agentTaskId()).isEqualTo(older.agentTaskId());
+        verify(taskService).createShared(any(), eq(parent.id()));
+        verify(taskService, never()).create(any());
+        verify(completionService, never()).cleanupWorktree(any());
     }
 
     @Test
@@ -2573,7 +2590,7 @@ class TestCiAutofixService
         return BranchRebase.create(
                         BranchRebaseId.random(),
                         command.idempotencyKey(),
-                        owned.taskId().toString(),
+                        command.agentTaskId().toString(),
                         RepoRef.of(owned.physicalRepository().owner(), owned.physicalRepository().name()),
                         owned.canonicalWorktree(),
                         owned.generatedBranch(),
@@ -2665,6 +2682,17 @@ class TestCiAutofixService
             throw new AssertionError(failure);
         }
         taskWorktree = new TaskWorktree(taskId, command.workspaceId(), command.physicalRepository(), worktree, command.generatedBranch(), command.startCommit());
+        openTask = created(taskId, false, command.title(), TitleSource.USER, command.laneId(), taskWorktree, command.defaults(), NOW);
+        runningTurn = runningTurn(turnId, "provider-turn", "ignored");
+        return openTask;
+    }
+
+    /** A development task's repair task, working in that task's checkout. */
+    private AgentTask sharedTask(CreateAgentTaskCommand command, TaskId parent)
+    {
+        taskId = command.taskId();
+        taskWorktree = taskStore.find(parent).flatMap(AgentTask::taskWorktree).orElseThrow();
+        worktree = taskWorktree.canonicalWorktree();
         openTask = created(taskId, false, command.title(), TitleSource.USER, command.laneId(), taskWorktree, command.defaults(), NOW);
         runningTurn = runningTurn(turnId, "provider-turn", "ignored");
         return openTask;

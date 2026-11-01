@@ -312,7 +312,8 @@ class TestCiAutofixEndToEnd
             assertThat(E2eGitRepository.git(worktree, "rev-parse", "HEAD")).isEqualTo(initialPublishedHead.get());
         }, "refine-summary", Optional.empty(), Optional.empty());
         agent.enqueueCompleted(pr, "Root cause: the implementation missed the checked case. Repair applied and local check passed.", worktree -> {
-            assertThat(worktree).isNotEqualTo(sourceWorktree);
+            // The repair works in the task's own checkout, so the task's next turn starts from it without adopting anything.
+            assertThat(worktree).isEqualTo(sourceWorktree);
             writeDevelopmentFile(worktree, implementation + "CI repair\n");
             E2eGitRepository.git(worktree, "add", "development.txt");
             E2eGitRepository.git(worktree, "commit", "--amend", "--no-edit");
@@ -346,11 +347,13 @@ class TestCiAutofixEndToEnd
             CiAutofixRun repairing = harness.driveUntil(watching.id(), run -> run.attempts().stream().anyMatch(attempt -> attempt.pushedSha().isPresent()), 50);
             String repaired = repairing.attempts().getLast().pushedSha().orElseThrow();
             assertThat(repaired).isNotEqualTo(initialPublishedHead.get()).isEqualTo(remoteHead.get());
-            assertThat(E2eGitRepository.git(sourceWorktree, "rev-parse", "HEAD")).isEqualTo(initialPublishedHead.get());
+            assertThat(E2eGitRepository.git(sourceWorktree, "rev-parse", "HEAD")).isEqualTo(repaired);
             harness.scriptGreenCi(fixture, repaired, branch);
             CiAutofixRun green = harness.driveUntil(watching.id(), run -> run.status() == CiAutofixRun.Status.FINISHED, 50);
             assertThat(green.finishReason()).contains(CiAutofixRun.FinishReason.GREEN);
-            assertThat(tasks.get(TaskId.valueOf(green.agentTaskId().orElseThrow())).state()).isEqualTo(TaskState.COMPLETED);
+            // The repair task outlives the run and serves the task's next push.
+            assertThat(green.agentTaskId()).isEmpty();
+            assertThat(tasks.get(TaskId.valueOf(repairing.agentTaskId().orElseThrow())).state()).isEqualTo(TaskState.OPEN);
             assertThat(draft).as("the draft is marked ready once every check passes").isFalse();
 
             turns.start(new StartAgentTurnCommand(source.id(), "Does the repair keep the checked case?", ImmutableList.of(), "development-question"));

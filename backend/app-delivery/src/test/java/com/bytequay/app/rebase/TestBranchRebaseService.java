@@ -172,6 +172,28 @@ class TestBranchRebaseService
     }
 
     @Test
+    void stoppingForALostOwnerAbortsTheOpenRebaseToTheOriginalTip()
+    {
+        Conflict conflict = conflict();
+        BranchRebase rebase = service.start(command("lost-owner"));
+        rebase = service.advance(service.advance(rebase.id()).id());
+        assertThat(rebase.currentTurnId()).isPresent();
+        assertThat(driver.observe(repository).kind()).isNotEqualTo(SequenceState.Kind.COMPLETED);
+        CiAutofixRun owner = CiAutofixRun.create(CiAutofixRunId.random(), "lost-owner-ci",
+                new CiAutofixRun.Scope(PullRequestRef.of("owner", "repository", 1), RepoRef.of("owner", "repository"), "workspace-1", RepoRef.of("owner", "repository"),
+                        "author", workBranch(), "main", "claude-cli", Optional.of(TaskId.random().toString())),
+                conflict.original(), conflict.original(), conflict.base(),
+                new CiAutofixRun.Authorization(NOW), NOW).assignAgentTask(taskId.toString(), NOW);
+        when(ciRuns.findByAgentTaskId(taskId.toString())).thenReturn(Optional.of(owner));
+
+        service.stopForLostOwner(rebase.id());
+
+        assertThat(head(repository)).isEqualTo(conflict.original());
+        assertThat(driver.observe(repository).kind()).isEqualTo(SequenceState.Kind.COMPLETED);
+        assertThat(store.values()).singleElement().satisfies(stopped -> assertThat(stopped.finishReason()).contains(BranchRebase.FinishReason.CANCELLED));
+    }
+
+    @Test
     void finishesWithoutRewritingWhenWorkAlreadyContainsTheBase()
     {
         seed();

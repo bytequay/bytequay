@@ -201,11 +201,9 @@ public class CiGitService
         requireNonNull(command, "command is null");
         try {
             Path worktree = validateWorktree(command.worktree(), command.repository(), command.localBranch());
-            requireCleanAndResolved(worktree);
-            String head = requiredOutput(worktree, "rev-parse", "HEAD");
-            if (!head.equals(command.remoteHeadSha())) {
-                throw problem("Local HEAD differs from the head selected for the final check");
-            }
+            // Commits are checked by SHA, so the development task's own edits in a shared checkout cannot fail the check.
+            String head = command.remoteHeadSha();
+            requireCommit(worktree, head, "pull request head");
             requireCommit(worktree, command.baseSha(), "pull request base");
             List<Commit> commits = commits(worktree, requireLinearRange(worktree, command.baseSha(), head), head);
             Set<String> fixedTargets = new HashSet<>();

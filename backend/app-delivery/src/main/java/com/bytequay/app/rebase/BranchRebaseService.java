@@ -230,7 +230,10 @@ public class BranchRebaseService
         });
     }
 
-    /** Stops only program advancement after the owning CI provider has been verified stopped; does not abort Git. */
+    /**
+     * Ends the rebase once its CI provider has been verified stopped. It runs in the development task's own checkout, so an open
+     * rebase is aborted to the original work tip before that task's work resumes; one that cannot be aborted keeps the task out.
+     */
     public void stopForLostOwner(BranchRebaseId rebaseId)
     {
         Lock lock = advanceLocks.get(rebaseId.toString());
@@ -239,10 +242,19 @@ public class BranchRebaseService
             if (!ownership.deliveryOwnedTask(rebase.agentTaskId())) {
                 throw new BranchRebaseException("Only delivery-owned rebases use lost-parent stopping");
             }
-            if (rebase.status() == Status.RUNNING) {
-                store.save(rebase.withoutTurn(clock.instant()).pause(PauseReason.UNSAFE_GIT_STATE,
-                        "Development automation stopped; the local rebase was preserved without advancing or aborting it", clock.instant()));
+            if (rebase.status() == Status.FINISHED) {
+                return null;
             }
+            SequenceState state = sequencer.observe(rebase.worktree());
+            if (state.kind() != SequenceState.Kind.COMPLETED) {
+                state = sequencer.abort(rebase.worktree(), rebase.originalWorkTip());
+                if (state.kind() != SequenceState.Kind.COMPLETED) {
+                    throw new BranchRebaseException("The CI rebase in the task's checkout could not be aborted; stop CI Autofix and inspect the branch: "
+                            + state.diagnostics());
+                }
+            }
+            BranchRebase stopped = rebase.currentTurnId().isPresent() ? rebase.withoutTurn(clock.instant()) : rebase;
+            store.save(stopped.finish(FinishReason.CANCELLED, "Development work took the branch back; the CI rebase ended", Optional.empty(), clock.instant()));
             return null;
         });
     }

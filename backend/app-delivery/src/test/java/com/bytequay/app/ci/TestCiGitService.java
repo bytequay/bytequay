@@ -525,6 +525,13 @@ class TestCiGitService
         FixupPositionCheck validResult = service().checkFixupPositions(check(valid));
         assertThat(validResult.result()).isEqualTo(VALID);
         assertThat(head(valid.worktree())).isEqualTo(validHead);
+        // The development task may have moved on in a shared checkout; the pushed head is what is checked.
+        write(valid.worktree().resolve("next.txt"), "next\n");
+        commit(valid.worktree(), "Next change");
+        write(valid.worktree().resolve("draft.txt"), "uncommitted\n");
+        FixupPositionCheck movedOn = service().checkFixupPositions(new CiWorktreeRange(valid.worktree(), REPOSITORY, HEAD_REF, valid.baseSha(), validHead));
+        assertThat(movedOn.result()).isEqualTo(VALID);
+        assertThat(movedOn.headSha()).isEqualTo(validHead);
 
         Repository misplaced = repository("misplaced-fixup");
         write(misplaced.worktree().resolve("next.txt"), "next\n");

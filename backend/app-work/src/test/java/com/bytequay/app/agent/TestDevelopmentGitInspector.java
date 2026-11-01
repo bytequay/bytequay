@@ -704,126 +704,7 @@ class TestDevelopmentGitInspector
         assertThat(inspector.branchHeld(worktree, remoteOnly)).isFalse();
     }
 
-    @Test
-    void synchronizesToARewrittenCiCommitFromAnotherCheckoutAndPreservesIgnoredBuildOutput()
-            throws IOException
-    {
-        DevelopmentBaseline baseline = inspector.capture(task);
-        String source = commit("source development");
-        String repaired = commitIn(ciCheckout(), "rewritten CI repair");
-        Files.createDirectory(worktree.canonicalWorktree().resolve("build"));
-        Files.writeString(worktree.canonicalWorktree().resolve("build/output"), "local build output");
-        Path hook = git.gitPaths(worktree.canonicalWorktree(), ImmutableList.of("hooks/post-checkout")).getFirst();
-        Files.createDirectories(hook.getParent());
-        Path hookOutput = temporaryDirectory.resolve("unexpected-hook");
-        Files.writeString(hook, "#!/bin/sh\ntouch '" + hookOutput + "'\n");
-        assertThat(hook.toFile().setExecutable(true)).isTrue();
-
-        DevelopmentLocalFacts synchronizedFacts = inspector.synchronizeSource(baseline, source, repaired);
-
-        assertThat(synchronizedFacts.headSha()).isEqualTo(repaired);
-        assertThat(synchronizedFacts.uncommittedFileCount()).isZero();
-        assertThat(inspector.isAncestor(worktree, source, repaired)).isFalse();
-        assertThat(run(worktree.canonicalWorktree(), "symbolic-ref", "--short", "HEAD")).isEqualTo(worktree.generatedBranch());
-        assertThat(Files.readString(worktree.canonicalWorktree().resolve("README.md"))).isEqualTo("rewritten CI repair\n");
-        assertThat(Files.readString(worktree.canonicalWorktree().resolve("build/output"))).isEqualTo("local build output");
-        assertThat(hookOutput).doesNotExist();
-        assertThat(git.fetches).isEmpty();
-        assertThat(git.transitions).containsExactly(ImmutableList.of("-c", "core.hooksPath=/dev/null", "checkout",
-                "--no-overwrite-ignore", "--no-recurse-submodules", "-B", worktree.generatedBranch(), repaired));
-        verifyNoInteractions(credentials, pullRequests);
-    }
-
-    @Test
-    void ignoredCollisionRefusesSynchronizationWithoutChangingHeadOrFiles()
-            throws IOException
-    {
-        DevelopmentBaseline baseline = inspector.capture(task);
-        String source = commit("source development");
-        Path ci = ciCheckout();
-        Files.createDirectory(ci.resolve("build"));
-        Files.writeString(ci.resolve("build/output"), "repaired output");
-        run(ci, "add", "--force", "build/output");
-        String repaired = commitIn(ci, "CI change");
-        Files.createDirectory(worktree.canonicalWorktree().resolve("build"));
-        Files.writeString(worktree.canonicalWorktree().resolve("build/output"), "local output");
-
-        assertThatThrownBy(() -> inspector.synchronizeSource(baseline, source, repaired)).hasMessageContaining("worktree update");
-
-        assertThat(run(worktree.canonicalWorktree(), "rev-parse", "HEAD")).isEqualTo(source);
-        assertThat(Files.readString(worktree.canonicalWorktree().resolve("README.md"))).isEqualTo("source development\n");
-        assertThat(Files.readString(worktree.canonicalWorktree().resolve("build/output"))).isEqualTo("local output");
-        assertThat(git.transitions).hasSize(1);
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"staged", "unstaged", "untracked", "moved", "branch", "operation"})
-    void changedSourceRefusesSynchronization(String change)
-            throws IOException
-    {
-        DevelopmentBaseline baseline = inspector.capture(task);
-        String source = commit("source development");
-        String repaired = commitIn(ciCheckout(), "CI change");
-        switch (change) {
-            case "staged" -> {
-                Files.writeString(worktree.canonicalWorktree().resolve("README.md"), "local edit");
-                run(worktree.canonicalWorktree(), "add", "README.md");
-            }
-            case "unstaged" -> Files.writeString(worktree.canonicalWorktree().resolve("README.md"), "local edit");
-            case "untracked" -> Files.writeString(worktree.canonicalWorktree().resolve("new.txt"), "local edit");
-            case "moved" -> run(worktree.canonicalWorktree(), "commit", "--allow-empty", "-m", "Later user work");
-            case "branch" -> run(worktree.canonicalWorktree(), "checkout", "-b", "another-branch");
-            case "operation" -> Files.writeString(git.gitPaths(worktree.canonicalWorktree(), ImmutableList.of("MERGE_HEAD")).getFirst(), baseSha);
-            default -> throw new AssertionError(change);
-        }
-        String before = run(worktree.canonicalWorktree(), "rev-parse", "HEAD");
-        String status = run(worktree.canonicalWorktree(), "status", "--porcelain=v1", "--untracked-files=all");
-
-        String expectedFailure = switch (change) {
-            case "staged", "unstaged", "untracked" -> "Source has staged, unstaged, or untracked changes";
-            case "moved" -> "Source HEAD changed";
-            case "branch" -> "another branch";
-            case "operation" -> "Source has an open Git operation";
-            default -> throw new AssertionError(change);
-        };
-        assertThatThrownBy(() -> inspector.synchronizeSource(baseline, source, repaired)).hasMessageContaining(expectedFailure);
-
-        assertThat(git.transitions).isEmpty();
-        assertThat(run(worktree.canonicalWorktree(), "rev-parse", "HEAD")).isEqualTo(before);
-        assertThat(run(worktree.canonicalWorktree(), "status", "--porcelain=v1", "--untracked-files=all")).isEqualTo(status);
-    }
-
-    @Test
-    void revisionMissingFromTheRepositoryIsRefusedWithoutFetching()
-            throws IOException
-    {
-        DevelopmentBaseline baseline = inspector.capture(task);
-        String source = commit("source development");
-        String remoteOnly = publishCi(ciRepository(), "CI change");
-
-        assertThatThrownBy(() -> inspector.synchronizeSource(baseline, source, remoteOnly)).hasMessageContaining("cat-file");
-
-        assertThat(git.fetches).isEmpty();
-        assertThat(git.transitions).isEmpty();
-        assertThat(run(worktree.canonicalWorktree(), "rev-parse", "HEAD")).isEqualTo(source);
-    }
-
-    @Test
-    void verifiesTheSourceAfterTheNativeTransitionWithoutRepairingAChangedResult()
-            throws IOException
-    {
-        DevelopmentBaseline baseline = inspector.capture(task);
-        String source = commit("source development");
-        String repaired = commitIn(ciCheckout(), "CI change");
-        git.afterTransition = () -> run(worktree.canonicalWorktree(), "commit", "--allow-empty", "-m", "After synchronization");
-
-        assertThatThrownBy(() -> inspector.synchronizeSource(baseline, source, repaired)).hasMessageContaining("Source HEAD changed");
-
-        assertThat(git.transitions).hasSize(1);
-        assertThat(run(worktree.canonicalWorktree(), "log", "-1", "--format=%s")).isEqualTo("After synchronization");
-    }
-
-    /** A linked checkout of the task's repository, as a CI repair task has. */
+    /** Another linked checkout of the task's repository. */
     private Path ciCheckout()
     {
         Path ci = temporaryDirectory.resolve("ci-checkout");
@@ -911,10 +792,8 @@ class TestDevelopmentGitInspector
         private int remoteReads;
         private int branchReads;
         private final List<List<String>> fetches = new ArrayList<>();
-        private final List<List<String>> transitions = new ArrayList<>();
         private Optional<Result> fetchResult = Optional.empty();
         private Runnable afterFetch = () -> {};
-        private Runnable afterTransition = () -> {};
 
         @Override
         public Result run(Path directory, Duration timeout, Map<String, String> environment, List<String> arguments)
@@ -941,12 +820,6 @@ class TestDevelopmentGitInspector
             if (!arguments.isEmpty() && arguments.getFirst().equals("push")) {
                 return super.run(directory, timeout, environment, arguments.stream()
                         .map(this::localRemote).collect(ImmutableList.toImmutableList()));
-            }
-            if (arguments.contains("--no-overwrite-ignore")) {
-                transitions.add(ImmutableList.copyOf(arguments));
-                Result result = super.run(directory, timeout, environment, arguments);
-                afterTransition.run();
-                return result;
             }
             return super.run(directory, timeout, environment, arguments);
         }

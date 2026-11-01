@@ -84,6 +84,21 @@ class TestCiAutofixRun
     }
 
     @Test
+    void finishingReleasesOnlyADevelopmentTasksRepairTask()
+    {
+        CiAutofixRun standalone = newRun("start-own", "feature-own", NOW).assignAgentTask("own-task", NOW);
+        assertThat(standalone.finish(FinishReason.GREEN, "CI passed", NOW).agentTaskId()).contains("own-task");
+
+        Scope scope = standalone.scope();
+        CiAutofixRun development = CiAutofixRun.create(CiAutofixRunId.random(), "start-development",
+                        new Scope(scope.pullRequest(), scope.headRepository(), scope.workspaceId(), scope.physicalRepository(), scope.author(), "feature-development",
+                                scope.baseRef(), scope.laneId(), Optional.of("development-task")),
+                        HEAD, HEAD, BASE, new Authorization(NOW), NOW)
+                .assignAgentTask("repair-task", NOW);
+        assertThat(development.finish(FinishReason.STALE_HEAD, "A newer push replaced this CI Autofix run", NOW).agentTaskId()).isEmpty();
+    }
+
+    @Test
     void resumingAfterAFailedFinalCheckChecksAgain()
     {
         CiAutofixRun run = newRun("start-recheck", "feature-recheck", NOW)

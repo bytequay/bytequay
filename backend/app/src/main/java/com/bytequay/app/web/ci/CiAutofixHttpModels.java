@@ -41,7 +41,7 @@ public final class CiAutofixHttpModels
                 generatedLocalBranch,
                 run.scope().baseRef(),
                 run.status().name(),
-                activity(run, generatedLocalBranch.isPresent()),
+                activity(run, generatedLocalBranch.isPresent() || run.scope().parentTaskId().isPresent()),
                 run.version(),
                 run.createdAt(),
                 run.updatedAt(),
@@ -83,7 +83,8 @@ public final class CiAutofixHttpModels
     public static DevelopmentResponse development(CiAutofixRun run, boolean canMessage)
     {
         return new DevelopmentResponse(
-                run.id().toString(), run.agentTaskId(), run.status().name(), activity(run, run.agentTaskId().isPresent()),
+                // A development run repairs in its task's checkout, so it has nothing to prepare before CI fails.
+                run.id().toString(), run.agentTaskId(), run.status().name(), activity(run, run.agentTaskId().isPresent() || run.scope().parentTaskId().isPresent()),
                 run.attemptsUsed(), CiAutofixRun.MAX_FIX_ATTEMPTS, run.rerunCounter().used(), run.summary(),
                 run.finishReason().map(Enum::name), run.terminalAt(), run.scope().headRef(), run.expectedRemoteHead(),
                 run.scope().pullRequest().number(), "https://github.com/" + run.scope().pullRequest().repoFullName() + "/pull/" + run.scope().pullRequest().number(),

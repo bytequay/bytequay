@@ -13,6 +13,7 @@
  */
 package com.bytequay.persistence.sqlite.repository;
 
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.core.rebase.BranchRebase.Status;
 import com.bytequay.persistence.sqlite.entity.BranchRebaseEntity;
 import org.springframework.data.domain.Pageable;
@@ -30,13 +31,16 @@ public interface BranchRebaseJpaRepository
 
     List<BranchRebaseEntity> findByStatusOrderByUpdatedAtAsc(Status status, Pageable pageable);
 
+    /** A development task's CI repairs, in its own checkout or a task of their own, advance their rebases only through their run. */
     @Query("""
             select rebase from BranchRebaseEntity rebase
             where rebase.status = :status
             and not exists (select ci.id from CiAutofixRunEntity ci where ci.agentTaskId = rebase.agentTaskId and ci.parentTaskId is not null)
+            and not exists (select task.id from AgentTaskEntity task where task.id = rebase.agentTaskId
+                    and task.permissionPolicy = :repairPolicy and task.worktreeOwnerTaskId is not null)
             order by rebase.updatedAt asc
             """)
-    List<BranchRebaseEntity> findIndependentlyRunning(Status status, Pageable pageable);
+    List<BranchRebaseEntity> findIndependentlyRunning(Status status, AgentPermissionPolicy repairPolicy, Pageable pageable);
 
     boolean existsByAgentTaskIdAndTerminalAtIsNull(String agentTaskId);
 

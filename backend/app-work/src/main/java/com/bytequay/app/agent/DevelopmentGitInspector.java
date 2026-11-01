@@ -305,32 +305,6 @@ public class DevelopmentGitInspector
         verify(worktree, route);
     }
 
-    /** Moves a clean source to a revision another checkout of the same repository created, such as a CI repair; no fetch occurs. */
-    public DevelopmentLocalFacts synchronizeSource(DevelopmentBaseline baseline, String expectedSourceHead, String revision)
-    {
-        requireNonNull(baseline, "baseline is null");
-        checkSha(expectedSourceHead, "sha");
-        checkSha(revision, "sha");
-        TaskWorktree worktree = baseline.worktree();
-        requireSyncSource(baseline, expectedSourceHead);
-        checkState(output(worktree, "cat-file", "-t", revision).strip().equals("commit"), "The revision to synchronize is not a commit");
-        // Unlike reset --keep, this preserves ignored build output and refuses ignored-path collisions.
-        Result updated = git.run(worktree.canonicalWorktree(), "-c", "core.hooksPath=/dev/null", "checkout",
-                "--no-overwrite-ignore", "--no-recurse-submodules", "-B", worktree.generatedBranch(), revision);
-        checkState(updated.successful() && !updated.truncated(), "Source synchronization failed during the worktree update; inspect local files");
-        requireSyncSource(baseline, revision);
-        return inspectLocal(worktree, baseline.route());
-    }
-
-    private void requireSyncSource(DevelopmentBaseline baseline, String expectedHead)
-    {
-        WorktreeSnapshot snapshot = verify(baseline.worktree(), baseline.route());
-        checkState(snapshot.head().equals(expectedHead), "Source HEAD changed before synchronization");
-        checkState(!snapshot.gitOperationInProgress(), "Source has an open Git operation");
-        checkState(output(baseline.worktree(), "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none").isEmpty(),
-                "Source has staged, unstaged, or untracked changes");
-    }
-
     public boolean isAncestor(TaskWorktree worktree, String ancestor, String descendant)
     {
         worktrees.inspect(worktree);

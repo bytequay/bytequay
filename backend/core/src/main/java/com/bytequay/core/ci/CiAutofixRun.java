@@ -424,6 +424,10 @@ public record CiAutofixRun(
             run.currentTurnId = Optional.empty();
             run.currentRebaseId = Optional.empty();
             run.terminalAt = Optional.of(now);
+            // A development task's repair task outlives each run and serves the next one.
+            if (scope.parentTaskId().isPresent()) {
+                run.agentTaskId = Optional.empty();
+            }
         });
     }
 

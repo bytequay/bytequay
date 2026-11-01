@@ -94,7 +94,7 @@ public class DevelopmentFollowupCoordinator
     /** Called after turn admission and before provider launch, outside the task lock. */
     public void accepted(AgentTask task, AgentTurn turn)
     {
-        DevelopmentBaseline baseline = adoptCiRepairs(task, git.capture(task));
+        DevelopmentBaseline baseline = git.capture(task);
         Optional<Accepted> previous = Optional.ofNullable(accepted.get(task.id()));
         boolean pending = priorQuestion(task.id(), turn.id()) || task.developmentDeliveryPending() || previous.filter(prior -> prior.localPending()
                 || changed(prior.baseline().local(), baseline.local())).isPresent();
@@ -109,24 +109,6 @@ public class DevelopmentFollowupCoordinator
         // Stop can settle the turn while the capture above is still in flight.
         if (turnStore.findActive(task.id()).filter(active -> active.id().equals(turn.id())).isEmpty()) {
             accepted.remove(task.id(), captured);
-        }
-    }
-
-    /** CI Autofix pushes repairs from its own checkout of the same repository; a clean source starts its next turn from them. */
-    private DevelopmentBaseline adoptCiRepairs(AgentTask task, DevelopmentBaseline baseline)
-    {
-        DevelopmentLocalFacts local = baseline.local();
-        Optional<String> repaired = ci.repairedHead(task.id(), local.headSha());
-        if (repaired.isEmpty() || local.uncommittedFileCount() > 0 || local.gitOperationInProgress()) {
-            return baseline;
-        }
-        try {
-            git.synchronizeSource(baseline, local.headSha(), repaired.orElseThrow());
-            return git.capture(task);
-        }
-        catch (RuntimeException failure) {
-            log.warn("Task {} starts without CI repair {}", task.id(), repaired.orElseThrow(), failure);
-            return baseline;
         }
     }
 

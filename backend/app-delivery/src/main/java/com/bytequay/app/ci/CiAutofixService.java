@@ -105,6 +105,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.function.BiConsumer;
 import java.util.function.Predicate;
@@ -324,8 +325,7 @@ public class CiAutofixService
         workspace = workspaces.requireReadyRepository(command.workspaceId());
         validateStartWorkspace(workspace, snapshot);
         Instant now = Instant.now(clock);
-        TaskId taskId = TaskId.random();
-        CiAutofixRun run = CiAutofixRun.create(
+        CiAutofixRun created = CiAutofixRun.create(
                 CiAutofixRunId.random(),
                 command.idempotencyKey(),
                 new Scope(
@@ -342,8 +342,9 @@ public class CiAutofixService
                 snapshot.headSha(),
                 snapshot.baseSha(),
                 new Authorization(development.map(DevelopmentStart::activatedAt).orElse(now)),
-                now)
-                .assignAgentTask(taskId.toString(), now);
+                now);
+        // A development run gets its task's repair task at the first failure that needs it; any other run owns a task from the start.
+        CiAutofixRun run = development.isPresent() ? created : created.assignAgentTask(TaskId.random().toString(), now);
         try {
             ownership.insert(run);
         }
@@ -366,13 +367,14 @@ public class CiAutofixService
     private CiAutofixRun startTask(CiAutofixRun run, CiHeadSnapshot snapshot)
     {
         ownership.require(run);
-        AgentTask task;
-        try {
-            task = ensureAgentTask(run);
-        }
-        catch (RuntimeException failure) {
-            log.error("Cannot create agent task for CI Autofix run {}", run.id(), failure);
-            throw failure;
+        if (run.agentTaskId().isPresent()) {
+            try {
+                ensureAgentTask(run);
+            }
+            catch (RuntimeException failure) {
+                log.error("Cannot create agent task for CI Autofix run {}", run.id(), failure);
+                throw failure;
+            }
         }
 
         // A development run starts while its task finishes the turn that pushed; the monitor repairs once the task is idle.
@@ -384,11 +386,13 @@ public class CiAutofixService
             if (inherited.isPresent()) {
                 return inherited.orElseThrow();
             }
-            RebaseGate gate = ensureBranchRebase(run, task, snapshot, Instant.now(clock));
+            CiAutofixRun assigned = assignRepairTask(run);
+            AgentTask task = requireOpenTask(assigned);
+            RebaseGate gate = ensureBranchRebase(assigned, task, snapshot, Instant.now(clock));
             return gate.ready() ? startFixTurn(gate.run(), task, snapshot) : gate.run();
         }
         catch (RuntimeException failure) {
-            log.error("Cannot prepare initial CI Autofix work for run {} task {}", run.id(), task.id(), failure);
+            log.error("Cannot prepare initial CI Autofix work for run {}", run.id(), failure);
             CiAutofixRun current = store.find(run.id()).orElse(run);
             if (current.status() == Status.ACTIVE) {
                 return store.update(current.pause(PauseReason.ERROR, failureSummary("Initial CI Autofix work could not be prepared", failure), Instant.now(clock)));
@@ -503,18 +507,10 @@ public class CiAutofixService
     {
         stopRuns(parentTaskId, DevelopmentCiOwnership::writing, FinishReason.CANCELLED,
                 "Stopped for your message to the task; CI Autofix starts again after the next push");
-    }
-
-    /** The last head CI repairs pushed on top of a source head, following each run from the head it started at to the head it left. */
-    public Optional<String> repairedHead(TaskId parentTaskId, String sourceHead)
-    {
-        String head = sourceHead;
-        for (CiAutofixRun run : store.listByParentTaskId(parentTaskId.toString()).stream().sorted(Comparator.comparing(CiAutofixRun::createdAt)).toList()) {
-            if (run.taskStartCommit().equals(head) && !DevelopmentCiOwnership.writing(run)) {
-                head = run.expectedRemoteHead();
-            }
-        }
-        return head.equals(sourceHead) ? Optional.empty() : Optional.of(head);
+        // A repair task still holding the checkout without a writing run would keep the user's turn out.
+        ownership.repairTasks(parentTaskId).stream()
+                .filter(task -> task.state() == TaskState.OPEN && task.worktreeMutationClaim().isPresent())
+                .forEach(this::stopChild);
     }
 
     private void stopRuns(TaskId parentTaskId, Predicate<CiAutofixRun> selected, FinishReason reason, String message)
@@ -549,23 +545,7 @@ public class CiAutofixService
         ownership.revoke(stopping.id());
         ownership.drain(stopping.id());
         CiAutofixRun run = get(stopping.id());
-        if (run.agentTaskId().isPresent()) {
-            TaskId childId = TaskId.valueOf(run.agentTaskId().orElseThrow());
-            Optional<AgentTask> child = findChild(childId);
-            if (child.filter(task -> task.state() == TaskState.OPEN).isPresent()) {
-                AgentTask task = child.orElseThrow();
-                AgentTask stopped;
-                if (task.worktreeMutationClaim().filter(claim -> claim.kind() == WorktreeMutationClaim.Kind.RECOVERY).isPresent()) {
-                    stopped = recovery.getObject().stopRecoveredRuntime(childId, "task:" + task.version());
-                }
-                else {
-                    stopped = turnService.stopRuntime(childId, turnService.stopImpact(childId).generation());
-                }
-                if (stopped.worktreeMutationClaim().isPresent() || turnService.stopImpact(childId).activeTurnId().isPresent()) {
-                    throw new AgentConflictException("The CI Autofix child writer could not be verified stopped: " + childId);
-                }
-            }
-        }
+        run.agentTaskId().map(TaskId::valueOf).flatMap(this::findChild).filter(task -> task.state() == TaskState.OPEN).ifPresent(this::stopChild);
         run.currentRebaseId().ifPresent(value -> rebaseService.stopForLostOwner(BranchRebaseId.valueOf(value)));
         if (run.status() == Status.FINISHED) {
             return run;
@@ -575,6 +555,22 @@ public class CiAutofixService
         inheritedFailures.remove(finished.id());
         ownership.forgetFinished(finished);
         return finished;
+    }
+
+    /** Stops a CI agent task's provider process and verifies that no writer of its checkout is left. */
+    private void stopChild(AgentTask task)
+    {
+        TaskId childId = task.id();
+        AgentTask stopped;
+        if (task.worktreeMutationClaim().filter(claim -> claim.kind() == WorktreeMutationClaim.Kind.RECOVERY).isPresent()) {
+            stopped = recovery.getObject().stopRecoveredRuntime(childId, "task:" + task.version());
+        }
+        else {
+            stopped = turnService.stopRuntime(childId, turnService.stopImpact(childId).generation());
+        }
+        if (stopped.worktreeMutationClaim().isPresent() || turnService.stopImpact(childId).activeTurnId().isPresent()) {
+            throw new AgentConflictException("The CI Autofix child writer could not be verified stopped: " + childId);
+        }
     }
 
     /**
@@ -830,6 +826,7 @@ public class CiAutofixService
             basePrepared = run.latestObservedBaseSha().equals(snapshot.baseSha());
         }
         if (!basePrepared && needsBranchRebase(run, snapshot)) {
+            run = assignRepairTask(run);
             RebaseGate gate = ensureBranchRebase(run, requireOpenTask(run), snapshot, now);
             if (!gate.ready()) {
                 return gate.run();
@@ -846,6 +843,7 @@ public class CiAutofixService
             if (snapshot.actionableFailures().isEmpty()) {
                 return snapshot.green() ? finishGreenOrCheckFixups(run, now) : run;
             }
+            run = assignRepairTask(run);
             return prepareFixAttempt(run, requireOpenTask(run), snapshot);
         }
 
@@ -1261,6 +1259,10 @@ public class CiAutofixService
 
     private CiAutofixRun completeGreenRun(CiAutofixRun run, Instant now)
     {
+        if (run.scope().parentTaskId().isPresent()) {
+            // The development task's repair task stays open for its next push.
+            return store.update(run.finish(FinishReason.GREEN, "GitHub Actions passed for " + run.expectedRemoteHead(), now));
+        }
         TaskCompletion completion = completionService.complete(new CompleteAgentTaskCommand(
                 TaskId.valueOf(run.agentTaskId().orElseThrow()),
                 Optional.of("CI Autofix verified GitHub Actions at " + run.expectedRemoteHead())));
@@ -1271,7 +1273,7 @@ public class CiAutofixService
 
     private Optional<CiAutofixRun> reconcileCompletedGreenTask(CiAutofixRun run, Instant now)
     {
-        if (run.agentTaskId().isEmpty()
+        if (run.agentTaskId().isEmpty() || run.scope().parentTaskId().isPresent()
                 || run.finalFixupCheck().map(FinalFixupCheck::result).filter(CheckResult.VALID::equals).isEmpty()) {
             return Optional.empty();
         }
@@ -1484,7 +1486,8 @@ public class CiAutofixService
                 turnService.cancel(turn.id());
             }
         });
-        if (task.isPresent()) {
+        // A development run leaves its task's checkout, edits included, to that task; only a run's own checkout is kept for its changes.
+        if (task.isPresent() && run.scope().parentTaskId().isEmpty()) {
             WorktreeSnapshot worktree;
             try {
                 worktree = inspectWorktree(task.orElseThrow(), run);
@@ -1746,41 +1749,64 @@ public class CiAutofixService
         try {
             task = taskService.get(taskId);
         }
-        catch (AgentTaskNotFoundException ignored) {
-            task = createOrGet(taskService, taskId, () -> createAgentTask(run, repository, run.taskStartCommit()));
+        catch (AgentTaskNotFoundException missing) {
+            if (run.scope().parentTaskId().isPresent()) {
+                // A development task's repair task works in that task's checkout and is never provisioned on its own.
+                throw new CiAutofixConflictException("The development task's CI repair task is missing");
+            }
+            task = createOrGet(taskService, taskId, () -> taskService.create(repairTaskCommand(run, taskId, repository)));
         }
         return requireAgentTask(run, task, repository);
     }
 
-    private AgentTask createAgentTask(CiAutofixRun run, RepositoryIdentity repository, String startCommit)
+    /** Gives a development run its task's repair task, created at the first failure that needs one and kept for later runs. */
+    private CiAutofixRun assignRepairTask(CiAutofixRun run)
     {
+        if (run.agentTaskId().isPresent() || run.scope().parentTaskId().isEmpty()) {
+            return run;
+        }
         ownership.require(run);
-        TaskId taskId = TaskId.valueOf(run.agentTaskId().orElseThrow());
+        TaskId parent = TaskId.valueOf(run.scope().parentTaskId().orElseThrow());
+        RepositoryIdentity repository = repositoryIdentity(run.scope().physicalRepository());
+        AtomicReference<AgentTask> repair = new AtomicReference<>();
+        // Under the development task's lock, so one repair task is found or made.
+        turnService.shareWorktree(parent, source -> repair.set(ownership.repairTasks(parent).stream()
+                .filter(task -> task.state() == TaskState.OPEN)
+                .findFirst()
+                .orElseGet(() -> taskService.createShared(repairTaskCommand(run, TaskId.random(), repository), parent))));
+        return store.update(run.assignAgentTask(repair.get().id().toString(), Instant.now(clock)));
+    }
+
+    private static CreateAgentTaskCommand repairTaskCommand(CiAutofixRun run, TaskId taskId, RepositoryIdentity repository)
+    {
         String title = "CI Autofix " + run.scope().pullRequest().fullName();
-        return taskService.create(new CreateAgentTaskCommand(
+        return new CreateAgentTaskCommand(
                 taskId,
                 run.scope().workspaceId(),
                 new AgentLaneId(run.scope().laneId()),
                 repository,
-                startCommit,
+                run.taskStartCommit(),
                 TaskBranches.generate(taskId, run.scope().author(), title),
                 title,
-                AgentTaskDefaults.forPermission(AgentPermissionPolicy.CI_AUTOFIX)));
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.CI_AUTOFIX));
     }
 
     private static AgentTask requireAgentTask(CiAutofixRun run, AgentTask task, RepositoryIdentity repository)
     {
         TaskId taskId = TaskId.valueOf(run.agentTaskId().orElseThrow());
         TaskWorktree worktree = task.taskWorktree().orElseThrow(() -> new CiAutofixConflictException("CI Autofix agent task has no managed worktree"));
+        // A development task's repair task serves each of its runs in that task's checkout, keeping the model it started with.
+        boolean scoped = run.scope().parentTaskId()
+                .map(parent -> worktree.taskId().toString().equals(parent))
+                .orElseGet(() -> task.laneId().equals(new AgentLaneId(run.scope().laneId())) && worktree.startCommit().equals(run.taskStartCommit()));
         if (!task.id().equals(taskId)
                 || task.interactive()
                 || task.workspaceId().stream().noneMatch(run.scope().workspaceId()::equals)
-                || !task.laneId().equals(new AgentLaneId(run.scope().laneId()))
                 || task.permissionPolicy() != AgentPermissionPolicy.CI_AUTOFIX
                 || !task.repository().equals(repository)
                 || !worktree.workspaceId().equals(run.scope().workspaceId())
                 || !worktree.physicalRepository().equals(repository)
-                || !worktree.startCommit().equals(run.taskStartCommit())) {
+                || !scoped) {
             throw new CiAutofixConflictException("CI Autofix agent task does not match the run");
         }
         return task;
@@ -1792,10 +1818,17 @@ public class CiAutofixService
         return worktreeService.inspect(worktree);
     }
 
-    /** The checkout the run repairs in. */
+    /** The checkout the run repairs in: a development run's is its task's own, needed before the run has a repair task. */
     private TaskWorktree worktree(CiAutofixRun run)
     {
-        return requireTaskWorktree(requireOpenTask(run), run);
+        if (run.scope().parentTaskId().isEmpty()) {
+            return requireTaskWorktree(requireOpenTask(run), run);
+        }
+        TaskWorktree worktree = ownership.parentWorktree(run);
+        if (!worktree.workspaceId().equals(run.scope().workspaceId()) || !worktree.physicalRepository().equals(repositoryIdentity(run.scope().physicalRepository()))) {
+            throw new CiAutofixConflictException("The development task's checkout does not match the CI Autofix run");
+        }
+        return worktree;
     }
 
     private WorktreeSnapshot inspectWorktree(CiAutofixRun run)
@@ -1825,15 +1858,17 @@ public class CiAutofixService
         return workspace;
     }
 
-    private static TaskWorktree requireTaskWorktree(AgentTask task, CiAutofixRun run)
+    private TaskWorktree requireTaskWorktree(AgentTask task, CiAutofixRun run)
     {
         TaskWorktree worktree = task.taskWorktree().orElseThrow(() -> new CiAutofixConflictException("CI Autofix agent task has no managed worktree"));
         if (!worktree.workspaceId().equals(run.scope().workspaceId())
                 || !worktree.physicalRepository().equals(task.repository())
-                || !task.id().toString().equals(run.agentTaskId().orElseThrow())) {
+                || !task.id().toString().equals(run.agentTaskId().orElseThrow())
+                || run.scope().parentTaskId().filter(parent -> !worktree.taskId().toString().equals(parent)).isPresent()) {
             throw new CiAutofixConflictException("CI Autofix task worktree does not match the run");
         }
-        return worktree;
+        // The repair task's record copies its development task's checkout; the development task's own record is the current one.
+        return run.scope().parentTaskId().isPresent() ? worktree(run) : worktree;
     }
 
     private boolean matchesCurrentMessage(CiAutofixRun run, String idempotencyKey)

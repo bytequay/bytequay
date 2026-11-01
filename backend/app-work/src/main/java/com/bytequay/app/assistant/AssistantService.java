@@ -57,13 +57,14 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -134,8 +135,11 @@ public class AssistantService
     private final Clock clock;
     private final Path folders;
     private final ExecutorService executor;
-    // ponytail: one reply at a time, held in memory; a restart drops it, so no running row is ever left behind.
-    private final AtomicReference<Run> running = new AtomicReference<>();
+    // ponytail: one reply at a time and a line of messages behind it, held in memory under this lock; a restart drops both, so no running
+    // row is ever left behind, and a message still in line stays in its conversation unanswered.
+    private final Object slot = new Object();
+    private Run running;
+    private final Deque<AssistantItem> waiting = new ArrayDeque<>();
 
     AssistantService(AssistantStore store, AssistantReader reader, AssistantActions actions, AssistantShow show, AssistantRows rows, AssistantWork work,
             SetupSettingsService setup, AgentDriverRegistry drivers, AgentResourceService resources, AgentProperties properties, ObjectMapper mapper, Clock clock,
@@ -171,19 +175,19 @@ public class AssistantService
     {
         List<AssistantItem> items = store.items(conversationId);
         List<String> listed = items.stream().flatMap(item -> item.list().stream()).flatMap(list -> list.refs().stream()).collect(toImmutableList());
-        return new AssistantView(conversationId, store.find(conversationId).flatMap(AssistantConversation::model), answering(conversationId), items,
-                listed.isEmpty() ? ImmutableMap.of() : rows.rows(listed));
+        return new AssistantView(conversationId, store.find(conversationId).flatMap(AssistantConversation::model), answering(conversationId),
+                waitingIds(conversationId), items, listed.isEmpty() ? ImmutableMap.of() : rows.rows(listed));
     }
 
     /**
-     * Keeps the user's message and answers it in the background.
+     * Keeps the user's message and answers it in the background, after the reply being written and the messages already waiting in line,
+     * each in a reply of its own so its actions rest on its own words and cards.
      *
      * @param conversationId the conversation it goes on, or a new one the panel named for it
      * @param visible the cards on screen when it was sent
      * @param onScreen the ref of the page the user was looking at
      * @param key the sender's key for the message; sent again, the message adds nothing and gives the first one's id
      * @return the message's item id
-     * @throws AgentConflictException while another reply is being written
      */
     public String send(String conversationId, String text, List<String> visible, Optional<String> onScreen, String key)
     {
@@ -194,7 +198,7 @@ public class AssistantService
         if (sent.isPresent()) {
             return sent.orElseThrow().id();
         }
-        return start(conversationId, () -> {
+        return start(conversationId, true, () -> {
             boolean fresh = store.find(conversationId).isEmpty();
             AssistantItem message = AssistantItem.user(conversationId, clock.instant(), text, visible, onScreen, key);
             append(message);
@@ -213,7 +217,8 @@ public class AssistantService
      */
     public String retry(String conversationId)
     {
-        return start(conversationId, () -> {
+        // Not in line: the failed message is the conversation's last only until a message sent meanwhile is answered.
+        return start(conversationId, false, () -> {
             // A card answered with its button meanwhile leaves a receipt after the failure, which does not end the exchange.
             List<AssistantItem> items = store.items(conversationId).stream().filter(item -> item.kind() != AssistantItem.Kind.RECEIPT).collect(toImmutableList());
             if (items.isEmpty() || items.getLast().kind() != AssistantItem.Kind.FAILURE) {
@@ -224,10 +229,14 @@ public class AssistantService
         });
     }
 
-    /** Stops the reply being written; it ends as a failure the user may retry. */
+    /** Stops the reply being written; it ends as a failure the user may retry, and the next message in line is answered. */
     public void stop()
     {
-        Optional.ofNullable(running.get()).ifPresent(Run::stop);
+        synchronized (slot) {
+            if (running != null) {
+                running.stop();
+            }
+        }
     }
 
     /**
@@ -282,8 +291,16 @@ public class AssistantService
 
     private boolean answering(String conversationId)
     {
-        Run run = running.get();
-        return run != null && run.conversationId.equals(conversationId);
+        synchronized (slot) {
+            return running != null && running.conversationId.equals(conversationId);
+        }
+    }
+
+    private List<String> waitingIds(String conversationId)
+    {
+        synchronized (slot) {
+            return waiting.stream().filter(message -> message.conversationId().equals(conversationId)).map(AssistantItem::id).collect(toImmutableList());
+        }
     }
 
     // The shared clock is UTC; the user's day follows their wall clock, as the agenda's does.
@@ -292,18 +309,36 @@ public class AssistantService
         return LocalDate.ofInstant(clock.instant(), ZoneId.systemDefault());
     }
 
-    /** Takes the one reply slot, picks the message, and answers it on a virtual thread that gives the slot back when it ends. */
-    private String start(String conversationId, Supplier<AssistantItem> pick)
+    /**
+     * Picks the message and answers it when the one reply slot is free; otherwise a message that may wait joins the line behind the slot,
+     * and any other is refused.
+     */
+    private String start(String conversationId, boolean mayWait, Supplier<AssistantItem> pick)
     {
         if (!setup.preferences().assistantEnabled()) {
             throw new AgentConflictException("Enable Assistant in Settings before starting a conversation");
         }
-        Run run = new Run(conversationId);
-        if (!running.compareAndSet(null, run)) {
-            throw new AgentConflictException("The assistant is still answering");
-        }
-        try {
+        synchronized (slot) {
+            if (running != null && !mayWait) {
+                throw new AgentConflictException("The assistant is still answering");
+            }
             AssistantItem message = pick.get();
+            if (running == null) {
+                launch(message);
+            }
+            else {
+                waiting.add(message);
+            }
+            return message.id();
+        }
+    }
+
+    /** Takes the slot, which the caller holds the lock for, and answers the message on a virtual thread that hands the slot on when it ends. */
+    private void launch(AssistantItem message)
+    {
+        Run run = new Run(message.conversationId());
+        running = run;
+        try {
             executor.execute(() -> {
                 try {
                     reply(run, message);
@@ -312,14 +347,32 @@ public class AssistantService
                     log.warn("The assistant could not keep its answer in {}", message.conversationId(), failure);
                 }
                 finally {
-                    running.compareAndSet(run, null);
+                    next();
                 }
             });
-            return message.id();
         }
         catch (RuntimeException failure) {
-            running.compareAndSet(run, null);
+            running = null;
             throw failure;
+        }
+    }
+
+    /** Gives the slot to the next message in line, or frees it. */
+    private void next()
+    {
+        synchronized (slot) {
+            running = null;
+            AssistantItem message = waiting.poll();
+            if (message == null) {
+                return;
+            }
+            try {
+                launch(message);
+            }
+            catch (RuntimeException failure) {
+                // Only a stopping executor refuses; the message stays in its conversation, and the next one sent starts the line again.
+                log.warn("The assistant could not answer a waiting message in {}", message.conversationId(), failure);
+            }
         }
     }
 
@@ -397,7 +450,10 @@ public class AssistantService
     {
         StringBuilder prompt = new StringBuilder();
         if (fresh) {
-            List<AssistantItem> earlier = store.items(message.conversationId()).stream().takeWhile(item -> !item.id().equals(message.id())).collect(toImmutableList());
+            // A message that waited in line comes after the replies written while it waited, and the messages still in line come after it.
+            List<String> later = waitingIds(message.conversationId());
+            List<AssistantItem> earlier = store.items(message.conversationId()).stream()
+                    .filter(item -> !item.id().equals(message.id()) && !later.contains(item.id())).collect(toImmutableList());
             if (!earlier.isEmpty()) {
                 prompt.append("Earlier in this conversation:\n");
                 earlier.subList(Math.max(0, earlier.size() - SEED_ITEMS), earlier.size()).forEach(item -> prompt.append(line(item)).append('\n'));

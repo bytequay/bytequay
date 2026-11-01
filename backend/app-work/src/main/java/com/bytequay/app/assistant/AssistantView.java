@@ -28,15 +28,17 @@ import static java.util.Objects.requireNonNull;
  *
  * @param model the model label of the conversation's last reply
  * @param running whether a reply in this conversation is being written now
+ * @param waiting the ids of this conversation's messages waiting in line behind the reply being written, in the order they will be answered
  * @param items the conversation's messages, replies, receipts, lists and failures, oldest first
  * @param rows each ref the conversation's lists name that still resolves, read now; a ref missing here is gone
  */
-public record AssistantView(String id, Optional<String> model, boolean running, List<AssistantItem> items, Map<String, AssistantRow> rows)
+public record AssistantView(String id, Optional<String> model, boolean running, List<String> waiting, List<AssistantItem> items, Map<String, AssistantRow> rows)
 {
     public AssistantView
     {
         requireNonNull(id, "id is null");
         requireNonNull(model, "model is null");
+        waiting = ImmutableList.copyOf(waiting);
         items = ImmutableList.copyOf(items);
         rows = ImmutableMap.copyOf(rows);
     }

@@ -292,36 +292,71 @@ class TestAssistantConversation
     }
 
     @Test
-    void answersOneMessageAtATime()
+    void answersMessagesSentMeanwhileInTurnEachOnItsOwnWordsAndCards()
             throws Exception
     {
         CompletableFuture<AgentTurnResult> slow = new CompletableFuture<>();
         results.add(slow);
         String id = assistant.send(C1, "first", ImmutableList.of(), Optional.empty(), "key-1");
+        await().alias("first reply start").pollInSameThread().pollDelay(Duration.ZERO).pollInterval(Duration.ofMillis(10)).atMost(Duration.ofSeconds(10))
+                .untilAsserted(() -> assertThat(prompts).hasSize(1));
 
-        assertThatThrownBy(() -> assistant.send(C2, "second", ImmutableList.of(), Optional.empty(), "key-2")).isInstanceOf(AgentConflictException.class);
-        assertThatThrownBy(() -> assistant.retry(C1)).isInstanceOf(AgentConflictException.class);
+        String second = assistant.send(C2, "second", ImmutableList.of(), Optional.empty(), "key-2");
+        String third = assistant.send(C1, "third", ImmutableList.of("approval:a1"), Optional.of("task:t1"), "key-3");
+        // A retry is refused rather than queued: its failed message is the conversation's last only until a waiting message is answered.
+        assertThatThrownBy(() -> assistant.retry(C1)).isInstanceOf(AgentConflictException.class).hasMessage("The assistant is still answering");
         MockMvc http = standaloneSetup(new AssistantController(assistant, mock(AssistantSettings.class))).setControllerAdvice(new GlobalExceptionHandler()).build();
+        // Sent again with its key, a message is the same message, while it waits, while its reply runs and after.
         http.perform(post("/api/assistant/messages").contentType(MediaType.APPLICATION_JSON).content(message(C2, "second", "key-2")))
-                .andExpect(status().isConflict());
-        // Sent again with its key, the first message is the same message, while its reply runs and after.
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.itemId").value(second));
         http.perform(post("/api/assistant/messages").contentType(MediaType.APPLICATION_JSON).content(message(C1, "first", "key-1")))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.itemId").value(id));
-        http.perform(post("/api/assistant/messages").contentType(MediaType.APPLICATION_JSON).content(message(C1, " ", "key-3")))
+        http.perform(post("/api/assistant/messages").contentType(MediaType.APPLICATION_JSON).content(message(C1, " ", "key-4")))
                 .andExpect(status().isBadRequest());
         // The id names the conversation's folder, so only a UUID is one.
-        http.perform(post("/api/assistant/messages").contentType(MediaType.APPLICATION_JSON).content(message("../escape", "third", "key-4")))
+        http.perform(post("/api/assistant/messages").contentType(MediaType.APPLICATION_JSON).content(message("../escape", "fourth", "key-5")))
                 .andExpect(status().isBadRequest());
         assertThat(assistant.conversation(C1).running()).isTrue();
+        assertThat(assistant.conversation(C1).waiting()).containsExactly(third);
         assertThat(assistant.conversation(C2).running()).isFalse();
-        assertThat(assistant.conversations()).extracting(AssistantSummary::running).containsExactly(true);
+        assertThat(assistant.conversation(C2).waiting()).containsExactly(second);
+        assertThat(prompts).hasSize(1);
 
         slow.complete(completed("Nothing waits on you."));
         waitForReply();
+        assertThat(prompts).hasSize(3);
+        assertThat(prompts.get(1)).endsWith("The user's message:\nsecond");
+        assertThat(prompts.get(2)).contains("On screen: task:t1", "- approval:a1: Retry Iceberg commit · Allow Claude Bash").endsWith("The user's message:\nthird");
+        assertThat(store.items(C1)).extracting(AssistantItem::text).containsExactly("first", "third", "Nothing waits on you.", "Answer task:t1 first.");
+        assertThat(store.items(C2)).extracting(AssistantItem::kind).containsExactly(USER, REPLY);
+        assertThat(assistant.conversation(C1).waiting()).isEmpty();
+        // Each reply's actions rest on its own message.
+        verify(actions).tool(eq(store.items(C1).get(1)), any(), any());
         assertThat(assistant.send(C1, "first", ImmutableList.of(), Optional.empty(), "key-1")).isEqualTo(id);
-        assertThat(store.items(C1)).extracting(AssistantItem::kind).containsExactly(USER, REPLY);
-        assertThat(opened).hasSize(1);
+        assertThat(opened).hasSize(3);
+    }
+
+    @Test
+    void aWaitingMessageThatStartsAFreshSessionSeesTheReplyWrittenWhileItWaited()
+    {
+        CompletableFuture<AgentTurnResult> slow = new CompletableFuture<>();
+        results.add(slow);
+        assistant.send(C1, "first", ImmutableList.of(), Optional.empty(), "key-1");
+        assistant.send(C1, "second", ImmutableList.of(), Optional.empty(), "key-2");
+        assistant.send(C1, "third", ImmutableList.of(), Optional.empty(), "key-3");
+        // The provider loses the conversation before the second message's turn, so that turn starts over from the conversation's items.
+        threadLost.set(true);
+
+        slow.complete(completed("Nothing waits on you."));
+        waitForReply();
+
+        assertThat(prompts).hasSize(3);
+        assertThat(prompts.get(1)).startsWith("Earlier in this conversation:\n[user 12:00] first\n[you 12:00] Nothing waits on you.\n\n")
+                .endsWith("The user's message:\nsecond").doesNotContain("third");
+        assertThat(prompts.get(2)).startsWith("Earlier in this conversation:\n[user 12:00] first\n[user 12:00] second\n[you 12:00] Nothing waits on you.\n");
+        assertThat(store.items(C1)).extracting(AssistantItem::kind).containsExactly(USER, USER, USER, REPLY, REPLY, REPLY);
     }
 
     @Test
@@ -510,7 +545,7 @@ class TestAssistantConversation
     }
 
     @Test
-    void stopCancelsTheRunningTurn()
+    void stopCancelsOnlyTheRunningTurnAndTheNextMessageInLineIsAnswered()
     {
         CompletableFuture<AgentTurnResult> slow = new CompletableFuture<>();
         results.add(slow);
@@ -519,12 +554,14 @@ class TestAssistantConversation
         assistant.send(C1, "what's waiting on me?", ImmutableList.of(), Optional.empty(), "key-1");
         await().alias("assistant turn start").pollInSameThread().pollDelay(Duration.ZERO).pollInterval(Duration.ofMillis(10)).atMost(Duration.ofSeconds(10))
                 .untilAsserted(() -> assertThat(prompts).isNotEmpty());
+        assistant.send(C1, "and the reviews?", ImmutableList.of(), Optional.empty(), "key-2");
 
         assistant.stop();
         waitForReply();
 
         verify(turn, atLeastOnce()).cancel();
-        assertThat(store.items(C1).getLast().text()).isEqualTo("Claude turn was cancelled");
+        assertThat(store.items(C1)).extracting(AssistantItem::text)
+                .containsExactly("what's waiting on me?", "and the reviews?", "Claude turn was cancelled", "Answer task:t1 first.");
     }
 
     @Test

@@ -721,7 +721,8 @@ public class CiAutofixService
             if (run.status() != Status.FINISHED && !ownership.authorized(run)) {
                 return stopDevelopmentRun(run, FinishReason.CANCELLED, "The development task closed; local and remote results were preserved");
             }
-            CiAutofixRun result = ownership.execute(run, () -> advanceLocked(runId));
+            // A finished run writes nothing, so it closes its own task even after the development task revoked it.
+            CiAutofixRun result = run.status() == Status.FINISHED ? advanceLocked(runId) : ownership.execute(run, () -> advanceLocked(runId));
             if (result.status() == Status.FINISHED) {
                 inheritedFailures.remove(result.id());
             }

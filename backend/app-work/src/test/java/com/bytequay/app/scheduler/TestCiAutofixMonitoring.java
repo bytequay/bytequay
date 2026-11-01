@@ -159,7 +159,7 @@ class TestCiAutofixMonitoring
     }
 
     @Test
-    void excludesDevelopmentOwnedCiRunsFromBothCleanupPasses()
+    void retriesDevelopmentOwnedCiRunsInBothCleanupPasses()
     {
         AgentTask task = liveTask();
         CiAutofixRun finished = run(Optional.of("parent-task"))
@@ -172,7 +172,7 @@ class TestCiAutofixMonitoring
         monitor(store, taskStore, service, readyAgentServingGate(), CLOCK).monitorCiAutofix();
 
         verify(store, times(2)).findByAgentTaskId(task.id().toString());
-        verifyNoInteractions(service);
+        verify(service, times(2)).advance(finished.id());
     }
 
     @Test

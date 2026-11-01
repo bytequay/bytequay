@@ -2028,7 +2028,7 @@ class TestCiAutofixService
     }
 
     @Test
-    void stoppedDevelopmentReleasesTheBranchButPreservesItsChild()
+    void stoppedDevelopmentReleasesTheBranchAndClosesItsChildOnTheNextCheck()
     {
         AgentTask parent = developmentParent();
         CiAutofixRun run = service.startDevelopment(startCommand("owned-stop"), openParent(parent), publishedPr(), NOW);
@@ -2045,9 +2045,12 @@ class TestCiAutofixService
         assertThat(store.run.agentTaskId()).isEqualTo(run.agentTaskId());
         assertThat(store.run.scope()).isEqualTo(run.scope());
         assertThat(service.canMessage(store.run)).isFalse();
-        assertThatThrownBy(() -> service.advance(run.id())).isInstanceOf(CiAutofixConflictException.class);
-        verify(completionService, never()).delete(any());
         verify(completionService, never()).cleanupWorktree(any());
+
+        assertThat(service.advance(run.id()).status()).isEqualTo(Status.FINISHED);
+        verify(completionService).complete(any());
+        verify(completionService).cleanupWorktree(taskId);
+        verify(completionService, never()).delete(any());
         verify(gitService, never()).push(any());
     }
 
@@ -2114,7 +2117,8 @@ class TestCiAutofixService
         verify(taskService).create(any());
         verify(turnService).stopRuntime(taskId, "stopped");
         verify(turnService, never()).start(any());
-        assertThatThrownBy(() -> service.advance(store.run.id())).isInstanceOf(CiAutofixConflictException.class);
+        assertThat(service.advance(store.run.id()).status()).isEqualTo(Status.FINISHED);
+        verify(turnService, never()).start(any());
     }
 
     @Test

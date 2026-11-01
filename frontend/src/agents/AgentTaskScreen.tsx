@@ -1305,6 +1305,9 @@ export function AgentTaskBody({
         {automationFailure}
       </div>}
 
+      {currentCi?.status === 'PAUSED' && currentCi.canMessage && currentCi.summary !== null
+        && <div className="agt-barrier" role="status">{renderMarkdown(currentCi.summary, repository)}</div>}
+
       {!terminal && automationActive && currentCi == null && status !== 'recovery' && state.developmentProgress?.message
         && <div className="agt-barrier" role="status">{state.developmentProgress.message}</div>}
 

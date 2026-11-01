@@ -1216,9 +1216,38 @@ class TestCiAutofixService
         when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.noChange());
         run = service.advance(run.id());
         assertThat(run.status()).isEqualTo(Status.PAUSED);
-        assertThat(run.summary()).hasValueSatisfying(summary -> assertThat(summary).contains("did not request a rerun"));
+        assertThat(run.summary()).contains("Maybe flaky. Rerun it.");
         assertThat(run.rerunCounter().used()).isZero();
         verify(gitHub, never()).rerunFailedJobs(any());
+    }
+
+    @Test
+    void developmentRepairThatAsksAQuestionAcceptsTheReply()
+    {
+        AgentTask parent = developmentParent();
+        CiAutofixRun run = service.startDevelopment(startCommand("owned-question"), openParent(parent), publishedPr(), NOW);
+        answers("The assertion now expects the new default. Should the old default stay supported?");
+        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
+        run = service.advance(run.id());
+        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.noChange());
+        CiAutofixRun question = service.advance(run.id());
+
+        assertThat(question.pauseReason()).contains(PauseReason.ERROR);
+        assertThat(question.summary()).contains("The assertion now expects the new default. Should the old default stay supported?");
+        assertThat(service.canMessage(question)).isTrue();
+        CiAutofixRun rejected = store.update(question.updateAttempt(question.attempts().getLast().withGitResult(
+                new CiAutofixAttempt.GitResult(FIXED_HEAD, "fingerprint", ImmutableList.of("Fix.java"), ImmutableList.of("fixup! Fix")), NOW), NOW));
+        assertThat(service.canMessage(rejected)).isFalse();
+        store.update(rejected.updateAttempt(question.attempts().getLast(), NOW));
+
+        TurnId replyId = TurnId.random();
+        AgentTurn reply = runningTurn(replyId, "reply", "reply-key");
+        when(turnService.start(any())).thenReturn(reply);
+        when(turnService.get(replyId)).thenReturn(reply);
+        CiAutofixRun resumed = service.sendMessage(new SendCiAutofixMessageCommand(question.id(), "Keep the old default supported", "reply-key", Optional.empty()));
+
+        assertThat(resumed.status()).isEqualTo(Status.ACTIVE);
+        assertThat(resumed.currentTurnId()).contains(replyId.toString());
     }
 
     @Test

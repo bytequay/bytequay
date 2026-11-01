@@ -456,8 +456,20 @@ public class CiAutofixService
                     .filter(value -> value.status() == BranchRebase.Status.PAUSED
                             && value.pauseReason().filter(reason -> reason == BranchRebase.PauseReason.UNSAFE_GIT_STATE
                                     || reason == BranchRebase.PauseReason.RECONCILIATION_MISMATCH).isPresent()).isPresent();
-            case TURN_FAILED, TURN_INTERRUPTED, TURN_CANCELLED, RERUN_UNAVAILABLE, RERUN_EXHAUSTED, ERROR -> false;
+            case ERROR -> endedWithoutRepair(run);
+            case TURN_FAILED, TURN_INTERRUPTED, TURN_CANCELLED, RERUN_UNAVAILABLE, RERUN_EXHAUSTED -> false;
         };
+    }
+
+    /** A repair turn that changed nothing and requested nothing paused to ask the user, so a reply may continue it. */
+    private static boolean endedWithoutRepair(CiAutofixRun run)
+    {
+        if (run.attempts().isEmpty() || run.finalFixupCheck().isPresent()) {
+            return false;
+        }
+        CiAutofixAttempt attempt = run.attempts().getLast();
+        return attempt.agentTurnId().isPresent() && attempt.gitResult().isEmpty() && attempt.pushedSha().isEmpty()
+                && attempt.descriptionChange().isEmpty() && attempt.rerunAssessment().isEmpty();
     }
 
     /** Stops every CI run of a development task, including writers of runs already finished; journals are never replayed. */
@@ -1040,7 +1052,10 @@ public class CiAutofixService
         }
 
         if (attempt.rerunAssessment().isEmpty()) {
-            return pause(run, PauseReason.ERROR, "Agent produced no repair and did not request a rerun with evidence of a flaky or transient failure", now);
+            // The agent's answer says what it needs, and a reply continues the same repair.
+            String question = attempt.untrustedAgentNote().map(String::strip).filter(note -> !note.isEmpty())
+                    .orElse("Agent produced no repair and did not request a rerun with evidence of a flaky or transient failure");
+            return pause(run, PauseReason.ERROR, truncate(question, MAXIMUM_SUMMARY_CHARACTERS, "…"), now);
         }
         Optional<CiWorkflowRun> requested = snapshot.workflowRuns().stream()
                 .filter(workflow -> workflow.jobs().stream().anyMatch(job -> job.id() == attempt.rerunAssessment().orElseThrow().jobId() && job.actionableFailure()))

@@ -558,6 +558,8 @@ describe('CI automation presentation', () => {
     const render = (state: AgentTaskState = paused) => renderTaskBody(state);
     const html = render();
     expect(html).toContain('CI needs your input');
+    expect(html).toContain('Choose the compatibility fix.');
+    expect(render({ ...paused, task: { ...paused.task, developmentCi: { ...CI_PROJECTION, canMessage: false } } })).not.toContain('Choose the compatibility fix.');
     expect(html).toContain('aria-label="Send to CI agent"');
     expect(html).toContain('aria-label="Stop automation"');
     expect(html).not.toContain('>Steer<');

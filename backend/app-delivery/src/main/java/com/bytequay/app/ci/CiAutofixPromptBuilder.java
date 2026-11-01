@@ -33,6 +33,9 @@ final class CiAutofixPromptBuilder
             Fix compile, type-check, dependency and build errors before downstream tests. Inspect
             repository instructions, workflows, README, scripts, manifests and wrappers for useful
             local checks; run them, repair failures, and explain any environment limits.
+            Never undo or weaken this PR's intended change to pass CI (no deleted or disabled tests,
+            no old assertions restored). If a fix needs a decision, change nothing and ask one short
+            question.
             For description failures or evidence of a flaky/transient failure, read and follow the
             propose_ci_description or request_ci_rerun tool guidance. These only save requests for
             ByteQuay to apply after the turn; they grant no direct GitHub write permission.

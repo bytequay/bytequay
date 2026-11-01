@@ -25,7 +25,6 @@ import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.PullRequestCi;
 import com.bytequay.integration.gitlab.impl.GitLabMergeRequestResponse.Pipeline;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Ascii;
 import com.google.common.collect.ImmutableList;
@@ -45,6 +44,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -72,26 +72,24 @@ public final class GitLabPullRequestCi
     private static final Pattern GITLAB_TOKEN = Pattern.compile("\\bgl(?:pat|oas|dt|rt|rtr|cbt|ptt|ft|imt|agent|soat|ffct)-[A-Za-z0-9_-]{20,}");
     private static final String EXTERNAL = "; CI Autofix cannot repair this external check";
     private static final String CI_CONFIGURATION = "CI configuration";
-    private static final String FAILURE_REASON = """
-            query($path: ID!, $iid: String!) {
-              project(fullPath: $path) {
-                mergeRequest(iid: $iid) {
-                  headPipeline { id failureReason }
-                }
-              }
-            }
-            """;
 
     private final GitLabHttpClient http;
+    private final GitLabPipelineFailures failures;
 
     public GitLabPullRequestCi(HttpClient http, ObjectMapper mapper)
     {
-        this(new GitLabHttpClient(http, mapper));
+        this(http, mapper, GitLabRelease.CURRENT);
     }
 
-    GitLabPullRequestCi(GitLabHttpClient http)
+    public GitLabPullRequestCi(HttpClient http, ObjectMapper mapper, GitLabRelease release)
+    {
+        this(new GitLabHttpClient(http, mapper), release);
+    }
+
+    GitLabPullRequestCi(GitLabHttpClient http, GitLabRelease release)
     {
         this.http = requireNonNull(http, "http is null");
+        this.failures = release.pipelineFailures(http);
     }
 
     @Override
@@ -101,7 +99,7 @@ public final class GitLabPullRequestCi
         PullRequestIdentity identity = identity(http, target, number, request);
         // GitLab reports a head pipeline only for the current head: its own commit, or the merged result built from it.
         List<CiRun> runs = Optional.ofNullable(request.headPipeline())
-                .map(pipeline -> withFailureReason(target, number, run(target, identity.headSha(), pipeline)))
+                .map(pipeline -> withFailureReason(target, number, run(target, identity.headSha(), pipeline, OptionalInt.of(number))))
                 .stream()
                 .collect(toImmutableList());
         return mapped("merge request", () -> new CiHeadSnapshot(identity.pullRequest(), identity.state() == PullRequestIdentity.State.OPEN, identity.author(),
@@ -118,8 +116,9 @@ public final class GitLabPullRequestCi
         ImmutableListMultimap<String, GitLabJob> jobs = jobs(target, pipeline);
         PullRequestCheckLog log;
         if (jobs.isEmpty() && jobId == pipeline.id()) {
-            log = configErrors(target, pipeline)
-                    .map(errors -> new PullRequestCheckLog(redact(Arrays.stream(errors.split("\n")).map(line -> "##[error]" + line).collect(joining("\n")), target.access().token()),
+            log = failures.configurationErrors(target, OptionalInt.of(number), pipeline)
+                    .map(errors -> new PullRequestCheckLog(redact(Arrays.stream(errors.split("\n")).map(line -> "##[error]" + line).collect(joining("\n")),
+                            target.access().token()),
                             Optional.empty()))
                     .orElseGet(() -> new PullRequestCheckLog("", Optional.of("The pipeline no longer reports configuration errors")));
         }
@@ -168,7 +167,7 @@ public final class GitLabPullRequestCi
         String path = "projects/" + definitionId + "/pipelines?ref=" + encode(branch) + "&source=push&scope=finished&order_by=id&sort=desc&per_page=1";
         Pipeline[] latest = http.get(target.access(), path, Optional.empty(), Pipeline[].class).body().orElseThrow();
         return Arrays.stream(latest).findFirst()
-                .map(pipeline -> run(target, pipeline.sha(), pipeline).jobs().stream()
+                .map(pipeline -> run(target, pipeline.sha(), pipeline, OptionalInt.empty()).jobs().stream()
                         .filter(CiJob::actionableFailure)
                         .map(CiJob::name)
                         .collect(toImmutableSet()))
@@ -187,7 +186,7 @@ public final class GitLabPullRequestCi
         if (pipeline == null || pipeline.id() != command.runId() || !command.headSha().equals(request.sha())) {
             return new CiRerunResult(OBSOLETE, "Pipeline no longer matches the journaled failed attempt");
         }
-        CiRun run = run(target, request.sha(), pipeline);
+        CiRun run = run(target, request.sha(), pipeline, OptionalInt.of(number));
         if (run.attempt() != command.previousAttempt() || !"completed".equals(run.status()) || !failed(run.conclusion())) {
             return new CiRerunResult(OBSOLETE, "Pipeline no longer matches the journaled failed attempt");
         }
@@ -284,11 +283,11 @@ public final class GitLabPullRequestCi
      * A job's attempt counts the jobs of its name. Every retry adds a job, so the run's attempt, one more than its retried jobs, grows with any rerun.
      * The run's definition is the request's target project, whose branches hold the base pipelines it compares with.
      */
-    private CiRun run(HostingTarget target, String headSha, Pipeline pipeline)
+    private CiRun run(HostingTarget target, String headSha, Pipeline pipeline, OptionalInt mergeRequest)
     {
         ImmutableListMultimap<String, GitLabJob> jobs = jobs(target, pipeline);
         // GitLab stops a pipeline with an invalid configuration before any job; its errors become one job CI Autofix can repair.
-        boolean configurationFailed = jobs.isEmpty() && configErrors(target, pipeline).isPresent();
+        boolean configurationFailed = jobs.isEmpty() && "failed".equals(pipeline.status()) && failures.configurationErrors(target, mergeRequest, pipeline).isPresent();
         return mapped("pipeline", () -> new CiRun(
                 pipeline.id(),
                 Long.parseLong(target.repository().remoteId()),
@@ -310,39 +309,13 @@ public final class GitLabPullRequestCi
                                 .collect(toImmutableList())));
     }
 
-    /** A failed pipeline's configuration errors; the pipeline is read again because lists and merge requests may leave them out. */
-    private Optional<String> configErrors(HostingTarget target, Pipeline pipeline)
-    {
-        if (!"failed".equals(pipeline.status())) {
-            return Optional.empty();
-        }
-        Pipeline current = http.get(target.access(), pipeline.path(target.repository()), Optional.empty(), Pipeline.class).body().orElseThrow();
-        return Optional.ofNullable(current.yamlErrors()).filter(errors -> !errors.isBlank());
-    }
-
-    /** A pipeline GitLab failed before any job for another reason, such as an unverified account, names that reason; only GraphQL reports it. */
+    /** A pipeline GitLab failed before any job for another reason, such as an unverified account, names that reason where the release reports it. */
     private CiRun withFailureReason(HostingTarget target, int number, CiRun run)
     {
         if (!run.jobs().isEmpty() || !run.conclusion().equals(Optional.of("failure"))) {
             return run;
         }
-        Optional<String> reason;
-        try {
-            FailureReason response = http.graphql(target.access(), FAILURE_REASON, ImmutableMap.of("path", target.repository().fullPath(), "iid", Integer.toString(number)),
-                    FailureReason.class).body().orElseThrow();
-            reason = Optional.ofNullable(response.data())
-                    .map(FailureReason.Data::project)
-                    .map(FailureReason.Project::mergeRequest)
-                    .map(FailureReason.MergeRequest::headPipeline)
-                    .filter(pipeline -> ("gid://gitlab/Ci::Pipeline/" + run.id()).equals(pipeline.id()))
-                    .map(FailureReason.HeadPipeline::failureReason)
-                    .filter(text -> !text.isBlank());
-        }
-        catch (HostingFailure failure) {
-            // The reason only adds context; the pipeline link still shows it.
-            reason = Optional.empty();
-        }
-        return reason
+        return failures.reason(target, number, run.id())
                 .map(text -> new CiRun(run.id(), run.definitionId(), Ascii.truncate(run.name() + ": " + text, 300, "…"), run.attempt(), run.status(), run.conclusion(),
                         run.headSha(), run.url(), run.jobs()))
                 .orElse(run);
@@ -397,22 +370,6 @@ public final class GitLabPullRequestCi
         text = text.replace(token, "[REDACTED]");
         text = AUTHORIZATION_VALUE.matcher(text).replaceAll("$1[REDACTED]");
         return GITLAB_TOKEN.matcher(text).replaceAll("[REDACTED]");
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record FailureReason(Data data)
-    {
-        @JsonIgnoreProperties(ignoreUnknown = true)
-        private record Data(Project project) {}
-
-        @JsonIgnoreProperties(ignoreUnknown = true)
-        private record Project(MergeRequest mergeRequest) {}
-
-        @JsonIgnoreProperties(ignoreUnknown = true)
-        private record MergeRequest(HeadPipeline headPipeline) {}
-
-        @JsonIgnoreProperties(ignoreUnknown = true)
-        private record HeadPipeline(String id, String failureReason) {}
     }
 
     private static Optional<String> failureNote(String reason)

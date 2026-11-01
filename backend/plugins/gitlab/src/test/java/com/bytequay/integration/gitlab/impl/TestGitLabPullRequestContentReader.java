@@ -314,14 +314,14 @@ class TestGitLabPullRequestContentReader
     }
 
     @Test
-    void loadsChangedFilesFromLegacyApiWhenDiffsEndpointIsMissing()
+    void olderReleasesLoadChangedFilesFromRawChanges()
     {
-        statuses.put(PREFIX + "/diffs?per_page=100&page=1", 404);
+        GitLabPullRequestContentReader older = new GitLabPullRequestContentReader(http, new ObjectMapper(), GitLabRelease.LEGACY);
         responses.put(PREFIX, """
                 {"id":70,"project_id":42,"iid":7,"sha":"%s","source_project_id":42,"target_project_id":42,
                 "draft":false,"work_in_progress":false,"diff_refs":{"head_sha":"%s","start_sha":"%s","base_sha":"%s"},"head_pipeline":null}
                 """.formatted(HEAD, HEAD, BASE, BASE));
-        responses.put(PREFIX + "/changes", """
+        responses.put(PREFIX + "/changes?access_raw_diffs=true", """
                 {"project_id":42,"iid":7,"sha":"%s","diff_refs":{"head_sha":"%s","start_sha":"%s","base_sha":"%s"},
                 "changes_count":"2","overflow":false,"changes":[
                 {"new_path":"file.txt","old_path":"file.txt","a_mode":"100644","b_mode":"100644","new_file":false,
@@ -331,7 +331,7 @@ class TestGitLabPullRequestContentReader
                 """.formatted(HEAD, HEAD, BASE, BASE));
         responses.put(PREFIX + "/commits?per_page=100&page=1", "[{\"id\":\"" + HEAD + "\",\"parent_ids\":[\"" + BASE + "\"],\"message\":\"Fix\"}]");
 
-        var result = reader.diff(target(), 7, Optional.empty(), Optional.empty(), new StoredPrDiff(ImmutableList.of(), ImmutableList.of()), PrDiffEtags.none());
+        var result = older.diff(target(), 7, Optional.empty(), Optional.empty(), new StoredPrDiff(ImmutableList.of(), ImmutableList.of()), PrDiffEtags.none());
 
         assertThat(result.files()).hasSize(2);
         assertThat(result.files().getFirst().patch()).isEqualTo("@@ -1 +1 @@\n-old\n+new");
@@ -339,7 +339,7 @@ class TestGitLabPullRequestContentReader
         assertThat(result.files().getFirst().deletions()).isEqualTo(1);
         assertThat(result.files().getLast().status()).isEqualTo("added");
         assertThat(result.commits()).singleElement().satisfies(commit -> assertThat(commit.parentSha()).isEqualTo(BASE));
-        assertThat(received).containsExactly(PREFIX + "/diffs?per_page=100&page=1", PREFIX, PREFIX + "/changes", PREFIX + "/commits?per_page=100&page=1");
+        assertThat(received).containsExactly(PREFIX, PREFIX + "/changes?access_raw_diffs=true", PREFIX + "/commits?per_page=100&page=1");
     }
 
     @Test

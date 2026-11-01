@@ -56,14 +56,15 @@ export function GitLabConnectionForm({ server, onConnecting, onConnected }: {
     } catch (failure) { setError(remoteErrorMessage(failure)); }
     finally { setBusy(null); }
   };
-  const openTokenPage = async () => {
+  // The server's release is unknown until it is connected; GitLab moved the page in 16.7 without a redirect.
+  const openTokenPage = async (page: '/-/user_settings/personal_access_tokens' | '/-/profile/personal_access_tokens') => {
     setError(null);
     try {
       const target = new URL(url.trim());
       if (!['https:', 'http:'].includes(target.protocol) || target.username || target.password || target.search || target.hash) {
         throw new Error('Enter a GitLab HTTP or HTTPS server URL without credentials, query parameters, or a fragment.');
       }
-      target.pathname = `${target.pathname.replace(/\/+$/, '')}/-/user_settings/personal_access_tokens`;
+      target.pathname = `${target.pathname.replace(/\/+$/, '')}${page}`;
       target.search = new URLSearchParams({ name: 'ByteQuay', scopes: 'api' }).toString();
       await window.bridge.openExternal(target.href);
     } catch (failure) { setError(remoteErrorMessage(failure)); }
@@ -92,7 +93,10 @@ export function GitLabConnectionForm({ server, onConnecting, onConnected }: {
     </section>
     <label>Or use a personal access token<input aria-label="GitLab personal access token" type="password" required value={token} disabled={busy !== null}
       autoComplete="off" spellCheck={false} onChange={event => setToken(event.target.value)} /></label>
-    <button type="button" className="setw-link" disabled={busy !== null} onClick={() => { void openTokenPage(); }}>Create access token</button>
+    <button type="button" className="setw-link" disabled={busy !== null} onClick={() => { void openTokenPage('/-/user_settings/personal_access_tokens'); }}>
+      Create access token</button>
+    <button type="button" className="setw-link" disabled={busy !== null} onClick={() => { void openTokenPage('/-/profile/personal_access_tokens'); }}>
+      GitLab before 16.7</button>
     <p>The shortcut preselects the required <code>api</code> permission. If your server does not preselect it, select it before generating the token.
       The token is stored encrypted on this Mac.</p>
     {error !== null && <ErrorDetails message={error} className="setw-error" />}

@@ -64,14 +64,19 @@ public final class GitLabPullRequestWriter
 {
     private static final Pattern HUNK = Pattern.compile("^@@ -(\\d+)(?:,\\d+)? [+](\\d+)(?:,\\d+)? @@.*");
     private final GitLabHttpClient http;
-    private final GitLabMergeRequestDiffs diffs;
+    private final GitLabDiffs diffs;
     private final GitLabPullRequestCi ci;
 
     public GitLabPullRequestWriter(HttpClient http, ObjectMapper mapper)
     {
+        this(http, mapper, GitLabRelease.CURRENT);
+    }
+
+    public GitLabPullRequestWriter(HttpClient http, ObjectMapper mapper, GitLabRelease release)
+    {
         this.http = new GitLabHttpClient(http, mapper);
-        this.diffs = new GitLabMergeRequestDiffs(this.http);
-        this.ci = new GitLabPullRequestCi(this.http);
+        this.diffs = release.diffs(this.http);
+        this.ci = new GitLabPullRequestCi(this.http, release);
     }
 
     @Override
@@ -98,7 +103,7 @@ public final class GitLabPullRequestWriter
             return mapped("discussion", () -> thread(new GitLabDiscussion(discussion.id(), discussion.individualNote(), notes, null), url(target.repository(), number), current));
         }
         checkHead(current, comment.commitId());
-        GitLabDiffPosition position = position(diffs.read(target.access(), path), current, comment);
+        GitLabDiffPosition position = position(diffs.mergeRequest(target.access(), path), current, comment);
         checkRevision(current, get(target.access(), path, GitLabMergeRequestResponse.class));
         return createDiscussion(target, number, comment.body(), position, current);
     }
@@ -200,7 +205,7 @@ public final class GitLabPullRequestWriter
         checkHead(current, commitId);
         Optional<GitLabUser> viewer = verdict == ReviewVerdict.APPROVE ? Optional.of(get(target.access(), "user", GitLabUser.class)) : Optional.empty();
         List<GitLabFileDiff> files = comments.stream().anyMatch(comment -> comment.replyToCommentId().isEmpty())
-                ? diffs.read(target.access(), path) : ImmutableList.of();
+                ? diffs.mergeRequest(target.access(), path) : ImmutableList.of();
         List<PrTimelineEvent> events = new ArrayList<>();
         int published = 0;
         try {

@@ -38,15 +38,23 @@ import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
 import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.encode;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.util.Objects.requireNonNull;
 
 public final class GitLabConnectionClient
         implements HostingAccounts, HostingRepositories
 {
     private final GitLabHttpClient http;
+    private final GitLabRelease release;
 
     public GitLabConnectionClient(HttpClient http, ObjectMapper mapper)
     {
+        this(http, mapper, GitLabRelease.CURRENT);
+    }
+
+    public GitLabConnectionClient(HttpClient http, ObjectMapper mapper, GitLabRelease release)
+    {
         this.http = new GitLabHttpClient(http, mapper);
+        this.release = requireNonNull(release, "release is null");
     }
 
     @Override
@@ -65,7 +73,7 @@ public final class GitLabConnectionClient
     @Override
     public Optional<HostingPermissions> checkPermissions(HostingAccess access)
     {
-        return Optional.of(new GitLabPermissionReader(http).check(access));
+        return Optional.of(new GitLabPermissionReader(http, release.inspectsPersonalTokens()).check(access));
     }
 
     /** Every GitLab release names itself at /version to any signed-in token. */

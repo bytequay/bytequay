@@ -295,6 +295,18 @@ class TestGitLabIssueClient
         assertThatThrownBy(() -> client.children(target(), 7)).isInstanceOf(HostingFailure.class).hasMessageContaining("no issue #7");
     }
 
+    @Test
+    void olderReleasesHaveNoChildItemsToAskFor()
+    {
+        GitLabIssueClient older = new GitLabIssueClient(http, MAPPER, GitLabRelease.LEGACY);
+        replies.put("POST /gitlab/api/graphql", new Reply(500, "{}", false));
+
+        assertThatThrownBy(() -> older.children(target(), 7)).isInstanceOfSatisfying(HostingFailure.class, failure -> {
+            assertThat(failure.kind()).isEqualTo(HostingFailure.Kind.UNAVAILABLE);
+            assertThat(failure.getMessage()).contains("before 16.11");
+        });
+    }
+
     private String issue(String state)
     {
         return """

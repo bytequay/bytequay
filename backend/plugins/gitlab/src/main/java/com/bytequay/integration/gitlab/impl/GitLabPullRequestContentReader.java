@@ -85,14 +85,19 @@ public final class GitLabPullRequestContentReader
         implements PullRequestContentReader
 {
     private final GitLabHttpClient http;
-    private final GitLabMergeRequestDiffs mergeRequestDiffs;
+    private final GitLabDiffs diffs;
     private final GitLabPullRequestCi ci;
 
     public GitLabPullRequestContentReader(HttpClient http, ObjectMapper mapper)
     {
+        this(http, mapper, GitLabRelease.CURRENT);
+    }
+
+    public GitLabPullRequestContentReader(HttpClient http, ObjectMapper mapper, GitLabRelease release)
+    {
         this.http = new GitLabHttpClient(http, mapper);
-        this.mergeRequestDiffs = new GitLabMergeRequestDiffs(this.http);
-        this.ci = new GitLabPullRequestCi(this.http);
+        this.diffs = release.diffs(this.http);
+        this.ci = new GitLabPullRequestCi(this.http, release);
     }
 
     @Override
@@ -353,11 +358,11 @@ public final class GitLabPullRequestContentReader
             if (compare.compareTimeout()) {
                 throw new HostingFailure(UNAVAILABLE, "GitLab comparison timed out; the diff is incomplete");
             }
-            files = compare.diffs();
+            files = diffs.compared(compare.diffs());
             commits = mapped("comparison", () -> compare.commits().stream().map(GitLabPullRequestContentReader::commit).collect(toImmutableList()));
         }
         else {
-            files = mergeRequestDiffs.read(target.access(), path);
+            files = diffs.mergeRequest(target.access(), path);
             commits = commits(target.access(), path);
         }
         return mapped("changed file", () -> new Diff(files.stream().map(file -> {

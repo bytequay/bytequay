@@ -83,10 +83,17 @@ public final class GitLabIssueClient
             """;
 
     private final GitLabHttpClient http;
+    private final GitLabRelease release;
 
     public GitLabIssueClient(HttpClient http, ObjectMapper mapper)
     {
+        this(http, mapper, GitLabRelease.CURRENT);
+    }
+
+    public GitLabIssueClient(HttpClient http, ObjectMapper mapper, GitLabRelease release)
+    {
         this.http = new GitLabHttpClient(http, mapper);
+        this.release = requireNonNull(release, "release is null");
     }
 
     @Override
@@ -337,11 +344,14 @@ public final class GitLabIssueClient
         }
     }
 
-    /** The children GitLab's work-item hierarchy lists for the issue, such as its tasks; the namespace lookup needs GitLab 17.x. */
+    /** The children GitLab's work-item hierarchy lists for the issue, such as its tasks; work items arrived in GitLab 16.11. */
     @Override
     public ChildIssues children(HostingTarget target, int number)
     {
         checkArgument(number > 0, "number must be positive");
+        if (!release.capabilities().issueChildren()) {
+            throw new HostingFailure(UNAVAILABLE, "GitLab before 16.11 cannot list an issue's child items");
+        }
         Children response = http.graphql(target.access(), CHILDREN, ImmutableMap.of("path", target.repository().fullPath(), "iid", Integer.toString(number)),
                 Children.class).body().orElseThrow();
         if (response.errors() != null && !response.errors().isEmpty()) {

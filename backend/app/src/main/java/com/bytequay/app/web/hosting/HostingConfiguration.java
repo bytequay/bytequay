@@ -46,6 +46,13 @@ public class HostingConfiguration
         return GitLabIntegration.create(http, mapper);
     }
 
+    /** Servers before GitLab 16.11; the registry picks it from the release read when an account is verified. */
+    @Bean
+    HostingIntegration gitLabLegacyHostingIntegration(@Qualifier("hostingHttpClient") HttpClient http, ObjectMapper mapper)
+    {
+        return GitLabIntegration.createLegacy(http, mapper);
+    }
+
     @Bean(destroyMethod = "close")
     HttpClient hostingHttpClient()
     {

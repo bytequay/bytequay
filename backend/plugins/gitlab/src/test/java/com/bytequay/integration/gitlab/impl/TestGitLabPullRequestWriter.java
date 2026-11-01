@@ -209,7 +209,7 @@ class TestGitLabPullRequestWriter
         assertThat(request.position().newLine()).isEqualTo(5);
         assertThat(request.position().headSha()).isEqualTo(HEAD);
         assertThat(request.position().baseSha()).isEqualTo(BASE);
-        assertThat(received.stream().filter(value -> value.key().equals("GET " + PREFIX + "/changes"))).hasSize(legacy ? 1 : 0);
+        assertThat(received.stream().filter(value -> value.key().equals("GET " + PREFIX + "/changes?access_raw_diffs=true"))).hasSize(legacy ? 1 : 0);
     }
 
     @Test
@@ -420,8 +420,8 @@ class TestGitLabPullRequestWriter
         var result = writer.submitReview(target(), 7, ReviewVerdict.COMMENT, "", comments, HEAD);
 
         assertThat(result.events()).hasSize(2);
-        assertThat(received.stream().filter(request -> request.key().contains("/diffs?"))).hasSize(1);
-        assertThat(received.stream().filter(request -> request.key().equals("GET " + PREFIX + "/changes"))).hasSize(legacy ? 1 : 0);
+        assertThat(received.stream().filter(request -> request.key().contains("/diffs?"))).hasSize(legacy ? 0 : 1);
+        assertThat(received.stream().filter(request -> request.key().equals("GET " + PREFIX + "/changes?access_raw_diffs=true"))).hasSize(legacy ? 1 : 0);
         var posted = received.stream().filter(request -> request.key().equals("POST " + PREFIX + "/discussions")).toList();
         assertThat(posted).hasSize(2);
         assertThat(mapper.readValue(posted.getFirst().body(), DiscussionBody.class).position().newLine()).isEqualTo(3);
@@ -436,13 +436,15 @@ class TestGitLabPullRequestWriter
         legacyDiffResponses();
         if (changed) {
             beforeResponse = key -> {
-                if (key.equals("GET " + PREFIX + "/changes")) {
+                if (key.equals("GET " + PREFIX + "/changes?access_raw_diffs=true")) {
                     responses.put("GET " + PREFIX, "{\"sha\":\"" + BASE + "\"}");
                 }
             };
         }
         else {
-            responses.compute("GET " + PREFIX + "/changes", (key, body) -> body.replace("\"overflow\":false", "\"overflow\":true"));
+            // Changes cut at the server's limits are completed from a comparison; one that times out leaves the diff incomplete.
+            responses.compute("GET " + PREFIX + "/changes?access_raw_diffs=true", (key, body) -> body.replace("\"overflow\":false", "\"overflow\":true"));
+            responses.put("GET /gitlab/api/v4/projects/42/repository/compare?from=" + BASE + "&to=" + HEAD + "&straight=true", "{\"compare_timeout\":true,\"diffs\":[]}");
         }
         var comment = new InlineReviewComment("file.txt", "Comment", 4, "RIGHT", null, null, HEAD, OptionalLong.empty());
 
@@ -487,10 +489,11 @@ class TestGitLabPullRequestWriter
         responses.put("POST " + PREFIX + "/discussions", "{\"id\":\"thread\",\"notes\":[" + note() + "]}");
     }
 
+    /** Switches to the implementation for GitLab before 16.11, which reads one unpaged changes response. */
     private void legacyDiffResponses()
     {
-        statuses.put("GET " + PREFIX + "/diffs?per_page=100&page=1", 404);
-        responses.put("GET " + PREFIX + "/changes", """
+        writer = new GitLabPullRequestWriter(http, mapper, GitLabRelease.LEGACY);
+        responses.put("GET " + PREFIX + "/changes?access_raw_diffs=true", """
                 {"project_id":42,"iid":7,"sha":"%s","diff_refs":{"base_sha":"%s","start_sha":"%s","head_sha":"%s"},
                  "overflow":false,"changes":%s}
                 """.formatted(HEAD, BASE, BASE, HEAD, responses.get("GET " + PREFIX + "/diffs?per_page=100&page=1")));

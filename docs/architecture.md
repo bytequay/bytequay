@@ -152,11 +152,17 @@ readers are verified with the matching application release.
 GitHub and GitLab share the contracts in `core.hosting`. The adapters in
 `plugins/github` and `plugins/gitlab` own HTTP requests, typed response records,
 provider-specific URLs and normalization. Each provider supplies one
-`HostingIntegration` holding all of its hosting ports. A remote call carries one
-`HostingTarget`, the selected account access and retained repository, and
-application services select the integration only through `HostingIntegrations`,
-by that target's provider; `app` composes the concrete implementations. The
-adapters depend on `core`, not application services or persistence.
+`HostingIntegration` per range of server releases, holding all of its hosting
+ports, the oldest release it needs, and its capabilities. GitLab has two: one
+for 16.11 and later, and a legacy one for older servers (checked on 14.10) that
+reads unpaged changes, REST pipeline errors, and offers no issue child items.
+Connecting an account, and checking its permissions, read the server's release
+and keep it with the server. A remote call carries one `HostingTarget`, the
+selected account access and retained repository, and application services select
+the integration only through `HostingIntegrations`, by that target's server: the
+provider's newest implementation its release supports; `app` composes the
+concrete implementations. The adapters depend on `core`, not application
+services or persistence.
 
 The contracts cover accounts, repository metadata, paginated PR/MR and issue
 reads, request discussion, checks, CI runs and logs, diffs, and explicit remote

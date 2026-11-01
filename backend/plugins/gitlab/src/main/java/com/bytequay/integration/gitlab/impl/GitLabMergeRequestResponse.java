@@ -111,7 +111,7 @@ record GitLabMergeRequestResponse(
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Pipeline(long id, @JsonProperty("project_id") Long projectId, String sha, String status, @JsonProperty("web_url") String webUrl,
-            @JsonProperty("yaml_errors") String yamlErrors)
+            @JsonProperty("yaml_errors") String yamlErrors, Long iid)
     {
         /** Fork pipelines run in their source project, not the request's target project. */
         String projectPath(HostingRepository target)

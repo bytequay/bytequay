@@ -13,7 +13,6 @@
  */
 package com.bytequay.integration.gitlab;
 
-import com.bytequay.core.hosting.HostingCapabilities;
 import com.bytequay.core.hosting.HostingIntegration;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.integration.gitlab.impl.GitLabConnectionClient;
@@ -23,24 +22,34 @@ import com.bytequay.integration.gitlab.impl.GitLabPullRequestContentReader;
 import com.bytequay.integration.gitlab.impl.GitLabPullRequestDiscovery;
 import com.bytequay.integration.gitlab.impl.GitLabPullRequestReader;
 import com.bytequay.integration.gitlab.impl.GitLabPullRequestWriter;
+import com.bytequay.integration.gitlab.impl.GitLabRelease;
 import com.bytequay.integration.gitlab.impl.GitLabTeamActivityReader;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.net.http.HttpClient;
-import java.util.Optional;
 
 public final class GitLabIntegration
 {
-    private static final HostingCapabilities CAPABILITIES = new HostingCapabilities(false, false, true, true, false, true);
-
     private GitLabIntegration() {}
 
+    /** GitLab 16.11 and later. */
     public static HostingIntegration create(HttpClient http, ObjectMapper mapper)
     {
-        GitLabConnectionClient connections = new GitLabConnectionClient(http, mapper);
-        GitLabIssueClient issues = new GitLabIssueClient(http, mapper);
-        return new HostingIntegration(HostingProvider.GITLAB, Optional.empty(), CAPABILITIES, connections, connections, new GitLabPullRequestReader(http, mapper),
-                new GitLabPullRequestContentReader(http, mapper), new GitLabPullRequestWriter(http, mapper), issues, issues, new GitLabPullRequestDiscovery(http, mapper),
-                new GitLabPullRequestCi(http, mapper), new GitLabTeamActivityReader(http, mapper));
+        return create(http, mapper, GitLabRelease.CURRENT);
+    }
+
+    /** GitLab before 16.11, using only what 14.10 already serves. */
+    public static HostingIntegration createLegacy(HttpClient http, ObjectMapper mapper)
+    {
+        return create(http, mapper, GitLabRelease.LEGACY);
+    }
+
+    private static HostingIntegration create(HttpClient http, ObjectMapper mapper, GitLabRelease release)
+    {
+        GitLabConnectionClient connections = new GitLabConnectionClient(http, mapper, release);
+        GitLabIssueClient issues = new GitLabIssueClient(http, mapper, release);
+        return new HostingIntegration(HostingProvider.GITLAB, release.since(), release.capabilities(), connections, connections, new GitLabPullRequestReader(http, mapper),
+                new GitLabPullRequestContentReader(http, mapper, release), new GitLabPullRequestWriter(http, mapper, release), issues, issues,
+                new GitLabPullRequestDiscovery(http, mapper), new GitLabPullRequestCi(http, mapper, release), new GitLabTeamActivityReader(http, mapper));
     }
 }

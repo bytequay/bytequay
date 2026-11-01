@@ -67,6 +67,7 @@ class TestGitLabPullRequestCi
     private HostingAccess access;
     private HostingRepository repository;
     private GitLabPullRequestCi ci;
+    private GitLabPullRequestCi legacy;
 
     @BeforeEach
     void setUp()
@@ -92,6 +93,7 @@ class TestGitLabPullRequestCi
                 URI.create(base + "/group/project.git"), Optional.empty(), Optional.of("main"));
         http = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
         ci = new GitLabPullRequestCi(http, new ObjectMapper());
+        legacy = new GitLabPullRequestCi(http, new ObjectMapper(), GitLabRelease.LEGACY);
     }
 
     @AfterEach
@@ -266,12 +268,18 @@ class TestGitLabPullRequestCi
     }
 
     @Test
-    void pipelineStoppedByItsConfigurationIsARepairableJob(@TempDir Path directory)
+    void currentReleasesRepairConfigurationErrorsGraphQlReports(@TempDir Path directory)
             throws IOException
     {
         mergeRequest(42, pipeline(42, "failed"));
         jobs(42);
-        responses.put("GET " + API + "42/pipelines/9", configFailure(9, HEAD));
+        // REST leaves yaml_errors empty on current releases.
+        responses.put("GET " + API + "42/pipelines/9", pipeline(42, "failed"));
+        responses.put("POST /gitlab/api/graphql", """
+                {"data":{"project":{"mergeRequest":{"headPipeline":{"id":"gid://gitlab/Ci::Pipeline/9",
+                "failureReason":"%s",
+                "errorMessages":{"nodes":[{"content":"jobs test config should implement the script:, run:, or trigger: keyword"}]}}}}}}
+                """.formatted("The pipeline failed due to an error on the CI/CD configuration file."));
 
         CiHeadSnapshot snapshot = ci.inspect(target(), 7);
 
@@ -279,10 +287,31 @@ class TestGitLabPullRequestCi
             assertThat(job.id()).isEqualTo(9);
             assertThat(job.name()).isEqualTo("CI configuration");
         });
+        assertThat(snapshot.runs().getFirst().name()).isEqualTo("Pipeline #9");
         Path destination = directory.resolve("job.log");
         assertThat(ci.downloadLog(target(), 7, 9, destination)).isEmpty();
+        assertThat(Files.readString(destination)).isEqualTo("##[error]jobs test config should implement the script:, run:, or trigger: keyword");
+        assertThat(received).doesNotContain("GET " + API + "42/pipelines/9");
+    }
+
+    @Test
+    void olderReleasesRepairConfigurationErrorsRestReports(@TempDir Path directory)
+            throws IOException
+    {
+        mergeRequest(42, pipeline(42, "failed"));
+        jobs(42);
+        responses.put("GET " + API + "42/pipelines/9", configFailure(9, HEAD));
+
+        CiHeadSnapshot snapshot = legacy.inspect(target(), 7);
+
+        assertThat(snapshot.actionableFailures()).singleElement().satisfies(job -> {
+            assertThat(job.id()).isEqualTo(9);
+            assertThat(job.name()).isEqualTo("CI configuration");
+        });
+        Path destination = directory.resolve("job.log");
+        assertThat(legacy.downloadLog(target(), 7, 9, destination)).isEmpty();
         assertThat(Files.readString(destination)).isEqualTo("##[error]jobs:test config contains unknown keys: scrpt");
-        assertThat(ci.failureNotes(target(), 7, 9)).isEmpty();
+        assertThat(legacy.failureNotes(target(), 7, 9)).isEmpty();
         assertThat(received).doesNotContain("GET " + API + "42/jobs/9", "POST /gitlab/api/graphql");
     }
 
@@ -303,6 +332,12 @@ class TestGitLabPullRequestCi
         assertThat(run.conclusion()).hasValue("failure");
         assertThat(run.jobs()).isEmpty();
 
+        // Older releases have no failure reason to ask for.
+        received.clear();
+
+        assertThat(legacy.inspect(target(), 7).runs().getFirst().name()).isEqualTo("Pipeline #9");
+        assertThat(received).doesNotContain("POST /gitlab/api/graphql");
+
         // The reason only adds context: without it the run keeps its plain name.
         responses.remove("POST /gitlab/api/graphql");
 
@@ -314,7 +349,7 @@ class TestGitLabPullRequestCi
     {
         String latest = "GET " + API + "42/pipelines?ref=release%2F1.0&source=push&scope=finished&order_by=id&sort=desc&per_page=1";
         responses.put(latest, """
-                [{"id":5,"project_id":42,"sha":"%s","status":"failed","web_url":"https://gitlab.example.com/group/project/-/pipelines/5"}]
+                [{"id":5,"iid":3,"project_id":42,"sha":"%s","status":"failed","web_url":"https://gitlab.example.com/group/project/-/pipelines/5"}]
                 """.formatted(BASE));
         responses.put("GET " + API + "42/pipelines/5/jobs?include_retried=true&per_page=100&page=1", "[" + String.join(",",
                 job(1, "build", "failed", false), job(2, "build", "success", false), job(3, "test", "failed", false), job(4, "lint", "failed", true)) + "]");
@@ -324,6 +359,14 @@ class TestGitLabPullRequestCi
         // A base branch whose configuration is broken too fails the same named job.
         responses.put("GET " + API + "42/pipelines/5/jobs?include_retried=true&per_page=100&page=1", "[]");
         responses.put("GET " + API + "42/pipelines/5", configFailure(5, BASE));
+
+        assertThat(legacy.failedJobsOnBranch(target(), 42, "release/1.0")).containsExactly("CI configuration");
+
+        // Current releases name a branch pipeline by its number within the project.
+        responses.put("POST /gitlab/api/graphql", """
+                {"data":{"project":{"pipeline":{"id":"gid://gitlab/Ci::Pipeline/5","failureReason":"%s",
+                "errorMessages":{"nodes":[{"content":"jobs test config should implement the script:, run:, or trigger: keyword"}]}}}}}
+                """.formatted("The pipeline failed due to an error on the CI/CD configuration file."));
 
         assertThat(ci.failedJobsOnBranch(target(), 42, "release/1.0")).containsExactly("CI configuration");
 

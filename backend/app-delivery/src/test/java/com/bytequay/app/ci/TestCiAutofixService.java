@@ -1257,6 +1257,28 @@ class TestCiAutofixService
     }
 
     @Test
+    void rerunReportedCompletedBeforeListingItsJobsWaitsOnlyForTheObservationPeriod()
+    {
+        CiAutofixRun run = service.start(startCommand("rerun-listing"));
+        service.requestRerun(taskId, turnId, 200, "The runner lost its network connection before tests started");
+        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
+        run = service.advance(run.id());
+        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.noChange());
+        when(gitHub.rerunFailedJobs(any())).thenReturn(new CiRerunResult(CiRerunResult.Outcome.ACCEPTED, "accepted"));
+        run = service.advance(run.id());
+
+        CiWorkflowRun earlier = failedSnapshot(HEAD, BASE, 1).workflowRuns().getFirst();
+        when(gitHub.inspect(any())).thenReturn(snapshot(HEAD, BASE, ImmutableList.of(new CiWorkflowRun(
+                earlier.id(), earlier.workflowId(), earlier.name(), 2, "completed", Optional.of("failure"), HEAD, earlier.url(), earlier.jobs()))));
+        run = service.advance(service.advance(run.id()).id());
+        assertThat(run.rerunJournal()).isPresent();
+
+        run = service(store, Clock.fixed(NOW.plus(Duration.ofMinutes(3)), ZoneOffset.UTC)).advance(run.id());
+        assertThat(run.rerunJournal()).isEmpty();
+        assertThat(run.attempts()).singleElement().satisfies(attempt -> assertThat(attempt.observedCiResult()).isEqualTo(CiResult.FAILED));
+    }
+
+    @Test
     void waitsForTheFailedWorkflowRunToFinishBeforeRerunning()
     {
         CiAutofixRun run = service.start(startCommand("rerun-while-running"));

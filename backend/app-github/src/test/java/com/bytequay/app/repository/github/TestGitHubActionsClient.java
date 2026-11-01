@@ -301,6 +301,34 @@ class TestGitHubActionsClient
     }
 
     @Test
+    void failedRowOfTheEarlierAttemptWaitsWhileItsRerunRuns()
+    {
+        Fixture fixture = fixture();
+        expectRerun(fixture, "in_progress", null, true);
+
+        CiHeadSnapshot snapshot = fixture.client.inspect(PULL_REQUEST);
+
+        assertThat(snapshot.jobs()).extracting(CiJob::id).containsExactly(902L, 903L);
+        assertThat(snapshot.jobs().getFirst().status()).isEqualTo("queued");
+        assertThat(snapshot.actionableFailures()).isEmpty();
+        assertThat(snapshot.pending()).isTrue();
+        fixture.verify();
+    }
+
+    @Test
+    void completedAttemptReportsTheFailuresItKeptFromEarlierAttempts()
+    {
+        Fixture fixture = fixture();
+        expectRerun(fixture, "completed", "failure", false);
+
+        CiHeadSnapshot snapshot = fixture.client.inspect(PULL_REQUEST);
+
+        assertThat(snapshot.actionableFailures()).extracting(CiJob::id).containsExactly(902L, 901L);
+        assertThat(snapshot.pending()).isFalse();
+        fixture.verify();
+    }
+
+    @Test
     void refusesIncompleteWorkflowPagesInsteadOfReturningPartialGreen()
     {
         Fixture fixture = fixture();
@@ -1048,6 +1076,32 @@ class TestGitHubActionsClient
                           "conclusion":%s,"html_url":"https://github.com/job/902","steps":[]
                         }]}
                         """.formatted(jobStatus, jsonString(jobConclusion)), MediaType.APPLICATION_JSON));
+    }
+
+    /** Attempt 2 reruns the failed "Test" job; "Summary" needs it, so GitHub lists Summary's new row only once Test finishes. */
+    private static void expectRerun(Fixture fixture, String runStatus, String runConclusion, boolean listsRerunTest)
+    {
+        expectPullRequest(fixture);
+        fixture.apiServer.expect(requestTo(runsUrl(1)))
+                .andRespond(withSuccess("""
+                        {"total_count":1,"workflow_runs":[{
+                          "id":900,"workflow_id":80,"name":"Build","run_attempt":2,
+                          "status":"%s","conclusion":%s,"head_sha":"%s",
+                          "html_url":"https://github.com/owner/repo/actions/runs/900"
+                        }]}
+                        """.formatted(runStatus, jsonString(runConclusion), HEAD_SHA), MediaType.APPLICATION_JSON));
+        String rerunTest = """
+                {"id":903,"name":"Test","run_attempt":2,"status":"in_progress","conclusion":null,
+                  "html_url":"https://github.com/job/903","steps":[]},""";
+        fixture.apiServer.expect(requestTo(jobsUrl(900, 1)))
+                .andRespond(withSuccess("""
+                        {"total_count":%d,"jobs":[%s
+                          {"id":901,"name":"Test","run_attempt":1,"status":"completed","conclusion":"failure",
+                            "html_url":"https://github.com/job/901","steps":[]},
+                          {"id":902,"name":"Summary","run_attempt":1,"status":"completed","conclusion":"failure",
+                            "html_url":"https://github.com/job/902","steps":[]}
+                        ]}
+                        """.formatted(listsRerunTest ? 3 : 2, listsRerunTest ? rerunTest : ""), MediaType.APPLICATION_JSON));
     }
 
     private static void expectPullRequest(Fixture fixture)

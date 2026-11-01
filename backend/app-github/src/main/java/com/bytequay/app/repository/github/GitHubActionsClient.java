@@ -522,16 +522,33 @@ public class GitHubActionsClient
     private CiWorkflowRun toWorkflowRun(String pat, PullRequestRef pullRequest, WorkflowRunResponse run)
     {
         int attempt = positiveOrOne(run.runAttempt());
+        String status = firstNonBlank(run.status(), "queued");
         return new CiWorkflowRun(
                 run.id(),
                 run.workflowId(),
                 firstNonBlank(run.name(), run.displayTitle(), "Workflow " + run.workflowId()),
                 attempt,
-                firstNonBlank(run.status(), "queued"),
+                status,
                 Optional.ofNullable(run.conclusion()),
                 run.headSha(),
                 firstNonBlank(run.htmlUrl(), "https://github.com/"),
-                fetchJobs(pat, pullRequest, run.id(), attempt, run.htmlUrl()));
+                awaitingRerun(fetchJobs(pat, pullRequest, run.id(), attempt, run.htmlUrl()), attempt, status));
+    }
+
+    /**
+     * GitHub lists a rerun job only once it is queued, and a job that needs others only once they finish. While the attempt runs, a
+     * failed row of an earlier attempt may be one that is about to run again, so it counts as waiting, not as a failure.
+     */
+    private static List<CiJob> awaitingRerun(List<CiJob> jobs, int attempt, String status)
+    {
+        if ("completed".equalsIgnoreCase(status)) {
+            return jobs;
+        }
+        return jobs.stream()
+                .map(job -> job.attempt() < attempt && job.actionableFailure()
+                        ? new CiJob(job.id(), job.workflowRunId(), job.name(), job.attempt(), "queued", Optional.empty(), job.url(), ImmutableList.of())
+                        : job)
+                .collect(toImmutableList());
     }
 
     private List<CiJob> fetchJobs(String pat, PullRequestRef pullRequest, long workflowRunId, int workflowAttempt, String workflowUrl)

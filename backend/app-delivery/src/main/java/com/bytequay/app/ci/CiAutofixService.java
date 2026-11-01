@@ -1131,6 +1131,12 @@ public class CiAutofixService
         if (observed.isEmpty() || !"completed".equals(observed.orElseThrow().status())) {
             return run;
         }
+        CiWorkflowRun rerun = observed.orElseThrow();
+        // Right after a rerun GitHub can call the attempt completed before it lists that attempt's jobs; this settles within the period.
+        if (now.isBefore(journal.startedAt().plus(RERUN_OBSERVATION_PERIOD))
+                && (rerun.jobs().stream().noneMatch(job -> job.attempt() == rerun.attempt()) || rerun.jobs().stream().anyMatch(CiJob::pending))) {
+            return run;
+        }
         return store.update(run.resolveRerun(ciResult(snapshot), snapshot.baseSha(), now));
     }
 

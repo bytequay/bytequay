@@ -86,10 +86,28 @@ public final class DevelopmentCiOwnership
         return run.scope().parentTaskId().isEmpty() || !revoked.contains(run.id()) && parentOpen(parent(run));
     }
 
-    /** Whether a run is repairing in its own checkout, which source work on the same branch must wait for or stop. */
+    /** Whether a run is repairing or pushing the task branch, which source work on the same branch must wait for or stop. */
     public static boolean writing(CiAutofixRun run)
     {
-        return run.status() != CiAutofixRun.Status.FINISHED && (run.currentTurnId().isPresent() || run.currentRebaseId().isPresent());
+        return run.status() != CiAutofixRun.Status.FINISHED
+                && (run.currentTurnId().isPresent() || run.currentRebaseId().isPresent() || run.pushJournal().isPresent());
+    }
+
+    /**
+     * Runs a step that starts writing the development task's branch only while the task is idle, or returns empty. Under the task's
+     * lock the check and the step are one, so source work admitted afterwards sees what the step holds.
+     */
+    <T> Optional<T> whileParentIdle(CiAutofixRun run, Supplier<T> step)
+    {
+        if (run.scope().parentTaskId().isEmpty()) {
+            return Optional.of(step.get());
+        }
+        synchronized (runtimes.taskLock(parent(run))) {
+            if (parentBusy(run) || runtimes.hasDevelopmentOwner(parent(run))) {
+                return Optional.empty();
+            }
+            return Optional.of(step.get());
+        }
     }
 
     /** Whether the development task is working on its branch, so its CI runs must not start another repair. */

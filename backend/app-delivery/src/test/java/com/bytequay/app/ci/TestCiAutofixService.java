@@ -2085,6 +2085,18 @@ class TestCiAutofixService
     }
 
     @Test
+    void aJournaledPushHoldsTheDevelopmentBranchUntilItEnds()
+    {
+        AgentTask parent = developmentParent();
+        reserveParent(parent);
+        CiAutofixRun run = finishRepair(service.startDevelopment(startCommand("owned-journal"), parent.id(), publishedPr(), NOW), "fingerprint");
+
+        assertThat(run.pushJournal()).isPresent();
+        assertThatThrownBy(() -> ownership.requireSourceAdmission(parent.withDevelopmentContinuation(false, NOW)))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("still repairing");
+    }
+
+    @Test
     void closingTheDevelopmentTaskWaitsForARepairThenStopsItsRunsAndClosesItsRepairTask()
     {
         AgentTask parent = developmentParent();

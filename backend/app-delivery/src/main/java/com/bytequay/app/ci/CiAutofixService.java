@@ -992,7 +992,9 @@ public class CiAutofixService
     {
         GitResult result = attempt.gitResult().orElseThrow();
         inspectWorktree(run);
-        return store.update(run.recordPushJournal(new PushJournal(attempt.id(), run.expectedRemoteHead(), result.localHead(), result.fingerprint(), now, 0), now));
+        // The journal holds the branch until the push ends; while source work runs, its next push replaces this repair instead.
+        return ownership.whileParentIdle(run, () -> store.update(run.recordPushJournal(
+                new PushJournal(attempt.id(), run.expectedRemoteHead(), result.localHead(), result.fingerprint(), now, 0), now))).orElseGet(() -> get(run.id()));
     }
 
     private CiAutofixRun advanceDescriptionChange(CiAutofixRun run, CiHeadSnapshot snapshot, Instant now)
@@ -1302,16 +1304,19 @@ public class CiAutofixService
         }
         try {
             ownership.require(run);
-            BranchRebase rebase = rebaseService.start(new StartBranchRebaseCommand(
-                    task.id(),
-                    workspace.worktree(),
-                    synchronization.localBaseBranch().orElseThrow(),
-                    rebaseKey(run, workspace.head(), snapshot.baseSha())));
-            verifyBranchRebaseScope(run, rebase, snapshot.baseSha());
-            if (rebase.status() == BranchRebase.Status.FINISHED) {
-                return finishedBranchRebase(run, rebase, now);
-            }
-            return RebaseGate.waiting(store.update(run.linkBranchRebase(rebase.id().toString(), now)));
+            // Source work admitted after this step sees the linked rebase; source work already running makes the rebase wait.
+            return ownership.whileParentIdle(run, () -> {
+                BranchRebase rebase = rebaseService.start(new StartBranchRebaseCommand(
+                        task.id(),
+                        workspace.worktree(),
+                        synchronization.localBaseBranch().orElseThrow(),
+                        rebaseKey(run, workspace.head(), snapshot.baseSha())));
+                verifyBranchRebaseScope(run, rebase, snapshot.baseSha());
+                if (rebase.status() == BranchRebase.Status.FINISHED) {
+                    return finishedBranchRebase(run, rebase, now);
+                }
+                return RebaseGate.waiting(store.update(run.linkBranchRebase(rebase.id().toString(), now)));
+            }).orElseGet(() -> RebaseGate.waiting(run));
         }
         catch (RuntimeException failure) {
             return RebaseGate.waiting(store.update(run.pause(PauseReason.REBASE_PAUSED, failureSummary("The target rebase could not start", failure), now)));

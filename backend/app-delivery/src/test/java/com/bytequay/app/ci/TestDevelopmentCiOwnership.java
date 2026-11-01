@@ -55,6 +55,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
@@ -230,6 +231,20 @@ class TestDevelopmentCiOwnership
         when(tasks.find(parent.id())).thenReturn(Optional.of(parent.withDevelopmentContinuation(true, NOW)));
         assertThat(ownership.parentBusy(run)).isTrue();
         assertThat(ownership.parentBusy(run(parent, FORK, Optional.empty()))).isFalse();
+    }
+
+    @Test
+    void startsWritingTheBranchOnlyWhileTheParentIsIdle()
+    {
+        AgentTask parent = task(FORK);
+        CiAutofixRun run = run(parent, FORK, Optional.of(parent.id().toString()));
+        AtomicInteger steps = new AtomicInteger();
+        when(tasks.find(parent.id())).thenReturn(Optional.of(parent.claimWorktreeMutation(WorktreeMutationClaim.turn(TurnId.random(), NOW), NOW)));
+        assertThat(ownership.whileParentIdle(run, steps::incrementAndGet)).isEmpty();
+
+        when(tasks.find(parent.id())).thenReturn(Optional.of(parent));
+        assertThat(ownership.whileParentIdle(run, steps::incrementAndGet)).contains(1);
+        assertThat(steps).hasValue(1);
     }
 
     @Test

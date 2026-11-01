@@ -24,6 +24,7 @@ import { workspaceFixture } from '../../workspaces/fixtures/workspace';
 import WorkspaceShell from '../../workspaces/WorkspaceShell';
 import GitLabAccounts, { GitLabConnectionForm } from '../GitLabAccounts';
 import GitLabSettings from '../GitLabSettings';
+import HostingOnboarding from '../HostingOnboarding';
 import '../../index.css';
 
 const readyCli = async () => ({ ready: true, homebrewAvailable: true });
@@ -207,6 +208,30 @@ export async function run() {
         changeInput(server, 'https://gitlab.com'); await settle(); button('Create access token', view.host).click();
         await until(() => view.host.querySelector('[role="alert"]')?.textContent?.includes('Browser could not open') === true, 'Browser failure was not shown');
         assert(connections === 0, 'Token shortcut must not submit the connection form');
+      } finally { view.dispose(); }
+    }],
+    ['Keep a GitLab sign-in that is waiting for the browser across setup tabs', async () => {
+      const view = createFixtureRoot();
+      const login = Promise.withResolvers<HostingConnectionDto>();
+      let rows: HostingConnectionDto[] = [];
+      window.bridge = {
+        hasPat: async () => true,
+        getGitLabCliStatus: readyCli,
+        listHostingAccounts: async () => rows,
+        connectHostingCliAccount: async () => login.promise,
+      } as Partial<Bridge> as Bridge;
+      try {
+        flushSync(() => view.root.render(<HostingOnboarding onSaved={() => {}} />));
+        await until(() => view.host.textContent?.includes('Sign in with GitLab') === true && button('GitLab', view.host).getAttribute('aria-pressed') === 'true',
+          'Setup did not move on to GitLab');
+        button('Sign in with GitLab', view.host).click();
+        await until(() => view.host.textContent?.includes('Waiting for GitLab…') === true, 'Sign-in did not start');
+        button('GitHub', view.host).click(); await settle(); button('GitLab', view.host).click(); await settle();
+        assert(view.host.textContent?.includes('Waiting for GitLab…'), 'Switching tabs dropped the waiting sign-in');
+        rows = [account(1)]; login.resolve(account(1));
+        await until(() => view.host.textContent?.includes('GitLab is connected') === true && view.host.querySelector('[aria-label="GitLab account"]') !== null,
+          'Connected account did not appear');
+        assert(view.host.querySelector('[aria-label="GitLab personal access token"]') === null, 'Connected setup still shows the sign-in form');
       } finally { view.dispose(); }
     }],
     ['Connect GitLab.com with its API URL and clear the token', async () => {

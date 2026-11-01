@@ -45,9 +45,11 @@ export default function HostingOnboarding({ onSaved, embedded = false }: { onSav
         {label}{connected.includes(value) && <Check size={14} aria-label="connected" />}
       </button>)}
     </div>
-    {provider === 'GITHUB' ? connected.includes('GITHUB') ? <section className="hosting-panel"><h2>GitHub is connected</h2></section>
-      : <OnboardingScreen onSaved={saved} embedded={embedded} />
-      : <section className="hosting-panel"><h2>{connected.includes('GITLAB') ? 'GitLab is connected' : 'Connect GitLab'}</h2><p>Use GitLab.com or your company’s GitLab server.</p>
-        <GitLabAccounts selected={gitLabAccount} autoSelectFirst onSelect={chooseGitLab} /></section>}
+    {provider === 'GITHUB' && (connected.includes('GITHUB') ? <section className="hosting-panel"><h2>GitHub is connected</h2></section>
+      : <OnboardingScreen onSaved={saved} embedded={embedded} />)}
+    {/* Hidden, not unmounted: a sign-in still waiting for the browser must land in the account list the user comes back to. */}
+    <section className="hosting-panel" hidden={provider !== 'GITLAB'}>
+      <h2>{connected.includes('GITLAB') ? 'GitLab is connected' : 'Connect GitLab'}</h2><p>Use GitLab.com or your company’s GitLab server.</p>
+      <GitLabAccounts selected={gitLabAccount} autoSelectFirst onSelect={chooseGitLab} /></section>
   </div>;
 }

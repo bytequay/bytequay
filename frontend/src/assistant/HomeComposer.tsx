@@ -16,7 +16,7 @@ import { History, SquarePen } from 'lucide-react';
 import Composer from '../Composer';
 import { IconButton } from '../cards/Card';
 import type { WorkItem } from '../home/work';
-import { openAssistant } from './model';
+import { SUGGESTION, openAssistant, takesSuggestion } from './model';
 import AssistantPills, { useNotices, useWaiting } from './Pills';
 import '../css/assistant.css';
 
@@ -36,8 +36,13 @@ export default function HomeComposer({ work }: { work: WorkItem[] }) {
   };
   return (
     <div className="assistant-home">
-      <Composer aria-label="Message the Assistant" placeholder="Ask, or tell it what to start" value={draft} maxLength={16 * 1024}
+      <Composer aria-label="Message the Assistant" placeholder={SUGGESTION} value={draft} maxLength={16 * 1024}
         onChange={event => setDraft(event.target.value)} onSubmit={submit} submitEnabled={draft.trim() !== ''}
+        onKeyDown={event => {
+          if (!takesSuggestion(event, draft)) return;
+          event.preventDefault();
+          setDraft(SUGGESTION);
+        }}
         submitLabel="Send to the Assistant" submitTitle="Send (Enter)">
         <span className="assistant-spacer" />
         <IconButton label="New conversation" title="New conversation" onClick={() => openAssistant({ fresh: true })}><SquarePen size={15} aria-hidden="true" /></IconButton>

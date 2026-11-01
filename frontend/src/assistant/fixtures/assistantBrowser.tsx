@@ -229,7 +229,14 @@ async function floatsOverThePage(): Promise<void> {
     const page = view.host.querySelector<HTMLElement>('.app-surfaces')?.getBoundingClientRect();
     assert(page !== undefined && page.width === window.innerWidth, `The page keeps its width: ${JSON.stringify(page)}`);
     assert(float.getAttribute('role') === 'dialog', 'It is a dialog, so the editor’s native view hides under it');
-    assert(getComputedStyle(float.querySelector('.agt-compose__streamer') as Element).display === 'none', 'The composer’s light rests until a reply is written');
+    const light = getComputedStyle(float.querySelector('.agt-compose__streamer') as Element, '::after');
+    assert(light.animationName === 'agt-compose-streamer' && light.animationDuration === '14s', `The composer's light runs round it as a task's does: ${light.animationName} ${light.animationDuration}`);
+    const input = element<HTMLTextAreaElement>('.assistant-float textarea', view.host, 'The composer shows');
+    assert(input.placeholder === 'What needs my attention first?', `It suggests what to ask: ${input.placeholder}`);
+    press(input, 'Tab');
+    await settle();
+    assert(input.value === 'What needs my attention first?' && document.activeElement === input, 'Tab types the suggestion and stays in the composer');
+    changeInput(input, '');
     assert(view.host.querySelector('.assistant-talk') === null && top(view.host) === null && view.host.querySelector('.assistant-body') === null,
       'A new conversation shows only the composer and its pills');
     assert(JSON.stringify(pills(view.host)) === JSON.stringify(['All', 'Decision1', 'Running', 'Finished1', 'Today0/2', 'My work']),
@@ -394,7 +401,10 @@ async function showsRunningTasksAndAll(): Promise<void> {
     const input = element<HTMLTextAreaElement>('.assistant-float textarea', view.host, 'The composer shows');
     press(input, 'Tab');
     await settle();
-    assert(document.activeElement === pill(view.host, 'all'), `Tab from the composer lands on the first pill: ${document.activeElement?.textContent}`);
+    assert(input.value === 'What needs my attention first?', 'Tab in an empty composer types the suggestion');
+    press(input, 'Tab');
+    await settle();
+    assert(document.activeElement === pill(view.host, 'all'), `With words in it, Tab moves on to the first pill: ${document.activeElement?.textContent}`);
     pill(view.host, 'all')?.click();
     await settle();
     const sections = [...view.host.querySelectorAll('.assistant-section')].map(section => section.textContent);
@@ -953,7 +963,7 @@ async function stopsARunningReply(): Promise<void> {
     await settle();
     assert(view.host.querySelector('.assistant-talk .assistant-thinking') !== null, 'A running reply shows the conversation with Thinking');
     const light = view.host.querySelector('.assistant-float.is-replying .agt-compose__streamer');
-    assert(light !== null && getComputedStyle(light).animationDuration === '4s', 'The light speeds up while it replies');
+    assert(light !== null && getComputedStyle(light, '::after').animationDuration === '4s', 'The light speeds up while it replies');
     assert(view.host.querySelector('button[aria-label="Send to the Assistant"]') === null, 'Stop replaces send');
     view.host.querySelector<HTMLButtonElement>('button[aria-label="Stop the reply"]')?.click();
     await settle();

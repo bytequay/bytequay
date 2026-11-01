@@ -18,7 +18,7 @@ import type { AgendaTargetDto, AssistantItemDto, AssistantReceiptDto, AssistantR
 import { workspaceAgentTaskRoute, workspaceIssueRoute, workspacePullRequestRoute, workspaceReviewTaskRoute, workspaceRoute } from '../workspaces/model';
 import { settingsRoute } from '../settings/routes';
 import {
-  arrivedOpen, createdDrafts, dayLabel, decisionOrder, linkRefs, localDay, pageRoute, refFromHref, refLabel, rowState, rowTitle, screenRef, soonestDeadline, timelineDays,
+  arrivedOpen, createdDrafts, dayLabel, decisionOrder, linkRefs, localDay, pageRoute, refFromHref, refLabel, rowState, rowTitle, screenRef, soonestDeadline, takesSuggestion, timelineDays,
   waitingCards,
 } from './model';
 
@@ -96,6 +96,19 @@ describe('waitingCards', () => {
       notice('approval:q', 'QUESTION', 20, { taskId: 'r3', pullRequest: 'owner/repository#7' }),
     ], [task('t1', 'RUNNING', 15)]);
     expect(cards.map(card => card.key)).toEqual(['review:new', 'approval:q', 'running:t1']);
+  });
+});
+
+describe('takesSuggestion', () => {
+  const key = (name: string, fields: Partial<{ shiftKey: boolean; altKey: boolean; ctrlKey: boolean; metaKey: boolean }> = {}) =>
+    ({ key: name, shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, ...fields });
+
+  it('takes Tab in an empty composer only, without modifiers', () => {
+    expect(takesSuggestion(key('Tab'), '')).toBe(true);
+    expect(takesSuggestion(key('Tab'), '  \n')).toBe(true);
+    expect(takesSuggestion(key('Tab'), 'what is running?')).toBe(false);
+    expect(takesSuggestion(key('Tab', { shiftKey: true }), '')).toBe(false);
+    expect(takesSuggestion(key('Enter'), '')).toBe(false);
   });
 });
 

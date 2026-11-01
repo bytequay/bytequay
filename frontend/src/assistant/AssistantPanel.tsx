@@ -34,7 +34,10 @@ import type { AgendaTargetDto, AssistantItemDto, AssistantReceiptDto, AssistantR
 import AssistantList from './AssistantList';
 import { ApprovalCard, NoticeCard, ResultCard, RunningCard, RunningFold, StopButton } from './Cards';
 import DraftCard from './DraftCard';
-import { arrivedOpen, createdDrafts, decisionOrder, linkRefs, pageRoute, refFromHref, refLabel, type AssistantRequest, type AssistantView, type Pill, type WaitingCard } from './model';
+import {
+  SUGGESTION, arrivedOpen, createdDrafts, decisionOrder, linkRefs, pageRoute, refFromHref, refLabel, takesSuggestion, type AssistantRequest, type AssistantView, type Pill,
+  type WaitingCard,
+} from './model';
 import AssistantPills, { useWaiting } from './Pills';
 import { approvePull, closePull, mergePull, type PullAction } from './pullActions';
 import { useAssistant } from './useAssistant';
@@ -295,9 +298,15 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, requ
     );
 
   const composer = chatEnabled ? (
-    <Composer inputRef={input} aria-label="Message the Assistant" placeholder="Ask, or tell it what to start" value={draft} maxLength={16 * 1024}
+    <Composer inputRef={input} aria-label="Message the Assistant" placeholder={SUGGESTION} value={draft} maxLength={16 * 1024}
       onChange={event => setDraft(event.target.value)} busy={sending} onSubmit={() => submitText(draft.trim())}
       onKeyDown={event => {
+        if (takesSuggestion(event, draft)) {
+          event.preventDefault();
+          setDraft(SUGGESTION);
+          return;
+        }
+        // With words in it, Tab moves on to the pills.
         if (event.key !== 'Tab' || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
         const pills = event.currentTarget.closest('.assistant-float')?.querySelector<HTMLElement>('.assistant-pill.is-open, .assistant-pill:not(.is-empty)');
         if (!pills) return;

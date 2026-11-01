@@ -9,9 +9,6 @@
   --assistant-hover: light-dark(#f6f8fa, var(--dark-hover));
   --assistant-pill: light-dark(#f6f8fa, var(--dark-subtle));
   --assistant-pill-hover: light-dark(#eceff2, var(--dark-hover));
-  --assistant-focus: 0 0 0 1px light-dark(rgb(9 105 218 / 50%), rgb(128 182 255 / 55%)), 0 0 0 3px light-dark(rgb(9 105 218 / 12%), rgb(128 182 255 / 14%));
-  --assistant-glow: 0 0 0 1px light-dark(rgb(9 105 218 / 45%), rgb(128 182 255 / 50%)), 0 0 0 4px light-dark(rgb(9 105 218 / 10%), rgb(128 182 255 / 12%)),
-    0 6px 24px light-dark(rgb(9 105 218 / 16%), rgb(128 182 255 / 18%));
 }
 
 /* Over every page and the browser rail (1101); pages keep their size, since no native view is showing while it is open. */
@@ -102,76 +99,14 @@
   gap: 8px;
 }
 
-/*
- * The app's composer in a plain border; focused, a soft blue ring; while a reply is written, a soft blue light and an arc that runs
- * round the border.
- */
+/* The task composer as it is, with its light running round the border, only as wide as the box; faster while a reply is written. */
 :is(.assistant-head, .assistant-home) .agt-compose {
   flex: none;
   max-width: none;
   margin: 0;
-  border-color: var(--assistant-line);
-  background: var(--surface-elevated);
-  transition: box-shadow 0.15s;
 }
 
-:is(.assistant-head, .assistant-home) .agt-compose:focus-within {
-  border-color: transparent;
-  box-shadow: var(--assistant-focus);
-}
-
-.assistant-float.is-replying .agt-compose {
-  border-color: transparent;
-  box-shadow: var(--assistant-glow);
-}
-
-@property --assistant-light {
-  syntax: '<angle>';
-  inherits: false;
-  initial-value: 0deg;
-}
-
-:is(.assistant-head, .assistant-home) .agt-compose__streamer { display: none; }
-
-.assistant-float.is-replying .agt-compose__streamer {
-  display: block;
-  background: conic-gradient(from var(--assistant-light), transparent 0deg 240deg, var(--fg-link) 300deg, transparent 345deg);
-  animation: assistant-light 4s linear infinite;
-}
-
-.assistant-float.is-replying .agt-compose__streamer::after { display: none; }
-
-@keyframes assistant-light { to { --assistant-light: 360deg; } }
-
-/* An animated gradient angle repaints on the main thread every frame. */
-.is-app-blurred .assistant-float .agt-compose__streamer { animation-play-state: paused; }
-
-@media (prefers-reduced-motion: reduce) {
-  .assistant-float.is-replying .agt-compose__streamer { animation: none; }
-}
-
-:is(.assistant-head, .assistant-home) :is(.agt-compose__highlights, .agt-compose__input) {
-  padding: 10px 14px 4px;
-  font-size: 14px;
-  line-height: 20px;
-}
-
-:is(.assistant-head, .assistant-home) .agt-compose__row {
-  gap: 2px;
-  padding: 4px 8px 8px 10px;
-}
-
-:is(.assistant-head, .assistant-home) .agt-send {
-  width: 28px;
-  height: 28px;
-  margin-left: 4px;
-}
-
-/* With nothing to send yet, the arrow sits dim on a light circle. */
-:is(.assistant-head, .assistant-home) .agt-send:disabled {
-  background: var(--assistant-pill);
-  color: var(--fg-dim);
-}
+.assistant-float.is-replying .agt-compose__streamer::after { animation-duration: 4s; }
 
 .assistant-waiting-line {
   display: flex;

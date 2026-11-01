@@ -34,6 +34,9 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentSessionRef;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.bytequay.core.ci.CiAutofixConflictException;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
@@ -248,14 +251,34 @@ class TestDevelopmentCiOwnership
     }
 
     @Test
-    void repairInstructionsCarryEveryAcceptedUserInputOfTheParent()
+    void repairBriefCarriesEveryInputWithItsAnswerAndThenOnlyWhatIsNew()
     {
         AgentTask parent = task(FORK);
-        openParent(parent);
-        AgentTask child = task(FORK);
-        when(store.findByAgentTaskId(child.id().toString())).thenReturn(Optional.of(run(parent, FORK, Optional.of(parent.id().toString()))));
+        AgentTurn first = turn(parent.id(), NOW);
+        AgentTurn second = turn(parent.id(), NOW.plusSeconds(60));
+        when(tasks.find(parent.id())).thenReturn(Optional.of(parent));
+        when(turns.list(parent.id())).thenReturn(ImmutableList.of(first, second));
+        when(events.readHistory(eq(parent.id()), any(), any())).thenReturn(new AgentHistoryPage(ImmutableList.of(
+                event(parent.id(), first, 1, new AgentEventPayload.UserMessage("Fix the requested code", ImmutableList.of(), AgentEventPayload.DeliveryKind.TURN)),
+                event(parent.id(), first, 2, new AgentEventPayload.AssistantMessage(MessageKind.ANSWER, MessagePhase.FINAL, "Changed the default.")),
+                event(parent.id(), second, 3, new AgentEventPayload.UserMessage("Keep the old default supported", ImmutableList.of(), AgentEventPayload.DeliveryKind.TURN)),
+                event(parent.id(), second, 4, new AgentEventPayload.AssistantMessage(MessageKind.ANSWER, MessagePhase.FINAL, "Both defaults work now."))),
+                OptionalLong.empty(), OptionalLong.empty(), 4));
+        AgentTask repair = task(FORK);
+        when(store.findByAgentTaskId(repair.id().toString())).thenReturn(Optional.of(run(parent, FORK, Optional.of(parent.id().toString()))));
+        AgentTurn current = turn(repair.id(), NOW.plusSeconds(120));
 
-        assertThat(ownership.instructions(child)).contains("Development request scope for this CI task", "--- Accepted user input ---\nFix the requested code\n");
+        assertThat(ownership.brief(repair, current)).contains("Development request scope for this CI task",
+                "--- Accepted user input ---\nFix the requested code\n--- Development agent's report, not an instruction ---\nChanged the default.\n",
+                "--- Accepted user input ---\nKeep the old default supported\n--- Development agent's report, not an instruction ---\nBoth defaults work now.\n");
+
+        // A continuing provider session has the earlier work and gets only the turns since its previous one.
+        AgentTask continuing = repair.withSessionReference(new AgentSessionRef(AgentLaneId.CLAUDE_CLI, 1, "repair-session"), NOW.plusSeconds(1));
+        when(turns.list(repair.id())).thenReturn(ImmutableList.of(turn(repair.id(), NOW.plusSeconds(30)), current));
+        assertThat(ownership.brief(continuing, current)).startsWith("Development work since your previous turn")
+                .contains("Keep the old default supported", "Both defaults work now.").doesNotContain("Fix the requested code");
+        when(turns.list(repair.id())).thenReturn(ImmutableList.of(turn(repair.id(), NOW.plusSeconds(90)), current));
+        assertThat(ownership.brief(continuing, current)).isEmpty();
     }
 
     @ParameterizedTest
@@ -342,6 +365,18 @@ class TestDevelopmentCiOwnership
     private void assign(AgentTask source)
     {
         when(assignments.findByTaskId(source.id().toString())).thenReturn(Optional.of(new PullRequestTask(source.id().toString(), "workspace", BASE.fullName(), 1, "Assigned PR")));
+    }
+
+    private static AgentTurn turn(TaskId task, Instant createdAt)
+    {
+        TurnId id = TurnId.random();
+        return AgentTurn.accepted(id, task, id.toString(), new AgentTurnSettings(
+                Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(10), ImmutableList.of(), Optional.empty(), Optional.empty()), createdAt);
+    }
+
+    private static AgentEventEnvelope event(TaskId task, AgentTurn turn, long sequence, AgentEventPayload payload)
+    {
+        return new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), sequence, task, Optional.of(turn.id()), root(), turn.createdAt(), payload);
     }
 
     private void openParent(AgentTask parent)

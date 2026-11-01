@@ -363,7 +363,7 @@ class TestCiAutofixEndToEnd
             assertThat(Files.readString(sourceWorktree.resolve("development.txt"))).isEqualTo(implementation + "CI repair\n");
             assertThat(agent.gitActions()).extracting(ScriptedAgentDriver.GitAction::name)
                     .containsExactly("development-edit", "development-commit", "development-draft", "refine-summary", "ci-repair", "development-question");
-            assertThat(agent.turns().get(4).instructions()).contains(request, "Development request scope for this CI task")
+            assertThat(agent.turns().get(4).message()).contains(request, "Development request scope for this CI task")
                     .doesNotContain("Create the draft pull request for this completed development revision");
             verify(publicationWrites).markReadyForReview("test-token", "development-pr-node");
         }

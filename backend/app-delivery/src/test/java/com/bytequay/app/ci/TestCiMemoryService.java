@@ -105,6 +105,18 @@ class TestCiMemoryService
     }
 
     @Test
+    void developmentRepairRemembersEveryRunOfItsTask()
+    {
+        CiAutofixRun earlier = developmentRun("earlier-push");
+        earlier = earlier.addAttempt(attempt(earlier, 1, HEAD, ImmutableList.of(failure("compile", "earlier push failure")), NOW.plusSeconds(2)), NOW.plusSeconds(2));
+        store.insert(earlier.finish(CiAutofixRun.FinishReason.STALE_HEAD, "A newer push replaced this CI Autofix run", NOW.plusSeconds(3)));
+        CiAutofixRun current = developmentRun("current-push");
+        store.insert(current.addAttempt(attempt(current, 1, PUSHED, ImmutableList.of(failure("test", "current push failure")), NOW.plusSeconds(5)), NOW.plusSeconds(5)));
+
+        assertThat(service.read(new ReadCiMemoryCommand(taskId, Optional.empty())).markdown()).contains("current push failure", "earlier push failure");
+    }
+
+    @Test
     void isUnavailableWithoutTheTasksFailures()
     {
         store.run = run();
@@ -135,6 +147,17 @@ class TestCiMemoryService
                 new Authorization(NOW),
                 NOW);
         return run.assignAgentTask(taskId.toString(), NOW.plusSeconds(1));
+    }
+
+    /** A run of a development task, which its repair task serves push after push. */
+    private CiAutofixRun developmentRun(String key)
+    {
+        Scope scope = run().scope();
+        return CiAutofixRun.create(CiAutofixRunId.random(), key,
+                        new Scope(scope.pullRequest(), scope.headRepository(), scope.workspaceId(), scope.physicalRepository(), scope.author(), scope.headRef(),
+                                scope.baseRef(), scope.laneId(), Optional.of("development-task")),
+                        HEAD, HEAD, BASE, new Authorization(NOW), NOW)
+                .assignAgentTask(taskId.toString(), NOW.plusSeconds(1));
     }
 
     private static CiAutofixAttempt attempt(CiAutofixRun run, int number, String inputSha, List<FailureEvidence> failures, Instant now)

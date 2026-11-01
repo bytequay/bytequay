@@ -72,7 +72,9 @@ public class CiMemoryService
         if (run.isEmpty()) {
             return unavailable();
         }
-        List<String> sections = sections(render(run.orElseThrow()));
+        // A development task's repair task serves each of its pushes, so its memory covers every run of that task.
+        List<CiAutofixRun> runs = run.orElseThrow().scope().parentTaskId().map(store::listByParentTaskId).orElseGet(() -> ImmutableList.of(run.orElseThrow()));
+        List<String> sections = sections(render(runs));
         String query = Ascii.truncate(command.query().orElse("").trim(), MAX_QUERY_CHARACTERS, "");
         List<String> matches = sections.stream()
                 .filter(section -> query.isEmpty()
@@ -92,10 +94,11 @@ public class CiMemoryService
         return new CiMemoryView(UNAVAILABLE, 0, false);
     }
 
-    private static String render(CiAutofixRun run)
+    private static String render(List<CiAutofixRun> runs)
     {
         Map<String, List<MemoryAttempt>> grouped = new LinkedHashMap<>();
-        run.attempts().stream()
+        runs.stream()
+                .flatMap(run -> run.attempts().stream())
                 .sorted(Comparator.comparing(CiAutofixAttempt::updatedAt).reversed())
                 .forEach(attempt -> attempt.failures().forEach(failure -> grouped
                         .computeIfAbsent(failure.signature(), ignored -> new ArrayList<>())

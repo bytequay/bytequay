@@ -23,6 +23,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 
@@ -73,7 +74,8 @@ final class InMemoryCiAutofixStore
     @Override
     public List<CiAutofixRun> listByParentTaskId(String parentTaskId)
     {
-        return Optional.ofNullable(run).filter(value -> value.scope().parentTaskId().filter(parentTaskId::equals).isPresent()).stream()
+        return Stream.concat(replaced.stream(), Optional.ofNullable(run).stream())
+                .filter(value -> value.scope().parentTaskId().filter(parentTaskId::equals).isPresent())
                 .collect(toImmutableList());
     }
 

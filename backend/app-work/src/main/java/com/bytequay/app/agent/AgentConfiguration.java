@@ -362,7 +362,7 @@ public class AgentConfiguration
                 approvalService,
                 runtimeRegistry,
                 codeQueries,
-                task -> skills.instructions(task) + ciOwnership.instructions(task) + relatedContext.instructions(task)
+                task -> skills.instructions(task) + relatedContext.instructions(task)
                         + pullRequestTasks.findByTaskId(task.id().toString()).map(PullRequestTaskService::instructions).orElse(""),
                 new ReviewTurnInputResolver()
                 {
@@ -373,7 +373,8 @@ public class AgentConfiguration
                         String input = task.sessionReference().isEmpty()
                                 ? pullRequestTasks.findByTaskId(task.id().toString()).map(assignment -> PullRequestTaskService.appendContext(assignment, expanded)).orElse(expanded)
                                 : expanded;
-                        return relatedContext.append(task, turn, input);
+                        // A CI repair's brief goes with each turn, not the instructions, so it can grow only by what is new.
+                        return ciOwnership.brief(task, turn) + relatedContext.append(task, turn, input);
                     }
 
                     @Override

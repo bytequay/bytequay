@@ -4,7 +4,9 @@ The product landing page, user documentation, design overview, and Lab pages are
 static HTML and CSS in `dist/`. They need no dependency installation or build
 step. The logo comes from the repository's `assets/logo.svg`; typography uses
 Geist and Geist Mono from Google Fonts with system fallbacks. Icons are inline
-[Phosphor](https://phosphoricons.com) paths (MIT). No analytics, account
+[Phosphor](https://phosphoricons.com) paths (MIT), except the GitLab card's
+tanuki from [Simple Icons](https://simpleicons.org) (CC0), which the app also
+uses. No analytics, account
 system, or application data is embedded.
 
 The landing page stays short: a headline with one line, one app screenshot,

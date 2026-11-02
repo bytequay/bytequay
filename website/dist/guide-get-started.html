@@ -5,11 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Choose your appearance, connect GitHub and agents, and open your first repository."
+      content="Choose your appearance, connect GitHub or GitLab and agents, and open your first repository."
     />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="Get started — ByteQuay Docs" />
-    <meta property="og:description" content="Choose your appearance, connect GitHub and agents, and open your first repository." />
+    <meta property="og:description" content="Choose your appearance, connect GitHub or GitLab and agents, and open your first repository." />
     <meta property="og:image" content="https://bytequay.github.io/bytequay/assets/app-development.jpg" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="theme-color" content="#000000" />
@@ -47,7 +47,8 @@
             ><span class="mini-label doc-on-page">On this page</span
             ><a href="#what-is-bytequay">About ByteQuay</a
             ><a href="#getting-started">Quickstart</a
-            ><a href="#workspaces">Home and workspaces</a>
+            ><a href="#workspaces">Home and workspaces</a
+            ><a href="#gitlab">Work with GitLab</a>
           </nav>
         </aside>
         <article class="docs-content">
@@ -55,13 +56,13 @@
             <a href="documentation.html">Docs</a
             ><span aria-hidden="true"> / </span><span>Get started</span>
             <h1>Get started</h1>
-            <p>Set up GitHub, choose your agent features, and open your first repository.</p>
+            <p>Set up GitHub or GitLab, choose your agent features, and open your first repository.</p>
           </header>
           <section id="what-is-bytequay">
             <h2>About ByteQuay</h2>
             <p>
-              ByteQuay is a macOS app for GitHub reviews and local coding
-              agents. A <strong>workspace</strong> holds a repository’s work; a
+              ByteQuay is a macOS app for GitHub and GitLab reviews and local
+              coding agents. A <strong>workspace</strong> holds a repository’s work; a
               <strong>task</strong> is an agent conversation with its own
               working copy. App data stays on your Mac.
             </p>
@@ -80,12 +81,13 @@
                 includes Java.
               </li>
               <li>
-                Follow the setup guide to connect GitHub and, if you like, an
-                agent.
+                Follow the setup guide to connect GitHub or GitLab and, if you
+                like, an agent.
               </li>
               <li>
-                Choose <strong>Home → Repos you watch → + Watch</strong> and
-                pick a repository.
+                For GitHub, choose <strong>Home → Repos you watch → +
+                Watch</strong> and pick a repository. For GitLab, follow
+                <a href="#gitlab">Work with GitLab</a>.
               </li>
               <li>
                 Open <strong>Pull requests</strong>, select a PR, and inspect
@@ -95,10 +97,12 @@
             <h3>Choose your setup</h3>
             <ol>
               <li>
-                <strong>GitHub:</strong> choose <strong>Use my GitHub CLI
-                login</strong> after <code>gh auth login</code>, or
+                <strong>Code hosting:</strong> for GitHub, choose <strong>Use my
+                GitHub CLI login</strong> after <code>gh auth login</code>, or
                 <strong>Connect with token →</strong> with a classic token that
-                has <code>repo</code> and <code>read:user</code>.
+                has <code>repo</code> and <code>read:user</code>. For GitLab,
+                select <strong>GitLab</strong> and connect the account on
+                GitLab.com or your company server.
               </li>
               <li>
                 <strong>Agent:</strong> sign in to Codex or Claude Code, or add
@@ -116,7 +120,8 @@
               </li>
             </ol>
             <p>
-              You can skip the agent and still work with GitHub and PRs. To
+              You can skip the agent and still review pull requests on GitHub
+              or GitLab. To
               revisit setup, choose <strong>Settings → General → Setup guide →
               Open setup</strong>.
             </p>
@@ -175,6 +180,52 @@
                 at what merged and slipped.
               </li>
             </ul>
+          </section>
+          <section id="gitlab">
+            <h2>Work with GitLab</h2>
+            <p>
+              ByteQuay works with GitLab.com and company GitLab servers. Merge
+              requests show up in the same places as GitHub pull requests.
+            </p>
+            <ol>
+              <li>
+                Choose <strong>Workspaces → Watch repository</strong>, then
+                <strong>GitLab</strong>.
+              </li>
+              <li>
+                Choose <strong>Sign in with GitLab</strong> to sign in through
+                the GitLab CLI in your browser, or connect a personal access
+                token with the <code>api</code> scope. For a company server,
+                enter its HTTPS address.
+              </li>
+              <li>
+                Search for a project by name or full path, such as
+                <code>group/project</code>, and choose <strong>Watch</strong>.
+              </li>
+            </ol>
+            <ul>
+              <li>
+                <strong>My work</strong> and <strong>Needs attention</strong>
+                list your merge requests, and GitLab to-dos arrive as notices.
+              </li>
+              <li>
+                Review, comment, approve, and merge. Agent tasks open merge
+                requests through the workspace’s account.
+              </li>
+              <li>
+                CI Autofix repairs a merge request’s pipeline, and backports
+                open merge requests in the target project.
+              </li>
+              <li>
+                Servers older than GitLab 16.11 work too; their Epics don’t show
+                child items.
+              </li>
+            </ul>
+            <p>
+              Request-changes reviews, multi-line comments, and merge trains
+              aren’t available on GitLab yet. Use <strong>Open in
+              GitLab</strong> for those.
+            </p>
           </section>
           <div class="doc-next">
             <a href="documentation.html">← All guides</a

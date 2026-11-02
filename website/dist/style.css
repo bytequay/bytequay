@@ -383,7 +383,7 @@ p {
 }
 .cards {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 .cards > a {
   display: flex;
@@ -516,8 +516,11 @@ p {
   .cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .cards > :nth-child(3) {
+  .cards > :nth-child(odd) {
     border-left: 0;
+  }
+  .cards > :last-child:nth-child(odd) {
+    grid-column: span 2;
   }
   .cards > :nth-child(n + 3) {
     border-top: 1px solid var(--line);
@@ -558,6 +561,9 @@ p {
   }
   .cards {
     grid-template-columns: 1fr;
+  }
+  .cards > :last-child:nth-child(odd) {
+    grid-column: auto;
   }
   .cards > * + * {
     border-left: 0;

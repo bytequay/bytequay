@@ -17,7 +17,7 @@ Set up a workspace, review a change, and build with an agent.
 
 ## About ByteQuay
 
-ByteQuay is a macOS app for GitHub reviews and local coding agents. A
+ByteQuay is a macOS app for GitHub and GitLab reviews and local coding agents. A
 **workspace** holds a repository’s work; a **task** is an agent conversation
 with its own working copy. App data stays on your Mac.
 
@@ -49,7 +49,7 @@ release notes.
 4. **Features:** turn on Today or the Assistant if you want them. Both use your
    Development model allowance.
 
-You can skip the agent and still work with GitHub and PRs. To revisit setup,
+You can skip the agent and still review pull requests on GitHub or GitLab. To revisit setup,
 choose **Settings → General → Setup guide → Open setup**.
 
 <a id="keyboard-shortcuts"></a>
@@ -177,6 +177,10 @@ approve or merge. Work items lists the project's issues and can start a task fro
 one. Task publication creates a merge request through the workspace account.
 GitLab workspaces can be linked as forks and carry backports; each backport opens
 its merge request in the destination workspace's own project.
+
+Home's **My work** and **Needs attention** list merge requests from your GitLab
+accounts, and GitLab to-dos arrive as notices. Servers older than GitLab 16.11
+work too; their Epics don't show child items.
 
 GitLab supports a different set of review operations. Request-changes reviews,
 multi-line review comments, merge trains and remote epic-child synchronization

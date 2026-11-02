@@ -22,7 +22,7 @@
   <a href="https://github.com/bytequay/bytequay/actions/workflows/ci.yml"><img src="https://github.com/bytequay/bytequay/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
 </p>
 
-ByteQuay brings GitHub work and coding agents into one desktop workspace.
+ByteQuay brings GitHub and GitLab work and coding agents into one desktop workspace.
 Let agents build. Explore the intent, code, and tests as deeply as you need.
 Ask questions along the way, then merge with confidence.
 

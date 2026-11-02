@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
+import { approvalTimeLeft } from './notices/contracts';
 
 export function useNow(ticking: boolean): number {
   const [now, setNow] = useState(() => Date.now());
@@ -22,4 +23,11 @@ export function useNow(ticking: boolean): number {
     return () => window.clearInterval(timer);
   }, [ticking]);
   return now;
+}
+
+/** The time left before a deadline, ticking each second while there is one; null without one or once it has passed. */
+export function useTimeLeft(expiresAt: string | null | undefined): ReturnType<typeof approvalTimeLeft> {
+  const deadline = expiresAt ?? null;
+  const now = useNow(deadline !== null);
+  return deadline === null ? null : approvalTimeLeft(deadline, now);
 }

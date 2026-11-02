@@ -14,8 +14,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { X } from 'lucide-react';
 import { ago } from '@bytequay/ui/relativeTime';
-import { useNow } from '../useNow';
-import { APPROVAL_NOTICE, NOTICE_ACTIONS as ACTIONS, approvalTimeLeft, needsAction, noticeLabel as label, shownAlert, type AppNotice, type NoticeBridge,
+import { useNow, useTimeLeft } from '../useNow';
+import { APPROVAL_NOTICE, NOTICE_ACTIONS as ACTIONS, needsAction, noticeLabel as label, shownAlert, type AppNotice, type NoticeBridge,
   type NoticeSnapshot } from './contracts';
 
 const describe = (notice: AppNotice): string => `${label(notice)}: ${notice.pullRequestTitle ?? notice.title}`;
@@ -39,8 +39,7 @@ function NoticeCard({ notice, active, onDismiss, onOpen }: { notice: AppNotice; 
   const changes = actionable ? null : notice.changes;
   // A development result's message says where its pull request stands; any other completion's would only repeat its label.
   const delivered = notice.kind === 'TURN_FINISHED' && notice.reviewId === null && notice.pullRequest !== null;
-  const now = useNow(notice.expiresAt !== undefined);
-  const left = notice.expiresAt === undefined ? null : approvalTimeLeft(notice.expiresAt, now);
+  const left = useTimeLeft(notice.expiresAt);
   return <article className={`app-notice is-${notice.kind.toLowerCase()}`} aria-label={describe(notice)}
     onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
     onFocusCapture={() => setFocused(true)} onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}>

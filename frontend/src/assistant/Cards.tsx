@@ -22,12 +22,12 @@ import { formatDuration } from '../agents/transcript';
 import { IconButton } from '../cards/Card';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { pollVisible } from '../ide/pollVisible';
-import { APPROVAL_NOTICE, NOTICE_ACTIONS, approvalTimeLeft, noticeLabel, type AppNotice } from '../notices/contracts';
+import { APPROVAL_NOTICE, NOTICE_ACTIONS, noticeLabel, type AppNotice } from '../notices/contracts';
 import { errorMessage } from '../errorMessage';
 import { laneLabel } from '../settings/model';
 import type { AgentEventEnvelope } from '../agents/events';
 import type { AgendaTargetDto, AgentPendingApprovalDto } from '../types';
-import { useNow } from '../useNow';
+import { useNow, useTimeLeft } from '../useNow';
 
 const STEP_POLL_MS = 2000;
 
@@ -73,8 +73,7 @@ function CardRow({ icon, tone, tip, title, meta, below, right, hover, body, urge
 }
 
 function StatePill({ text, expiresAt, urgent }: { text: string; expiresAt?: string; urgent?: boolean }) {
-  const now = useNow(expiresAt !== undefined);
-  const left = expiresAt === undefined ? null : approvalTimeLeft(expiresAt, now);
+  const left = useTimeLeft(expiresAt);
   return <span className={`assistant-state${urgent === true || left?.urgent === true ? ' is-warn' : ''}`}>{text}{left !== null && ` · ${left.text} left`}</span>;
 }
 
@@ -113,7 +112,8 @@ export function ApprovalCard({ notice, focused, conversation, onAnswered, onOpen
   const [error, setError] = useState<string | null>(null);
   const { taskId, turnId, reviewId } = notice;
   const approvalId = notice.id.slice(APPROVAL_NOTICE.length);
-  const now = useNow(notice.expiresAt !== undefined);
+  const expiresAt = notice.expiresAt ?? approval?.expiresAt;
+  const left = useTimeLeft(expiresAt);
 
   useEffect(() => {
     let live = true;
@@ -140,11 +140,10 @@ export function ApprovalCard({ notice, focused, conversation, onAnswered, onOpen
   };
   const question = notice.kind === 'QUESTION';
   const outside = approval !== undefined && !approval.sandboxed;
-  const expiresAt = notice.expiresAt ?? approval?.expiresAt;
   return (
     <CardRow id={notice.id} focused={focused} icon={question ? MessageCircleQuestion : outside ? Hand : Terminal}
       tip={outside ? approval?.title : undefined} title={heading(notice)} meta={where(notice)}
-      urgent={expiresAt !== undefined && approvalTimeLeft(expiresAt, now)?.urgent === true}
+      urgent={left?.urgent === true}
       right={<StatePill text={question ? 'Answer question' : outside ? 'Allow outside sandbox' : 'Allow command'} expiresAt={expiresAt} />}
       body={<>
         {approval === undefined ? <div className="assistant-dim">Loading…</div> : <PendingApprovalCard approval={approval} onDecide={decide} />}
@@ -160,11 +159,11 @@ const NOTICE_ICONS: Partial<Record<AppNotice['kind'], LucideIcon>> = { QUESTION:
  * turn that looks stuck can also be stopped here.
  */
 export function NoticeCard({ notice, focused, onOpen, onClear }: { notice: AppNotice; focused: boolean; onOpen: () => void; onClear: () => void }) {
-  const now = useNow(notice.expiresAt !== undefined);
+  const left = useTimeLeft(notice.expiresAt);
   const warn = notice.kind === 'RECOVERY' || notice.kind === 'STUCK';
   return (
     <CardRow id={notice.id} focused={focused} icon={NOTICE_ICONS[notice.kind] ?? TriangleAlert} tone={warn ? 'warn' : undefined}
-      title={heading(notice)} meta={where(notice)} urgent={notice.expiresAt !== undefined && approvalTimeLeft(notice.expiresAt, now)?.urgent === true}
+      title={heading(notice)} meta={where(notice)} urgent={left?.urgent === true}
       right={<StatePill text={noticeLabel(notice)} expiresAt={notice.expiresAt} urgent={warn} />}
       body={<>
         {notice.message !== '' && <div className="assistant-card__why">{notice.message}</div>}

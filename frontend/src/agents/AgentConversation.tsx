@@ -28,8 +28,7 @@ import { findingFixRequest } from '../pulls/local-review/conversation';
 import { commentFixRequest } from './taskFix';
 import { linkIssueNumbers } from '../pulls/MarkdownBody';
 import { errorMessage } from '../errorMessage';
-import { approvalTimeLeft } from '../notices/contracts';
-import { useNow } from '../useNow';
+import { useTimeLeft } from '../useNow';
 import { MEMORY_CHANGED } from '../memory/model';
 import type { AgentIssueSourceDto,AgentApprovalDecision,AgentAttachmentDto,AgentPendingApprovalDto,AgentQueuedInputDto,AgentStreamConnectionState,AgentTurnDto,ModelOptionDto,ModelProviderDto } from '../types';
 import { AgentMark } from './AgentMark';
@@ -494,8 +493,7 @@ const ApprovalDeadlines = React.createContext<ReadonlyMap<string, string>>(new M
 
 function ApprovalTimeLeft({ approvalId }: { approvalId: string }): React.JSX.Element | null {
   const expiresAt = React.useContext(ApprovalDeadlines).get(approvalId);
-  const now = useNow(expiresAt !== undefined);
-  const left = expiresAt === undefined ? null : approvalTimeLeft(expiresAt, now);
+  const left = useTimeLeft(expiresAt);
   if (expiresAt === undefined || left === null) return null;
   return <span className={`agt-appr__left${left.urgent ? ' is-urgent' : ''}`} title={`The agent stops waiting at ${clock(expiresAt)}`}>{left.text} left</span>;
 }

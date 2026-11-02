@@ -16,8 +16,8 @@ import { subscribeRunningTasks } from '../agents/RunningTasks';
 import type { RunningTask } from '../agents/runningTaskModel';
 import { doneRatio, showsToday } from '../home/today';
 import { useTodayAgenda, type TodayAgenda } from '../home/useTodayAgenda';
-import { approvalTimeLeft, type AppNotice } from '../notices/contracts';
-import { useNow } from '../useNow';
+import type { AppNotice } from '../notices/contracts';
+import { useTimeLeft } from '../useNow';
 import type { AgendaDto } from '../types';
 import { PILLS, soonestDeadline, waitingCards, type Pill, type WaitingCard } from './model';
 
@@ -59,8 +59,7 @@ export default function AssistantPills({ waiting, needsYou, open, onPick }: {
   const { cards, agenda } = waiting;
   const count = (group: WaitingCard['group']) => cards.filter(card => card.group === group).length;
   const soonest = soonestDeadline(cards);
-  const now = useNow(soonest !== null);
-  const left = soonest === null ? null : approvalTimeLeft(soonest, now);
+  const left = useTimeLeft(soonest);
   const ratio = agenda === null ? null : doneRatio(agenda.items);
   const counts: Record<Pill, string | null> = {
     all: null, decision: String(count('decision')), running: String(count('running')), finished: String(count('finished')),

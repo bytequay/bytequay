@@ -209,7 +209,8 @@ export function ResultCard({ notice, onShow, onOpen, onClear }: {
     onClear();
   };
   const evidence = [
-    pull !== null && <span key="pr"><GitPullRequest size={13} aria-hidden="true" />{review ? notice.pullRequest : `PR #${pull.number}`}</span>,
+    // A development result's message is where its pull request stands, such as "Draft PR #58 · checks running".
+    pull !== null && <span key="pr"><GitPullRequest size={13} aria-hidden="true" />{review ? notice.pullRequest : notice.message}</span>,
     changes !== null && changes.files > 0 && (
       <span key="lines" className="assistant-lines" aria-label={`${changes.files} files, ${changes.additions} added, ${changes.deletions} deleted`}>
         <span className="is-added">+{changes.additions}</span><span className="is-deleted">−{changes.deletions}</span>

@@ -380,7 +380,8 @@ public class AssistantService
     {
         String task = "“" + clip(notice.title(), 80) + "”";
         return switch (notice.kind()) {
-            case TURN_FINISHED -> task + " is ready";
+            // A development result with a pull request says where it stands, since a draft or failing checks are not ready.
+            case TURN_FINISHED -> notice.reviewId().isEmpty() && notice.pullRequest().isPresent() ? task + ": " + notice.message() : task + " is ready";
             // Its title is the Epic's next work, not the task's.
             case NEXT_WORK -> task + " is next";
             case FAILURE -> task + " failed: " + notice.message();

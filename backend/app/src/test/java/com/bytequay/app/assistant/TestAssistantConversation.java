@@ -644,6 +644,20 @@ class TestAssistantConversation
     }
 
     @Test
+    void aResultWithAPullRequestReportsWhereItStandsRatherThanReady()
+    {
+        Instant asked = now.get();
+        startTask(C1, asked);
+        now.set(asked.plusSeconds(300));
+        when(notices.current(anyCollection())).thenReturn(ImmutableList.of(new AppNotice("finished:t1", AppNotice.Kind.TURN_FINISHED, STARTED_ID, "ws1",
+                Optional.of("turn-1"), Optional.empty(), "Fix the flaky test", Optional.of("owner/repository#58"), Optional.empty(), Optional.empty(), Optional.empty(),
+                "Draft PR #58 · checks running", "owner/repository", "claude", Optional.empty(), asked.plusSeconds(290), Optional.empty())));
+        assistant.report();
+
+        assertThat(reports(C1)).extracting(AssistantItem::text).containsExactly("“Fix the flaky test”: Draft PR #58 · checks running");
+    }
+
+    @Test
     void afterAStartAFollowedTaskReportsOnlyWhatItDidNotTellYet()
     {
         Instant asked = now.get();

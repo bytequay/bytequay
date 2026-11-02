@@ -43,12 +43,14 @@ import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.service.epic.EpicNextWork;
+import com.bytequay.app.workspace.TaskPullRequestOwnership;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.Artifact;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
@@ -96,13 +98,14 @@ class TestAppNoticeService
     private final QueuedInputStore queues = mock(QueuedInputStore.class);
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
     private final PullRequestStore pullRequests = mock(PullRequestStore.class);
+    private final TaskPullRequestOwnership ownership = mock(TaskPullRequestOwnership.class);
     private final CiAutofixStore ciRuns = mock(CiAutofixStore.class);
     private final EpicNextWork next = mock(EpicNextWork.class);
     private final ArtifactStore artifacts = mock(ArtifactStore.class);
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final TaskWatchdog watchdog = mock(TaskWatchdog.class);
-    private final AppNoticeService service = new AppNoticeService(tasks, turns, approvals, queues, reviews, pullRequests, ciRuns, next, artifacts, workspaces, watchdog,
-            new ObjectMapper());
+    private final AppNoticeService service = new AppNoticeService(tasks, turns, approvals, queues, reviews, pullRequests, ownership, ciRuns, next, artifacts, workspaces,
+            watchdog, new ObjectMapper());
     private final AgentTask task = created(TaskId.random(), Optional.of("workspace"), true, "Fix recovery", new AgentLaneId("codex"),
             new RepositoryIdentity("owner", "repo"), Path.of("/tmp/notice-worktree"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
 
@@ -132,6 +135,25 @@ class TestAppNoticeService
         show(task, turn.finish(TurnState.CANCELLED, AgentMetrics.empty(), Optional.of("Stopped by user"), NOW.plusSeconds(10)));
         when(queues.listQueued(task.id())).thenReturn(ImmutableList.of());
         assertThat(service.current()).isEmpty();
+    }
+
+    @Test
+    void aFinishedDevelopmentTurnNamesItsPullRequestAndWhereItStandsRatherThanReady()
+    {
+        show(task, turn().finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.plusSeconds(10)));
+        when(ownership.linkedPullRequest(any())).thenReturn(Optional.of(linked(true, PullRequestDetail.CiStatus.PENDING, "open")));
+        assertThat(service.current()).singleElement().satisfies(notice -> {
+            assertThat(notice.kind()).isEqualTo(AppNotice.Kind.TURN_FINISHED);
+            assertThat(notice.pullRequest()).contains("owner/repo#58");
+            assertThat(notice.pullRequestTitle()).isEmpty();
+            assertThat(notice.message()).isEqualTo("Draft PR #58 · checks running");
+        });
+        when(ownership.linkedPullRequest(any())).thenReturn(Optional.of(linked(false, PullRequestDetail.CiStatus.FAILING, "open")));
+        assertThat(service.current()).singleElement().extracting(AppNotice::message).isEqualTo("PR #58 · checks failing");
+        when(ownership.linkedPullRequest(any())).thenReturn(Optional.of(linked(false, null, "open")));
+        assertThat(service.current()).singleElement().extracting(AppNotice::message).isEqualTo("PR #58");
+        when(ownership.linkedPullRequest(any())).thenReturn(Optional.of(linked(false, PullRequestDetail.CiStatus.PASSING, "merged")));
+        assertThat(service.current()).singleElement().extracting(AppNotice::message).isEqualTo("PR #58 merged");
     }
 
     @Test
@@ -479,6 +501,13 @@ class TestAppNoticeService
                 ? queued().starting(TurnId.random(), EventId.random(), NOW).uncertain("Backend restarted", NOW.plusSeconds(10))
                 : queued().paused("Backend restarted", NOW.plusSeconds(10));
         when(queues.listQueued(task.id())).thenReturn(ImmutableList.of(input));
+    }
+
+    private static PullRequest linked(boolean draft, PullRequestDetail.CiStatus checks, String state)
+    {
+        return new PullRequest(58, "owner/repo", 58, "Fix recovery", "author", "https://github.com/owner/repo/pull/58", NOW, NOW, PullRequest.Origin.AUTHORED,
+                ImmutableList.of(), ImmutableMap.of(), draft, null, null, null, ImmutableList.of(), checks, 0, 0, 0, state, null, null, null, null, null, "bytequay/fix-recovery",
+                null, null, null, null);
     }
 
     private QueuedAgentInput queued()

@@ -37,6 +37,8 @@ function NoticeCard({ notice, active, onDismiss, onOpen }: { notice: AppNotice; 
   }, [actionable, active, hovered, focused]);
   const heading = notice.pullRequestTitle ?? notice.title;
   const changes = actionable ? null : notice.changes;
+  // A development result's message says where its pull request stands; any other completion's would only repeat its label.
+  const delivered = notice.kind === 'TURN_FINISHED' && notice.reviewId === null && notice.pullRequest !== null;
   const now = useNow(notice.expiresAt !== undefined);
   const left = notice.expiresAt === undefined ? null : approvalTimeLeft(notice.expiresAt, now);
   return <article className={`app-notice is-${notice.kind.toLowerCase()}`} aria-label={describe(notice)}
@@ -51,7 +53,7 @@ function NoticeCard({ notice, active, onDismiss, onOpen }: { notice: AppNotice; 
       {notice.pullRequest && <div className="app-notice__ref" title={notice.pullRequest}>{notice.pullRequest}</div>}</div>
     {changes ? <div className="app-notice__changes">{changes.update && <span>Update</span>}<span>{count(changes.commits, 'commit')}</span>
       <span>{count(changes.files, 'file')}</span><span className="is-added">+{changes.additions}</span><span className="is-deleted">−{changes.deletions}</span></div>
-      : (actionable || notice.kind === 'NEXT_WORK') && <p className="app-notice__message" title={notice.message}>{notice.message}</p>}
+      : (actionable || delivered || notice.kind === 'NEXT_WORK') && <p className="app-notice__message" title={notice.message}>{notice.message}</p>}
     <div className="app-notice__actions"><button type="button" onClick={onOpen}>{notice.id.startsWith(APPROVAL_NOTICE) ? 'Answer' : ACTIONS[notice.kind]}</button>
       <span title={notice.repository}>{notice.repository}</span></div>
   </article>;

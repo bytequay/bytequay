@@ -453,7 +453,7 @@ const FINISHED_REVIEW: AppNotice = { ...notice('finished:review', 'TURN_FINISHED
   repository: 'acme/warehouse', pullRequest: 'acme/warehouse#42', pullRequestTitle: 'Cache table statistics between queries', branch: 'feature/table-stats',
   changes: { update: false, commits: 3, files: 6, additions: 432, deletions: 176 }, occurredAt: '2026-10-16T07:09:00Z' };
 const DRAFTED: AppNotice = { ...notice('finished:draft', 'TURN_FINISHED', 'task-5', 'Update the install guide'), pullRequest: 'owner/repository#58',
-  changes: { update: false, commits: 1, files: 2, additions: 42, deletions: 7 }, occurredAt: '2026-10-16T07:11:00Z' };
+  message: 'Draft PR #58 · checks running', changes: { update: false, commits: 1, files: 2, additions: 42, deletions: 7 }, occurredAt: '2026-10-16T07:11:00Z' };
 const FAILED: AppNotice = { ...notice('failure:task-6', 'FAILURE', 'task-6', 'Update API docs'), message: '2 checks failing', occurredAt: '2026-10-16T07:08:00Z' };
 
 async function drawsResultsWithTheirEvidence(): Promise<void> {
@@ -467,8 +467,8 @@ async function drawsResultsWithTheirEvidence(): Promise<void> {
     const [drafted, review, failed] = cards(view.host);
     const bold = [...view.host.querySelectorAll('.assistant-card *')].filter(node => Number(getComputedStyle(node).fontWeight) > 400).map(node => node.className);
     assert(bold.length === 0, `Nothing in a card is bold: ${bold.join(', ')}`);
-    assert(drafted.querySelector('.assistant-card__evidence')?.textContent === 'PR #58+42−7' && buttonIn(drafted, 'Review') !== undefined,
-      `A development result shows its pull request and lines, and offers Review: ${drafted.textContent}`);
+    assert(drafted.querySelector('.assistant-card__evidence')?.textContent === 'Draft PR #58 · checks running+42−7' && buttonIn(drafted, 'Review') !== undefined,
+      `A development result shows where its pull request stands and its lines, and offers Review: ${drafted.textContent}`);
     assert(review.querySelector('.assistant-card__title')?.textContent === 'Review · Cache table statistics between queries'
       && review.querySelector('.assistant-lines .is-deleted')?.textContent === '−176' && buttonIn(review, 'Read') !== undefined,
     `A review result leads with its pull request's title and offers Read: ${review.textContent}`);

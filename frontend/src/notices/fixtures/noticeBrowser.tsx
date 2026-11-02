@@ -85,6 +85,11 @@ export async function run() {
       && !front.querySelector('.app-notice__message'), 'Completed tasks state the outcome and its age without a generic message');
     assert(action()?.textContent === 'View response' && front.querySelector('.app-notice__actions span')?.textContent === 'bytequay/bytequay',
       'A completion opens its response, and the action row names the task repository');
+    state = { ...state, notices: state.notices.map(notice => notice.id !== 'done' ? notice : { ...notice, pullRequest: 'bytequay/bytequay#58',
+      message: 'Draft PR #58 · checks running' }) }; listener(state); await wait();
+    front = alert(); assert(front, 'Delivered alert missing');
+    assert(front.querySelector('.app-notice__ref')?.textContent === 'bytequay/bytequay#58'
+      && front.querySelector('.app-notice__message')?.textContent === 'Draft PR #58 · checks running', 'A completion with a pull request says where it stands');
     state = { ...state, notices: state.notices.map(notice => notice.id !== 'done' ? notice : { ...notice, title: 'Review bytequay/bytequay#42', reviewId: 'review',
       pullRequest: 'bytequay/bytequay#42', pullRequestTitle, changes: { update: false, commits: 2, files: 3, additions: 42, deletions: 12 } }) }; listener(state); await wait();
     front = alert(); assert(front, 'Review alert missing');

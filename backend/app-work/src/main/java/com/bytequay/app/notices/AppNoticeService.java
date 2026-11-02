@@ -30,10 +30,12 @@ import com.bytequay.agent.core.store.QueuedInputStore;
 import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.app.service.epic.EpicNextWork;
 import com.bytequay.app.utils.ContextText;
+import com.bytequay.app.workspace.TaskPullRequestOwnership;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.Artifact;
 import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewRun;
@@ -73,6 +75,7 @@ public class AppNoticeService
     private final QueuedInputStore queues;
     private final AgentReviewStore reviews;
     private final PullRequestStore pullRequests;
+    private final TaskPullRequestOwnership ownership;
     private final CiAutofixStore ciRuns;
     private final EpicNextWork next;
     private final ArtifactStore artifacts;
@@ -87,6 +90,7 @@ public class AppNoticeService
             QueuedInputStore queues,
             AgentReviewStore reviews,
             PullRequestStore pullRequests,
+            TaskPullRequestOwnership ownership,
             CiAutofixStore ciRuns,
             EpicNextWork next,
             ArtifactStore artifacts,
@@ -100,6 +104,7 @@ public class AppNoticeService
         this.queues = requireNonNull(queues, "queues is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.ownership = requireNonNull(ownership, "ownership is null");
         this.ciRuns = requireNonNull(ciRuns, "ciRuns is null");
         this.next = requireNonNull(next, "next is null");
         this.artifacts = requireNonNull(artifacts, "artifacts is null");
@@ -178,7 +183,7 @@ public class AppNoticeService
             boolean question = request.providerRequest().requestedPermissions().contains(QUESTION_TOOL);
             return Optional.of(notice(task, review, overview, latest, "approval:" + request.id(), question ? AppNotice.Kind.QUESTION : AppNotice.Kind.APPROVAL,
                     question ? question(request.providerRequest().detail()) : request.providerRequest().title(), request.requestedAt(),
-                    Optional.of(request.requestedAt().plus(AgentApprovalHandler.WAIT))));
+                    Optional.of(request.requestedAt().plus(AgentApprovalHandler.WAIT)), Optional.empty()));
         }
         Optional<WorktreeMutationClaim> recovery = task.worktreeMutationClaim().filter(claim -> claim.kind() == WorktreeMutationClaim.Kind.RECOVERY
                 || claim.kind() == WorktreeMutationClaim.Kind.TURN && latest.filter(turn -> turn.state().active()).isEmpty());
@@ -238,9 +243,34 @@ public class AppNoticeService
         if (!queue.isEmpty() || overview.filter(ReviewRunOverview::active).isPresent()) {
             return Optional.empty();
         }
-        return latest.filter(turn -> turn.state() == TurnState.COMPLETED)
-                .map(turn -> notice(task, review, overview, latest, "finished:" + turn.id(), AppNotice.Kind.TURN_FINISHED,
-                        "The latest response is ready to read.", turn.endedAt().orElseThrow()));
+        return latest.filter(turn -> turn.state() == TurnState.COMPLETED).map(turn -> finished(task, review, overview, turn));
+    }
+
+    /**
+     * A development turn whose task has a pull request names it and where it stands rather than calling it ready, since a draft or
+     * failing checks are not done; the Finished card then opens the pull request.
+     */
+    private AppNotice finished(AgentTask task, Optional<AgentReview> review, Optional<ReviewRunOverview> overview, AgentTurn turn)
+    {
+        Optional<PullRequest> delivered = review.isPresent() ? Optional.empty() : ownership.linkedPullRequest(task);
+        return notice(task, review, overview, Optional.of(turn), "finished:" + turn.id(), AppNotice.Kind.TURN_FINISHED,
+                delivered.map(AppNoticeService::standing).orElse("The latest response is ready to read."), turn.endedAt().orElseThrow(), Optional.empty(), delivered);
+    }
+
+    private static String standing(PullRequest pullRequest)
+    {
+        String name = "PR #" + pullRequest.number();
+        if ("merged".equals(pullRequest.state()) || "closed".equals(pullRequest.state())) {
+            return name + " " + pullRequest.state();
+        }
+        // A row the sync has not enriched yet has no checks to report.
+        String checks = switch (Optional.ofNullable(pullRequest.ciStatus()).orElse(PullRequestDetail.CiStatus.NONE)) {
+            case PASSING -> " · checks passing";
+            case FAILING -> " · checks failing";
+            case PENDING -> " · checks running";
+            case NONE -> "";
+        };
+        return (pullRequest.draft() ? "Draft " + name : name) + checks;
     }
 
     /** The latest CI run watching a development task, when it needs the user: a pause, failures the base also has, or no repair left. */
@@ -278,14 +308,15 @@ public class AppNoticeService
     private AppNotice notice(AgentTask task, Optional<AgentReview> review, Optional<ReviewRunOverview> overview, Optional<AgentTurn> turn,
             String id, AppNotice.Kind kind, String message, Instant occurredAt)
     {
-        return notice(task, review, overview, turn, id, kind, message, occurredAt, Optional.empty());
+        return notice(task, review, overview, turn, id, kind, message, occurredAt, Optional.empty(), Optional.empty());
     }
 
     private AppNotice notice(AgentTask task, Optional<AgentReview> review, Optional<ReviewRunOverview> overview, Optional<AgentTurn> turn,
-            String id, AppNotice.Kind kind, String message, Instant occurredAt, Optional<Instant> expiresAt)
+            String id, AppNotice.Kind kind, String message, Instant occurredAt, Optional<Instant> expiresAt, Optional<PullRequest> delivered)
     {
         Optional<AgentReview> numbered = review.filter(value -> value.number().isPresent());
-        Optional<String> pullRequest = numbered.map(value -> value.repo() + "#" + value.number().getAsInt());
+        Optional<String> pullRequest = numbered.map(value -> value.repo() + "#" + value.number().getAsInt())
+                .or(() -> delivered.map(value -> value.repo() + "#" + value.number()));
         Optional<PullRequest> stored = numbered
                 .flatMap(value -> pullRequests.findIdByRepoAndNumber(value.repo(), value.number().getAsInt()))
                 .flatMap(pullRequests::findById);

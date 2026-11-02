@@ -213,8 +213,9 @@ allowance.
 2. The pills under the composer open one view each: **All**, **Decision**,
    **Running**, **Finished**, **Today**, and **My work**. Click the open pill
    again to go back to the conversation. Answer approvals and questions right
-   on Decision's cards; a failed turn shows under Finished with why. A result
-   you open leaves Finished.
+   on Decision's cards; a failed turn shows under Finished with why. A finished
+   task with a pull request shows where it stands, such as a draft PR or
+   failing checks, and **Review** opens it. A result you open leaves Finished.
 3. Ask it to find work or open a page, such as a repository's Tasks. A page
    with a message box, such as a task, opens with the cursor in it. Pull
    request cards can **Approve**, **Merge**, **Comment**, and, on your own PRs,

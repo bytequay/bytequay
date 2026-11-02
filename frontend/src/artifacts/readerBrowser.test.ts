@@ -54,7 +54,7 @@ it('wraps long content and reads isolated pages continuously with a section inde
 `,
       body: `
         const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-        const until = async check => { for (let i = 0; i < 200; i++) { const value = await check(); if (value) return value; await sleep(30); } throw new Error('Reader did not settle'); };
+        const until = async check => { for (let i = 0; i < ${deadline(200)}; i++) { const value = await check(); if (value) return value; await sleep(30); } throw new Error('Reader did not settle'); };
         window.setOpacity(0); window.setIgnoreMouseEvents(true); window.showInactive();
         await reader.show(target, { x: 0, y: 0, width: 900, height: 760 });
         const contents = reader.view.webContents;

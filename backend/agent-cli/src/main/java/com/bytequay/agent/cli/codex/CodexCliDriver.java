@@ -1369,10 +1369,10 @@ public final class CodexCliDriver
                 return;
             }
             // App Server replays a resumed thread's token counter under the turn that last moved it. No turn here owns that
-            // report, but the next one counts its own usage from it.
+            // report, but the next one counts its own usage from it. The replay can arrive after that turn has started.
             if (notification instanceof CodexProtocol.TokenUsageUpdatedNotification usage
                     && (running == null || !usage.params().turnId().equals(running.reference().value()))) {
-                if (running == null && !parked) {
+                if (!parked) {
                     eventMapper.observeUsage(usage.params());
                 }
                 return;

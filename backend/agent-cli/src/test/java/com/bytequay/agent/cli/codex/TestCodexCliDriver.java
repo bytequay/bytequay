@@ -423,6 +423,25 @@ class TestCodexCliDriver
     }
 
     @Test
+    void countsFromAResumedCounterThatArrivesAfterTheTurnStarts()
+            throws Exception
+    {
+        CodexCliDriver driver = driver(supervisor);
+        try (AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add)) {
+            RunningTurn turn = session.start(command("complete"));
+            AppServerProcess server = supervisor.servers.getLast();
+            // The counter a resume replays can reach the driver only after the next turn has started.
+            server.emitUsage("thread-1", "earlier-turn", AppServerProcess.EARLIER_USAGE, AppServerProcess.EARLIER_USAGE);
+            server.emitUsage("thread-1", server.activeTurn, AppServerProcess.EARLIER_USAGE, AppServerProcess.EARLIER_USAGE);
+            server.completeTurn();
+            turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+        }
+        assertThat(events.stream().filter(ProviderAgentEvent.Usage.class::isInstance).map(event -> ((ProviderAgentEvent.Usage) event).sample()))
+                .extracting(ProviderUsageSample::inputTokens, ProviderUsageSample::cachedInputTokens, ProviderUsageSample::outputTokens)
+                .containsExactly(tuple(0L, 0L, 0L), tuple(80L, 30L, 20L));
+    }
+
+    @Test
     void routesCiApprovalsThroughByteQuayOnStartResumeAndTurns()
             throws Exception
     {

@@ -14,7 +14,7 @@
 import { useEffect, useState } from 'react';
 import Avatar from '../Avatar';
 import ErrorDetails from '../ErrorDetails';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import { SettingsCard, SettingsRow, StatusDot } from '../settings/primitives';
 import type { HostingConnectionDto } from '../types';
 import { clearGitLabPermissions, GitLabConnectionForm, GitLabPermissions } from './GitLabAccounts';
@@ -31,7 +31,7 @@ export default function GitLabSettings() {
     let active = true;
     void window.bridge.listHostingAccounts()
       .then(rows => { if (active) setAccounts(rows.filter(row => row.instance.provider === 'GITLAB')); })
-      .catch(failure => { if (active) setError(remoteErrorMessage(failure)); })
+      .catch(failure => { if (active) setError(errorMessage(failure)); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
@@ -47,7 +47,7 @@ export default function GitLabSettings() {
     try {
       await window.bridge.disconnectHostingAccount(id);
       setAccounts(rows => rows.map(row => row.account.id === id ? { ...row, connected: false, permissions: null } : row));
-    } catch (failure) { setError(remoteErrorMessage(failure)); }
+    } catch (failure) { setError(errorMessage(failure)); }
     finally { setDisconnecting(null); }
   };
   const checkPermissions = async (id: number) => {
@@ -56,7 +56,7 @@ export default function GitLabSettings() {
     try {
       const permissions = await window.bridge.checkHostingPermissions(id);
       setAccounts(rows => rows.map(row => row.account.id === id ? { ...row, permissions } : row));
-    } catch (failure) { setError(remoteErrorMessage(failure)); }
+    } catch (failure) { setError(errorMessage(failure)); }
     finally { setChecking(null); }
   };
 

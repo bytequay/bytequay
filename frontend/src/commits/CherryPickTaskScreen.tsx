@@ -26,7 +26,7 @@ import { projectTranscript, withApprovalAuthority, type TranscriptTurn } from '.
 import { mergePull } from '../assistant/pullActions';
 import { PullRequestChip } from '../pulls/PullRequestChip';
 import { usePullRequestDetail } from '../pulls/usePullRequestDetail';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import type { AgentApprovalDecision, AgentMetricsDto, AgentPendingApprovalDto, AgentTurnDto, CherryPickExecution, CiAutofixRunDto, ModelOptionDto, PullRequestDetailDto } from '../types';
 import { useNow } from '../useNow';
 import { useResizablePane } from '../useResizablePane';
@@ -68,7 +68,7 @@ export default function CherryPickTaskScreen({ executionId, onBack, headerAction
     const read = (): void => {
       void window.bridge.getCherryPickExecution(executionId).then(
         value => { if (active) { setExecution(value); setError(null); } },
-        failure => { if (active) setError(remoteErrorMessage(failure)); });
+        failure => { if (active) setError(errorMessage(failure)); });
     };
     read();
     if (finished) return () => { active = false; };
@@ -127,7 +127,7 @@ function CherryPickTask({ execution, onChange, error, onBack, headerAction, onOp
       if (next) onChange(next);
     }
     catch (failure) {
-      setNotice(remoteErrorMessage(failure));
+      setNotice(errorMessage(failure));
     }
     finally {
       setBusy(false);
@@ -153,7 +153,7 @@ function CherryPickTask({ execution, onChange, error, onBack, headerAction, onOp
   };
   const decide = (approvalId: string, decision: AgentApprovalDecision, answers?: Record<string, string>): void => {
     void window.bridge.resolveAgentApproval(approvalId, decision, undefined, answers)
-      .then(() => approvals.refresh(), failure => setNotice(remoteErrorMessage(failure)));
+      .then(() => approvals.refresh(), failure => setNotice(errorMessage(failure)));
   };
 
   const status = cherryPickStatus(execution, rounds);
@@ -601,7 +601,7 @@ function useTaskConversations(taskIds: string[]): Record<string, AgentTaskState>
     const sessions = key.split(',').map(taskId => startAgentConversationSession(window.bridge, taskId,
       action => { if (live) dispatch({ taskId, action }); }, () => live)
       .catch((failure: unknown) => {
-        if (live) dispatch({ taskId, action: { type: 'notice/changed', notice: remoteErrorMessage(failure) } });
+        if (live) dispatch({ taskId, action: { type: 'notice/changed', notice: errorMessage(failure) } });
         return () => {};
       }));
     return () => {

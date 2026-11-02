@@ -23,6 +23,7 @@ import { element as fixtureElement, assert, changeInput, settle, until } from '.
 import AgentReviewTab from '../AgentReviewTab';
 import type { AgentReviewDto, ReviewMessageDto } from '../contracts';
 import { reviewFixture, runningReviewFixture } from './review';
+import { errorMessage } from '../../../errorMessage';
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const previous = window.bridge;
@@ -42,7 +43,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   };
   const scenario = async (name: string, test: () => Promise<void>) => {
     try { await test(); results.push({ name }); }
-    catch (cause) { results.push({ name, error: cause instanceof Error ? cause.message : String(cause) }); }
+    catch (cause) { results.push({ name, error: errorMessage(cause) }); }
     finally { flushSync(() => root.render(null)); }
   };
   const mount = async (initial: AgentReviewDto, saved: () => AgentReviewDto, message: Bridge['messageAgentReview'],

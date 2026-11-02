@@ -38,8 +38,8 @@ import { useUnmarkEpic } from '../workspaces/useUnmarkEpic';
 import { workItemRoute } from '../workitems/contracts';
 import MarkdownBody from '../pulls/MarkdownBody';
 import BetterWordsButton from '../pulls/BetterWordsButton';
+import { errorMessage } from '../errorMessage';
 
-const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 const bridge = () => window.bridge;
 
 /** The development tasks linked tickets name, read locally for the state their card and Details show. */
@@ -116,7 +116,7 @@ function JiraWorkspaceDialog({ issue, onClose, onAssigned }: { issue: JiraIssue;
   useEffect(() => {
     let active = true;
     void window.bridge.listWorkspaces().then(value => { if (active) setWorkspaces(value); })
-      .catch(cause => { if (active) setError(message(cause)); }).finally(() => { if (active) setLoading(false); });
+      .catch(cause => { if (active) setError(errorMessage(cause)); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
   const assign = async () => {
@@ -127,7 +127,7 @@ function JiraWorkspaceDialog({ issue, onClose, onAssigned }: { issue: JiraIssue;
       recordAttentionAction(`jira:${issue.cloudId}:${issue.id}`, 'update', 1, jiraAttentionItem(value.issue));
       onAssigned(value);
     }
-    catch (cause) { setError(message(cause)); setBusy(false); }
+    catch (cause) { setError(errorMessage(cause)); setBusy(false); }
   };
   return <dialog ref={dialog} aria-label={`Assign workspace for ${issue.key}`} className="jira-launch jira-assignment" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
     <header><h2>Assign a workspace</h2><button type="button" className="bq-iconbtn" aria-label="Close workspace assignment" disabled={busy} onClick={onClose}><X size={18} /></button></header>
@@ -165,7 +165,7 @@ function JiraLaunchContent({ issue, workspaceId, draft, replaces, send, onClose,
       setError(detail.error); onChanged(detail);
       if (detail.issue.task !== null && detail.issue.task.id !== replaces) window.location.hash = workspaceAgentTaskRoute(detail.issue.task.workspaceId, detail.issue.task.id);
     }
-    catch (cause) { setError(message(cause)); }
+    catch (cause) { setError(errorMessage(cause)); }
     finally { setRefreshing(false); }
   };
   return <dialog ref={dialog} aria-label={`Develop ${issue.key}`} className="jira-launch" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>

@@ -23,7 +23,7 @@ import { carriedPanelTab } from '../pulls/PullsScreen';
 import { useLocalReviewThreads } from '../pulls/local-review/useLocalReviewThreads';
 import { pullRequestDiffRevision, usePullRequestChanges } from '../pulls/usePullRequestChanges';
 import { gitHubRetryAt, usePullRequestDetail } from '../pulls/usePullRequestDetail';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import { isDeepSeekKeyLane, laneLabel, providerAvailable } from '../settings/model';
 import { settingsRoute } from '../settings/routes';
 import type {
@@ -105,7 +105,7 @@ function failureText(failure: unknown): string {
     const command = unavailable.signInCommand ? ` Run: ${unavailable.signInCommand}` : '';
     return `${laneLabel(unavailable.laneId)} is not ready — ${unavailable.diagnostic}${command}`;
   }
-  const message = remoteErrorMessage(failure);
+  const message = errorMessage(failure);
   return message.startsWith('Task version changed:') ? 'This task changed in the background. Your input is preserved; try again.' : message;
 }
 
@@ -564,7 +564,7 @@ export default function AgentTaskScreen({
         if (!active) return;
         // A check nobody asked for stays quiet while the pull request is on screen, and one GitHub
         // paused for its rate limit runs again once the pause ends.
-        if (asked || !shown) setPullRequestError(remoteErrorMessage(failure));
+        if (asked || !shown) setPullRequestError(errorMessage(failure));
         const retryAt = gitHubRetryAt(failure);
         if (retryAt !== null) retry = setTimeout(() => setPullRequestRetry(value => value + 1), Math.max(0, retryAt - Date.now()) + 1_000);
       })

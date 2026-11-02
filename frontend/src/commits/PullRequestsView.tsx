@@ -16,6 +16,7 @@ import { ExternalLink, GitMerge } from 'lucide-react';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import type { HostingServerDto, PullRequestDto } from '../types';
 import { useHostingPresentation, useProviderName } from '../pulls/PullRequestWorkspace';
+import { errorMessage } from '../errorMessage';
 
 /**
  * `#123`, GitLab's `!123`, `123`, or a link to a request of `slug` on the workspace's server; anything else is ordinary search text. A
@@ -60,7 +61,7 @@ export default function PullRequestsView({ workspaceId, slug, query, selected, l
     const timer = window.setTimeout(() => {
       window.bridge.listMergedPullRequests(workspaceId, search)
         .then(next => { if (active) { setRows(next); setError(null); } })
-        .catch(failure => { if (active) setError(failure instanceof Error ? failure.message : String(failure)); });
+        .catch(failure => { if (active) setError(errorMessage(failure)); });
     }, 200);
     return () => { active = false; window.clearTimeout(timer); };
   }, [workspaceId, search]);

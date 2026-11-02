@@ -14,7 +14,7 @@
 import { useEffect, useState } from 'react';
 import ErrorDetails from '../ErrorDetails';
 import { providerName } from '../pulls/PullRequestWorkspace';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import type { WorkspaceDto } from '../types';
 import GitLabAccounts from './GitLabAccounts';
 
@@ -24,7 +24,7 @@ export function WorkspaceHostingAccount({ workspace }: { workspace: WorkspaceDto
   useEffect(() => {
     let active = true;
     void window.bridge.getWorkspaceHosting(workspace.id).then(binding => { if (active) setAccountId(binding?.accountId); })
-      .catch(failure => { if (active) setError(remoteErrorMessage(failure)); });
+      .catch(failure => { if (active) setError(errorMessage(failure)); });
     return () => { active = false; };
   }, [workspace.id]);
   return <div className="setw-page">

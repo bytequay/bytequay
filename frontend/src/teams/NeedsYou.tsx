@@ -21,7 +21,7 @@ import {
   type AttentionItem, type Handled, type SnoozeId,
 } from '../home/attention';
 import { useSnoozedAttention } from '../home/useSnoozedAttention';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import { ago } from '@bytequay/ui/relativeTime';
 import type { PullRequestDto } from '../types';
 import { ISSUE_DEVELOPMENT_CHANGED } from '../workspaces/issueDevelopment';
@@ -57,7 +57,7 @@ export function useLiveAttention(accountLogin: string | undefined) {
         setCandidates(attentionCandidates(prs, results.flatMap(result => result.status === 'fulfilled' ? result.value : []), accountLogin));
         setError(results.some(result => result.status === 'rejected') ? 'Some assigned issues could not be loaded.' : null);
       }
-      catch (failure) { if (active && request === generation) setError(remoteErrorMessage(failure)); }
+      catch (failure) { if (active && request === generation) setError(errorMessage(failure)); }
     };
     const changed = () => { void reload(); };
     const issuesChanged = () => { reads.clear(); void reload(); };

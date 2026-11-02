@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { remoteErrorMessage } from './remoteError';
+import { errorMessage } from './errorMessage';
 
 type Thread = { id: string; version: number; createdAt: string };
 const EMPTY: never[] = [];
@@ -44,7 +44,7 @@ export function useThreadSnapshot<Q, T extends Thread>(query: Q | null, active: 
       }
     }
     catch (failure) {
-      if (latest.current.key === current.key && epoch.current === version) setError(remoteErrorMessage(failure));
+      if (latest.current.key === current.key && epoch.current === version) setError(errorMessage(failure));
     }
   }, []);
 

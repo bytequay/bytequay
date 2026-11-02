@@ -13,7 +13,7 @@
  */
 import { useEffect, useState } from 'react';
 import type { AgentTaskDto, Bridge, PullRequestDetailDto } from '../../types';
-import { remoteErrorMessage } from '../../remoteError';
+import { errorMessage } from '../../errorMessage';
 import type { AgentReviewDto } from '../agent-review/contracts';
 import { latestRun } from '../agent-review/model';
 import IdeWorkingCopy from '../../ide/IdeWorkingCopy';
@@ -157,7 +157,7 @@ function NoReview({ detail, workspaceId, bridge, onReviewChange, onOpenEnded }: 
     setError(null);
     void bridge.prepareReviewWorktree(workspaceId, detail.repo, detail.number)
       .then(onReviewChange)
-      .catch(failure => setError(remoteErrorMessage(failure)))
+      .catch(failure => setError(errorMessage(failure)))
       .finally(() => setStarting(false));
   };
 

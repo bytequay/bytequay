@@ -17,7 +17,7 @@ import CopyLinkButton from '@bytequay/ui/CopyLinkButton';
 import { plural } from '@bytequay/ui/displayText';
 import { IconButton, ItemRow } from '../cards/Card';
 import { getCached, setCached } from '../dataCache';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import { isoDay, shiftDay } from '../recent/model';
 import type { AgendaTargetDto, DoneActivityDto, DoneItemDto } from '../types';
 import { openTarget } from './TodayList';
@@ -67,7 +67,7 @@ function useDone(day: string): { activity: DoneActivityDto | null; error: string
       setCached(key, activity);
       if (active) setRead({ day, activity, error: null });
     }, (failure: unknown) => {
-      if (active) setRead({ day, activity: getCached<DoneActivityDto>(key) ?? null, error: remoteErrorMessage(failure) });
+      if (active) setRead({ day, activity: getCached<DoneActivityDto>(key) ?? null, error: errorMessage(failure) });
     });
     return () => { active = false; };
   }, [day, key]);

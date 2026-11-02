@@ -22,6 +22,7 @@ import { isoDay, parseDay, shiftDay } from '../model';
 import { recentItemTarget } from '../routes';
 import { useRecentTouch } from '../useRecentTouch';
 import { assert, changeInput, settle, element } from '../../fixtures/harness';
+import { errorMessage } from '../../errorMessage';
 
 type DayPage = Awaited<ReturnType<Window['bridge']['fetchRecent']>>;
 type Pending = { query: RecentFilterQuery; resolve: (page: DayPage) => void; reject: (error: Error) => void };
@@ -78,7 +79,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   const check = async (name: string, test: (view: ReturnType<typeof fixture>) => Promise<void>, active = true) => {
     const view = fixture(active);
     try { await settle(); await test(view); results.push({ name }); }
-    catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
+    catch (error) { results.push({ name, error: errorMessage(error) }); }
     finally { view.dispose(); }
   };
   await check('shows the same distinct queue and merge states in the page and palette', async view => {

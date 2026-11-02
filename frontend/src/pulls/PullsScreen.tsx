@@ -72,7 +72,7 @@ import { usePrivateThreads, type PrivateThreadSource } from './PrivateThread';
 import PullChanges, { pullReviewThreads, updatePendingReviewComment, type CommitRange, type DiffAgentComment } from './PullChanges';
 import PullOverview, { commentedCodeLines, isAutoMergeEnabled, isQueued, useViewer } from './PullOverview';
 import { mergePullRequestWriteDetail, type PullDetailUpdater } from './pullDetail';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import ErrorDetails from '../ErrorDetails';
 import PullRequestConflictFiles from './PullRequestConflictFiles';
 import MergeQueueRemoval from './MergeQueueRemoval';
@@ -182,7 +182,7 @@ export function showBlockingDetailLoading(loading: boolean, hasDetail: boolean) 
 }
 
 export function pullRequestSyncNotice(failure: unknown): string | null {
-  return remoteErrorMessage(failure).includes('A pull request refresh is already in progress')
+  return errorMessage(failure).includes('A pull request refresh is already in progress')
     ? 'Pull requests are already refreshing.'
     : null;
 }
@@ -545,7 +545,7 @@ function PullsContent({
       }
     }
     catch (failure) {
-      if (request === listRequest.current) setError(remoteErrorMessage(failure));
+      if (request === listRequest.current) setError(errorMessage(failure));
     }
     finally {
       // Background updates can supersede the initial read and must finish its loading state too.
@@ -596,7 +596,7 @@ function PullsContent({
           toastId.current += 1;
           setToast({ id: toastId.current, text: notice });
         } else {
-          setSyncError(e instanceof Error ? e.message : String(e));
+          setSyncError(errorMessage(e));
         }
       }
     }
@@ -635,7 +635,7 @@ function PullsContent({
         setNumberLookup(null);
       })
       .catch(failure => {
-        if (!cancelled) setNumberLookup({ repo: scopedRepository, number: exactNumber, loading: false, error: remoteErrorMessage(failure) });
+        if (!cancelled) setNumberLookup({ repo: scopedRepository, number: exactNumber, loading: false, error: errorMessage(failure) });
       });
     return () => { cancelled = true; };
   }, [singlePullRequest, loading, error, scopedRepository, exactNumber, search, query, hasExactNumber, bridge]);
@@ -691,7 +691,7 @@ function PullsContent({
       setHasMore(result.hasMore);
     }
     catch (e) {
-      if (request === listRequest.current) setError(e instanceof Error ? e.message : String(e));
+      if (request === listRequest.current) setError(errorMessage(e));
     }
     finally {
       loadingMoreRequest.current = false;
@@ -737,7 +737,7 @@ function PullsContent({
       setTab(current => tabForInitialPullRequest(remote, current, viewerLogin));
       setSelected(remote.id);
     }).catch(e => {
-      if (stillRouting()) setError(e instanceof Error ? e.message : String(e));
+      if (stillRouting()) setError(errorMessage(e));
     });
   }, [bridge, initialPr, loading, prs, viewerLogin]);
 
@@ -881,8 +881,8 @@ function PullsContent({
       })
       .catch(failure => {
         if (!cancelled) setReviewContext(current => current?.key === reviewKey
-          ? { ...current, error: remoteErrorMessage(failure) }
-          : { key: reviewKey, workspaceId: undefined, review: null, developerTask: null, error: remoteErrorMessage(failure) });
+          ? { ...current, error: errorMessage(failure) }
+          : { key: reviewKey, workspaceId: undefined, review: null, developerTask: null, error: errorMessage(failure) });
       });
     return () => { cancelled = true; };
   }, [scopedWorkspaceId, selectedPrRepo, selectedPrNumber, reviewKey, reviewReload, requestedReviewId, authored, bridge]);
@@ -939,7 +939,7 @@ function PullsContent({
       window.dispatchEvent(new CustomEvent('bytequay:pr-monitor-changed'));
     }
     catch (failure) {
-      setMonitorError(`Could not ${row.monitored ? 'stop monitoring' : 'monitor'} ${row.repo} #${row.num}. ${remoteErrorMessage(failure)}`);
+      setMonitorError(`Could not ${row.monitored ? 'stop monitoring' : 'monitor'} ${row.repo} #${row.num}. ${errorMessage(failure)}`);
     }
     finally {
       monitorRequests.current.delete(row.id);
@@ -971,7 +971,7 @@ function PullsContent({
     catch (failure) {
       if (request === manualDetailRefreshRequest.current
           && selectedPullRequest.current?.key === selectedKey
-          && listVersion === listRequest.current) setError(remoteErrorMessage(failure));
+          && listVersion === listRequest.current) setError(errorMessage(failure));
     }
   }, [applyPage, readList, detailLoading, singlePullRequest, refreshChanges, refreshDetail, selectedPr]);
 
@@ -1741,7 +1741,7 @@ export function ReviewDialog({
   const earlierCommentsNeedText = event === 'REQUEST_CHANGES' && pendingComments.length + promoted.length > 0
     && ![...pendingComments, ...promoted].some(comment => comment.replyToCommentId != null || comment.commitId === reviewedHead);
   const bodyRequired = earlierCommentsNeedText || (event !== 'APPROVE' && pendingComments.length === 0 && promoted.length === 0);
-  const failed = useCallback((value: unknown) => setError(remoteErrorMessage(value)), []);
+  const failed = useCallback((value: unknown) => setError(errorMessage(value)), []);
   const hasReviewDraft = Boolean(review?.draft);
 
   useEffect(() => {
@@ -2015,7 +2015,7 @@ export function ReviewDialog({
           </>}
         </div>}
         <BetterWordsButton text={body} textareaRef={bodyRef} repository={detail.repo} workspaceId={review?.workspaceId}
-          disabled={busy || reviewSend !== null} onError={value => setError(value === null ? null : remoteErrorMessage(value))} />
+          disabled={busy || reviewSend !== null} onError={value => setError(value === null ? null : errorMessage(value))} />
         {outgoing.length > 0 && (
           <div className="pr-review-sheet__pending">
             {outgoing.map(({ key, comment, remove, save }) => {
@@ -2050,7 +2050,7 @@ export function ReviewDialog({
                     ariaLabel="Edit pending review comment" repository={detail.repo} busy={busy} autoFocus
                     onSubmit={() => { void saveComment(save); }} onCancel={cancelCommentEdit}>
                     <BetterWordsButton text={commentEdit.body} textareaRef={commentRef} repository={detail.repo} workspaceId={review?.workspaceId}
-                      disabled={busy || commentPreview} onError={value => setError(value === null ? null : remoteErrorMessage(value))} />
+                      disabled={busy || commentPreview} onError={value => setError(value === null ? null : errorMessage(value))} />
                     <button type="button" disabled={busy} onClick={cancelCommentEdit}>Cancel</button>
                     <button type="button" className="is-primary" disabled={busy || !commentEdit.body.trim()}
                       onClick={() => { void saveComment(save); }}>{saving ? 'Saving…' : 'Save'}</button>
@@ -2161,7 +2161,7 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
     }
     catch (value) {
       if (mounted.current) {
-        setError(remoteErrorMessage(value));
+        setError(errorMessage(value));
         setSubmitting(false);
       }
     }

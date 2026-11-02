@@ -12,12 +12,11 @@
  * limitations under the License.
  */
 
-export function remoteErrorMessage(failure: unknown) {
-  const message = failure instanceof Error ? failure.message : String(failure);
-  // Electron prefixes the channel and the error's class, which is not always a plain Error, such as TimeoutError.
-  return message.replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '');
+export function errorMessage(failure: unknown): string {
+  return failure instanceof Error ? failure.message : String(failure);
 }
 
+/** Electron prefixes an invoke rejection with the channel and the error's class, which is not always a plain Error, such as TimeoutError. */
 export function ipcFailure(failure: unknown): Error {
-  return new Error(remoteErrorMessage(failure));
+  return new Error(errorMessage(failure).replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, ''));
 }

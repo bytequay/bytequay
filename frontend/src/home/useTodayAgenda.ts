@@ -17,6 +17,7 @@ import { pollVisible } from '../ide/pollVisible';
 import type { AgendaDto } from '../types';
 import { loadHandled } from './attention';
 import { withoutSnoozed } from './today';
+import { errorMessage } from '../errorMessage';
 
 /** How often a Home looks again while today's agenda is being made. */
 const MAKING_POLL_MS = 10_000;
@@ -86,7 +87,7 @@ export function useTodayAgenda(workspaceId?: string): TodayAgenda {
     const ticket = ++request.current;
     action().then(() => load()).catch((failure: unknown) => {
       if (ticket !== request.current) return;
-      setError(failure instanceof Error ? failure.message : String(failure));
+      setError(errorMessage(failure));
     });
   }, [load]);
 

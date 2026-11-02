@@ -22,6 +22,7 @@ import '../../css/base.css';
 import { textButton, element as fixtureElement, assert, changeInput, settle } from '../../fixtures/harness';
 import { DETAIL_REFRESH_INTERVAL } from '../usePullRequestDetail';
 import type { AgentReviewDto, ReviewDraftDto, ReviewDraftItemDto } from '../agent-review/contracts';
+import { errorMessage } from '../../errorMessage';
 
 const review = reviewFixture({ id: 'pending-review', state: 'CLOSED', closedAt: '2026-09-07T00:00:00Z' });
 const stored = prDetail({
@@ -236,7 +237,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       'Successful submission must close the dialog and clear the staged comment');
     return [{ name: 'A staged review lasts as long as the pull request page' }];
   }
-  catch (error) { return [{ name: 'A staged review lasts as long as the pull request page', error: error instanceof Error ? error.message : String(error) }]; }
+  catch (error) { return [{ name: 'A staged review lasts as long as the pull request page', error: errorMessage(error) }]; }
   finally {
     window.setTimeout = originalTimeout;
     dispose();

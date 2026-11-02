@@ -16,7 +16,7 @@ import { useEffect, useId, useMemo, useState } from 'react';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import { pullRequestAttentionKey } from '../home/attention';
 import { recordAttentionAction } from '../home/useAttentionVisit';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import type { PullRequestDetailDto, PullRequestDto } from '../types';
 import { usePullRequestBridge } from './PullRequestWorkspace';
 
@@ -56,7 +56,7 @@ export default function PullChecks({ pr, detail, onRefresh }: {
       await onRefresh();
     }
     catch (failure) {
-      setRerunError(remoteErrorMessage(failure));
+      setRerunError(errorMessage(failure));
     }
     finally {
       setRerunning(false);
@@ -118,7 +118,7 @@ function CheckRow({ pr, check }: { pr: PullRequestDto; check: PullRequestDetailD
       await bridge.openExternal(browserUrl);
     }
     catch (failure) {
-      setBrowserError(remoteErrorMessage(failure));
+      setBrowserError(errorMessage(failure));
     }
   };
   const toggleLog = async () => {
@@ -136,7 +136,7 @@ function CheckRow({ pr, check }: { pr: PullRequestDto; check: PullRequestDetailD
       setError(result.unavailableReason);
     }
     catch (failure) {
-      setError(remoteErrorMessage(failure));
+      setError(errorMessage(failure));
     }
     finally {
       setLoading(false);

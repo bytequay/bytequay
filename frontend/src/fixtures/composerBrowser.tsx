@@ -16,6 +16,7 @@ import { flushSync } from 'react-dom';
 import { createFixtureRoot } from './reactFixture';
 import Composer from '../Composer';
 import { assert, changeInput, element } from './harness';
+import { errorMessage } from '../errorMessage';
 import '../css/base.css';
 import '../css/assistant.css';
 import '../css/artifacts.css';
@@ -40,7 +41,7 @@ export function run(): { name: string; error?: string }[] {
   const test = (name: string, check: () => void) => {
     sent = 0;
     try { check(); results.push({ name }); }
-    catch (cause) { results.push({ name, error: cause instanceof Error ? cause.message : String(cause) }); }
+    catch (cause) { results.push({ name, error: errorMessage(cause) }); }
   };
   try {
     test('Enter sends; Shift+Enter and IME input do not', () => {

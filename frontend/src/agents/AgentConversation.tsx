@@ -27,7 +27,7 @@ import type { LocalReviewMessageDto, LocalReviewThreads } from '../pulls/local-r
 import { findingFixRequest } from '../pulls/local-review/conversation';
 import { commentFixRequest } from './taskFix';
 import { linkIssueNumbers } from '../pulls/MarkdownBody';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import { approvalTimeLeft } from '../notices/contracts';
 import { useNow } from '../useNow';
 import { MEMORY_CHANGED } from '../memory/model';
@@ -329,7 +329,7 @@ function RememberedRow({ memory }: { memory: { updated: boolean; id: string; tex
     if (undo === null) return;
     setState('busy');
     setError(null);
-    undo(memory.id).then(() => setState('undone'), (cause: unknown) => { setState('idle'); setError(remoteErrorMessage(cause)); });
+    undo(memory.id).then(() => setState('undone'), (cause: unknown) => { setState('idle'); setError(errorMessage(cause)); });
   };
   return (
     <div className="agt-act__row agt-remembered">

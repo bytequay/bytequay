@@ -23,6 +23,7 @@ import { pollVisible } from '../ide/pollVisible';
 import { useNotices } from '../notices/useNotices';
 import { ATTENTION_SEED, ISSUE_ATTENTION_REFRESH_MS, attentionCandidates, issueAttentionItems, type AttentionItem } from './attention';
 import { decisionMarks, myWorkItems, type WorkItem } from './work';
+import { errorMessage } from '../errorMessage';
 
 // The backend searches GitHub for the viewer's issues at most this often; asking sooner only rereads its answer.
 const AUTHORED_ISSUES_REFRESH_MS = 5 * 60 * 1000;
@@ -127,7 +128,7 @@ export function useMyWork({ ended = false }: { ended?: boolean } = {}) {
         setCached(SEED.attention, rows);
         setAttentionPrs(rows); setAttentionError(null);
       }).catch(error => {
-        if (active && current === request) setAttentionError(error instanceof Error ? error.message : String(error));
+        if (active && current === request) setAttentionError(errorMessage(error));
       });
     };
     const updated = (event: Event) => {

@@ -15,7 +15,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Check, CircleAlert, LoaderCircle, TriangleAlert, X } from 'lucide-react';
 import Avatar from '../Avatar';
 import { useModalDialog } from '../useModalDialog';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import type { RepositoryMetadataDto } from '../types';
 import { people } from './activity';
 import { providerName } from '../pulls/PullRequestWorkspace';
@@ -81,7 +81,7 @@ export default function CircleDialog({ circle, initialName = '', directory, busy
     if (circle === null) {
       Promise.resolve().then(() => window.bridge.fetchTeamContributors(accountId))
         .then(value => { if (current) setContributors(value); })
-        .catch((failure: unknown) => { if (current) { setContributors([]); setContributorError(remoteErrorMessage(failure)); } });
+        .catch((failure: unknown) => { if (current) { setContributors([]); setContributorError(errorMessage(failure)); } });
     }
     const base = (url: string) => url.replace(/\/+$/, '').toLowerCase();
     Promise.resolve().then(() => window.bridge.listWorkspaces())

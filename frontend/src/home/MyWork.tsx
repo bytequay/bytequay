@@ -20,7 +20,7 @@ import { relativeTime } from '@bytequay/ui/relativeTime';
 import Avatar from '../Avatar';
 import { mergePull } from '../assistant/pullActions';
 import { CardActions, CardAge, Card } from '../cards/Card';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import type { AgendaTargetDto } from '../types';
 import { WORK_LANES, WORK_SOURCES, workPrStatus, type WorkItem, type WorkLane, type WorkPr, type WorkSource } from './work';
 import { openTarget } from './TodayList';
@@ -265,7 +265,7 @@ function MergeWorkPull({ pr, multiple }: { pr: WorkPr; multiple: boolean }) {
       if (!refresh.full || !refresh.detail.headSha) throw new Error('Could not load the latest commit. Try again.');
       setLoadedHead(refresh.detail.headSha);
       window.dispatchEvent(new Event('bytequay:pr-attention-updated'));
-    }).catch(cause => { if (active) setHeadError(remoteErrorMessage(cause)); });
+    }).catch(cause => { if (active) setHeadError(errorMessage(cause)); });
     return () => { active = false; };
   }, [pr.repo, pr.number, row?.headSha, route, headAttempt]);
 
@@ -279,7 +279,7 @@ function MergeWorkPull({ pr, multiple }: { pr: WorkPr; multiple: boolean }) {
       setState('requested');
     }
     catch (cause) {
-      setError(remoteErrorMessage(cause));
+      setError(errorMessage(cause));
       setState('idle');
       submitted.current = false;
       return;

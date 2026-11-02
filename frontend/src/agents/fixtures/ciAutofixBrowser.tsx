@@ -20,6 +20,7 @@ import AgentTaskScreen from '../AgentTaskScreen';
 import { CI_PROJECTION, CI_RUN } from './ciAutofix';
 import { createPreviewBridge } from './previewBridge';
 import { assert, changeInput, controlTimers, settle, element, until } from '../../fixtures/harness';
+import { errorMessage } from '../../errorMessage';
 
 function pressEnter(input: HTMLTextAreaElement) { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); }
 
@@ -125,7 +126,7 @@ async function ciReplyAndOwnership(steering = false): Promise<{ name: string; er
     timers.tick(); await settle();
     assert(sourceReads === terminalReads, 'Terminal parent must stop CI polling');
     return { name: `@ci ${steering ? 'steers' : 'resumes'}, preserves retry identity, and honors revoked CI authority` };
-  } catch (error) { return { name: `CI ${steering ? 'steering' : 'reply'} routing and ownership`, error: error instanceof Error ? error.message : String(error) }; }
+  } catch (error) { return { name: `CI ${steering ? 'steering' : 'reply'} routing and ownership`, error: errorMessage(error) }; }
   finally { dispose(); timers.restore(); }
 }
 
@@ -174,7 +175,7 @@ async function sourcePolling(): Promise<{ name: string; error?: string }> {
     timers.tick(); await settle();
     assert(reads === before + 2, 'The next poll starts only after the previous read settles');
     return { name: 'Source CI polling is sequential and does not poll GitHub' };
-  } catch (error) { return { name: 'Source CI polling', error: error instanceof Error ? error.message : String(error) }; }
+  } catch (error) { return { name: 'Source CI polling', error: errorMessage(error) }; }
   finally { dispose(); timers.restore(); }
 }
 
@@ -229,7 +230,7 @@ async function ciApprovalCard(): Promise<{ name: string; error?: string }> {
     assert(bridge.commands.some(command => command.name === 'resolveAgentApproval' && command.args[0] === approval.approvalId && command.args[1] === 'ALLOW'), 'The card must answer the CI approval');
     assert(host.querySelector('[aria-label="Approval: CI Autofix · Allow Codex command"]') === null, 'The answered card must disappear before the next poll');
     return { name: 'Source Task screen shows and answers verified CI approvals' };
-  } catch (error) { return { name: 'CI approval card', error: error instanceof Error ? error.message : String(error) }; }
+  } catch (error) { return { name: 'CI approval card', error: errorMessage(error) }; }
   finally { dispose(); timers.restore(); }
 }
 
@@ -284,7 +285,7 @@ async function finishedCiRouting(): Promise<{ name: string; error?: string }> {
     assert(request?.taskId === task.id && request.message === 'Continue development after CI', 'Ordinary source input must use the normal turn endpoint');
     assert(replies.length === 0, 'Ordinary source input must not restart CI');
     return { name: 'Finished CI removes its log and panel, blocks @ci, and permits ordinary source messages' };
-  } catch (error) { return { name: 'Finished CI routing', error: error instanceof Error ? error.message : String(error) }; }
+  } catch (error) { return { name: 'Finished CI routing', error: errorMessage(error) }; }
   finally { dispose(); }
 }
 
@@ -343,7 +344,7 @@ async function laterRunAndRecovery(): Promise<{ name: string; error?: string }> 
     assert(bridge.commands.some(command => command.name === 'getAgentRuntimeStopImpact'), 'Recovery Stop must use the existing stop confirmation path');
     assert(!bridge.commands.some(command => command.name === 'markAgentTaskFailed'), 'Recovery controls must not call Mark failed');
     return { name: 'A later CI run receives @ci messages, while unresolved linked cleanup only offers Stop' };
-  } catch (error) { return { name: 'Later CI run and recovery', error: error instanceof Error ? error.message : String(error) }; }
+  } catch (error) { return { name: 'Later CI run and recovery', error: errorMessage(error) }; }
   finally { dispose(); timers.restore(); }
 }
 
@@ -370,6 +371,6 @@ async function deleteReferences(): Promise<{ name: string; error?: string }> {
     assert(dialog?.textContent?.includes('codex/change') === true, 'Delete must show the retained remote branch');
     assert(!deleted, 'Showing references must not delete before confirmation');
     return { name: 'Delete confirmation names linked local cleanup and preserved remote references' };
-  } catch (error) { return { name: 'CI delete references', error: error instanceof Error ? error.message : String(error) }; }
+  } catch (error) { return { name: 'CI delete references', error: errorMessage(error) }; }
   finally { dispose(); }
 }

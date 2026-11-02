@@ -31,6 +31,7 @@ import {
   workspaceRoute,
   type SyncState,
 } from './model';
+import { errorMessage } from '../errorMessage';
 import '../css/workspaces.css';
 
 const SPARK_DAYS = 12;
@@ -92,7 +93,7 @@ export default function WorkspacesPage({ onOpen, defaultProvider = 'GITHUB' }: {
         setRetired(retiredRows);
       })
       .catch(failure => {
-        if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure));
+        if (!cancelled) setError(errorMessage(failure));
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -197,7 +198,7 @@ export default function WorkspacesPage({ onOpen, defaultProvider = 'GITHUB' }: {
       flash(`Moved ${workspace.monitoredOwner}/${workspace.monitoredRepo} to Retired. Open it there to access saved tasks and files.`);
     }
     catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      setError(errorMessage(failure));
     }
     finally {
       setUnwatching(previous => previous.filter(id => id !== workspace.id));
@@ -220,7 +221,7 @@ export default function WorkspacesPage({ onOpen, defaultProvider = 'GITHUB' }: {
         ...previous,
         [workspace.id]: {
           at: Date.now(),
-          message: failure instanceof Error ? failure.message : String(failure),
+          message: errorMessage(failure),
         },
       }));
     }

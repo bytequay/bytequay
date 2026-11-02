@@ -761,7 +761,7 @@ export async function runReviewSheet(): Promise<string> {
     },
     submitReviewDraft: async (_repo, _number, version, body, event) => {
       calls.push(`draft v${version} ${event} "${body}"`);
-      if (publicationProblem !== null) throw new Error(`Error invoking remote method 'review:draft:submit': Error: ${publicationProblem}`);
+      if (publicationProblem !== null) throw new Error(publicationProblem);
     },
     getAgentReview: async () => { calls.push('reload'); return review; },
     fetchPullRequestDetailByRef: async () => { calls.push('detail'); return detail; },

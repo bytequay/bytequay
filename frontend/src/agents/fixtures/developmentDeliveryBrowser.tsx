@@ -22,6 +22,7 @@ import type { AgentEventEnvelope } from '../events';
 import { CI_PROJECTION } from './ciAutofix';
 import { createPreviewBridge } from './previewBridge';
 import { assert, changeInput, settle, until } from '../../fixtures/harness';
+import { errorMessage } from '../../errorMessage';
 
 
 /** The published pull request's detail, which the opened panel reads through the window bridge. */
@@ -219,7 +220,7 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure', publi
         'A later question must ask for the answer in the composer');
     }
     return { name };
-  } catch (error) { return { name, error: error instanceof Error ? error.message : String(error) }; }
+  } catch (error) { return { name, error: errorMessage(error) }; }
   finally { flushSync(() => root.unmount()); host.remove(); }
 }
 

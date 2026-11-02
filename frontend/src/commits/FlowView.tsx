@@ -36,6 +36,7 @@ import type {
 import { useModalDialog } from '../useModalDialog';
 import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import { shortSha, toggledGroup } from './model';
+import { errorMessage } from '../errorMessage';
 
 type FlowItem = {
   commit: CherryPickPreviewCommit;
@@ -96,7 +97,7 @@ export default function FlowView({
         setEffort(defaults.effort ?? '');
       })
       .catch(failure => {
-        if (active) setError(failure instanceof Error ? failure.message : String(failure));
+        if (active) setError(errorMessage(failure));
       });
     return () => { active = false; };
   }, [workspaceId, setError]);

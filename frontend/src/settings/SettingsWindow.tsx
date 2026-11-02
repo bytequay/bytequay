@@ -47,6 +47,7 @@ import {
 } from './WorkspacePages';
 import { isWorkspaceSection, type SettingsSection } from './routes';
 import type { ClaudeLogin } from './model';
+import { errorMessage } from '../errorMessage';
 import '../css/settings-window.css';
 
 export default function SettingsWindow({ section, workspace, onWorkspacesChanged }: {
@@ -95,7 +96,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   const workspaceRef = useRef<string | null>(null);
 
   const report = useCallback((failure: unknown) => {
-    setError(failure instanceof Error ? failure.message : String(failure));
+    setError(errorMessage(failure));
   }, []);
 
   useEffect(() => setError(null), [section]);

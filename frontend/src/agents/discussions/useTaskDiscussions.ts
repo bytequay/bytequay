@@ -17,7 +17,7 @@ import { useCallback, useMemo, useRef } from 'react';
 import { useThreadSnapshot } from '../../useThreadSnapshot';
 
 import { recordAttentionAction } from '../../home/useAttentionVisit';
-import { remoteErrorMessage } from '../../remoteError';
+import { errorMessage } from '../../errorMessage';
 import type {
   AskCommentDiscussionRequest, AskDiscussionRequest, DiscussionQuery, DraftDiscussionReplyRequest, OpenDiscussionRequest,
   ResolveDiscussionRequest, RetryDiscussionRequest, TaskDiscussionDto,
@@ -88,7 +88,7 @@ export function useTaskDiscussions(query: DiscussionQuery | null, options: {
       return discussion;
     }
     catch (failure) {
-      setError(remoteErrorMessage(failure));
+      setError(errorMessage(failure));
       throw failure;
     }
   }, [accept, latest, live, setError]);

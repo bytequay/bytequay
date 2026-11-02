@@ -21,12 +21,11 @@ import { settingsRoute } from '../settings/routes';
 import type { AgentTaskDto, PullRequestDto } from '../types';
 import type { AgentReviewDto } from './agent-review/contracts';
 import { privateThreadSource, reviewThreadBridge, type PrivateThreadSource } from './PrivateThread';
-import { remoteErrorMessage } from '../remoteError';
 import { useReviewCommentHistory } from './useReviewCommentHistory';
 
 function WatchCommentRepository({ repo, onWatched }: { repo: string; onWatched: () => void }) {
   const [repositoryId, setRepositoryId] = useState<number | null>(null);
-  const { busy, error, run } = useAsyncAction(remoteErrorMessage);
+  const { busy, error, run } = useAsyncAction();
   const watch = () => run(async () => {
     const repositories = await window.bridge.searchRepositories(repo, 30);
     const match = repositories.find(candidate => candidate.fullName.toLowerCase() === repo.toLowerCase());

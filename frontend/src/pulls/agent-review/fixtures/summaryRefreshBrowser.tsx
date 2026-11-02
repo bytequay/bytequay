@@ -20,6 +20,7 @@ import { element as fixtureElement, assert, changeInput, settle } from '../../..
 import AgentReviewTab from '../AgentReviewTab';
 import type { AgentReviewDto } from '../contracts';
 import { explanationRunFixture, reviewFixture } from './review';
+import { errorMessage } from '../../../errorMessage';
 import '../../../css/base.css';
 import '../../../css/pulls.css';
 import '../../../css/markdown-editor.css';
@@ -129,7 +130,7 @@ export async function run() {
     assert(host.scrollWidth <= host.clientWidth + 1, 'The refresh control must fit narrow layouts');
     return [{ name: 'Explanation refresh preserves findings, atomically replaces text and retains bindings' }];
   }
-  catch (error) { return [{ name: 'Explanation refresh', error: error instanceof Error ? error.message : String(error) }]; }
+  catch (error) { return [{ name: 'Explanation refresh', error: errorMessage(error) }]; }
   finally {
     dispose();
     Object.defineProperty(window, 'bridge', { configurable: true, writable: true, value: previous });

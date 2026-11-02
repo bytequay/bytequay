@@ -13,7 +13,7 @@
  */
 import { AgentSetupNotice, useAgentAvailability } from '../agents/availability';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import { settingsRoute } from '../settings/routes';
 import { specCheckDirectory, type ContextBuildViewDto, type ContextSpecCandidateDto, type ContextSpecCheckDto, type ContextSpecModuleDto,
   type ContextSpecSourceDto } from './contracts';
@@ -83,7 +83,7 @@ function ChooseDirectory({ workspaceId, onChoose }: { workspaceId: string; onCho
   useEffect(() => {
     let live = true;
     void Promise.resolve().then(() => window.bridge.getRepositoryContextSpecModules(workspaceId))
-      .then(found => { if (live) setModules(found); }).catch(cause => { if (live) setError(remoteErrorMessage(cause)); });
+      .then(found => { if (live) setModules(found); }).catch(cause => { if (live) setError(errorMessage(cause)); });
     return () => { live = false; };
   }, [workspaceId]);
   const rows = moduleRows(modules ?? [], filter);
@@ -136,7 +136,7 @@ function StartCheck({ data, actions, busy, directory, previous }: {
       setPicks(initial);
       // A spec the user added to the last check is not in the code's links; it is offered again.
       setAdded(previous === null ? [] : previous.specs.filter(url => !linked(url)));
-    }).catch(cause => { if (live) setError(remoteErrorMessage(cause)); });
+    }).catch(cause => { if (live) setError(errorMessage(cause)); });
     return () => { live = false; };
   }, [data.workspaceId, directory, previous]);
   const known = sources ?? [];

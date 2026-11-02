@@ -15,7 +15,7 @@ import { useAgentAvailability } from '../agents/availability';
 import { useState } from 'react';
 import { History } from 'lucide-react';
 import Toast from '../Toast';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import '../css/memory.css';
 
 /** Replay review: Agent Review twice on a merged pull request at the head its maintainers first reviewed, with memory and without. Nothing is posted. */
@@ -30,7 +30,7 @@ export default function ReplayReviewButton({ workspaceId, repo, number }: { work
       setToast({ id: Date.now(), text: `Replaying #${number} at ${started.head.slice(0, 7)} · 2 reviews · compare them in Memory` });
     }
     catch (cause) {
-      setToast({ id: Date.now(), text: remoteErrorMessage(cause) });
+      setToast({ id: Date.now(), text: errorMessage(cause) });
     }
     finally {
       setBusy(false);

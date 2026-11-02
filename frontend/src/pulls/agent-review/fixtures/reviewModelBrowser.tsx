@@ -20,6 +20,7 @@ import type { ModelProviderDto } from '../../../types';
 import ReviewActivity from '../ReviewActivity';
 import type { ReviewModelSelection } from '../contracts';
 import { runningReviewFixture } from './review';
+import { errorMessage } from '../../../errorMessage';
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const { host, root, dispose } = createFixtureRoot();
@@ -69,7 +70,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     assert(host.querySelector('[aria-label="Stop this turn"]') !== null, 'The original turn is still running');
     return [{ name }];
   } catch (cause) {
-    return [{ name, error: cause instanceof Error ? cause.message : String(cause) }];
+    return [{ name, error: errorMessage(cause) }];
   } finally {
     dispose();
   }

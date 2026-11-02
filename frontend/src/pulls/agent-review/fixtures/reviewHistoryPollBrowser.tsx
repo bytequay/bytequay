@@ -19,6 +19,7 @@ import type { AgentEventEnvelope } from '../../../agents/events';
 import { assert, settle, until } from '../../../fixtures/harness';
 import { useReviewActivity } from '../ReviewRunPanels';
 import { runningReviewFixture } from './review';
+import { errorMessage } from '../../../errorMessage';
 
 export async function run(): Promise<ScenarioResult[]> {
   const { root, dispose } = createFixtureRoot();
@@ -83,7 +84,7 @@ export async function run(): Promise<ScenarioResult[]> {
     assert(cursors.at(-1) === 3, 'The next poll must start after the new event');
     return [{ name: 'A running review reads its history once, then only the events after it' }];
   }
-  catch (error) { return [{ name: 'Review history poll', error: error instanceof Error ? error.message : String(error) }]; }
+  catch (error) { return [{ name: 'Review history poll', error: errorMessage(error) }]; }
   finally {
     window.setInterval = originalSetInterval;
     dispose();

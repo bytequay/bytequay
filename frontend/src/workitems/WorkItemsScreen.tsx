@@ -38,6 +38,7 @@ import { useUnmarkEpic } from '../workspaces/useUnmarkEpic';
 import { workspaceIssueTaskRoute, workspaceRoute } from '../workspaces/model';
 import WorkItemContextLinks from './WorkItemContextLinks';
 import { openGoalItem } from './open';
+import { errorMessage } from '../errorMessage';
 import '../css/issues.css';
 import '../css/epic-view.css';
 import './workitems.css';
@@ -78,7 +79,6 @@ const EVENTS: Record<string, [string, typeof Plus, string]> = {
   LINKED: ['Linked', Link2, ''],
   CONTEXT_UPDATED: ['Updated context links', Link2, ''],
 };
-const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 const selectedId = () => typeof window === 'undefined' ? null : new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('work');
 const remoteOf = (work: WorkItemDto) => work.links.find(link => link.kind === 'ISSUE' || link.kind === 'JIRA');
 const pullOf = (work: WorkItemDto) => work.links.filter(link => link.kind === 'PULL_REQUEST').at(-1);
@@ -140,13 +140,13 @@ export function LocalWorkItems({ workspace, zoomedItemId, headerAction }: { work
   const [paneOpen, setPaneOpen] = useState(true);
   const detailPane = useResizablePane(0, 360, 1600, 'start');
   const [publishing, setPublishing] = useState(false);
-  const { busy, error, setError, run } = useAsyncAction(errorText);
+  const { busy, error, setError, run } = useAsyncAction();
   const lend = useEpicLend(workspace.id);
   const [issueTitles, setIssueTitles] = useState<ReadonlyMap<string, string>>(new Map());
   const reload = useCallback(async () => setItems(await window.bridge.listUnifiedWorkItems(workspace.id, true)), [workspace.id]);
   useEffect(() => {
     let active = true;
-    const read = (): void => { void window.bridge.listUnifiedWorkItems(workspace.id, true).then(value => { if (active) { setItems(value); setLoaded(true); } }).catch(cause => { if (active) setError(errorText(cause)); }); };
+    const read = (): void => { void window.bridge.listUnifiedWorkItems(workspace.id, true).then(value => { if (active) { setItems(value); setLoaded(true); } }).catch(cause => { if (active) setError(errorMessage(cause)); }); };
     // An Epic's Work tab can change this work from a layer over the page.
     const changed = (event: Event) => { if ((event as CustomEvent<string>).detail === workspace.id) read(); };
     read();
@@ -351,7 +351,7 @@ function WorkItemForm({ workspaceId, item, epics = [], onClose, onSaved, headerA
   const [body, setBody] = useState(item?.acceptanceCriteria ?? '');
   const [kind, setKind] = useState<WorkItemKind>('DEVELOP');
   const [epic, setEpic] = useState('');
-  const { busy, error, run } = useAsyncAction(errorText);
+  const { busy, error, run } = useAsyncAction();
   const save = () => run(async () => {
     const value = item ? await goals.decideWork(item, { operationId: crypto.randomUUID(), expectedRevision: item.revision, action: 'EDIT', title: title.trim(), acceptanceCriteria: body, detail: '' })
       : await goals.createWork({ id, title: title.trim(), kind, acceptanceCriteria: body, completionRule: kind === 'DEVELOP' ? 'MERGED_DELIVERY' : 'ACCEPTED_RESULT',
@@ -396,7 +396,7 @@ function WorkItemDetail({ workspace, item, all, catalog, epic, publishing, onPub
 }) {
   const goals = useEpicGoals(workspace.id);
   const [editing, setEditing] = useState(false);
-  const { busy, error, setError, run } = useAsyncAction(errorText);
+  const { busy, error, setError, run } = useAsyncAction();
   const availability = useAgentAvailability(item.work.workspaceId);
   const work = item.work;
   const repository = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
@@ -429,7 +429,7 @@ function WorkItemDetail({ workspace, item, all, catalog, epic, publishing, onPub
         onWork={shown => { setWorkShown(shown); if (shown) onPublishing(false); }} /> : undefined}>
       {remote && <button className="pull-detail__icon-action" type="button" title={`Open ${remote.label}`} aria-label={`Open ${remote.label}`} onClick={() => openLink(remote)}>
         <ExternalLink size={15} aria-hidden="true" /></button>}
-      <button className="pull-detail__icon-action" type="button" title="Refresh" aria-label="Refresh" disabled={busy} onClick={() => { void onChanged().catch(cause => setError(errorText(cause))); }}>
+      <button className="pull-detail__icon-action" type="button" title="Refresh" aria-label="Refresh" disabled={busy} onClick={() => { void onChanged().catch(cause => setError(errorMessage(cause))); }}>
         <RefreshIcon /></button>
       {(open || work.isEpic) && <button className="work-items__header-action is-epic" type="button" aria-label={work.isEpic ? 'Unmark as Epic' : 'Mark as Epic'} aria-pressed={work.isEpic}
         title={!work.isEpic && work.epicId ? 'Remove this item from its Epic before marking it as an Epic.' : work.isEpic ? 'Unmark as Epic' : 'Mark as Epic'}
@@ -567,8 +567,8 @@ function PublishWorkItem({ workspace, item, onChanged, onClose }: { workspace: W
   const [types, setTypes] = useState<{ id: string; name: string }[]>([]);
   const [type, setType] = useState('');
   const [key, setKey] = useState('');
-  const { busy, error, setError, run } = useAsyncAction(errorText);
-  useEffect(() => { void window.bridge.listJiraConnections().then(setConnections).catch(cause => setError(errorText(cause))); }, [setError]);
+  const { busy, error, setError, run } = useAsyncAction();
+  useEffect(() => { void window.bridge.listJiraConnections().then(setConnections).catch(cause => setError(errorMessage(cause))); }, [setError]);
   const [connectionId, cloudId] = site.split('/');
   const pending = item.history.some(event => event.action === 'PUBLISH_STARTED' && !item.history.some(done => done.operationId === `${event.operationId}:settled`));
   const already = item.links.some(link => link.kind === source);
@@ -582,7 +582,7 @@ function PublishWorkItem({ workspace, item, onChanged, onClose }: { workspace: W
       else await window.bridge.publishWorkItem(workspace.id, item.id, destination);
       await onChanged(); onClose();
     }
-    catch (cause) { setError(errorText(cause)); await onChanged().catch(() => {}); }
+    catch (cause) { setError(errorMessage(cause)); await onChanged().catch(() => {}); }
   });
   const destinations = [['ISSUE', `${provider} issue`, `${workspace.monitoredOwner}/${workspace.monitoredRepo}`, 'issue'], ['JIRA', 'Jira ticket', 'A connected Jira site', 'jira']] as const;
   return <article className="pr-card work-items__publish" aria-label={`Push to ${provider} or Jira`}>

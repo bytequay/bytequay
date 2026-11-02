@@ -14,6 +14,7 @@
 import { CircleDot, GitCommitHorizontal, GitPullRequest, SquareCheck, type LucideIcon } from 'lucide-react';
 import type { RecentItemType, RecentReason, RecentRowDto } from '../types';
 import { JiraIcon } from '@bytequay/jira/renderer';
+import { errorMessage } from '../errorMessage';
 
 /** Fixed by the backend's retention sweep; the calendar greys everything older. */
 export const RETENTION_DAYS = 14;
@@ -190,19 +191,14 @@ export function mayLoad(reset: boolean, inFlight: boolean): boolean {
   return reset || !inFlight;
 }
 
-/**
- * Turns a failed stream fetch into something a person can act on. Electron
- * wraps every IPC rejection as "Error invoking remote method '<channel>': …",
- * which says nothing about what went wrong or what to do next.
- */
+/** Turns a failed stream fetch into something a person can act on. */
 export function streamErrorMessage(failure: unknown): string {
-  const raw = failure instanceof Error ? failure.message : String(failure);
-  const unwrapped = raw.replace(/^Error invoking remote method '[^']*':\s*/, '');
-  if (/fetch failed|ECONNREFUSED|ECONNRESET|socket hang up/i.test(unwrapped)) {
+  const message = errorMessage(failure);
+  if (/fetch failed|ECONNREFUSED|ECONNRESET|socket hang up/i.test(message)) {
     return 'The ByteQuay backend is not answering. Recent is stored on this Mac, '
       + 'so nothing is lost — the stream fills back in once the backend is running.';
   }
-  return unwrapped || 'Recent could not be loaded.';
+  return message || 'Recent could not be loaded.';
 }
 
 /** Splits an `owner/name` repository into its parts, or null when there isn't one. */

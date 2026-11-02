@@ -20,6 +20,7 @@ import { settingsRoute } from '../settings/routes';
 import type { WorkspaceDto } from '../types';
 import { LocalWorkItems } from '../workitems/WorkItemsScreen';
 import { useZoom, ZoomActions, ZoomScrim } from '../Zoom';
+import { errorMessage } from '../errorMessage';
 
 type Target = Extract<ZoomedReference, { kind: 'work' | 'task' }>;
 
@@ -31,7 +32,7 @@ export default function WorkspaceItemLayer({ target, onClose }: { target: Target
   useEffect(() => {
     let active = true;
     void window.bridge.getWorkspace(target.workspaceId).then(value => { if (active) setWorkspace(value); })
-      .catch(cause => { if (active) setError(cause instanceof Error ? cause.message : String(cause)); });
+      .catch(cause => { if (active) setError(errorMessage(cause)); });
     return () => { active = false; };
   }, [target.workspaceId]);
   const actions = <ZoomActions {...zoom} label={target.kind === 'work' ? 'work item' : 'task'} className={target.kind === 'task' ? 'agt-headbtn' : 'pull-detail__icon-action'} />;

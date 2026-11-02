@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { ipcRenderer } from 'electron';
-import { ipcFailure } from './remoteError';
+import { ipcFailure } from './errorMessage';
 
 export function subscribe<T>(channel: string, callback: (payload: T) => void): () => void {
   const receive = (_event: unknown, payload: T) => callback(payload);

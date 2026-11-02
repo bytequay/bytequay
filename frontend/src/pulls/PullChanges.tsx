@@ -49,7 +49,7 @@ import MarkdownBody, { type SuggestionBase } from './MarkdownBody';
 import MarkdownEditor from './MarkdownEditor';
 import { ReviewThread, threadCommentedLines, useViewer } from './PullOverview';
 import type { PullDetailUpdater } from './pullDetail';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
 
 export type CommitRange = { start: number; end: number } | null;
@@ -708,7 +708,7 @@ export function ReviewLineComposer({
       {review && <BetterWordsButton text={body} textareaRef={bodyRef} repository={review.repo}
         workspaceId={review.workspaceId}
         disabled={preview || submitting}
-        onError={failure => onError(failure === null ? null : remoteErrorMessage(failure))} />}
+        onError={failure => onError(failure === null ? null : errorMessage(failure))} />}
       <button type="button" disabled={submitting} onClick={onCancel}>Cancel</button>
       {askAgent && <button type="button" className={canReview ? '' : 'is-primary'}
         disabled={!body.trim() || submitting || Boolean(askAgent.disabledReason)}
@@ -868,7 +868,7 @@ function DiffFileCard({
       return value;
     }
     catch (error) {
-      setContentError(error instanceof Error ? error.message : String(error));
+      setContentError(errorMessage(error));
       return null;
     }
     finally {
@@ -934,7 +934,7 @@ function DiffFileCard({
       closeComposer();
     }
     catch (error) {
-      setReviewError(remoteErrorMessage(error));
+      setReviewError(errorMessage(error));
     }
     finally {
       submissionInFlight.current = false;
@@ -958,7 +958,7 @@ function DiffFileCard({
       requestAnimationFrame(() => gutter?.focus());
     }
     catch (error) {
-      setReviewError(remoteErrorMessage(error));
+      setReviewError(errorMessage(error));
     }
     finally {
       submissionInFlight.current = false;

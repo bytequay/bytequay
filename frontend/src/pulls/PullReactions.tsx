@@ -15,7 +15,7 @@ import { SmilePlus } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import { recordPullRequestAttentionAction } from '../home/useAttentionVisit';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import type { Bridge, PullReactionContent, PullReactionDto, PullReactionTarget } from '../types';
 import { usePullRequestBridge, usePullRequestWorkspace } from './PullRequestWorkspace';
 
@@ -146,7 +146,7 @@ export function useReactionAction(
         ? previousLocal
         : current);
       if (optimistic !== null) onChange?.(base, optimistic);
-      setError(`Could not update reaction. ${remoteErrorMessage(failure)}`);
+      setError(`Could not update reaction. ${errorMessage(failure)}`);
       return false;
     }
     finally {

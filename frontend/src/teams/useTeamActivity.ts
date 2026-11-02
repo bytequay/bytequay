@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import type { TeamActivityQuery, TeamActivitySnapshot } from './types';
 import { TEAMS_CHANGED } from './useTeams';
 
@@ -40,8 +40,8 @@ export function useTeamActivity(accountId: number | undefined, { circleId, membe
     }
     catch (failure) {
       // A refresh failure outlives a filter change but never an account change.
-      if (refresh && account.current === accountId) setRefreshError(remoteErrorMessage(failure));
-      else if (request === generation.current) setError(remoteErrorMessage(failure));
+      if (refresh && account.current === accountId) setRefreshError(errorMessage(failure));
+      else if (request === generation.current) setError(errorMessage(failure));
     }
     finally {
       if (refresh) { refreshInFlight.current = false; setRefreshing(false); }

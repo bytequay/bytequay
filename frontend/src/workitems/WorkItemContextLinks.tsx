@@ -19,9 +19,9 @@ import type { WorkItemDto, UnifiedWorkItem, WorkItemContextLink, WorkSource } fr
 import { GOALS_CHANGED } from './changes';
 import { zoomReference } from '../githubReference';
 import { useProviderName } from '../pulls/PullRequestWorkspace';
+import { errorMessage } from '../errorMessage';
 
 const SOURCE: Record<Exclude<WorkSource, 'ISSUE'>, string> = { LOCAL: 'Local', JIRA: 'Jira' };
-const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 export default function WorkItemContextLinks({ work, catalog, onChanged }: {
   work: WorkItemDto; catalog: UnifiedWorkItem[]; onChanged: () => Promise<void>;
@@ -35,14 +35,14 @@ export default function WorkItemContextLinks({ work, catalog, onChanged }: {
   const [available, setAvailable] = useState<UnifiedWorkItem[] | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const { busy, error, run } = useAsyncAction(errorText);
+  const { busy, error, run } = useAsyncAction();
   useEffect(() => {
     let active = true;
     setLinks(null); setReadError(null);
     if (work.contextLinks.length === 0) setLinks([]);
     else void window.bridge.listWorkItemContextLinks(work.workspaceId, work.id)
       .then(values => { if (active) setLinks(values); })
-      .catch(cause => { if (active) setReadError(errorText(cause)); });
+      .catch(cause => { if (active) setReadError(errorMessage(cause)); });
     return () => { active = false; };
   }, [work.workspaceId, work.id, work.revision, work.contextLinks.length, catalog, retry]);
   useEffect(() => {
@@ -51,7 +51,7 @@ export default function WorkItemContextLinks({ work, catalog, onChanged }: {
     setAvailable(null); setCatalogError(null);
     void window.bridge.listUnifiedWorkItems(work.workspaceId)
       .then(items => { if (active) setAvailable(items); })
-      .catch(cause => { if (active) setCatalogError(errorText(cause)); });
+      .catch(cause => { if (active) setCatalogError(errorMessage(cause)); });
     return () => { active = false; };
   }, [picking, work.workspaceId, work.revision, retry]);
 

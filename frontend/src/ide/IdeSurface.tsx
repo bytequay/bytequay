@@ -25,6 +25,7 @@ import type { GitHubCodeSnippetRequest, AgentTaskDto, HostingServerDto, InlineRe
 import type { IdeContext, IdeRequest, IdeUnsavedChanges } from './contracts';
 import { useHostingPresentation } from '../pulls/PullRequestWorkspace';
 import { useFocusBreakSurface } from '../focus/background';
+import { errorMessage } from '../errorMessage';
 
 export type IdeSurfaceProps = {
   host: CodeHostRef;
@@ -165,7 +166,7 @@ export default function IdeSurface(props: IdeSurfaceProps) {
     const stopRequest = window.ide.onRequest(request => {
       if (request.id !== idRef.current) return;
       void handleRequest(current.current, request, findingActionsRef.current).then(value => window.ide.reply({ requestId: request.requestId, value }), failure => {
-        window.ide.reply({ requestId: request.requestId, error: failure instanceof Error ? failure.message : String(failure) });
+        window.ide.reply({ requestId: request.requestId, error: errorMessage(failure) });
       });
     });
     const stopEvent = window.ide.onEvent(event => {

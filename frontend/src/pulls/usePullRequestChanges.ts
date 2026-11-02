@@ -16,7 +16,7 @@ import { usePullRequestBridge } from './PullRequestWorkspace';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DiffCommitDto, DiffFileDto, PullRequestDetailDto } from '../types';
 import type { CommitRange } from './PullChanges';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 
 const NO_COMMITS: DiffCommitDto[] = [];
 const DIFF_EVENTS = new Set(['committed', 'head_ref_force_pushed', 'base_ref_force_pushed', 'base_ref_changed']);
@@ -121,7 +121,7 @@ export function usePullRequestChanges(
       : bridge.refreshPrDiffFiles(repo, number, selected.baseSha, selected.headSha);
     request
       .then(files => apply(files))
-      .catch((failure: unknown) => apply([], remoteErrorMessage(failure)));
+      .catch((failure: unknown) => apply([], errorMessage(failure)));
     return () => { live = false; };
   }, [active, bridge, key, number, repo, result, scope, selected]);
 

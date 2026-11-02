@@ -18,6 +18,7 @@ import { parseAgentSkillInput } from '../../agents/contracts';
 import type { AgentSkillDto, AgentSkillInput, AgentSkillScope } from '../../types';
 import SkillsPage from '../SkillsPage';
 import { assert, changeInput, settle, element } from '../../fixtures/harness';
+import { errorMessage } from '../../errorMessage';
 
 
 
@@ -112,7 +113,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   ) => {
     const view = fixture(initial);
     try { await settle(); await test(view); results.push({ name }); }
-    catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
+    catch (error) { results.push({ name, error: errorMessage(error) }); }
     finally { view.dispose(); }
   };
 

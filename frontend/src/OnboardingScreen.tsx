@@ -14,6 +14,7 @@
 import CopyLinkButton from '@bytequay/ui/CopyLinkButton';
 import { useEffect, useState } from 'react';
 import LogoLoading from './LogoLoading';
+import { errorMessage } from './errorMessage';
 
 type Props = {
   /** Called once auth successfully stores a token, so App
@@ -76,7 +77,7 @@ export default function OnboardingScreen({ onSaved, embedded = false }: Props) {
     }
     catch (e) {
       setGhState('error');
-      setGhError(e instanceof Error ? e.message : String(e));
+      setGhError(errorMessage(e));
     }
   };
 
@@ -96,7 +97,7 @@ export default function OnboardingScreen({ onSaved, embedded = false }: Props) {
       onSaved();
     }
     catch (err) {
-      setPatError(err instanceof Error ? err.message : String(err));
+      setPatError(errorMessage(err));
       setPatState('error');
     }
   };

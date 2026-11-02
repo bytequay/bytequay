@@ -14,7 +14,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { requestTaskFix } from '../../agents/taskFix';
 import { recordAttentionAction, recordPullRequestAttentionAction, type AttentionAction } from '../../home/useAttentionVisit';
-import { remoteErrorMessage } from '../../remoteError';
+import { errorMessage } from '../../errorMessage';
 import { findingFixPrompt } from '../local-review/conversation';
 import { routedPullRequestBridge } from '../PullRequestWorkspace';
 import { findingReviewText } from './model';
@@ -57,7 +57,7 @@ export function useFindingActions({
       await action();
     }
     catch (failure) {
-      setError(remoteErrorMessage(failure));
+      setError(errorMessage(failure));
       if (propagate) throw failure;
     }
     finally {

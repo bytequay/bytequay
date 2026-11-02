@@ -27,6 +27,7 @@ import { CHECKING_ACCEPTANCE, UNCONFIRMED_REQUEST } from '../contracts';
 import type { AgentEventEnvelope } from '../events';
 import { agentTaskReducer, initialAgentTaskState, type AgentTaskState } from '../model';
 import { agentTurn, createPreviewBridge, previewTask, TASK_BODY_NOOPS } from './previewBridge';
+import { errorMessage } from '../../errorMessage';
 export { run as sendHistoryPerformance } from './sendHistoryPerformanceBrowser';
 
 const TASK_ID = 'composer-performance';
@@ -155,7 +156,7 @@ export async function run(verifyCaching = true) {
   const results = [];
   for (const surface of ['task', 'review'] as const) {
     try { results.push(await exercise(surface, verifyCaching)); }
-    catch (error) { results.push({ name: surface, error: error instanceof Error ? error.message : String(error) }); }
+    catch (error) { results.push({ name: surface, error: errorMessage(error) }); }
   }
   return results;
 }
@@ -302,7 +303,7 @@ export async function sendFailures(): Promise<{ name: string; error?: string }[]
       }
       results.push({ name: kind });
     }
-    catch (error) { results.push({ name: kind, error: error instanceof Error ? error.message : String(error) }); }
+    catch (error) { results.push({ name: kind, error: errorMessage(error) }); }
     finally { release(); dispose(); }
   }
   return results;
@@ -408,7 +409,7 @@ export async function firstMessageFailures(): Promise<{ name: string; error?: st
       }
       results.push({ name });
     }
-    catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
+    catch (error) { results.push({ name, error: errorMessage(error) }); }
     finally { release(); dispose(); }
   }
   return results;
@@ -452,7 +453,7 @@ export async function sendAfterNavigation(): Promise<{ name: string; error?: str
       assert(host.querySelector('.agt-notice') === null, 'The previous mount must not apply late error feedback');
       results.push({ name: failure });
     }
-    catch (error) { results.push({ name: failure, error: error instanceof Error ? error.message : String(error) }); }
+    catch (error) { results.push({ name: failure, error: errorMessage(error) }); }
     finally { release(); dispose(); }
   }
   return results;

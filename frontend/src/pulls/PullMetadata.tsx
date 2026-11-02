@@ -17,7 +17,7 @@ import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import Avatar from '../Avatar';
 import { pullRequestAttentionKey } from '../home/attention';
 import { recordAttentionAction } from '../home/useAttentionVisit';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import type { PullRequestDetailDto, RepoLabelDto, RepoUserDto } from '../types';
 import { displayActor } from './model';
 import type { PullDetailUpdater } from './pullDetail';
@@ -92,7 +92,7 @@ export default function PullMetadata({ detail, contributorsWorkspaceId, onDetail
     void request
       .catch(failure => {
         if (requestId === optionsRequest.current && requestKey === optionsKey.current) {
-          setError(remoteErrorMessage(failure));
+          setError(errorMessage(failure));
         }
       })
       .finally(() => {
@@ -122,7 +122,7 @@ export default function PullMetadata({ detail, contributorsWorkspaceId, onDetail
     catch (failure) {
       onDetailUpdate(visibleDetail.repo, visibleDetail.number, rollback);
       setOptimisticDetail(null);
-      setError(remoteErrorMessage(failure));
+      setError(errorMessage(failure));
     }
     finally {
       updatingRef.current = false;
@@ -164,7 +164,7 @@ export default function PullMetadata({ detail, contributorsWorkspaceId, onDetail
       if (optionsKey.current === key) setOpen(null);
     }
     catch (failure) {
-      if (optionsKey.current === key) setError(remoteErrorMessage(failure));
+      if (optionsKey.current === key) setError(errorMessage(failure));
     }
     finally {
       if (optionsKey.current === key) setOptimisticDetail(null);

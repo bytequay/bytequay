@@ -15,7 +15,7 @@ import { useCallback, useEffect, useState } from 'react';
 import RepoAvatar from '../RepoAvatar';
 import ErrorDetails from '../ErrorDetails';
 import { Clickable } from '../cards/Card';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import type { HostingConnectionDto, HostingRepositoryDto, WorkspaceDto } from '../types';
 import GitLabAccounts from './GitLabAccounts';
 
@@ -37,7 +37,7 @@ export default function GitLabWorkspaceSetup({ initialWorkspace, onAdded }: { in
       setLoading(true); setError(null);
       void window.bridge.searchHostingRepositories(account.account.id, query.trim(), 30)
         .then(rows => { if (!cancelled) setRepositories(rows); })
-        .catch(failure => { if (!cancelled) { setRepositories([]); setError(remoteErrorMessage(failure)); } })
+        .catch(failure => { if (!cancelled) { setRepositories([]); setError(errorMessage(failure)); } })
         .finally(() => { if (!cancelled) setLoading(false); });
     }, 250);
     return () => { cancelled = true; window.clearTimeout(timer); };
@@ -48,7 +48,7 @@ export default function GitLabWorkspaceSetup({ initialWorkspace, onAdded }: { in
     if (repository.defaultBranch === null) { setError('This project has no default branch yet.'); return; }
     setAdding(repository.id); setError(null);
     try { onAdded(await window.bridge.createHostingWorkspace(account.account.id, repository.id)); }
-    catch (failure) { setError(remoteErrorMessage(failure)); }
+    catch (failure) { setError(errorMessage(failure)); }
     finally { setAdding(null); }
   };
 

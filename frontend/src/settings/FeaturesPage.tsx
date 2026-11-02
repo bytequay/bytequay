@@ -16,7 +16,7 @@ import type { GoogleStatus } from '@bytequay/google/contracts';
 import { useAgentAvailability } from '../agents/availability';
 import type { VoiceLanguages, VoiceSettings, VoiceState, VoiceSupport, VoiceToggle } from '../dictation/contracts';
 import { SETUP_CHANGED } from '../onboarding/setup';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import type { AgendaDay, AgendaScheduleDto, AssistantPermissionsDto, QuietHoursDto, SetupPreferencesDto } from '../types';
 import { SelectPill, SettingsCard, SettingsRow, TimePill, Toggle } from './primitives';
 import { settingsRoute } from './routes';
@@ -41,7 +41,7 @@ export function inQuietHours(minute: number, quiet: QuietHoursDto | null): boole
 
 function useFeatureError() {
   const [error, setError] = useState<string | null>(null);
-  const fail = useCallback((failure: unknown) => setError(remoteErrorMessage(failure)), []);
+  const fail = useCallback((failure: unknown) => setError(errorMessage(failure)), []);
   return { error, fail, clear: () => setError(null) };
 }
 
@@ -303,7 +303,7 @@ function VoiceFeature() {
     setTranslating(true);
     clear();
     // Closing Apple's window is the user's answer, not a failure.
-    window.bridge.downloadVoiceTranslation().catch(failure => { if (!remoteErrorMessage(failure).includes('cancelled')) fail(failure); }).finally(() => {
+    window.bridge.downloadVoiceTranslation().catch(failure => { if (!errorMessage(failure).includes('cancelled')) fail(failure); }).finally(() => {
       setTranslating(false);
       check();
     });

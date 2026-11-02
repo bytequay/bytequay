@@ -13,7 +13,7 @@
  */
 import { useEffect, useState } from 'react';
 import { MetadataPicker } from '../pulls/PullMetadata';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import type { RepositoryMetadataDto } from '../types';
 import type { TeamCircle, TeamMemberInput } from './types';
@@ -35,7 +35,7 @@ export default function TeamPeoplePicker({ accountId, circle, circles, busy, onA
   useEffect(() => {
     let current = true;
     Promise.resolve().then(() => window.bridge.fetchTeamContributors(accountId)).then(value => { if (current) setContributors(value); })
-      .catch((failure: unknown) => { if (current) setError(remoteErrorMessage(failure)); })
+      .catch((failure: unknown) => { if (current) setError(errorMessage(failure)); })
       .finally(() => { if (current) setLoading(false); });
     return () => { current = false; };
   }, [accountId]);

@@ -27,6 +27,7 @@ import { useFindingActions } from '../useFindingActions';
 import { reviewDraftFixture, reviewFixture } from './review';
 import WorktreeChanges from '../../code-tests/WorktreeChanges';
 import type { WorktreeChangesDto } from '../../code-tests/contracts';
+import { errorMessage } from '../../../errorMessage';
 import '../../../css/base.css';
 import '../../../css/markdown-editor.css';
 import '../../../css/pulls.css';
@@ -53,7 +54,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   const install = (bridge: Partial<Bridge>) => Object.defineProperty(window, 'bridge', { configurable: true, value: bridge });
   const scenario = async (name: string, run: () => Promise<void>) => {
     try { await run(); results.push({ name }); }
-    catch (cause) { results.push({ name, error: cause instanceof Error ? cause.message : String(cause) }); }
+    catch (cause) { results.push({ name, error: errorMessage(cause) }); }
     finally { flushSync(() => root.render(null)); }
   };
   try {

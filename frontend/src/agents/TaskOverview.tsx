@@ -18,6 +18,7 @@ import { taskArchived } from './taskStatus';
 import { TaskWindows, type TaskRepository } from './TaskCard';
 import type { AgentBridgePort } from './model';
 import type { AgentTaskDto, ModelProviderDto } from '../types';
+import { errorMessage } from '../errorMessage';
 
 interface TaskOverviewProps {
   /** Null reads every workspace's tasks, running ones first, each window naming its repository. */
@@ -59,7 +60,7 @@ export default function TaskOverview({
         setNotice(null);
       })
       .catch((failure: unknown) => {
-        if (request === requestRef.current) setNotice(failure instanceof Error ? failure.message : String(failure));
+        if (request === requestRef.current) setNotice(errorMessage(failure));
       });
   }, [live, workspaceId]);
   useEffect(() => {
@@ -80,7 +81,7 @@ export default function TaskOverview({
     setClosing(null);
     void live().completeAgentTask(task.id, task.workspaceId)
       .then(() => refresh())
-      .catch((failure: unknown) => setNotice(failure instanceof Error ? failure.message : String(failure)));
+      .catch((failure: unknown) => setNotice(errorMessage(failure)));
   }, [live, refresh]);
   return (
     <>

@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { pollVisible } from '../ide/pollVisible';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import type { AssistantSummaryDto, AssistantViewDto } from '../types';
 
 /** How often the open panel looks again while a reply is being written. */
@@ -85,7 +85,7 @@ export function useAssistant(open: boolean, conversation: string): Assistant {
       return true;
     }
     catch (failure) {
-      setError({ conversation, message: remoteErrorMessage(failure) });
+      setError({ conversation, message: errorMessage(failure) });
       return false;
     }
     finally {

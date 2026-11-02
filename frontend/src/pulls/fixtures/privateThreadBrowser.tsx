@@ -26,6 +26,7 @@ import type { Bridge } from '../../types';
 import type { FixableComment } from '../../agents/taskFix';
 import { element as fixtureElement, assert, settle } from '../../fixtures/harness';
 import { remotePullRequest } from '../PullsScreen';
+import { errorMessage } from '../../errorMessage';
 
 const AT = '2026-09-27T00:00:00Z';
 const ROOT = 61;
@@ -108,7 +109,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       results.push({ name });
     }
     catch (failure) {
-      results.push({ name, error: failure instanceof Error ? failure.message : String(failure) });
+      results.push({ name, error: errorMessage(failure) });
     }
   };
   const chip = (): HTMLButtonElement | null => host.querySelector<HTMLButtonElement>('.pr-private-chip');

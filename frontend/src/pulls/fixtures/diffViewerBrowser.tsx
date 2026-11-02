@@ -17,6 +17,7 @@ import { assert, settle, until } from '../../fixtures/harness';
 import type { DiffFileDto } from '../../types';
 import { DiffViewer, type AgentReviewProjection } from '../PullChanges';
 import { reviewFixture } from '../agent-review/fixtures/review';
+import { errorMessage } from '../../errorMessage';
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
   return [...await runLayout(), ...await runFindingNavigation()];
@@ -112,7 +113,7 @@ async function runLayout(): Promise<{ name: string; error?: string }[]> {
     assert(host.querySelector('.pull-diff-code') === null, 'All patches remain collapsible after expansion');
     return [{ name }];
   }
-  catch (error) { return [{ name, error: error instanceof Error ? error.message : String(error) }]; }
+  catch (error) { return [{ name, error: errorMessage(error) }]; }
   finally { flushSync(() => root.unmount()); host.remove(); header.remove(); }
 }
 
@@ -172,6 +173,6 @@ async function runFindingNavigation(): Promise<{ name: string; error?: string }[
       'Navigation must still reach the card if its file leaves the diff');
     return [{ name }];
   }
-  catch (error) { return [{ name, error: error instanceof Error ? error.message : String(error) }]; }
+  catch (error) { return [{ name, error: errorMessage(error) }]; }
   finally { flushSync(() => root.unmount()); host.remove(); }
 }

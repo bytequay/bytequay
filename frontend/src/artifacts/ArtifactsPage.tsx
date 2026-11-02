@@ -22,7 +22,7 @@ import type { AgentHistoryPageDto } from '../types';
 import { projectTranscript, withApprovalAuthority } from '../agents/transcript';
 import { ago } from '@bytequay/ui/relativeTime';
 import { useNoticeSource } from '../notices/useNoticeSource';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import { useNow } from '../useNow';
 import { useResizablePane } from '../useResizablePane';
 import { LayerCovered } from '../Zoom';
@@ -76,14 +76,14 @@ function ConversationList({ workspaceId, onOpen }: { workspaceId: string; onOpen
     if (!live.current) return;
     setRows(items);
     setError(null);
-  }, failure => { if (live.current) setError(remoteErrorMessage(failure)); }), [live, workspaceId]);
+  }, failure => { if (live.current) setError(errorMessage(failure)); }), [live, workspaceId]);
   useEffect(() => { void refresh(); }, [refresh]);
   usePoll(refresh, rows?.some(row => row.artifact.working) ?? false, LIST_POLL_MS);
 
   const start = (text: string) => {
     setStartError(null);
     return window.bridge.startArtifact(workspaceId, text).then(view => onOpen(view.artifact.id, view), failure => {
-      if (live.current) setStartError(remoteErrorMessage(failure));
+      if (live.current) setStartError(errorMessage(failure));
       throw failure;
     });
   };
@@ -176,7 +176,7 @@ function Conversation({ workspaceId, artifactId, initial, onBack }: {
         setLoadError(null);
       }
       catch (failure) {
-        if (live.current) setLoadError(remoteErrorMessage(failure));
+        if (live.current) setLoadError(errorMessage(failure));
       }
       finally {
         reading.current = null;
@@ -227,7 +227,7 @@ function Conversation({ workspaceId, artifactId, initial, onBack }: {
       const inFlight = reading.current;
       return inFlight === null ? refresh() : inFlight.promise.then(() => refresh());
     }, failure => {
-      if (live.current) setNotice(remoteErrorMessage(failure));
+      if (live.current) setNotice(errorMessage(failure));
       throw failure;
     });
   };
@@ -248,7 +248,7 @@ function Conversation({ workspaceId, artifactId, initial, onBack }: {
   const decide: ApprovalDecider = (approvalId, decision, answers) => {
     act(window.bridge.answerArtifactQuestion(workspaceId, artifactId, approvalId, decision !== 'DENY', answers ?? {})).catch(() => {});
   };
-  const stop = () => { window.bridge.stopArtifact(workspaceId, artifactId).catch(failure => { if (live.current) setNotice(remoteErrorMessage(failure)); }); };
+  const stop = () => { window.bridge.stopArtifact(workspaceId, artifactId).catch(failure => { if (live.current) setNotice(errorMessage(failure)); }); };
 
   const container = useRef<HTMLElement>(null);
   const { width, startResize } = useResizablePane(window.innerWidth < 1100 ? 340 : 420, 300, () => (container.current?.clientWidth ?? 1000) - 360);
@@ -433,7 +433,7 @@ function ArtifactFrame({ workspaceId, artifactId, pageId, pages }: { workspaceId
       }).catch(failure => {
         if (!live) return;
         sent.current = null;
-        setError(remoteErrorMessage(failure));
+        setError(errorMessage(failure));
       });
     };
     const layout = () => present();

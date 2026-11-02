@@ -22,7 +22,7 @@ import type { DiscussionBridgePort, TaskDiscussions } from '../agents/discussion
 import type { PullCommentTarget, PullRequestDto } from '../types';
 import ReviewComposer from './agent-review/ReviewComposer';
 import MarkdownBody from './MarkdownBody';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import LocalCard, { LocalCardMessage } from './local-review/LocalCard';
 import { AgentSetupNotice, useAgentAvailability } from '../agents/availability';
 import { ProviderAvatar } from '../agents/ProviderIcon';
@@ -205,7 +205,7 @@ function FixWithAgent({ fix, comment, disabledReason }: {
       setState('sent');
     }
     catch (cause) {
-      setError(remoteErrorMessage(cause));
+      setError(errorMessage(cause));
       setState('idle');
     }
   };
@@ -323,7 +323,7 @@ export function PrivateThreadForward({ threads, threadKey, author, avatarUrl, ti
       return true;
     }
     catch (cause) {
-      setError(remoteErrorMessage(cause));
+      setError(errorMessage(cause));
       return false;
     }
     finally {

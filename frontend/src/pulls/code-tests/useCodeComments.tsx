@@ -30,7 +30,7 @@ import {
   type ReviewThreads,
 } from '../PullChanges';
 import { ReviewThread } from '../PullOverview';
-import { remoteErrorMessage } from '../../remoteError';
+import { errorMessage } from '../../errorMessage';
 import { inlineReviewComment, NO_RANGE_SELECTION, rangeHeading, rangeSelectionReducer } from '../lineRangeSelection';
 import LocalReviewThreadCard, { localReviewMatchesRevision } from '../local-review/LocalReviewThreadCard';
 import type { LocalReviewThreads } from '../local-review/types';
@@ -261,7 +261,7 @@ export function useCodeComments(options: CodeCommentsOptions | undefined, contex
             setError(null);
             void options.onAskAgent({ comment: value, baseSha: null, code: lines.slice(active.start - 1, active.end).join('\n') })
               .then(close)
-              .catch(failure => setError(remoteErrorMessage(failure)))
+              .catch(failure => setError(errorMessage(failure)))
               .finally(() => setSending(false));
           },
         }}
@@ -281,7 +281,7 @@ export function useCodeComments(options: CodeCommentsOptions | undefined, contex
           setCommentKey(key);
           void submitInlineReviewComment(bridge, options.repo, options.number, value, key, options.onDetailChange)
             .then(close)
-            .catch(failure => setError(remoteErrorMessage(failure)))
+            .catch(failure => setError(errorMessage(failure)))
             .finally(() => setPosting(false));
         }} />
     );

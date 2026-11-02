@@ -23,6 +23,7 @@ import type { AgentHistoryPageDto, AgentStreamMessage, AgentTaskDto, Bridge } fr
 import AgentTaskScreen from '../AgentTaskScreen';
 import type { AgentEventEnvelope } from '../events';
 import { agentTurn, createPreviewBridge, previewTask } from './previewBridge';
+import { errorMessage } from '../../errorMessage';
 
 const TASK_ID = 'large-history';
 const AT = '2026-09-06T16:03:00Z';
@@ -178,7 +179,7 @@ export async function run(repeats = 1) {
   const results = [];
   for (let repeat = 0; repeat < repeats; repeat++) for (const surface of ['task', 'review'] as const) {
     try { results.push({ repeat, ...await exercise(surface) }); }
-    catch (error) { results.push({ repeat, name: surface, error: error instanceof Error ? error.message : String(error) }); }
+    catch (error) { results.push({ repeat, name: surface, error: errorMessage(error) }); }
   }
   return results;
 }

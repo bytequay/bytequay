@@ -18,6 +18,7 @@ import { NO_AGENT_CAPABILITIES } from '../../agents/capabilities';
 import { assert, changeInput, settle, element } from '../../fixtures/harness';
 import SettingsWindow from '../SettingsWindow';
 import { entryFor, type SettingsSection } from '../routes';
+import { errorMessage } from '../../errorMessage';
 import '../../css/base.css';
 
 const saved: ModelSettingsDto = {
@@ -359,7 +360,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
         completeSignIn: () => terminalEvent({ terminalId: signIns.at(-1) ?? '', exitCode: 0 }), finish: value => finish(value), fail: error => fail(error) });
       results.push({ name });
     }
-    catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
+    catch (error) { results.push({ name, error: errorMessage(error) }); }
     finally { disposeRoot(); }
   }
   return results;

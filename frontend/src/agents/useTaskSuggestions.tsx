@@ -13,7 +13,7 @@
  */
 import { useEffect, useId, useLayoutEffect, useRef, useState, type RefObject, type TextareaHTMLAttributes } from 'react';
 import { CircleDot, FileText, GitBranch, GitPullRequest, ListChecks } from 'lucide-react';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import type { ComposerSuggestionCommand, ComposerSuggestionDto } from '../types';
 import { referenceLabel } from './composerReference';
 
@@ -82,7 +82,7 @@ export function useTaskSuggestions({ draft, onDraftChange, workspaceId, inputRef
     const timer = window.setTimeout(() => {
       void window.bridge.getComposerSuggestions(workspaceId, command, query).then(
         items => { if (live) setLoaded({ key, items: items.slice(0, 10), error: null }); },
-        failure => { if (live) setLoaded({ key, items: [], error: remoteErrorMessage(failure) }); },
+        failure => { if (live) setLoaded({ key, items: [], error: errorMessage(failure) }); },
       );
     }, query === '' ? 0 : 180);
     return () => { live = false; window.clearTimeout(timer); };

@@ -149,7 +149,7 @@ function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, 
     getAssistantConversation: async (id: string) => views.get(id) ?? { id, model: null, running: false, waiting: [], items: [], rows: {} },
     sendAssistantMessage: async (...args: unknown[]) => {
       calls.sent.push(args);
-      if (failures-- > 0) throw new Error("Error invoking remote method 'assistant:send': Error: The backend is busy");
+      if (failures-- > 0) throw new Error("The backend is busy");
       const [id, text] = args as [string, string];
       const title = summaries.find(each => each.id === id)?.title ?? text;
       summaries.splice(0, summaries.length, { id, title, updatedAt: new Date().toISOString(), running: false }, ...summaries.filter(each => each.id !== id));
@@ -766,7 +766,7 @@ async function completesATaskFromItsCard(): Promise<void> {
   finally { view.dispose(); }
 
   const refused = mount(taskView('idle'), 0, [], [], () => taskView('idle'), () => {
-    throw new Error("Error invoking remote method 'agent:tasks:complete': Error: Run or remove every waiting queued message first");
+    throw new Error("Run or remove every waiting queued message first");
   });
   try {
     await settle();
@@ -808,7 +808,7 @@ async function createsADraftedIssueAsAnEpic(): Promise<void> {
     setLocalWorkItemEpic: async (...args: unknown[]) => { steps.push(['epic', ...args]); },
     publishWorkItem: async (...args: unknown[]) => {
       steps.push(['publish', ...args]);
-      if (publishFails-- > 0) throw new Error("Error invoking remote method 'work-items:publish': Error: GitHub's rate limit was reached; try again in a minute");
+      if (publishFails-- > 0) throw new Error("GitHub's rate limit was reached; try again in a minute");
       return { id: 'w-new', revision: 2, links: [{ kind: 'ISSUE', key: 'owner/repository#77' }] } as unknown as WorkItemDto;
     },
     recordAssistantDraft: async (_conversation: string, id: string) => { steps.push(['drafted', id]); created = true; },

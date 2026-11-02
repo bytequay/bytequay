@@ -23,6 +23,7 @@ import { useProviderName } from '../pulls/PullRequestWorkspace';
 import { useModalDialog } from '../useModalDialog';
 import { createLocalEpic, ticketEpicId } from './epics';
 import { notifyIssueDevelopmentChanged } from './issueDevelopment';
+import { errorMessage } from '../errorMessage';
 import '../css/confirm-dialog.css';
 import '../css/create-epic.css';
 
@@ -37,7 +38,6 @@ const MAX_MESSAGE = 8_000;
 // Closing the dialog by accident keeps what was said, until the app quits; creating the Epic or Start over ends it.
 const conversations = new Map<string, EpicDraftMessage[]>();
 
-const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 /**
  * Creates an Epic from Home: talked through with the Development model, which asks until it can draft one and then asks to create it,
@@ -73,7 +73,7 @@ export default function CreateEpicDialog({ workspaceId, marked, jiraConnected, o
       onCreated({ kind: 'local', itemId });
     }
     catch (cause) {
-      setError(errorText(cause));
+      setError(errorMessage(cause));
       setCreating(false);
     }
   };
@@ -101,7 +101,7 @@ export default function CreateEpicDialog({ workspaceId, marked, jiraConnected, o
       }
     }
     catch (cause) {
-      setError(errorText(cause));
+      setError(errorMessage(cause));
       setCreating(false);
     }
   };
@@ -182,7 +182,7 @@ function Talk({ workspaceId, busy, onCreate, onEdit }: {
     }
     catch (cause) {
       if (!alive.current) return;
-      setFailure(errorText(cause));
+      setFailure(errorMessage(cause));
       setWaiting(false);
     }
   };
@@ -289,7 +289,7 @@ function Picker({ workspaceId, issueProvider, source, marked, busy, onPick }: {
   useEffect(() => {
     let active = true;
     void window.bridge.listUnifiedWorkItems(workspaceId).then((value) => { if (active) setItems(value); })
-      .catch((cause) => { if (active) setFailure(errorText(cause)); });
+      .catch((cause) => { if (active) setFailure(errorMessage(cause)); });
     return () => { active = false; };
   }, [workspaceId]);
   const words = query.trim().toLowerCase();

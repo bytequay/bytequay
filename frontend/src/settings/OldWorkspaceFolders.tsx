@@ -15,6 +15,7 @@
 import { useEffect, useState } from 'react';
 import type { OldWorkspaceFolderDto } from '../types';
 import { SettingsCard, SettingsRow } from './primitives';
+import { errorMessage } from '../errorMessage';
 
 const UNITS = ['KB', 'MB', 'GB', 'TB'];
 
@@ -48,7 +49,7 @@ export function OldWorkspaceFolders() {
     let current = true;
     void window.bridge.listOldWorkspaceFolders()
       .then(value => { if (current) setFolders(value); })
-      .catch((failure: unknown) => { if (current) setError(failure instanceof Error ? failure.message : String(failure)); });
+      .catch((failure: unknown) => { if (current) setError(errorMessage(failure)); });
     return () => { current = false; };
   }, []);
 
@@ -57,7 +58,7 @@ export function OldWorkspaceFolders() {
     setError(null);
     void window.bridge.trashOldWorkspaceFolder(folder.id)
       .then(() => setFolders(list => list?.filter(entry => entry.id !== folder.id) ?? null))
-      .catch((failure: unknown) => setError(failure instanceof Error ? failure.message : String(failure)))
+      .catch((failure: unknown) => setError(errorMessage(failure)))
       .finally(() => setMoving(null));
   };
 

@@ -20,6 +20,7 @@ import SettingsWindow from '../SettingsWindow';
 import '../../css/base.css';
 import '../../css/settings-window.css';
 import { assert, changeInput, element } from '../../fixtures/harness';
+import { errorMessage } from '../../errorMessage';
 
 const settle = () => new Promise<void>(resolve => setTimeout(() => requestAnimationFrame(() => resolve()), 0));
 
@@ -161,7 +162,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       await test(view, reads);
       results.push({ name });
     }
-    catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
+    catch (error) { results.push({ name, error: errorMessage(error) }); }
     finally { view.dispose(); }
   };
 
@@ -232,7 +233,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(left === 1, `Back to app must leave settings, called ${left} times`);
       results.push({ name });
     }
-    catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
+    catch (error) { results.push({ name, error: errorMessage(error) }); }
     finally { view.dispose(); }
   })();
 

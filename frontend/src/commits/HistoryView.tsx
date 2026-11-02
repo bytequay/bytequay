@@ -28,6 +28,7 @@ import {
   toggledGroup,
   squashMessage,
 } from './model';
+import { errorMessage } from '../errorMessage';
 
 const COMMIT_RENDER_BATCH = 50;
 const COMMIT_LOAD_THRESHOLD = 240;
@@ -187,7 +188,7 @@ export default function HistoryView({
         setError(null);
       })
       .catch(failure => {
-        if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure));
+        if (!cancelled) setError(errorMessage(failure));
       })
       .finally(() => {
         if (!cancelled) setDiffLoading(false);

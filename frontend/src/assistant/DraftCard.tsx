@@ -15,7 +15,6 @@ import { useAsyncAction } from '../useAsyncAction';
 import { useState } from 'react';
 import { ArrowUpRight, LoaderCircle, Lock, TriangleAlert } from 'lucide-react';
 import { SourceIcon } from '../cards/Card';
-import { remoteErrorMessage } from '../remoteError';
 import type { AgendaTargetDto, AssistantItemDto } from '../types';
 
 /**
@@ -31,7 +30,7 @@ export default function DraftCard({ item, created, onCreated, onOpen }: {
 }): React.JSX.Element | null {
   const [title, setTitle] = useState(item.text);
   const [body, setBody] = useState(item.draft?.body ?? '');
-  const { busy, error, run } = useAsyncAction(remoteErrorMessage);
+  const { busy, error, run } = useAsyncAction();
   const [made, setMade] = useState(false);
   const draft = item.draft;
   if (draft === null || created) return null;

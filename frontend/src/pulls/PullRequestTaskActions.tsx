@@ -15,7 +15,7 @@ import { useAgentAvailability } from '../agents/availability';
 import { useEffect, useRef, useState } from 'react';
 import { Bot, LoaderCircle, RefreshCw } from 'lucide-react';
 import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../workspaces/model';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import { findConversationReview } from '../agents/agentConversations';
 import type { AgentReviewDto } from './agent-review/contracts';
 
@@ -69,7 +69,7 @@ export default function PullRequestTaskActions({ repo, number, authored, workspa
       if (current === generation.current) onNavigate(route);
     }
     catch (failure) {
-      if (current === generation.current) setError(remoteErrorMessage(failure));
+      if (current === generation.current) setError(errorMessage(failure));
     }
     finally {
       if (current === generation.current) {

@@ -21,6 +21,7 @@ import type { Bridge, WorkspaceDto } from '../../types';
 import { workspaceFixture } from '../../workspaces/fixtures/workspace';
 import { workspaceRoute } from '../../workspaces/model';
 import { settingsRoute } from '../routes';
+import { errorMessage } from '../../errorMessage';
 import '../../index.css';
 
 /** What the whole app is given in place of the desktop: the watched repositories, and the hand-over of tasks from the dashboard. */
@@ -110,7 +111,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   const results: { name: string; error?: string }[] = [];
   const step = async (name: string, body: () => Promise<void>) => {
     try { await body(); results.push({ name }); }
-    catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
+    catch (error) { results.push({ name, error: errorMessage(error) }); }
   };
   try {
     await step('Settings offers Open Lab without requiring a sidebar shortcut or an address', async () => {

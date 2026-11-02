@@ -25,6 +25,7 @@ import type { AgendaScheduleDto, AppPreferencesDto, AppThemeDto, AssistantPermis
 import AgentSetup from './AgentSetup';
 import FeaturePreview from './FeaturePreview';
 import { SETUP_CHANGED, SETUP_STEPS } from './setup';
+import { errorMessage } from '../errorMessage';
 import '../css/settings-window.css';
 import './setup.css';
 
@@ -51,7 +52,7 @@ export default function SetupFlow({ initial, connected, revisit = false, onSaved
   const working = useRef(false);
   const modelRequest = useRef(0);
   const heading = useRef<HTMLHeadingElement>(null);
-  const report = useCallback((failure: unknown) => setError(failure instanceof Error ? failure.message : String(failure)), []);
+  const report = useCallback((failure: unknown) => setError(errorMessage(failure)), []);
   const receiveModels = useCallback((value: ModelSettingsDto) => {
     setModels(value);
     window.dispatchEvent(new Event('bytequay:models-changed'));

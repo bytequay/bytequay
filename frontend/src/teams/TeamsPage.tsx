@@ -17,7 +17,7 @@ import Avatar from '../Avatar';
 import { ConfirmDialog } from '../ConfirmDialog';
 import Toast from '../Toast';
 import { providerName, PullRequestWorkspaceProvider } from '../pulls/PullRequestWorkspace';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import { ago } from '@bytequay/ui/relativeTime';
 import { ACTIVITY_TYPES, METRICS, membersOf, people, type ActivityType, type Metric } from './activity';
@@ -208,7 +208,7 @@ export default function TeamsPage() {
       return owner === currentAccount.current ? result : null;
     }
     catch (failure) {
-      if (owner === currentAccount.current) failed(remoteErrorMessage(failure));
+      if (owner === currentAccount.current) failed(errorMessage(failure));
       return null;
     }
     finally { setBusy(false); }
@@ -217,7 +217,7 @@ export default function TeamsPage() {
   function saveCircle(value: TeamCreateInput) {
     let input: TeamCreateInput;
     try { input = parseTeamCreateInput(value); }
-    catch (failure) { setError(remoteErrorMessage(failure)); return; }
+    catch (failure) { setError(errorMessage(failure)); return; }
     const existing = editing?.circle ?? null;
     const before = circles;
     void mutate(id => existing ? window.bridge.updateTeam(id, existing.id, input) : window.bridge.createTeam(id, input), setError).then(result => {

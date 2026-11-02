@@ -23,7 +23,7 @@ import { IconButton } from '../cards/Card';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { pollVisible } from '../ide/pollVisible';
 import { APPROVAL_NOTICE, NOTICE_ACTIONS, approvalTimeLeft, noticeLabel, type AppNotice } from '../notices/contracts';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import { laneLabel } from '../settings/model';
 import type { AgentEventEnvelope } from '../agents/events';
 import type { AgendaTargetDto, AgentPendingApprovalDto } from '../types';
@@ -88,7 +88,7 @@ export function StopButton({ turnId, label = 'Stop…' }: { turnId: string; labe
     setState('stopping');
     setError(null);
     window.bridge.cancelAgentTurn(turnId).then(() => setState('stopped'))
-      .catch((cause: unknown) => { setState('idle'); setError(remoteErrorMessage(cause)); }).finally(() => setAsking(false));
+      .catch((cause: unknown) => { setState('idle'); setError(errorMessage(cause)); }).finally(() => setAsking(false));
   };
   return <>
     <button type="button" className="assistant-button" disabled={state === 'stopping'} title={error ?? undefined} onClick={() => setAsking(true)}>{label}</button>
@@ -136,7 +136,7 @@ export function ApprovalCard({ notice, focused, conversation, onAnswered, onOpen
       : window.bridge.resolveAgentReviewApproval(reviewId, id, decision, answers);
     // The answer stands whether or not its receipt is kept, so a lost receipt never brings the card back.
     void resolved.then(() => window.bridge.recordAssistantAnswer(conversation, id).catch((): void => undefined)).then(onAnswered)
-      .catch((cause: unknown) => setError(remoteErrorMessage(cause)));
+      .catch((cause: unknown) => setError(errorMessage(cause)));
   };
   const question = notice.kind === 'QUESTION';
   const outside = approval !== undefined && !approval.sandboxed;

@@ -18,6 +18,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
+import { errorMessage } from './errorMessage';
 
 declare const __BYTEQUAY_JIRA_AUTH_URL__: string;
 
@@ -175,7 +176,7 @@ export function spawnBackend(): void {
       try {
         backendUrl = portUrl(line.slice(PORT_MESSAGE.length));
       } catch (error) {
-        failure = error instanceof Error ? error.message : String(error);
+        failure = errorMessage(error);
       }
     });
   }

@@ -20,7 +20,7 @@ import { Card, CardAge, Clickable, IconButton, Pill, SourceIcon } from '../cards
 import type { AttentionSource } from '../home/attention';
 import { clockTime } from '../home/today';
 import { commentExcerpt } from '../pulls/PrivateThread';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import type { AgendaTargetDto, AssistantItemDto, AssistantListStyle, AssistantRowDto } from '../types';
 import { dayLabel, refLabel, rowState, rowTitle, timelineDays } from './model';
 import type { PullAction } from './pullActions';
@@ -162,7 +162,7 @@ function ItemCard({ id, row, onOpen, onComplete, onPull }: { id: string; row: As
   const act = (action: CardAction) => {
     setBusy(action.text);
     setRefusal(null);
-    void action.run().catch((cause: unknown) => setRefusal(remoteErrorMessage(cause))).finally(() => setBusy(null));
+    void action.run().catch((cause: unknown) => setRefusal(errorMessage(cause))).finally(() => setBusy(null));
   };
   return (
     <Card compact className="assistant-item-card" label={label(row)} title={rowTitle(row)} onOpen={() => onOpen(row.target)}>

@@ -24,6 +24,7 @@ import { handledEntry, issueAttentionItem, loadHandled, saveHandled, visibleAtte
 import { refreshSnoozedItem } from '../../home/useSnoozedAttention';
 import { LayerCovered } from '../../Zoom';
 import { loadPinned } from '../../home/pinned';
+import { errorMessage } from '../../errorMessage';
 
 type Issue = RepositoryIssueSnapshotDto['issues'][number];
 
@@ -349,7 +350,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       await scenario();
       results.push({ name });
     }
-    catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
+    catch (error) { results.push({ name, error: errorMessage(error) }); }
   }
   return results;
 }

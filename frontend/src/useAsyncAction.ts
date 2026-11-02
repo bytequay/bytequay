@@ -12,9 +12,10 @@
  * limitations under the License.
  */
 import { useState } from 'react';
+import { errorMessage } from './errorMessage';
 
 /** Shares pending/error presentation while each action keeps its own validation and follow-up work. */
-export function useAsyncAction(message = (failure: unknown): string => failure instanceof Error ? failure.message : String(failure)) {
+export function useAsyncAction(message = errorMessage) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const run = async (action: () => Promise<unknown>): Promise<void> => {

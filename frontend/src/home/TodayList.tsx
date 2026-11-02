@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { CardAge, Clickable, IconButton } from '../cards/Card';
 import { zoomReference } from '../githubReference';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import type { AgendaAction, AgendaDto, AgendaItemDto, AgendaTargetDto } from '../types';
 import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../workspaces/model';
 import type { AttentionItem } from './attention';
@@ -223,7 +223,7 @@ function TodayRow({ item, reference, chips, open, onToggle, onMark, onStart, onO
     if (onStart === undefined) return;
     setStarting(true);
     setRefusal(null);
-    void onStart(item.ref).catch((cause: unknown) => setRefusal(remoteErrorMessage(cause))).finally(() => setStarting(false));
+    void onStart(item.ref).catch((cause: unknown) => setRefusal(errorMessage(cause))).finally(() => setStarting(false));
   };
   const act = (run: () => void) => (event: React.MouseEvent) => { event.stopPropagation(); run(); };
   return (

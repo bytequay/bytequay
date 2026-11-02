@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { errorMessage } from '../errorMessage';
 
 /**
  * Renderer-side helpers shared by the *Browser.tsx fixtures.
@@ -95,7 +96,7 @@ export async function runScenarios(
   const results: { name: string; error?: string }[] = [];
   for (const [name, run] of scenarios) {
     try { await run(); results.push({ name }); }
-    catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
+    catch (error) { results.push({ name, error: errorMessage(error) }); }
     const cleanup = afterEach?.();
     if (cleanup) await cleanup;
   }

@@ -21,6 +21,7 @@ import { runTaskInlineCommentScenarios } from './taskInlineCommentBrowser';
 import { runArchivedCodeScenarios } from '../code-tests/fixtures/archivedCodeBrowser';
 import { resolveFinding } from '../agent-review/fixtures/resolveFindingBrowser';
 import { textButton, element as fixtureElement, assert, changeInput, settle } from '../../fixtures/harness';
+import { errorMessage } from '../../errorMessage';
 
 export const centre = (element: Element) => {
   const rect = element.getBoundingClientRect();
@@ -378,7 +379,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     const results: { name: string; error?: string }[] = [];
     for (const [name, scenario] of cases) {
       try { await scenario(); assert(githubWrites === 0, 'Private comment action wrote to GitHub'); results.push({ name }); }
-      catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
+      catch (error) { results.push({ name, error: errorMessage(error) }); }
     }
     return [...results, ...await runTaskInlineCommentScenarios(), ...await runArchivedCodeScenarios()];
   }

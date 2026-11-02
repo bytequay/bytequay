@@ -40,6 +40,7 @@ import PullRequestsView from './PullRequestsView';
 import SelectRangeDialog from './SelectRangeDialog';
 import TasksView from './TasksView';
 import { backportRoute, chosenRoute, lineRepos, remoteBranchCorrection, selectedSpan, shortSha, toggledGroup, type BackportHop, type LineRepo } from './model';
+import { errorMessage } from '../errorMessage';
 
 type Screen = 'commits' | 'flow' | 'tasks';
 type CommitsView = 'history' | 'changes';
@@ -118,7 +119,7 @@ export default function CommitsTab(props: CommitsTabProps) {
     setError(null);
     window.bridge.getWorkspaceSettings(props.workspace.id)
       .then(value => { if (!cancelled) setSettings(value); })
-      .catch(failure => { if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure)); });
+      .catch(failure => { if (!cancelled) setError(errorMessage(failure)); });
     return () => { cancelled = true; };
   }, [props.workspace.id, retry]);
 
@@ -211,7 +212,7 @@ export function CommitsBrowser({ workspace, settings, repos, initialRepo, initia
   const refreshOverview = useCallback(() => {
     window.bridge.gitOverview(workspace.id)
       .then(setOverview)
-      .catch(failure => setError(failure instanceof Error ? failure.message : String(failure)));
+      .catch(failure => setError(errorMessage(failure)));
   }, [workspace.id]);
 
   useEffect(() => { refreshOverview(); }, [refreshOverview]);
@@ -317,7 +318,7 @@ export function CommitsBrowser({ workspace, settings, repos, initialRepo, initia
         refreshOverview();
       }
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      setError(errorMessage(failure));
     } finally {
       setSyncing(false);
     }
@@ -338,7 +339,7 @@ export function CommitsBrowser({ workspace, settings, repos, initialRepo, initia
         // Never leave the previous ref's commits on screen: a reader would
         // take them for the selected source's history.
         setCommits([]);
-        setError(failure instanceof Error ? failure.message : String(failure));
+        setError(errorMessage(failure));
         // A browsed remote ref usually fails because it was never fetched;
         // sync once for it (a fetch), which bumps logVersion and retries.
         const attempt = `${historySource}:${historyRemote ?? ''}:${historyBranch}`;
@@ -373,7 +374,7 @@ export function CommitsBrowser({ workspace, settings, repos, initialRepo, initia
       setPreview(next);
       setScreen('flow');
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      setError(errorMessage(failure));
     } finally {
       setPreviewBusy(false);
     }
@@ -411,7 +412,7 @@ export function CommitsBrowser({ workspace, settings, repos, initialRepo, initia
       setBackport(null);
       setScreen('tasks');
     } catch (failure) {
-      setBackportError(failure instanceof Error ? failure.message : String(failure));
+      setBackportError(errorMessage(failure));
     } finally {
       setBackportBusy(false);
     }
@@ -436,7 +437,7 @@ export function CommitsBrowser({ workspace, settings, repos, initialRepo, initia
       }));
       setScreen('flow');
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      setError(errorMessage(failure));
     } finally {
       setPreviewBusy(false);
     }

@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import ErrorDetails from '../ErrorDetails';
 import { providerName } from '../pulls/PullRequestWorkspace';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import type { GitLabCliStatusDto, HostingConnectionDto, HostingPermissionsDto, HostingServerDto } from '../types';
 import '../css/settings-window.css';
 import './hosting.css';
@@ -33,7 +33,7 @@ export function GitLabConnectionForm({ server, onConnecting, onConnected }: {
   const checkCli = useCallback(async () => {
     setChecking(true); setError(null);
     try { setCliStatus(await window.bridge.getGitLabCliStatus()); }
-    catch (failure) { setCliStatus(null); setError(remoteErrorMessage(failure)); }
+    catch (failure) { setCliStatus(null); setError(errorMessage(failure)); }
     finally { setChecking(false); }
   }, []);
   useEffect(() => { void checkCli(); }, [checkCli]);
@@ -53,7 +53,7 @@ export function GitLabConnectionForm({ server, onConnecting, onConnected }: {
       onConnecting?.(target);
       const account = await (cli ? window.bridge.connectHostingCliAccount(target) : window.bridge.connectHostingAccount({ ...target, token: token.trim() }));
       setToken(''); onConnected(account);
-    } catch (failure) { setError(remoteErrorMessage(failure)); }
+    } catch (failure) { setError(errorMessage(failure)); }
     finally { setBusy(null); }
   };
   // The server's release is unknown until it is connected; GitLab moved the page in 16.7 without a redirect.
@@ -67,7 +67,7 @@ export function GitLabConnectionForm({ server, onConnecting, onConnected }: {
       target.pathname = `${target.pathname.replace(/\/+$/, '')}${page}`;
       target.search = new URLSearchParams({ name: 'ByteQuay', scopes: 'api' }).toString();
       await window.bridge.openExternal(target.href);
-    } catch (failure) { setError(remoteErrorMessage(failure)); }
+    } catch (failure) { setError(errorMessage(failure)); }
   };
   return <form className="hosting-form" onSubmit={event => {
     event.preventDefault();
@@ -86,7 +86,7 @@ export function GitLabConnectionForm({ server, onConnecting, onConnected }: {
       {cliStatus !== null && !cliStatus.ready && !cliStatus.homebrewAvailable && <>
         <p>Install Homebrew first, then check again. You can also connect with a personal access token below.</p>
         <button type="button" className="setw-btn" disabled={busy !== null || checking} onClick={() => {
-          void window.bridge.openExternal('https://brew.sh').catch(failure => setError(remoteErrorMessage(failure)));
+          void window.bridge.openExternal('https://brew.sh').catch(failure => setError(errorMessage(failure)));
         }}>Open Homebrew setup</button>
       </>}
       <button type="button" className="setw-link" disabled={busy !== null || checking} onClick={() => { void checkCli(); }}>Check again</button>
@@ -117,7 +117,7 @@ function GitHubConnectionForm({ server, onConnected }: { server: HostingServerDt
     const { provider, webBaseUrl, apiBaseUrl } = server;
     window.bridge.connectHostingAccount({ provider, webBaseUrl, apiBaseUrl, token: token.trim() })
       .then(account => { setToken(''); onConnected(account); })
-      .catch(failure => setError(remoteErrorMessage(failure)))
+      .catch(failure => setError(errorMessage(failure)))
       .finally(() => setBusy(false));
   }}>
     <label>GitHub personal access token<input aria-label="GitHub personal access token" type="password" required value={token} disabled={busy}
@@ -161,7 +161,7 @@ export default function GitLabAccounts({ selected, server, onSelect, autoSelectF
   useEffect(() => {
     let active = true;
     void window.bridge.listHostingAccounts().then(rows => { if (active) setAccounts(rows); })
-      .catch(failure => { if (active) setError(remoteErrorMessage(failure)); })
+      .catch(failure => { if (active) setError(errorMessage(failure)); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
@@ -169,7 +169,7 @@ export default function GitLabAccounts({ selected, server, onSelect, autoSelectF
     if (!autoSelectFirst || selected !== undefined) return;
     const first = accounts.find(account => account.connected && account.instance.provider === provider && (server === undefined
       || account.instance.webBaseUrl === server.webBaseUrl && account.instance.apiBaseUrl === server.apiBaseUrl));
-    if (first) void Promise.resolve(onSelect(first)).catch(failure => setError(remoteErrorMessage(failure)));
+    if (first) void Promise.resolve(onSelect(first)).catch(failure => setError(errorMessage(failure)));
   }, [accounts, autoSelectFirst, selected, server, provider, onSelect]);
   const choices = accounts.filter(account => account.instance.provider === provider && (server === undefined
     || account.instance.webBaseUrl === server.webBaseUrl && account.instance.apiBaseUrl === server.apiBaseUrl));
@@ -177,7 +177,7 @@ export default function GitLabAccounts({ selected, server, onSelect, autoSelectF
   const choose = async (account: HostingConnectionDto) => {
     setBusy(true); setError(null);
     try { await onSelect(account); }
-    catch (failure) { setError(remoteErrorMessage(failure)); }
+    catch (failure) { setError(errorMessage(failure)); }
     finally { setBusy(false); }
   };
   const connected = (account: HostingConnectionDto) => {

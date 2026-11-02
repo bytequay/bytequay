@@ -20,6 +20,7 @@ import '../../css/base.css';
 import '../../css/agents.css';
 import { DiscussableAnswer, revealPassage, type SelectedPassage } from '../discussions/DiscussableAnswer';
 import { assert, changeInput, settle, element } from '../../fixtures/harness';
+import { errorMessage } from '../../errorMessage';
 
 const ANSWER = [
   'It resolves address.zip by descending from the root field, then falls back to any',
@@ -51,7 +52,7 @@ async function scenario(name: string, run: () => Promise<void>, results: { name:
     results.push({ name });
   }
   catch (failure) {
-    results.push({ name, error: failure instanceof Error ? failure.message : String(failure) });
+    results.push({ name, error: errorMessage(failure) });
   }
 }
 
@@ -333,7 +334,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     const busyRoot = createRoot(busyHost);
     const render = (busy: boolean): void => flushSync(() => busyRoot.render(
       <DiscussableAnswer turnId="turn-busy" text="A passage asked about while another answer runs." discussions={[]} busy={busy}
-        onSelect={async () => { throw new Error("Error invoking remote method 'agent:discussions:open': Error: This task is already answering a question"); }} />));
+        onSelect={async () => { throw new Error("This task is already answering a question"); }} />));
     try {
       render(true);
       await settle();

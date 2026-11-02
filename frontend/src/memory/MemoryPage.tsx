@@ -19,7 +19,7 @@ import RepoAvatar from '../RepoAvatar';
 import Toast from '../Toast';
 import '../css/memory.css';
 import '../css/repository-context.css';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import { RunLine, SpecCheckDrawer, SpecFinding, type SpecCheckActions, type SpecCheckData } from '../repository-context/ContextSpecCheck';
 import type { ContextBuildViewDto, ContextSpecCheckDto } from '../repository-context/contracts';
 import { Icon, Spinner } from '../repository-context/icons';
@@ -98,7 +98,7 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
 
   useEffect(() => {
     mounted.current = true;
-    void load().catch(cause => { if (mounted.current) setLoadError(remoteErrorMessage(cause)); });
+    void load().catch(cause => { if (mounted.current) setLoadError(errorMessage(cause)); });
     void window.bridge.getModelSettings(workspaceId).then(value => { if (mounted.current) setModels(value); }).catch(() => {});
     return () => { mounted.current = false; };
   }, [load, workspaceId]);
@@ -125,7 +125,7 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
     setBusy(true);
     setActionError(null);
     try { await operation(); return true; }
-    catch (cause) { if (mounted.current) { setActionError(remoteErrorMessage(cause)); void load().catch(() => {}); } return false; }
+    catch (cause) { if (mounted.current) { setActionError(errorMessage(cause)); void load().catch(() => {}); } return false; }
     finally { inFlight.current = false; if (mounted.current) setBusy(false); }
   }, [load]);
 
@@ -143,7 +143,7 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
       <h1 className="rcp-page-title">Memory</h1>
       {loadError === null ? <p className="rcp-loading" role="status">Loading memory…</p>
         : <div className="rcp-error" role="alert">Memory could not be loaded. {loadError}
-          <button type="button" className="rcp-link" onClick={() => void load().catch(cause => setLoadError(remoteErrorMessage(cause)))}>Try again</button></div>}
+          <button type="button" className="rcp-link" onClick={() => void load().catch(cause => setLoadError(errorMessage(cause)))}>Try again</button></div>}
     </div></div></div>;
   }
 
@@ -534,7 +534,7 @@ function PullSearch({ disabled, onSearch, onLearn }: {
     let current = true;
     // Each search reads GitHub, so it waits for typing to pause.
     const timer = setTimeout(() => void onSearch(typed).then(pulls => { if (current) { setFound({ query: typed, pulls }); setError(null); } },
-      cause => { if (current) setError(remoteErrorMessage(cause)); }), 400);
+      cause => { if (current) setError(errorMessage(cause)); }), 400);
     return () => { current = false; clearTimeout(timer); };
   }, [onSearch, query]);
   return <div className="mem-pull-search">

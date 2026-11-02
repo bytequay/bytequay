@@ -19,6 +19,7 @@ import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
 import type { AgentApprovalDecision, AgentApprovalDto, AgentHistoryPageDto, AgentPendingApprovalDto, AgentTurnDto, CherryPickExecution, CiAutofixRunDto } from '../../types';
 import CherryPickTaskScreen from '../CherryPickTaskScreen';
 import { lifecycle } from './lifecycle';
+import { errorMessage } from '../../errorMessage';
 import '../../css/agents.css';
 import '../../css/commits.css';
 
@@ -121,7 +122,7 @@ async function scenario(name: string, body: (host: HTMLElement, calls: Calls) =>
     return { name };
   }
   catch (failure) {
-    return { name, error: failure instanceof Error ? failure.message : String(failure) };
+    return { name, error: errorMessage(failure) };
   }
   finally {
     dispose();

@@ -107,7 +107,7 @@ async function refusesChangedOrBlockedPullsAndRetries(): Promise<void> {
   let reject = true;
   const calls = installBridge([pull], {
     detail: () => current,
-    merge: async () => { if (reject) throw new Error("Error invoking remote method 'prs:merge': Error: Branch protection changed"); },
+    merge: async () => { if (reject) throw new Error("Branch protection changed"); },
   });
   const view = mount([work([pull])]);
   try {
@@ -213,7 +213,7 @@ async function retriesMissingRevisionAndRejectsLaterCommits(): Promise<void> {
   const calls = installBridge([pull], {
     detail: () => ({ headSha: currentHead }),
     refresh: async (_number, opened) => {
-      if (opened === true && failed) throw new Error("Error invoking remote method 'prs:refresh': Error: Could not load merge status");
+      if (opened === true && failed) throw new Error("Could not load merge status");
       return { headSha: currentHead };
     },
   });

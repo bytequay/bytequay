@@ -16,7 +16,7 @@ import { LoaderCircle } from 'lucide-react';
 import type { SuggestionBase } from '../MarkdownBody';
 import MarkdownEditor from '../MarkdownEditor';
 import BetterWordsButton from '../BetterWordsButton';
-import { remoteErrorMessage } from '../../remoteError';
+import { errorMessage } from '../../errorMessage';
 
 /** The same editor writes private questions and outgoing comments, so its destination stays visible. */
 export default function ReviewComposer({
@@ -108,7 +108,7 @@ export default function ReviewComposer({
       onSubmit={() => { void submit(); }}
       onCancel={() => { if (!inFlight.current) onCancel(); }}>
       {outgoing !== null && <BetterWordsButton text={value} textareaRef={textareaRef} repository={repository} workspaceId={workspaceId}
-        disabled={busy || preview} onError={failure => setRewriteError(failure === null ? null : remoteErrorMessage(failure))} />}
+        disabled={busy || preview} onError={failure => setRewriteError(failure === null ? null : errorMessage(failure))} />}
       {extra}
       {waitingReason !== null && <span className="agr-composer__waiting" role="status" aria-label={waitingReason} title={waitingReason}>
         <span className="bq-spinner is-spinning"><LoaderCircle className="pr-task-spinner" size={14} aria-hidden="true" /></span>

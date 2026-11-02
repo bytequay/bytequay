@@ -20,6 +20,7 @@ import ReviewFindingCard from '../ReviewFindingCard';
 import { useFindingActions } from '../useFindingActions';
 import { reviewDraftFixture, reviewFixture } from './review';
 import type { AgentReviewDto, ReviewFindingDto } from '../contracts';
+import { errorMessage } from '../../../errorMessage';
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const name = 'Whole-PR review prose stays editable and removable without changing private findings';
@@ -143,6 +144,6 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       && saved.draft?.body.endsWith("Another window's note") === true, 'A summary changed elsewhere must conflict instead of being overwritten');
     return [{ name }];
   }
-  catch (error) { return [{ name, error: error instanceof Error ? error.message : String(error) }]; }
+  catch (error) { return [{ name, error: errorMessage(error) }]; }
   finally { dispose(); Object.defineProperty(window, 'bridge', { configurable: true, value: previous }); }
 }

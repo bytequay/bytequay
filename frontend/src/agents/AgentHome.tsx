@@ -27,7 +27,7 @@ import { zoomReference } from '../githubReference';
 import { jiraIssueLocation } from '../jira/contracts';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import { useRenameDraft } from '../renameDraft';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import { openArtifact } from '../artifacts/ArtifactsPage';
 import { displayModelName, laneLabel } from '../settings/model';
 import { TaskShortcuts } from './TaskShortcuts';
@@ -139,7 +139,7 @@ export default function AgentHome({
   const askArtifacts = useCallback((question: string) => {
     setAskError(null);
     return window.bridge.startArtifact(workspaceId, question).then(view => openArtifact(workspaceId, view.artifact.id, view), failure => {
-      setAskError(remoteErrorMessage(failure));
+      setAskError(errorMessage(failure));
       throw failure;
     });
   }, [workspaceId]);

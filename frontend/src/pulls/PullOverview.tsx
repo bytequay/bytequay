@@ -14,7 +14,7 @@
 import { readPullRequestViewer, usePullRequestBridge, useHostingPresentation } from './PullRequestWorkspace';
 import { shortSha } from '@bytequay/ui/displayText';
 import { Copy, Ellipsis, ExternalLink, Eye, GitCommitHorizontal, Link, LoaderCircle, Pencil, Quote, Tag } from 'lucide-react';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { TaskDiscussionDto } from '../agents/discussions/contracts';
 import CopyLinkButton from '@bytequay/ui/CopyLinkButton';
@@ -258,7 +258,7 @@ function PullTitle({ pr, detail, onDetailUpdate }: {
       setEdit(null);
     }
     catch (failure) {
-      setError(`Could not update title. ${remoteErrorMessage(failure)}`);
+      setError(`Could not update title. ${errorMessage(failure)}`);
     }
     finally {
       writeInFlight.current = false;
@@ -361,7 +361,7 @@ function DescriptionCard({ pr, detail, fallbackAuthor, fallbackUrl, onDetailUpda
       setLocalBody(current => current?.key === key && current.value === nextBody
         ? previousLocal
         : current);
-      setError(`Could not update description. ${remoteErrorMessage(failure)}`);
+      setError(`Could not update description. ${errorMessage(failure)}`);
       return false;
     }
     finally {
@@ -770,7 +770,7 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
       if (!typingElsewhere) focusReply();
     }
     catch (failure) {
-      setError(remoteErrorMessage(failure));
+      setError(errorMessage(failure));
     }
     finally {
       setDrafting(false);
@@ -804,7 +804,7 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
         note={drafted && <span className="pr-thread-draft__note">Posts as you</span>}>
         <BetterWordsButton text={body} textareaRef={textareaRef} repository={pr.repo} workspaceId={workspaceId}
           disabled={preview || posting}
-          onError={failure => setError(failure === null ? '' : remoteErrorMessage(failure))} />
+          onError={failure => setError(failure === null ? '' : errorMessage(failure))} />
         <button type="button" disabled={posting} onClick={discard}>{drafted ? 'Discard' : 'Cancel'}</button>
         {pending && pr.state?.toLowerCase() === 'open' && <button type="button" disabled={posting || !body.trim()}
           onClick={addToReview}>Add to review</button>}
@@ -950,7 +950,7 @@ export function CommentEditor({ pr, target, commentId, body, draft, suggestion, 
       onClose();
     }
     catch (failure) {
-      setError(`Could not update comment. ${remoteErrorMessage(failure)}`);
+      setError(`Could not update comment. ${errorMessage(failure)}`);
       setSaving(false);
     }
   };
@@ -1241,7 +1241,7 @@ export function DiscussionComposer({
     }
     finally { setPosting(false); }
   };
-  const post = () => { void submit().catch(failure => setError(remoteErrorMessage(failure))); };
+  const post = () => { void submit().catch(failure => setError(errorMessage(failure))); };
   const close = async () => {
     if (!onClose) return;
     setClosing(true);
@@ -1251,7 +1251,7 @@ export function DiscussionComposer({
       await submit();
       await onClose();
     }
-    catch (failure) { setError(remoteErrorMessage(failure)); }
+    catch (failure) { setError(errorMessage(failure)); }
     finally { setClosing(false); }
   };
   return (
@@ -1293,7 +1293,7 @@ export function DiscussionComposer({
         {betterWords && <BetterWordsButton key={draftRevision} text={body} textareaRef={textareaRef}
           repository={repository} workspaceId={workspaceId}
           disabled={preview || posting || closing || command.loading}
-          onError={failure => setError(failure === null ? null : remoteErrorMessage(failure))} />}
+          onError={failure => setError(failure === null ? null : errorMessage(failure))} />}
         {onClose && <button className="pr-composer__close" type="button" disabled={posting || closing || command.loading}
           onClick={() => { void close(); }}>{closing ? 'Closing…' : body.trim() ? 'Close with comment' : closeLabel}</button>}
         <button type="button" disabled={posting || closing || command.loading || !body.trim()}

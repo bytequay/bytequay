@@ -14,6 +14,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { getCached, setCached } from '../dataCache';
 import type { TeamDirectory } from './types';
+import { errorMessage } from '../errorMessage';
 
 export const TEAMS_CHANGED = 'bytequay:teams-changed';
 export const GITHUB_ACCOUNT_CHANGED = 'bytequay:github-account-changed';
@@ -38,7 +39,7 @@ export function refreshTeams(): Promise<void> {
   pending = window.bridge.getTeams().then(directories => {
     if (request === generation) publish({ directories, loading: false, error: null });
   }).catch((error: unknown) => {
-    if (request === generation) publish({ directories: null, loading: false, error: error instanceof Error ? error.message : String(error) });
+    if (request === generation) publish({ directories: null, loading: false, error: errorMessage(error) });
   }).finally(() => { if (request === generation) pending = null; });
   return pending;
 }

@@ -14,7 +14,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { attachTerminal, type TerminalStatus } from '../../terminalSession';
 import type { Bridge } from '../../types';
-import { remoteErrorMessage } from '../../remoteError';
+import { errorMessage } from '../../errorMessage';
 import { codeHostKey, type CodeHostRef } from './contracts';
 
 export type TerminalBridge = Pick<Bridge, 'openCodeTerminal' | 'writeReviewTerminal' | 'resizeReviewTerminal' | 'onReviewTerminalEvent'>;
@@ -41,7 +41,7 @@ export default function TerminalView({ host: codeHost, bridge }: { host: CodeHos
       {status.kind === 'opening' && <div className="ct-terminal__status" role="status">Starting a login shell in the working copy…</div>}
       {(status.kind === 'exited' || status.kind === 'failed') && (
         <div className={`ct-terminal__status${status.kind === 'failed' ? ' is-failed' : ''}`} role={status.kind === 'failed' ? 'alert' : 'status'}>
-          <span>{status.kind === 'failed' ? remoteErrorMessage(status.error) : `The shell exited with status ${status.exitCode}.`}</span>
+          <span>{status.kind === 'failed' ? errorMessage(status.error) : `The shell exited with status ${status.exitCode}.`}</span>
           <button type="button" className="ct-text-button" onClick={() => setAttempt(value => value + 1)}>
             {status.kind === 'failed' ? 'Try again' : 'Start a new shell'}
           </button>

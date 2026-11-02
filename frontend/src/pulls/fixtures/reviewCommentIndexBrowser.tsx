@@ -23,6 +23,7 @@ import ReviewCommentIndex, { commentIndexTarget } from '../ReviewCommentIndex';
 import AgentReviewTab from '../agent-review/AgentReviewTab';
 import { reviewFixture } from '../agent-review/fixtures/review';
 import type { LocalReviewThreadDto } from '../local-review/types';
+import { errorMessage } from '../../errorMessage';
 import '../../css/base.css';
 import '../../css/agent-review.css';
 import '../../css/commits.css';
@@ -262,7 +263,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       }],
     ] as const) {
       try { await test(); results.push({ name }); }
-      catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
+      catch (error) { results.push({ name, error: errorMessage(error) }); }
       await mount(null);
     }
     return results;

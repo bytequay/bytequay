@@ -15,6 +15,7 @@ import { useAsyncAction } from '../useAsyncAction';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { DiffViewer } from '../pulls/PullChanges';
 import type { DiffFileDto, GitWorktreeStatusDto } from '../types';
+import { errorMessage } from '../errorMessage';
 
 /** GitHub-Desktop-style working-tree view; workspace repo only. */
 export default function ChangesView({ workspaceId, onCommitted }: {
@@ -31,7 +32,7 @@ export default function ChangesView({ workspaceId, onCommitted }: {
       const next = await window.bridge.gitStatus(workspaceId);
       setStatus(next);
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      setError(errorMessage(failure));
     }
   }, [workspaceId, setError]);
 

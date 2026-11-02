@@ -24,6 +24,7 @@ import {
   type TaskFilter,
   type TaskState,
 } from './model';
+import { errorMessage } from '../errorMessage';
 
 const PAGE_SIZE = 10;
 
@@ -84,7 +85,7 @@ export default function TasksView({ workspaceId, onOpenTask, onNewCherryPick }: 
         setTasks(executions.filter(task => task.workspaceId === workspaceId));
       })
       .catch(failure => {
-        if (active) setError(failure instanceof Error ? failure.message : String(failure));
+        if (active) setError(errorMessage(failure));
       })
       .finally(() => {
         if (active) setLoading(false);

@@ -24,6 +24,7 @@ import { CI_PROJECTION, CI_RUN } from './ciAutofix';
 import { runDevelopmentDeliveryScenarios } from './developmentDeliveryBrowser';
 import { LOCAL_COMMITS_ONLY } from '../developmentAutomation';
 import { assert, changeInput, settle, element } from '../../fixtures/harness';
+import { errorMessage } from '../../errorMessage';
 import '../../css/base.css';
 import '../../css/agents.css';
 
@@ -93,7 +94,7 @@ async function createLocalTask(): Promise<{ name: string; error?: string }[]> {
     assert(host.querySelector('.agt-auto-chip')?.getAttribute('aria-label') === 'Automation: Auto-CI fix', 'The next task must start from the saved default again');
     return [{ name: 'The slider chooses one task’s step, resets to the saved default, and does not carry over' }];
   }
-  catch (error) { return [{ name: 'Local publication submission', error: error instanceof Error ? error.message : String(error) }]; }
+  catch (error) { return [{ name: 'Local publication submission', error: errorMessage(error) }]; }
   finally { dispose(); }
 }
 
@@ -134,7 +135,7 @@ async function createDeepSeekTask(): Promise<{ name: string; error?: string }[]>
       && request.developmentAutomation?.level === 'CI_FIX', 'DeepSeek must inherit the saved step for task and first turn');
     return [{ name: 'DeepSeek creation inherits saved automation for task and first turn' }];
   }
-  catch (error) { return [{ name: 'DeepSeek automation submission', error: error instanceof Error ? error.message : String(error) }]; }
+  catch (error) { return [{ name: 'DeepSeek automation submission', error: errorMessage(error) }]; }
   finally { dispose(); }
 }
 
@@ -185,7 +186,7 @@ async function retryLocalTurn(): Promise<{ name: string; error?: string }[]> {
     assert(request.developmentAutomation?.level === 'COMMIT', 'Retry must retain the accepted local publication policy despite current default-on settings');
     return [{ name: 'Authentication retry retains accepted automation instead of current task defaults' }];
   }
-  catch (error) { return [{ name: 'Authentication retry policy', error: error instanceof Error ? error.message : String(error) }]; }
+  catch (error) { return [{ name: 'Authentication retry policy', error: errorMessage(error) }]; }
   finally { window.confirm = confirm; dispose(); }
 }
 
@@ -220,7 +221,7 @@ async function multilineDraft(): Promise<{ name: string; error?: string }[]> {
     assert(bridge.commands.filter(command => command.name === 'createAgentTask').length === 1, 'Enter must still create the task');
     return [{ name: 'The task draft wraps onto new lines and grows the composer' }];
   }
-  catch (error) { return [{ name: 'Multi-line task draft', error: error instanceof Error ? error.message : String(error) }]; }
+  catch (error) { return [{ name: 'Multi-line task draft', error: errorMessage(error) }]; }
   finally { dispose(); }
 }
 
@@ -278,7 +279,7 @@ async function developerFeedback(): Promise<{ name: string; error?: string }[]> 
       'Development must send its delivery settings after inline feedback');
     return [{ name: 'Developer feedback retains delivery and completion controls' }];
   }
-  catch (error) { return [{ name: 'Developer feedback', error: error instanceof Error ? error.message : String(error) }]; }
+  catch (error) { return [{ name: 'Developer feedback', error: errorMessage(error) }]; }
   finally {
     dispose();
     restoreBridge();
@@ -361,7 +362,7 @@ async function stopPreservesTask(): Promise<{ name: string; error?: string }[]> 
     const requests = bridge.commands.filter(command => command.name === 'startAgentTurn');
     assert(requests.length === 1 && (requests[0].args[0] as StartAgentTurnRequest).message === 'Continue with the smaller change', 'Only the explicit new message may start a turn');
     return [{ name: 'Verified Stop preserves the task and draft while unresolved shutdown remains blocked' }];
-  } catch (error) { return [{ name: 'Stop preserves the open task', error: error instanceof Error ? error.message : String(error) }]; }
+  } catch (error) { return [{ name: 'Stop preserves the open task', error: errorMessage(error) }]; }
   finally { dispose(); }
 }
 
@@ -431,7 +432,7 @@ async function stopWaitingCi(): Promise<{ name: string; error?: string }[]> {
       'The explicit Send must deliver the retained draft exactly once');
     return [{ name: 'Waiting CI is distinct from agent execution and verified stop enables the retained draft' }];
   }
-  catch (error) { return [{ name: 'Stop waiting CI and continue', error: error instanceof Error ? error.message : String(error) }]; }
+  catch (error) { return [{ name: 'Stop waiting CI and continue', error: errorMessage(error) }]; }
   finally { dispose(); }
 }
 
@@ -485,7 +486,7 @@ async function continuationAdmission(): Promise<{ name: string; error?: string }
     assert(bridge.commands.filter(command => command.name === 'startAgentTurn').length === 1, 'An answer must start exactly one ordinary turn');
     return [{ name: 'Continuation ownership blocks competing work and releases the normal answer composer' }];
   }
-  catch (error) { return [{ name: 'Continuation admission', error: error instanceof Error ? error.message : String(error) }]; }
+  catch (error) { return [{ name: 'Continuation admission', error: errorMessage(error) }]; }
   finally { dispose(); }
 }
 
@@ -589,7 +590,7 @@ async function pullRequestLookupPolicy(initiallyRunning = false): Promise<{ name
       'A later lookup must leave the answered panel alone');
     return [{ name: 'Task pull requests are looked up only on settled turns and settled automation markers' }];
   }
-  catch (error) { return [{ name: 'Task pull request lookup', error: error instanceof Error ? error.message : String(error) }]; }
+  catch (error) { return [{ name: 'Task pull request lookup', error: errorMessage(error) }]; }
   finally {
     dispose();
     restoreBridge();
@@ -635,7 +636,7 @@ async function pausedPullRequestLookup(): Promise<{ name: string; error?: string
     assert(lookups() === 2, 'The check must run again once GitHub\'s pause ends');
     return [{ name: 'A paused background pull request check stays quiet and retries after the pause' }];
   }
-  catch (error) { return [{ name: 'Paused pull request check', error: error instanceof Error ? error.message : String(error) }]; }
+  catch (error) { return [{ name: 'Paused pull request check', error: errorMessage(error) }]; }
   finally {
     dispose();
     restoreBridge();
@@ -722,6 +723,6 @@ async function worktreeVersionRefresh(conflictAfterRefresh = false): Promise<{ n
     assert(Number(accepted) === 1 && String(input.value) === '', 'The accepted message must clear once without duplicate submission');
     return [{ name }];
   }
-  catch (error) { return [{ name, error: error instanceof Error ? error.message : String(error) }]; }
+  catch (error) { return [{ name, error: errorMessage(error) }]; }
   finally { dispose(); }
 }

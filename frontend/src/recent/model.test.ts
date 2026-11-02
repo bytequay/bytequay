@@ -167,18 +167,14 @@ describe('stream fetch gating', () => {
 });
 
 describe('stream error text', () => {
-  it('explains an unreachable backend instead of leaking the IPC wrapper', () => {
-    const message = streamErrorMessage(
-      new Error("Error invoking remote method 'recent:list': TypeError: fetch failed"),
-    );
+  it('explains an unreachable backend', () => {
+    const message = streamErrorMessage(new Error('fetch failed'));
     expect(message).toContain('backend is not answering');
     expect(message).toContain('stored on this Mac');
-    expect(message).not.toContain('remote method');
   });
 
-  it('unwraps anything else the backend actually said', () => {
-    expect(streamErrorMessage(new Error("Error invoking remote method 'recent:list': unsupported action: BOGUS")))
-      .toBe('unsupported action: BOGUS');
+  it('shows anything else the backend actually said', () => {
+    expect(streamErrorMessage(new Error('unsupported action: BOGUS'))).toBe('unsupported action: BOGUS');
   });
 
   it('never renders an empty box', () => {

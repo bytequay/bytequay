@@ -37,7 +37,7 @@ import { CardHeader, DiscussionComposer, type QuoteRequest } from '../pulls/Pull
 import { MetadataPicker, toggleSelection } from '../pulls/PullMetadata';
 import { reactionEmoji } from '../pulls/PullReactions';
 import type { MentionCandidate } from '../pulls/useMentions';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import { CommentIcon, PaneIcon, RefreshIcon } from '../pulls/PullsScreen';
 import { parsePullSearch, pullRequestMatchesSearch } from '../pulls/model';
 import { useRecentTouch } from '../recent/useRecentTouch';
@@ -154,7 +154,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
       setPreviewIssue(current => current?.number === number ? issue : current);
       setClosedIssueId(issue.state.toLowerCase() === 'closed' ? issue.id : null);
     }
-    catch (failure) { setDetailError(remoteErrorMessage(failure)); }
+    catch (failure) { setDetailError(errorMessage(failure)); }
     finally { setDetailLoading(false); }
   };
 
@@ -187,7 +187,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     }
     catch (failure) {
       if (request === detailRequest.current) {
-        setDetailError(failure instanceof Error ? failure.message : String(failure));
+        setDetailError(errorMessage(failure));
       }
     }
     finally {
@@ -207,7 +207,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     }
     catch (failure) {
       if (request === detailRequest.current) {
-        setMutationError(remoteErrorMessage(failure));
+        setMutationError(errorMessage(failure));
         throw failure;
       }
     }
@@ -236,7 +236,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
       await refreshIssueRow(issueNumber);
     }
     catch (failure) {
-      setMutationError(remoteErrorMessage(failure));
+      setMutationError(errorMessage(failure));
       throw failure;
     }
   }, [workspaceId, repository, refreshIssueRow]);
@@ -254,7 +254,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
       notifyIssueDevelopmentChanged(issue.id);
     }
     catch (failure) {
-      setMutationError(remoteErrorMessage(failure));
+      setMutationError(errorMessage(failure));
     }
     finally { setChangingEpic(null); }
   }, [workspaceId, repository]);
@@ -276,7 +276,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
       setClosedIssueId(issue.id);
     }
     catch (failure) {
-      setMutationError(remoteErrorMessage(failure));
+      setMutationError(errorMessage(failure));
     }
   }, [workspaceId, repository]);
 
@@ -289,7 +289,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
       notifyIssueDevelopmentChanged();
     }
     catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      setError(errorMessage(failure));
     }
     finally {
       setLoading(false);
@@ -328,7 +328,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
         }).catch(() => {});
       })
       .catch(failure => {
-        if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure));
+        if (!cancelled) setError(errorMessage(failure));
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     void window.bridge.getWorkspaceMetadata(workspaceId)
@@ -393,7 +393,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
         setPaneOpen(true);
       })
       .catch(failure => {
-        if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure));
+        if (!cancelled) setError(errorMessage(failure));
       });
     return () => { cancelled = true; };
   }, [initialIssueNumber, loading, snapshot, workspaceId, readPreview]);
@@ -407,7 +407,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
       setSnapshot(current => current ? appendIssuePage(current, next) : next);
     }
     catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      setError(errorMessage(failure));
     }
     finally {
       loadingMoreRequest.current = false;
@@ -785,7 +785,7 @@ export function IssueOverview({
       ? window.bridge.fetchRepoLabels(repository).then(setRepoLabels)
       : window.bridge.fetchRepoUsers(repository, workspaceId).then(setRepoUsers);
     void request
-      .catch(failure => setPickerError(remoteErrorMessage(failure)))
+      .catch(failure => setPickerError(errorMessage(failure)))
       .finally(() => setLoadingOptions(false));
   };
 

@@ -26,6 +26,7 @@ import { ISearchService } from '@codingame/monaco-vscode-api/vscode/vs/workbench
 import { QueryBuilder } from '@codingame/monaco-vscode-api/vscode/vs/workbench/services/search/common/queryBuilder';
 import { resultIsMatch, isFileMatch, type IFileMatch } from '@codingame/monaco-vscode-api/vscode/vs/workbench/services/search/common/search';
 import { fileName, isTestFile } from '../pulls/code-tests/codeModel';
+import { errorMessage } from '../errorMessage';
 
 export type SearchTab = 'All' | 'Files' | 'Text';
 export type SearchRow = {
@@ -108,7 +109,7 @@ export async function searchCode(workspace: URI, query: string, tab: SearchTab, 
     const task = new CancellationTokenSource(token);
     const timer = budget === undefined ? undefined : setTimeout(() => task.cancel(), budget);
     try { await raceCancellationError(work(task.token), task.token); }
-    catch (error) { if (!task.token.isCancellationRequested) messages.add(`${name}: ${error instanceof Error ? error.message : String(error)}`); }
+    catch (error) { if (!task.token.isCancellationRequested) messages.add(`${name}: ${errorMessage(error)}`); }
     finally { clearTimeout(timer); task.dispose(true); }
     emit();
   };

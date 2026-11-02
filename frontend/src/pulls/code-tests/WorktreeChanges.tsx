@@ -14,7 +14,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, RotateCw } from 'lucide-react';
 import { DiffViewer } from '../PullChanges';
-import { remoteErrorMessage } from '../../remoteError';
+import { errorMessage } from '../../errorMessage';
 import type { ReviewNavigationTarget } from '../agent-review/AgentReviewTab';
 import type { AgentReviewDto } from '../agent-review/contracts';
 import { findingInResults } from '../agent-review/model';
@@ -68,7 +68,7 @@ export default function WorktreeChanges({ host, active = true, selection, review
     void window.bridge.readWorktreeChanges(currentHost.current, currentRequest.current)
       // The working copy is re-read every few seconds; an unchanged read keeps the diff view as it is.
       .then(value => { if (live) setResult(shown => shown?.key === key && JSON.stringify(shown.value) === JSON.stringify(value) ? shown : { key, value }); })
-      .catch(cause => { if (live) setError(remoteErrorMessage(cause)); })
+      .catch(cause => { if (live) setError(errorMessage(cause)); })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
   }, [active, key, reload]);

@@ -17,7 +17,7 @@ import Composer from '../../Composer';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 
 import { DiscussionFooter } from './DiscussionFooter';
-import { remoteErrorMessage } from '../../remoteError';
+import { errorMessage } from '../../errorMessage';
 import { renderMarkdownBlocks } from '../markdown';
 import { ANSWERING_ELSEWHERE, type TaskDiscussionDto } from './contracts';
 
@@ -251,7 +251,7 @@ export function DiscussableAnswer({ turnId, text, repository, discussions, compl
       place(null);
     }
     catch (failure) {
-      setRefusal(remoteErrorMessage(failure));
+      setRefusal(errorMessage(failure));
     }
     finally {
       setSending(false);

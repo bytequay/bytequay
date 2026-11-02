@@ -16,7 +16,7 @@ import { usePullRequestBridge } from './PullRequestWorkspace';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ZOOM_REFERENCE, type ZoomedReference } from '../githubReference';
 import { mergePullRequestWriteDetail, type PullDetailUpdater } from './pullDetail';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import type {
   PullRequestDetailDto,
   PullRequestDto,
@@ -49,7 +49,7 @@ export function pullRequestDetailRefreshDelay(failure: unknown, now = Date.now()
 
 /** When GitHub accepts requests again after refusing this one for its rate limit; null for any other failure. */
 export function gitHubRetryAt(failure: unknown): number | null {
-  const match = remoteErrorMessage(failure).match(/GitHub \S+ API rate limit reached; retry after (\S+)/);
+  const match = errorMessage(failure).match(/GitHub \S+ API rate limit reached; retry after (\S+)/);
   const resetAt = match ? Date.parse(match[1]) : Number.NaN;
   return Number.isNaN(resetAt) ? null : resetAt;
 }
@@ -198,7 +198,7 @@ export function usePullRequestDetail(
         retryAt = Date.now() + pullRequestDetailRefreshDelay(failure);
         // Nobody asked for this poll and the next one retries, so a failure is only worth showing
         // when there is no detail on screen. A refresh the reader asks for still reports it.
-        if (!cancelled && applied.current === null) setError(remoteErrorMessage(failure));
+        if (!cancelled && applied.current === null) setError(errorMessage(failure));
       }
       finally {
         if (refreshInFlight.current === request) refreshInFlight.current = null;
@@ -242,7 +242,7 @@ export function usePullRequestDetail(
       ? Promise.resolve()
       : bridge.fetchPullRequestDetailByRef(repo, number)
         .then(value => { if (!cancelled) apply(value, initialMutationVersion); })
-        .catch(failure => { if (!cancelled) setError(remoteErrorMessage(failure)); }))
+        .catch(failure => { if (!cancelled) setError(errorMessage(failure)); }))
       .finally(() => {
         if (cancelled) return;
         setLoading(false);
@@ -274,7 +274,7 @@ export function usePullRequestDetail(
       if (key === currentKey.current) setError(null);
     }
     catch (failure) {
-      if (key === currentKey.current) setError(remoteErrorMessage(failure));
+      if (key === currentKey.current) setError(errorMessage(failure));
     }
     finally {
       if (refreshInFlight.current === request) refreshInFlight.current = null;

@@ -29,7 +29,7 @@ import { useMyWork, useShownWork } from '../home/useMyWork';
 import type { WorkItem, WorkLane } from '../home/work';
 import { requestPullComment } from '../pulls/PullOverview';
 import { APPROVAL_NOTICE, type AppNotice } from '../notices/contracts';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import { settingsRoute, type SettingsSection } from '../settings/routes';
 import type { AgendaTargetDto, AssistantItemDto, AssistantReceiptDto, AssistantRowDto, AssistantSummaryDto } from '../types';
 import AssistantList from './AssistantList';
@@ -290,7 +290,7 @@ export default function AssistantPanel({ open, covered = false, chatEnabled = tr
       refresh();
       return true;
     }, (cause: unknown) => {
-      setFailure(remoteErrorMessage(cause));
+      setFailure(errorMessage(cause));
       return false;
     });
   const reportEntry = (item: AssistantItemDto) => {

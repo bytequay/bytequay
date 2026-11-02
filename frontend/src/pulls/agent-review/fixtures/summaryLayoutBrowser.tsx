@@ -21,6 +21,7 @@ import { pr } from '../../fixtures/pullRequest';
 import AgentReviewTab from '../AgentReviewTab';
 import type { AgentReviewDto, ReviewRunDto } from '../contracts';
 import { candidateFixture, reviewFixture, runningReviewFixture } from './review';
+import { errorMessage } from '../../../errorMessage';
 import '../../../css/base.css';
 import '../../../css/pulls.css';
 import '../../../css/markdown-editor.css';
@@ -144,6 +145,6 @@ export async function run() {
     assert(fixture.calls.at(-1) === 'stop', 'Stop must remain wired after returning to Summary');
     return [{ name: 'Compact Summary retains controls, discussions and narrow layouts' }];
   }
-  catch (error) { return [{ name: 'Compact Summary', error: error instanceof Error ? error.message : String(error) }]; }
+  catch (error) { return [{ name: 'Compact Summary', error: errorMessage(error) }]; }
   finally { fixture.close(); host.remove(); }
 }

@@ -14,7 +14,6 @@
 import { useAsyncAction } from '../useAsyncAction';
 import { useState } from 'react';
 import Avatar from '../Avatar';
-import { remoteErrorMessage } from '../remoteError';
 import CircleDialog, { CircleIcon } from '../teams/CircleDialog';
 import { parseTeamCreateInput } from '../teams/contracts';
 import { circleNeeds } from '../teams/priority';
@@ -32,7 +31,7 @@ type Props = {
 /** "Circles": one tile per circle across every account, like the repo tiles; a click opens that circle. */
 function CirclesGrid({ directories, attention }: Props) {
   const [creating, setCreating] = useState(false);
-  const { busy, error, setError, run } = useAsyncAction(remoteErrorMessage);
+  const { busy, error, setError, run } = useAsyncAction();
 
   if (directories === null || directories.length === 0) return null;
   // ponytail: Home adds to the first account (the desktop sign-in when there is one); the Circles page adds to any account.

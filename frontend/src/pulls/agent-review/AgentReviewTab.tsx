@@ -44,7 +44,7 @@ import type {
 import { useNow } from '../../useNow';
 import { workspaceRoute } from '../../workspaces/model';
 import MarkdownBody from '../MarkdownBody';
-import { remoteErrorMessage } from '../../remoteError';
+import { errorMessage } from '../../errorMessage';
 import ReviewCommentIndex from '../ReviewCommentIndex';
 import LocalReviewThreadCard from '../local-review/LocalReviewThreadCard';
 import type { LocalReviewThreads } from '../local-review/types';
@@ -288,7 +288,7 @@ export default function AgentReviewTab({
         if (propagate) throw failure;
         return;
       }
-      if (pending !== 'refresh') setError(unconfirmedRequest(failure) ? CHECKING_ACCEPTANCE : remoteErrorMessage(failure));
+      if (pending !== 'refresh') setError(unconfirmedRequest(failure) ? CHECKING_ACCEPTANCE : errorMessage(failure));
       // A turn can finish before its stream update reaches this view. Keep the draft and original error,
       // but adopt the durable state so the next deliberate action does not repeat the same stale command.
       if (reviewId !== null) await refresh(reviewId, conversationRef.current.latestTurnId, true).catch(() => {});
@@ -390,7 +390,7 @@ export default function AgentReviewTab({
           }
         }
         catch (failure) {
-          if (live) setError(remoteErrorMessage(failure));
+          if (live) setError(errorMessage(failure));
         }
       }
       reloading = false;
@@ -412,7 +412,7 @@ export default function AgentReviewTab({
         if (action.type === 'events/observed') void reload(action.events.at(-1)?.turnId ?? null, action.events.at(-1)?.sequence ?? 0);
       }
     }, () => live, () => historyAfter(conversationRef.current) === null, reviewOpen);
-    session.catch(failure => { if (live) setError(remoteErrorMessage(failure)); });
+    session.catch(failure => { if (live) setError(errorMessage(failure)); });
     return () => {
       live = false;
       revisions.current++;
@@ -440,7 +440,7 @@ export default function AgentReviewTab({
       if (current() && reviewId !== null) await refresh(reviewId, history.page.events.at(-1)?.turnId ?? null, false, history.page.latestSequence);
     }
     catch (failure) {
-      if (current()) setError(remoteErrorMessage(failure));
+      if (current()) setError(errorMessage(failure));
     }
     finally {
       if (current()) {
@@ -508,7 +508,7 @@ export default function AgentReviewTab({
     setError(null);
     void window.bridge.startAgentReview(workspaceId, detail.repo, detail.number)
       .then(updated => { onReviewChange(updated); recordReviewAttentionAction(updated, 'prompt'); })
-      .catch(failure => setError(remoteErrorMessage(failure)))
+      .catch(failure => setError(errorMessage(failure)))
       .finally(() => setStarting(false));
   };
 

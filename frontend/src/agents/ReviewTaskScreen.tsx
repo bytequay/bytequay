@@ -24,7 +24,7 @@ import UnsavedChanges from '../ide/UnsavedChanges';
 import type { ReviewCardFocus } from './InstructionCard';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import { mergeReviewFindings } from '../pulls/agent-review/model';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 import PinButton from '../home/PinButton';
 import '../css/review-tasks.css';
 
@@ -45,7 +45,7 @@ export default function ReviewTaskScreen({ workspaceId, reviewId, onBack, header
     void window.bridge.getAgentReview(reviewId).then(value => {
       if (value.id !== reviewId || value.workspaceId !== workspaceId) throw new Error('This review does not belong to the selected workspace task.');
       if (active) updateReview(value);
-    }).catch(failure => { if (active) setError(remoteErrorMessage(failure)); });
+    }).catch(failure => { if (active) setError(errorMessage(failure)); });
     return () => { active = false; };
   }, [reviewId, workspaceId, retry, updateReview]);
 

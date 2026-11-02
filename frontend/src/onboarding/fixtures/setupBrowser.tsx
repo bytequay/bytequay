@@ -22,6 +22,7 @@ import { assert, changeInput, settle, until, button as findButton } from '../../
 import type { AgendaScheduleDto, AppPreferencesDto, Bridge, HostingConnectionDto, ModelSettingsDto, SetupPreferencesDto, SetupStep } from '../../types';
 import SetupFlow from '../SetupFlow';
 import { OPEN_SETUP } from '../setup';
+import { errorMessage } from '../../errorMessage';
 import '../../index.css';
 
 const CATALOG: ModelSettingsDto = {
@@ -106,7 +107,7 @@ export async function run() {
   const results: { name: string; error?: string }[] = [];
   const scenario = async (name: string, work: () => Promise<void>) => {
     try { await work(); results.push({ name }); }
-    catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
+    catch (error) { results.push({ name, error: errorMessage(error) }); }
   };
   await scenario('Setup saves choices, requires GitHub and a usable agent, then completes', async () => {
     const view = harness('APPEARANCE', false);

@@ -244,7 +244,7 @@ export async function run() {
       let connected = false;
       window.bridge = { getGitLabCliStatus: readyCli, connectHostingAccount: async request => {
         requests.push(request);
-        if (requests.length === 1) throw new Error("Error invoking remote method 'hosting:connect': Error: Missing api permission. Create a token with api scope.");
+        if (requests.length === 1) throw new Error("Missing api permission. Create a token with api scope.");
         return account(1, request);
       } } as Bridge;
       try {
@@ -346,7 +346,7 @@ export async function run() {
         listHostingAccounts: async () => [account(1), account(2)],
         searchHostingRepositories: async (accountId, query) => {
           searches.push({ accountId, query });
-          if (query === 'failure') throw new Error("Error invoking remote method 'hosting:repositories:search': Error: Project search failed");
+          if (query === 'failure') throw new Error("Project search failed");
           return query === 'project' ? [repository()] : [];
         },
       } as Partial<Bridge> as Bridge;
@@ -421,7 +421,7 @@ export async function run() {
         listHostingAccounts: async () => [account(1), account(2)],
         checkHostingPermissions: async id => {
           checked.push(id);
-          if (failure) throw new Error("Error invoking remote method 'hosting:permissions': Error: Reconnect this account");
+          if (failure) throw new Error("Reconnect this account");
           return permissions;
         },
       } as Partial<Bridge> as Bridge;
@@ -480,7 +480,7 @@ export async function run() {
           if (surface === 'selector') changeInput(element<HTMLInputElement>('[aria-label="GitLab server"]', view.host), SERVER.webBaseUrl);
           await settle(); button('Sign in with GitLab', view.host).click();
           await until(() => logins === 1 && cleared(), 'Starting reconnect retained stale verified permissions');
-          login.reject(new Error("Error invoking remote method 'hosting:cli-login': Error: Missing api permission"));
+          login.reject(new Error("Missing api permission"));
           await until(() => view.host.querySelector('[role="alert"]')?.textContent === 'Missing api permission', 'Reconnect rejection did not appear');
           assert(cleared(), 'Rejected reconnect restored stale verified permissions');
           if (surface === 'settings') assert(accountCard(view.host, 'developer-3').textContent?.includes('Permissions verified'), 'Reconnect cleared another server permissions');

@@ -34,6 +34,7 @@ import type {
 import type { AgentEventEnvelope } from './events';
 import { compactHistoryPages } from './history';
 import type { ApprovalBlock } from './transcript';
+import { errorMessage } from '../errorMessage';
 
 /** The slice of the bridge an agent screen uses, so a screen can be driven by a test double. */
 export type AgentBridgePort = Pick<Bridge,
@@ -565,7 +566,7 @@ export async function startAgentConversationSession(
       retryDelay = 1000;
     }
     catch (failure) {
-      if (!stopped && isActive()) dispatch({ type: 'notice/changed', notice: failure instanceof Error ? failure.message : String(failure) });
+      if (!stopped && isActive()) dispatch({ type: 'notice/changed', notice: errorMessage(failure) });
       dirty = true;
       delay = retryDelay;
       retryDelay = Math.min(retryDelay * 2, 5000);

@@ -17,7 +17,7 @@ import { Eye } from 'lucide-react';
 import type { ReviewCardFocus } from '../../agents/InstructionCard';
 import type { AgentTaskDto } from '../../types';
 import { workspaceReviewTaskRoute } from '../../workspaces/model';
-import { remoteErrorMessage } from '../../remoteError';
+import { errorMessage } from '../../errorMessage';
 import type { WorktreeChangesDto } from '../code-tests/contracts';
 import AgentReviewTab, { type ReviewNavigationTarget } from './AgentReviewTab';
 import type { AgentReviewDto } from './contracts';
@@ -60,7 +60,7 @@ export function useTaskReview(task: AgentTaskDto, options: TaskReviewOptions | u
     setStartFailed(false);
     void Promise.resolve().then(() => window.bridge.findTaskAgentReview(workspaceId, task.id))
       .then(value => { if (live) { setReview(current => value === null ? null : mergeReviewFindings(current, value)); if (value !== null) onReviewChange?.(value); } })
-      .catch(cause => { if (live) setError(remoteErrorMessage(cause)); })
+      .catch(cause => { if (live) setError(errorMessage(cause)); })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
   }, [workspaceId, task.id, retry, onReviewChange]);
@@ -82,7 +82,7 @@ export function useTaskReview(task: AgentTaskDto, options: TaskReviewOptions | u
     setError(null);
     setStartFailed(false);
     try { changeReview(await window.bridge.startTaskAgentReview(workspaceId, task.id)); }
-    catch (cause) { setError(remoteErrorMessage(cause)); setStartFailed(true); }
+    catch (cause) { setError(errorMessage(cause)); setStartFailed(true); }
     finally { setStarting(false); }
   };
   return {

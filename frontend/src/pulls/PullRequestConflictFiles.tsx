@@ -14,7 +14,7 @@
 import { useEffect, useState } from 'react';
 import type { PullRequestConflictsDto } from '../types';
 import { usePullRequestBridge } from './PullRequestWorkspace';
-import { remoteErrorMessage } from '../remoteError';
+import { errorMessage } from '../errorMessage';
 
 export default function PullRequestConflictFiles({ repo, number }: { repo: string; number: number }) {
   const bridge = usePullRequestBridge();
@@ -30,7 +30,7 @@ export default function PullRequestConflictFiles({ repo, number }: { repo: strin
     setError(null);
     void bridge.fetchPrConflicts(repo, number)
       .then(value => { if (!cancelled) setResult(value); })
-      .catch(failure => { if (!cancelled) setError(remoteErrorMessage(failure)); })
+      .catch(failure => { if (!cancelled) setError(errorMessage(failure)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [bridge, repo, number, attempt]);

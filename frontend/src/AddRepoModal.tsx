@@ -25,6 +25,7 @@ import type {
   WorkspaceDto,
 } from './types';
 import { useModalDialog } from './useModalDialog';
+import { errorMessage } from './errorMessage';
 
 type Props = {
   defaultProvider?: 'GITHUB' | 'GITLAB';
@@ -214,7 +215,7 @@ export default function AddRepoModal({ defaultProvider = 'GITHUB', initialReposi
       setError(null);
       window.bridge.searchRepositories(trimmed, 30)
         .then(results => { if (!cancelled) setRepos(results); })
-        .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
+        .catch(e => { if (!cancelled) setError(errorMessage(e)); })
         .finally(() => { if (!cancelled) setLoading(false); });
     }, 250);
     return () => {
@@ -229,7 +230,7 @@ export default function AddRepoModal({ defaultProvider = 'GITHUB', initialReposi
     setPreviewLoading(true);
     loadPreview(selectedRepositoryId, topology)
       .then(result => { if (!cancelled) setPreview(result); })
-      .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
+      .catch(e => { if (!cancelled) setError(errorMessage(e)); })
       .finally(() => { if (!cancelled) setPreviewLoading(false); });
     return () => { cancelled = true; };
   }, [selectedRepositoryId, topology, loadPreview]);
@@ -254,7 +255,7 @@ export default function AddRepoModal({ defaultProvider = 'GITHUB', initialReposi
       onClose();
     }
     catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorMessage(e));
       previewCache.current.clear();
       try {
         setPreview(await loadPreview(command.selectedRepositoryId, command.topology));

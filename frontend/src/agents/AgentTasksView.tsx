@@ -55,6 +55,7 @@ import { taskArchived, taskBusy } from './taskStatus';
 import { TaskItemCard, TaskItemRow, TaskTypeIcon, viewerInitials, type TaskItemHandlers } from './TaskListCards';
 import { TASK_TYPES, cherryPickItem, ciFixItem, developmentItem, groupTaskList, latestCiRuns, reviewItem, type TaskListItem, type TaskType } from './taskList';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
+import { errorMessage } from '../errorMessage';
 
 export type DraftImage = { id: string; name: string; url: string };
 export type TaskModelSelection = { model: string; effort: string | null; serviceTier?: string | null };
@@ -346,7 +347,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
     }
     catch (failure) {
       if (mountedRef.current && request === sourceRequest.current) {
-        setSourceError(failureMessage(failure));
+        setSourceError(errorMessage(failure));
       }
     }
     finally { if (mountedRef.current && request === sourceRequest.current) setSourceLoading(false); }
@@ -652,10 +653,6 @@ export function StartingAgentTask({ draft, images, laneId, providers, models, se
       </div>
     </div>
   );
-}
-
-function failureMessage(failure: unknown): string {
-  return failure instanceof Error ? failure.message : String(failure);
 }
 
 const NO_TASK_ATTENTION: TaskAttention = { items: [], tasks: [], readStartedAt: {}, activity: {}, refresh: () => {} };
@@ -1122,7 +1119,7 @@ export function AgentTaskList({
     setSelected([]);
     onArchive(ids, archived)
       .then(() => showToast(`${archived ? 'Archived' : 'Restored'} ${what}`, undoable ? () => archive(ids, !archived, false) : undefined))
-      .catch((failure: unknown) => showToast(`Could not ${archived ? 'archive' : 'restore'} ${what}: ${failureMessage(failure)}`));
+      .catch((failure: unknown) => showToast(`Could not ${archived ? 'archive' : 'restore'} ${what}: ${errorMessage(failure)}`));
   };
   const requestDelete = (ids: string[]): void => {
     const rows = ids
@@ -1137,7 +1134,7 @@ export function AgentTaskList({
     setDeleting(true);
     onDelete(ids)
       .then(() => showToast(`Deleted ${what}`))
-      .catch((failure: unknown) => showToast(`Could not delete ${what}: ${failureMessage(failure)}`))
+      .catch((failure: unknown) => showToast(`Could not delete ${what}: ${errorMessage(failure)}`))
       .finally(() => {
         setDeleting(false);
         setConfirm(null);

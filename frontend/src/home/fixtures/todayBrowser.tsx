@@ -166,7 +166,7 @@ async function startsWorkFromItsRow(): Promise<void> {
   let refuse = true;
   const started = { ...AGENDA, items: ITEMS.map(item => item.ref === 'work:w22' ? { ...item, status: 'done' as const, doneText: 'Started' } : item) };
   const view = mount('global', AGENDA, async () => {
-    if (refuse) throw new Error("Error invoking remote method 'agenda:start': Error: The development agent isn't ready; check Settings → Models");
+    if (refuse) throw new Error("The development agent isn't ready; check Settings → Models");
     view.render(started);
   });
   const offered = () => [...view.host.querySelectorAll<HTMLButtonElement>('.today-row button')].filter(each => each.textContent === 'Start task');

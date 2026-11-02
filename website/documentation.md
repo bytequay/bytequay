@@ -332,6 +332,8 @@ explore**. It opens a local editor and starts no agent.
 
 - **Shift twice** or **⌘⇧F** searches everywhere; **⌘F** searches the file.
 - Select a file in the left tree to preview it; double-click to keep its tab open.
+- Scroll the file tree horizontally to read long names. **Locate current file**
+  switches to **All files**, expands its folders, and brings it into view.
 - **⌘B** jumps to a definition, **⌥F7** finds usages, and **⌃⌥H** shows callers
   with the IDEA keymap.
 - Edit and save files, then use a test’s play button to run it. **Run** shows

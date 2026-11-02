@@ -37,6 +37,7 @@ import github from '../githubLight.json';
 import githubDark from '../githubDark.json';
 import { assert } from '../../fixtures/harness';
 import { verifyFileAppearance } from './fileAppearance';
+import { verifyFileExplorer } from './fileExplorerBrowser';
 import { verifyUsages } from './usagesBrowser';
 import { verifySearch } from './searchBrowser';
 import { verifyReviewComments } from './reviewCommentsBrowser';
@@ -131,6 +132,7 @@ public class Example {
   }
   provider.dispose();
   await verifyFileAppearance();
+  await verifyFileExplorer();
   await verifyUsages();
   await verifySearch();
   await verifyReviewComments();

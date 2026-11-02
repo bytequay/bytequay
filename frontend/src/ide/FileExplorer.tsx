@@ -11,8 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useMemo, useState } from 'react';
-import { FilePlus, FolderPlus, PanelLeft, RefreshCw } from 'lucide-react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { FilePlus, FolderPlus, LocateFixed, PanelLeft, RefreshCw } from 'lucide-react';
 import { buildFileTree } from '../pulls/fileTree';
 import TreeItems from '../pulls/code-tests/TreeItems';
 import type { ReviewCodeFilesDto } from '../pulls/code-tests/contracts';
@@ -26,12 +26,28 @@ export default function FileExplorer({ files, selected, runtime, onRefresh, onEr
 }) {
   const [changed, setChanged] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const list = useRef<HTMLDivElement>(null);
+  const reveal = useRef(false);
+  const parents = useMemo(() => selected?.split('/').slice(0, -1).map((_part, index, parts) => parts.slice(0, index + 1).join('/')) ?? [], [selected]);
+  const canLocate = selected !== null && files?.files.some(file => file.path === selected);
   const entries = useMemo(() => files?.files.filter(file => !changed || file.changedInPr || file.uncommitted || file.onlyInWorkingCopy) ?? [], [files, changed]);
   const tree = useMemo(() => buildFileTree(entries, file => file.path, { layout: 'ide' }), [entries]);
   useEffect(() => {
-    if (!selected) return;
-    setExpanded(current => new Set([...current, ...selected.split('/').slice(0, -1).map((_part, index, parts) => parts.slice(0, index + 1).join('/'))]));
-  }, [selected]);
+    setExpanded(current => new Set([...current, ...parents]));
+  }, [parents]);
+  useLayoutEffect(() => {
+    if (!reveal.current) return;
+    reveal.current = false;
+    const row = list.current?.querySelector<HTMLButtonElement>('[aria-current="true"]');
+    row?.querySelector('.ct-tree__name')?.scrollIntoView({ block: 'center', inline: 'nearest' });
+    row?.focus({ preventScroll: true });
+  }, [expanded, changed]);
+  const locate = () => {
+    if (!canLocate) return;
+    reveal.current = true;
+    setChanged(false);
+    setExpanded(current => new Set([...current, ...parents]));
+  };
   const open = (path: string, preview = false) => {
     void runtime.api.window.showTextDocument(runtime.workspace.with({ path: `${runtime.workspace.path}/${path}` }), { preview }).then(undefined, error => onError(String(error)));
   };
@@ -60,8 +76,9 @@ export default function FileExplorer({ files, selected, runtime, onRefresh, onEr
       <button onClick={() => { void create(false); }} title="New file" aria-label="New file"><FilePlus size={14} /></button>
       <button onClick={() => { void create(true); }} title="New folder" aria-label="New folder"><FolderPlus size={14} /></button>
       <button onClick={onRefresh} title="Refresh files" aria-label="Refresh files"><RefreshCw size={13} /></button>
+      <button onClick={locate} disabled={!canLocate} title="Locate current file" aria-label="Locate current file"><LocateFixed size={14} /></button>
     </div>
-    <div className="ct-files__list">
+    <div ref={list} className="ct-files__list">
       {files === null && <div className="ct-files__note" role="status">Loading files…</div>}
       <TreeItems items={tree} depth={0} selected={selected} isOpen={path => changed ? !expanded.has(`closed:${path}`) : expanded.has(path)}
         renderFileIcon={path => path.endsWith('.java') ? <JavaFileIcon uri={runtime.workspace.with({ path: `${runtime.workspace.path}/${path}` }).toString()} /> : undefined}

@@ -50,6 +50,9 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 .ide-files .ct-scope button[aria-pressed='true'] { color: var(--ide-fg); background: var(--vscode-list-inactiveSelectionBackground); border-color: var(--ide-edge); }
 .ide-file-actions { display: flex; gap: 8px; padding: 5px 12px; }
 .ide-file-actions button { display: flex; border: 0; background: transparent; color: var(--vscode-icon-foreground); cursor: pointer; padding: 2px; }
+.ide-file-actions button:disabled { opacity: .4; cursor: default; }
+.ide-files .ct-files__list > .ct-tree { width: max-content; min-width: 100%; }
+.ide-files .ct-tree__name { flex: none; overflow: visible; text-overflow: clip; }
 .ide-files .ct-tree__row { color: var(--ide-fg); font-size: 12px; }
 .ide-files .ct-tree__row:hover { background: var(--vscode-list-hoverBackground); }
 .ide-files .ct-tree__row.is-selected { background: var(--vscode-list-inactiveSelectionBackground); }

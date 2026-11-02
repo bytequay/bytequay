@@ -26,6 +26,7 @@ concurrency:
 
 jobs:
   backend:
+    name: Backend · Maven verify, all modules
     # Agent tests run macOS tools the app depends on, such as sandbox-exec and plutil.
     runs-on: macos-latest
     # About 15 minutes on a typical runner; a slow one has taken twice that.
@@ -51,6 +52,7 @@ jobs:
           retention-days: 7
 
   frontend:
+    name: Frontend · lint, types, package
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
@@ -106,6 +108,7 @@ jobs:
         run: node scripts/test-packaged-dictation.mjs
 
   frontend-test:
+    name: Frontend tests · ${{ matrix.shard }} of 3
     runs-on: macos-latest
     timeout-minutes: 30
     strategy:
@@ -141,6 +144,7 @@ jobs:
           retention-days: 7
 
   scripts:
+    name: Scripts · Jira broker, dev launcher, Lab
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

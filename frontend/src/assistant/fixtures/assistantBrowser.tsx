@@ -547,6 +547,10 @@ async function waitsInLineWhileItAnswers(): Promise<void> {
     assert(view.host.querySelector('.agt-user.is-waiting .agt-user__bubble')?.textContent === queued.text
       && view.host.querySelector('.assistant-waiting-note')?.textContent === 'Answers after the current reply', 'It shows in line, marked as such');
     assert(view.host.querySelector('.assistant-waiting-line')?.textContent === '1 waiting · answers after the current reply', 'The composer says one waits');
+    const thinking = view.host.querySelector('.assistant-thinking');
+    const waitingBubble = view.host.querySelector('.agt-user.is-waiting');
+    assert(thinking !== null && waitingBubble !== null && (thinking.compareDocumentPosition(waitingBubble) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+      'Thinking stands under the message being answered, above the one waiting');
     replying = false;
     window.dispatchEvent(new Event('focus'));
     await settle();
@@ -1085,6 +1089,7 @@ const report = (id: string, state: AssistantReportDto['state'], noticeId: string
 async function reportsWhatItsTasksRaised(): Promise<void> {
   const view = mount({ ...VIEW, items: [VIEW.items[0], VIEW.items[2],
     report('k1', 'DECISION', 'approval:a1', '“Metadata cache” asked for your approval: Run the focused Maven test', 'task-1'),
+    report('k6', 'DECISION', 'stuck:turn-9:1', '“Expose snapshot id in metadata” looks stuck: Quiet 14 min', 't9'),
     report('k0', 'FAILED', 'failed:turn-8', '“Expose snapshot id in metadata” failed: The turn stopped before it finished.', 't9'),
     report('k2', 'READY', 'finished:turn-9', '“Expose snapshot id in metadata” is ready', 't9')] });
   try {
@@ -1092,6 +1097,9 @@ async function reportsWhatItsTasksRaised(): Promise<void> {
     enter(type(view.host, 'How is the snapshot id task going?'));
     await settle();
     const talk = element<HTMLElement>('.assistant-talk', view.host, 'The conversation shows');
+    const line = (text: string) => [...talk.querySelectorAll<HTMLElement>('.assistant-receipt')].find(each => each.textContent?.includes(text) === true);
+    assert(line('Started “Expose snapshot id')?.textContent?.includes('Stop…') === false, 'Once its turn ended, a receipt offers no Stop');
+    assert(line('looks stuck')?.querySelector('.lucide-timer-off') != null, 'A stuck line keeps the stuck icon after its notice is gone');
     const replies = () => [...talk.querySelectorAll<HTMLButtonElement>('.assistant-reply-to .assistant-link')];
     assert(replies().length === 1, `Only a task's latest report takes a reply, and not while it waits on an approval: ${replies().length}`);
     replies()[0].click();

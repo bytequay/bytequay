@@ -244,3 +244,51 @@ export function arrivedOpen(items: AssistantItemDto[], openedAt: number, followe
 export function createdDrafts(items: AssistantItemDto[]): ReadonlySet<string> {
   return new Set(items.flatMap(item => item.receipt?.operation === 'CREATE_EPIC' && item.receipt.target?.id != null ? [item.receipt.target.id] : []));
 }
+
+/**
+ * The conversation as it reads: a message sent while a reply was written is kept when sent, but shows after that reply, right above its
+ * own answer. Each message gets one reply or failure, in the order the messages were sent.
+ */
+export function inAnswerOrder(items: AssistantItemDto[]): AssistantItemDto[] {
+  const ordered: AssistantItemDto[] = [];
+  const queued: AssistantItemDto[] = [];
+  let unanswered = false;
+  for (const item of items) {
+    if (item.kind === 'USER' && unanswered) {
+      queued.push(item);
+      continue;
+    }
+    ordered.push(item);
+    if (item.kind === 'USER') unanswered = true;
+    else if (unanswered && (item.kind === 'REPLY' || item.kind === 'FAILURE')) {
+      const next = queued.shift();
+      if (next === undefined) unanswered = false;
+      else ordered.push(next);
+    }
+  }
+  return [...ordered, ...queued];
+}
+
+// A turn goes on after it waits on a card or looks stuck; any other report says how it ended. AssistantService.java holds the twin.
+const GOES_ON = ['approval:', 'stuck:'];
+
+/** The receipts whose turn has ended: a later report said how, or a later receipt started another turn of the same task. */
+export function endedTurns(items: AssistantItemDto[]): ReadonlySet<string> {
+  const ended = new Set<string>();
+  const latest = new Map<string, string>();
+  for (const item of items) {
+    const { receipt, report } = item;
+    const task = receipt?.target?.id ?? report?.target.id;
+    if (task == null) continue;
+    const previous = latest.get(task);
+    if (receipt?.turnId != null) {
+      if (previous !== undefined) ended.add(previous);
+      latest.set(task, item.id);
+    }
+    else if (report !== null && previous !== undefined && !GOES_ON.some(prefix => report.noticeId.startsWith(prefix))) {
+      ended.add(previous);
+      latest.delete(task);
+    }
+  }
+  return ended;
+}

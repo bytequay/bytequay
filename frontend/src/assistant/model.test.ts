@@ -18,8 +18,8 @@ import type { AgendaTargetDto, AssistantItemDto, AssistantReceiptDto, AssistantR
 import { workspaceAgentTaskRoute, workspaceIssueRoute, workspacePullRequestRoute, workspaceReviewTaskRoute, workspaceRoute } from '../workspaces/model';
 import { settingsRoute } from '../settings/routes';
 import {
-  arrivedOpen, createdDrafts, dayLabel, decisionOrder, linkRefs, localDay, pageRoute, refFromHref, refLabel, rowState, rowTitle, screenRef, soonestDeadline, takesSuggestion, timelineDays,
-  waitingCards,
+  arrivedOpen, createdDrafts, dayLabel, decisionOrder, endedTurns, inAnswerOrder, linkRefs, localDay, pageRoute, refFromHref, refLabel, rowState, rowTitle, screenRef,
+  soonestDeadline, takesSuggestion, timelineDays, waitingCards,
 } from './model';
 
 const target: AgendaTargetDto = { kind: 'PULL', workspaceId: 'ws', repo: 'owner/repository', number: 31402, id: null, connectionId: null, cloudId: null };
@@ -206,6 +206,35 @@ describe('opens', () => {
     expect(arrivedOpen(items, opened, new Set())?.id).toBe('second');
     expect(arrivedOpen(items, opened, new Set(['second']))?.id).toBe('first');
     expect(arrivedOpen(items.slice(0, 1), opened, new Set())).toBeNull();
+  });
+});
+
+describe('the conversation as it reads', () => {
+  const item = (id: string, kind: AssistantItemDto['kind'], fields: Partial<AssistantItemDto> = {}): AssistantItemDto => ({
+    id, conversationId: 'c1', at: '2026-10-17T07:00:00Z', kind, text: id, targets: {}, notReady: false, receipt: null, list: null, draft: null, report: null, ...fields,
+  });
+  const task = (id: string): AgendaTargetDto => ({ ...target, kind: 'TASK', repo: null, number: null, id });
+  const started = (id: string, taskId: string, turnId: string | null) => item(id, 'RECEIPT', {
+    receipt: { operation: 'START_TASK', outcome: 'DONE', detail: null, target: task(taskId), page: null, turnId, fix: null, words: null },
+  });
+  const reported = (id: string, taskId: string, noticeId: string) => item(id, 'REPORT', { report: { state: 'DECISION', noticeId, target: task(taskId) } });
+  const ids = (items: AssistantItemDto[]) => items.map(each => each.id);
+
+  it('shows a message sent during a reply right above its own answer, and one still waiting at the end', () => {
+    expect(ids(inAnswerOrder([item('u1', 'USER'), item('u2', 'USER'), item('l1', 'LIST'), item('r1', 'REPLY'), item('r2', 'REPLY')])))
+      .toEqual(['u1', 'l1', 'r1', 'u2', 'r2']);
+    expect(ids(inAnswerOrder([item('u1', 'USER'), item('u2', 'USER'), item('u3', 'USER'), item('f1', 'FAILURE'), item('r2', 'REPLY')])))
+      .toEqual(['u1', 'f1', 'u2', 'r2', 'u3']);
+    // A retried failure answers the same message again, and a report or a card's receipt stays where it came.
+    expect(ids(inAnswerOrder([item('u1', 'USER'), item('f1', 'FAILURE'), item('k1', 'REPORT'), item('r1', 'REPLY'), item('u2', 'USER'), item('r2', 'REPLY')])))
+      .toEqual(['u1', 'f1', 'k1', 'r1', 'u2', 'r2']);
+  });
+
+  it('ends a receipt’s turn once a later report says how it ended or another turn of its task started', () => {
+    const items = [started('s1', 't1', 'turn-1'), reported('k1', 't1', 'approval:a1'), reported('k2', 't1', 'stuck:turn-1:1'), started('s2', 't2', 'turn-2'),
+      started('s3', 't1', 'turn-3'), reported('k3', 't2', 'finished:turn-2'), started('s4', 't1', null)];
+    expect([...endedTurns(items)].sort()).toEqual(['s1', 's2']);
+    expect([...endedTurns(items.slice(0, 3))]).toEqual([]);
   });
 });
 

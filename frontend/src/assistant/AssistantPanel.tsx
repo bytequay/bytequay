@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import {
   AlarmClock, ArrowUpRight, Ban, CalendarCheck, CheckCheck, CircleCheck, CircleDot, CircleX, Clock, Flag, History, ListEnd, ListPlus, ListTodo, MessageCircleQuestion,
-  MessageSquareReply, Play, RotateCw, Send, ShieldCheck, SquarePen, SquarePlus, TriangleAlert, X, type LucideIcon,
+  MessageSquareReply, Play, RotateCw, Send, ShieldCheck, SquarePen, SquarePlus, TimerOff, TriangleAlert, X, type LucideIcon,
 } from 'lucide-react';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import Composer from '../Composer';
@@ -36,8 +36,8 @@ import AssistantList from './AssistantList';
 import { ApprovalCard, NoticeCard, ResultCard, RunningCard, RunningFold, StopButton } from './Cards';
 import DraftCard from './DraftCard';
 import {
-  SUGGESTION, arrivedOpen, createdDrafts, decisionOrder, linkRefs, pageRoute, refFromHref, refLabel, takesSuggestion, type AssistantRequest, type AssistantView, type Pill,
-  type WaitingCard,
+  SUGGESTION, arrivedOpen, createdDrafts, decisionOrder, endedTurns, inAnswerOrder, linkRefs, pageRoute, refFromHref, refLabel, takesSuggestion, type AssistantRequest,
+  type AssistantView, type Pill, type WaitingCard,
 } from './model';
 import AssistantPills, { useWaiting } from './Pills';
 import { approvePull, closePull, mergePull, type PullAction } from './pullActions';
@@ -231,10 +231,13 @@ export default function AssistantPanel({ open, covered = false, chatEnabled = tr
   };
   const startNew = () => choose(crypto.randomUUID());
   const openSettings = (section: SettingsSection) => leave(() => onPage(settingsRoute(section)));
+  // Messages sent during a reply read right above their own answers.
+  const shown = inAnswerOrder(items);
   // A receipt a card's button left after a failed reply, or a task's report, does not end that exchange, so Retry stays on the failure.
-  const lastExchange = items.findLast(item => item.kind !== 'RECEIPT' && item.kind !== 'REPORT')?.id;
-  // A refusal in the latest exchange points down at a card's buttons, so the decisions show under the conversation.
-  const pointsDown = items.slice(items.findLastIndex(item => item.kind === 'USER')).some(item => item.receipt?.fix === 'BUTTONS');
+  const lastExchange = shown.findLast(item => item.kind !== 'RECEIPT' && item.kind !== 'REPORT')?.id;
+  // A refusal in the exchange being answered points down at a card's buttons, so the decisions show under the conversation.
+  const pointsDown = shown.slice(shown.findLastIndex(item => item.kind === 'USER' && !waitingIds.has(item.id))).some(item => item.receipt?.fix === 'BUTTONS');
+  const ended = endedTurns(items);
   const targets: Record<string, AgendaTargetDto> = {};
   for (const item of items) Object.assign(targets, item.targets);
   const drafts = createdDrafts(items);
@@ -304,23 +307,26 @@ export default function AssistantPanel({ open, covered = false, chatEnabled = tr
     setView(pill === view ? 'conversation' : pill);
   };
 
+  const entries: ReactNode[] = shown.map(item => item.kind === 'RECEIPT'
+    ? <Receipt key={item.id} item={item} ended={ended.has(item.id)} onOpen={openReceipt} onSettings={openSettings} />
+    : item.kind === 'REPORT'
+      ? reportEntry(item)
+      : <Entry key={item.id} item={item} waiting={waitingIds.has(item.id)} rows={chat?.rows ?? {}} drafts={drafts} model={chat?.model ?? null}
+        retryable={chatEnabled && !running && item.id === lastExchange} onRetry={retry} onSettings={openSettings} onOpen={show} onComplete={completeTask}
+        onPull={actOnPull} onRefresh={refresh} />);
+  // Thinking stands under the message being answered, above any still waiting in line.
+  const waitingFrom = shown.findIndex(item => waitingIds.has(item.id));
+  if (running) {
+    entries.splice(waitingFrom === -1 ? entries.length : waitingFrom, 0,
+      <p key="thinking" className="assistant-thinking" role="status">Thinking<span className="assistant-caret" aria-hidden="true" /></p>);
+  }
+
   // The newest conversation that is not on screen, to continue from a new one with one click.
   const latest = conversations.find(each => each.id !== conversation);
   const talk = history ? <Conversations conversations={conversations} current={conversation} onChoose={choose} />
     // Not while a chosen conversation is still being read, so the line does not flash before it.
     : !talkOpen ? chat !== null && latest !== undefined && <Conversations conversations={[latest]} current={conversation} onChoose={choose} />
-    : (
-      <div className="assistant-talk" onClickCapture={openLink} onAuxClickCapture={openLink}>
-        {items.map(item => item.kind === 'RECEIPT'
-          ? <Receipt key={item.id} item={item} onOpen={openReceipt} onSettings={openSettings} />
-          : item.kind === 'REPORT'
-            ? reportEntry(item)
-            : <Entry key={item.id} item={item} waiting={waitingIds.has(item.id)} rows={chat?.rows ?? {}} drafts={drafts} model={chat?.model ?? null}
-              retryable={chatEnabled && !running && item.id === lastExchange} onRetry={retry} onSettings={openSettings} onOpen={show} onComplete={completeTask}
-              onPull={actOnPull} onRefresh={refresh} />)}
-        {running && <p className="assistant-thinking" role="status">Thinking<span className="assistant-caret" aria-hidden="true" /></p>}
-      </div>
-    );
+    : <div className="assistant-talk" onClickCapture={openLink} onAuxClickCapture={openLink}>{entries}</div>;
 
   const composer = chatEnabled ? (
     <Composer inputRef={input} aria-label="Message the Assistant" placeholder={SUGGESTION} value={draft} maxLength={16 * 1024}
@@ -602,7 +608,7 @@ function Report({ item, notice, conversation, onAnswered, onOpenNotice, onClearN
         : <NoticeCard notice={notice} focused={false} onOpen={open} onClear={clear} />;
   }
   else {
-    const Icon = report.state === 'FAILED' ? CircleX : report.state === 'READY' ? CircleCheck : MessageCircleQuestion;
+    const Icon = report.state === 'FAILED' ? CircleX : report.state === 'READY' ? CircleCheck : report.noticeId.startsWith('stuck:') ? TimerOff : MessageCircleQuestion;
     entry = (
       <div className="assistant-receipt" title={item.text}>
         <Icon className="assistant-receipt__icon" size={14} aria-hidden="true" />
@@ -664,11 +670,17 @@ const ACTED: Record<AssistantReceiptDto['operation'], LucideIcon> = {
 };
 
 /**
- * What an action did, or why it did not, on one line, with the user's own words in its tooltip; then Stop for the first turn of a task
- * it started, Settings to the switch that is off, and Open to where it acted. A refusal points down at the card's buttons when they
- * are the way to do it.
+ * What an action did, or why it did not, on one line, with the user's own words in its tooltip; then Stop for the turn it started in a
+ * task until that turn ends, Settings to the switch that is off, and Open to where it acted. A refusal points down at the card's buttons
+ * when they are the way to do it.
  */
-function Receipt({ item, onOpen, onSettings }: { item: AssistantItemDto; onOpen: (receipt: AssistantReceiptDto) => void; onSettings: (section: SettingsSection) => void }) {
+function Receipt({ item, ended, onOpen, onSettings }: {
+  item: AssistantItemDto;
+  /** The turn it started has ended, as a later report or receipt in the conversation says. */
+  ended: boolean;
+  onOpen: (receipt: AssistantReceiptDto) => void;
+  onSettings: (section: SettingsSection) => void;
+}) {
   const receipt = item.receipt;
   if (receipt === null) return null;
   const { target, page, turnId, outcome, fix, words, detail } = receipt;
@@ -683,7 +695,7 @@ function Receipt({ item, onOpen, onSettings }: { item: AssistantItemDto; onOpen:
       <div className="assistant-receipt__text">
         <span className="assistant-receipt__lead">{item.text}</span>{detail !== null && ` · ${detail}`}{fix === 'BUTTONS' && <span aria-hidden="true"> ↓</span>}
       </div>
-      {turnId !== null && <StopButton turnId={turnId} />}
+      {turnId !== null && !ended && <StopButton turnId={turnId} />}
       {fix === 'SETTINGS' && <button type="button" className="assistant-button" onClick={() => onSettings('features')}>Settings</button>}
       {outcome === 'DONE' && (target !== null || page !== null) && <button type="button" className="assistant-button" onClick={() => onOpen(receipt)}>Open</button>}
     </div>

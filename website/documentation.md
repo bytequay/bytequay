@@ -235,6 +235,9 @@ counts what Decision counts. Task alerts also show as macOS notifications. An
 approval or question waits five minutes for your answer: its card shows the
 time left, and its alert comes back once in the last minute. With no answer by
 then, the turn stops and Finished shows **No answer within 5 minutes**.
+A CI Autofix request alerts on its development task, whose page answers it.
+Memory's spec checks and learning runs don't alert: one that asks stops after
+five minutes, or sooner with **Stop**.
 
 A running task that goes quiet for 10 minutes, with no command running and
 nothing waiting on you, or whose command runs far longer than that program

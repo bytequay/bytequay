@@ -28,6 +28,7 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.QueuedInputStore;
 import com.bytequay.agent.spi.AgentApprovalHandler;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.service.epic.EpicNextWork;
 import com.bytequay.app.utils.ContextText;
 import com.bytequay.app.workspace.TaskPullRequestOwnership;
@@ -47,6 +48,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Multimaps;
+import com.google.common.collect.Sets;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -153,19 +155,26 @@ public class AppNoticeService
                 .filter(review -> task.workspaceId().filter(review.workspaceId()::equals).isPresent())
                 .ifPresent(review -> scopedReviews.put(task.id(), review)));
         candidates.values().removeIf(task -> task.archivedAt().isPresent() || (!task.interactive() && !scopedReviews.containsKey(task.id())));
-        Map<TaskId, AgentTurn> latestTurns = turns.findLatest(candidates.keySet());
+        List<ApprovalRequest> requests = approvals.listPending().stream().map(AgentApproval::request).collect(ImmutableList.toImmutableList());
+        // A CI repair works in its development task's checkout, whose page answers the repair's cards, so they are that task's notices.
+        Map<TaskId, TaskId> repairs = requests.stream().map(ApprovalRequest::taskId).filter(id -> !candidates.containsKey(id)).distinct()
+                .flatMap(id -> tasks.find(id).stream())
+                .filter(task -> task.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX && task.taskWorktree().isPresent() && !task.ownsWorktree())
+                .collect(toImmutableMap(AgentTask::id, task -> task.taskWorktree().orElseThrow().taskId()));
+        Map<TaskId, AgentTurn> latestTurns = turns.findLatest(Sets.union(candidates.keySet(), repairs.keySet()));
         Map<TaskId, AgentTurn> reports = turns.findLatestDevelopmentResults(candidates.keySet());
         Map<String, ReviewRunOverview> runs = reviews.summarizeRuns(candidates.keySet().stream()
                 .filter(scopedReviews::containsKey).map(id -> scopedReviews.get(id).id()).collect(toImmutableSet()));
-        var pending = Multimaps.index(approvals.listPending().stream().map(AgentApproval::request).iterator(), ApprovalRequest::taskId);
+        // A card counts only while the turn that asked is still its own task's latest, running turn.
+        var pending = Multimaps.index(requests.stream()
+                .filter(request -> Optional.ofNullable(latestTurns.get(request.taskId())).filter(turn -> turn.state().active() && turn.id().equals(request.turnId())).isPresent())
+                .iterator(), request -> repairs.getOrDefault(request.taskId(), request.taskId()));
         ImmutableList.Builder<AppNotice> notices = ImmutableList.builder();
         for (AgentTask task : candidates.values()) {
             Optional<AgentReview> review = Optional.ofNullable(scopedReviews.get(task.id()));
             Optional<AgentTurn> latest = Optional.ofNullable(latestTurns.get(task.id()));
             Optional<ReviewRunOverview> overview = review.map(value -> runs.get(value.id()));
-            Optional<ApprovalRequest> approval = pending.get(task.id()).stream()
-                    .filter(request -> latest.filter(turn -> turn.state().active() && turn.id().equals(request.turnId())).isPresent())
-                    .min(comparing(ApprovalRequest::requestedAt));
+            Optional<ApprovalRequest> approval = pending.get(task.id()).stream().min(comparing(ApprovalRequest::requestedAt));
             select(task, latest, Optional.ofNullable(reports.get(task.id())), approval, review, overview).ifPresent(notices::add);
         }
         return notices.build();
@@ -181,8 +190,10 @@ public class AppNoticeService
         if (task.state() == TaskState.OPEN && approval.isPresent()) {
             ApprovalRequest request = approval.orElseThrow();
             boolean question = request.providerRequest().requestedPermissions().contains(QUESTION_TOOL);
+            String message = question ? question(request.providerRequest().detail()) : request.providerRequest().title();
+            // The development task's page shows the repair's card under the same name.
             return Optional.of(notice(task, review, overview, latest, "approval:" + request.id(), question ? AppNotice.Kind.QUESTION : AppNotice.Kind.APPROVAL,
-                    question ? question(request.providerRequest().detail()) : request.providerRequest().title(), request.requestedAt(),
+                    request.taskId().equals(task.id()) ? message : "CI Autofix · " + message, request.requestedAt(),
                     Optional.of(request.requestedAt().plus(AgentApprovalHandler.WAIT)), Optional.empty()));
         }
         Optional<WorktreeMutationClaim> recovery = task.worktreeMutationClaim().filter(claim -> claim.kind() == WorktreeMutationClaim.Kind.RECOVERY

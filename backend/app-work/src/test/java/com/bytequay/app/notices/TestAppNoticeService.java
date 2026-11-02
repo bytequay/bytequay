@@ -28,6 +28,8 @@ import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskWorktree;
+import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.WorktreeMutationClaim;
@@ -232,6 +234,43 @@ class TestAppNoticeService
         });
 
         when(ciRuns.listByParentTaskId(task.id().toString())).thenReturn(ImmutableList.of(run.finish(CiAutofixRun.FinishReason.GREEN, "Checks passed", NOW.plusSeconds(40))));
+        assertThat(service.current()).singleElement().extracting(AppNotice::kind).isEqualTo(AppNotice.Kind.TURN_FINISHED);
+    }
+
+    @Test
+    void aCiRepairsCardWaitsOnItsDevelopmentTaskWhosePageAnswersIt()
+    {
+        AgentTurn done = turn().finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.plusSeconds(10));
+        AgentTask repair = created(TaskId.random(), false, "CI Autofix owner/repo#7", TitleSource.USER, task.laneId(), worktree(task.id()),
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.CI_AUTOFIX), NOW);
+        AgentTurn fixing = AgentTurn.accepted(TurnId.random(), repair.id(), "ci-fix", SETTINGS, NOW.plusSeconds(20))
+                .markDeliveryStarted(NOW.plusSeconds(20)).running(new ProviderTurnRef("ci-fix"), Optional.empty());
+        when(tasks.listRecent(200)).thenReturn(ImmutableList.of(task, repair));
+        when(tasks.listLive()).thenReturn(ImmutableList.of(task, repair));
+        when(tasks.find(task.id())).thenReturn(Optional.of(task));
+        when(tasks.find(repair.id())).thenReturn(Optional.of(repair));
+        when(turns.findLatest(anySet())).thenReturn(ImmutableMap.of(task.id(), done, repair.id(), fixing));
+        approval(fixing, ImmutableList.of("mvn verify"), "Run the tests");
+        assertThat(service.current()).singleElement().satisfies(notice -> {
+            assertThat(notice.kind()).isEqualTo(AppNotice.Kind.APPROVAL);
+            assertThat(notice.taskId()).isEqualTo(task.id().toString());
+            assertThat(notice.message()).isEqualTo("CI Autofix · Permission needed");
+            assertThat(notice.expiresAt()).contains(NOW.plus(AgentApprovalHandler.WAIT));
+        });
+        // The Assistant follows the development task it started, not its repair.
+        assertThat(service.current(ImmutableList.of(task.id()))).singleElement().extracting(AppNotice::kind).isEqualTo(AppNotice.Kind.APPROVAL);
+
+        AgentTurn fixed = fixing.finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.plusSeconds(30));
+        when(turns.findLatest(anySet())).thenReturn(ImmutableMap.of(task.id(), done, repair.id(), fixed));
+        assertThat(service.current()).singleElement().extracting(AppNotice::kind).isEqualTo(AppNotice.Kind.TURN_FINISHED);
+
+        // A spec check's card has no page that answers it.
+        TaskId checkId = TaskId.random();
+        AgentTask check = created(checkId, false, "Check owner/repo", TitleSource.USER, task.laneId(), worktree(checkId), task.defaults(), NOW);
+        AgentTurn checking = AgentTurn.accepted(TurnId.random(), checkId, "check", SETTINGS, NOW).markDeliveryStarted(NOW).running(new ProviderTurnRef("check"), Optional.empty());
+        when(tasks.find(checkId)).thenReturn(Optional.of(check));
+        when(turns.findLatest(anySet())).thenReturn(ImmutableMap.of(task.id(), done, checkId, checking));
+        approval(checking, ImmutableList.of("mvn verify"), "Run the tests");
         assertThat(service.current()).singleElement().extracting(AppNotice::kind).isEqualTo(AppNotice.Kind.TURN_FINISHED);
     }
 
@@ -475,6 +514,11 @@ class TestAppNoticeService
         when(reviews.summarizeRuns(anySet())).thenReturn(ImmutableMap.of(review.id(), new ReviewRunOverview(
                 runs.stream().anyMatch(ReviewRun::active), latest.scope(), latest.commits().size(), latest.diff().size(),
                 latest.diff().stream().mapToLong(DiffFile::additions).sum(), latest.diff().stream().mapToLong(DiffFile::deletions).sum(), latest.state(), latest.endedAt())));
+    }
+
+    private static TaskWorktree worktree(TaskId owner)
+    {
+        return new TaskWorktree(owner, "workspace", new RepositoryIdentity("owner", "repo"), Path.of("/tmp", owner.toString()), "bytequay/task/" + owner, "a".repeat(40));
     }
 
     private AgentTurn turn()

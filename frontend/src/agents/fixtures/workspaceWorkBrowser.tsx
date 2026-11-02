@@ -44,6 +44,7 @@ export async function run() {
   } });
   const visibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+  document.dispatchEvent(new Event('visibilitychange'));
   const host = document.createElement('main');
   document.body.append(host);
   const content = () => host.textContent;
@@ -68,6 +69,7 @@ export async function run() {
     assert(content() === '{"ids":["updated-review"],"failed":[]}', 'Retries after failure and clears the error');
 
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
     const before = calls;
     tick();
     assert(calls === before, 'Hidden pages do not poll');

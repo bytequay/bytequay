@@ -12,16 +12,14 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
+import { subscribeRunningTasks } from '../agents/RunningTasks';
 import type { RunningTask } from '../agents/runningTaskModel';
 import { doneRatio, showsToday } from '../home/today';
 import { useTodayAgenda, type TodayAgenda } from '../home/useTodayAgenda';
-import { pollVisible } from '../ide/pollVisible';
 import { approvalTimeLeft, type AppNotice } from '../notices/contracts';
 import { useNow } from '../useNow';
 import type { AgendaDto } from '../types';
 import { PILLS, soonestDeadline, waitingCards, type Pill, type WaitingCard } from './model';
-
-const RUNNING_POLL_MS = 5000;
 
 const LABELS: Record<Pill, string> = { all: 'All', decision: 'Decision', running: 'Running', finished: 'Finished', today: 'Today', mywork: 'My work' };
 const TITLES: Record<Pill, string> = {
@@ -29,13 +27,10 @@ const TITLES: Record<Pill, string> = {
   finished: 'Results you have not seen', today: 'Today’s plan', mywork: 'My work',
 };
 
-/** Running tasks in every repository, as the sidebar lists them; null until the first read answers. */
+/** Running tasks in every repository, from the read the sidebar shares; null until the first read answers. */
 function useRunningTasks(): RunningTask[] | null {
   const [tasks, setTasks] = useState<RunningTask[] | null>(null);
-  useEffect(() => pollVisible(async () => {
-    try { setTasks(await window.bridge.listRunningTasks()); }
-    catch { /* The last list stays through a failed read. */ }
-  }, RUNNING_POLL_MS), []);
+  useEffect(() => subscribeRunningTasks(setTasks), []);
   return tasks;
 }
 

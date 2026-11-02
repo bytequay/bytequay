@@ -21,35 +21,61 @@ import '../css/running-tasks.css';
 
 const POLL_MS = 5000;
 
+const listeners = new Set<(tasks: RunningTask[]) => void>();
+let latest: RunningTask[] | null = null;
+let stopReading: (() => void) | null = null;
+
+/**
+ * Every view in the window that lists running work (the sidebar, the pills and the Assistant) shares one read every five seconds.
+ * The read stops with the last view, and a view mounted later starts from a fresh read.
+ */
+export function subscribeRunningTasks(listener: (tasks: RunningTask[]) => void): () => void {
+  listeners.add(listener);
+  if (latest !== null) listener(latest);
+  stopReading ??= startReading();
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size > 0) return;
+    stopReading?.();
+    stopReading = null;
+    latest = null;
+  };
+}
+
+function startReading(): () => void {
+  let active = true;
+  let pending = false;
+  const read = async () => {
+    if (pending || document.hidden) return;
+    pending = true;
+    try {
+      const found = await window.bridge.listRunningTasks();
+      if (active) {
+        latest = found;
+        listeners.forEach(listener => listener(found));
+      }
+    }
+    catch { /* Keep the last snapshot through a failed read; completion deadlines still expire. */ }
+    finally { pending = false; }
+  };
+  void read();
+  const timer = window.setInterval(() => { void read(); }, POLL_MS);
+  const refresh = () => { void read(); };
+  window.addEventListener('focus', refresh);
+  document.addEventListener('visibilitychange', refresh);
+  return () => {
+    active = false;
+    window.clearInterval(timer);
+    window.removeEventListener('focus', refresh);
+    document.removeEventListener('visibilitychange', refresh);
+  };
+}
+
 /** The sidebar's Working rows; pinned rows read the same snapshot to mark their own work. */
 export function useRunningTasks(): RunningTask[] {
   const [tasks, setTasks] = useState<RunningTask[]>([]);
   const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    let active = true;
-    let pending = false;
-    const read = async () => {
-      if (pending || document.hidden) return;
-      pending = true;
-      try {
-        const found = await window.bridge.listRunningTasks();
-        if (active) { setTasks(found); setNow(Date.now()); }
-      }
-      catch { /* Keep the last snapshot through a failed read; completion deadlines still expire. */ }
-      finally { pending = false; }
-    };
-    void read();
-    const timer = window.setInterval(() => { setNow(Date.now()); void read(); }, POLL_MS);
-    const refresh = () => { setNow(Date.now()); void read(); };
-    window.addEventListener('focus', refresh);
-    document.addEventListener('visibilitychange', refresh);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-      window.removeEventListener('focus', refresh);
-      document.removeEventListener('visibilitychange', refresh);
-    };
-  }, []);
+  useEffect(() => subscribeRunningTasks(found => { setTasks(found); setNow(Date.now()); }), []);
   useEffect(() => {
     const deadlines = tasks.flatMap(task => task.expiresAt === null ? [] : [Date.parse(task.expiresAt)]).filter(at => at > now);
     if (deadlines.length === 0) return;

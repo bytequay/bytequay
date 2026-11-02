@@ -86,6 +86,17 @@ export async function run() {
   const resolvePending = pending as ((tasks: RunningTask[]) => void) | null;
   resolvePending?.(snapshot); await settle();
   assert(host.textContent === '', 'An in-flight response must not restore an unmounted section');
+  // Every view in the window shares one read: two lists mounted together still cost one request each time.
+  let reads = 0;
+  Object.assign(window, { bridge: { listRunningTasks: () => { reads += 1; return Promise.resolve(snapshot); } } });
+  const shared = createRoot(host);
+  shared.render(<><RunningTasks /><RunningTasks /></>);
+  await settle();
+  const mounted = reads;
+  await refresh();
+  assert(mounted === 1 && reads === 2 && host.querySelectorAll('.app-sidebar__running-item').length === 2,
+    `Two lists should share one read and both show it: ${mounted} read on mount, ${reads} after a refresh`);
+  shared.unmount();
   window.setTimeout = originalTimeout;
   window.clearTimeout = originalClear;
   return true;

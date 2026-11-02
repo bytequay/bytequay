@@ -16,6 +16,7 @@ package com.bytequay.app.assistant;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.ApprovalId;
+import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
@@ -33,6 +34,8 @@ import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.agent.spi.SessionAccess;
 import com.bytequay.app.agenda.AgendaFixtures;
 import com.bytequay.app.agent.runtime.AgentProperties;
+import com.bytequay.app.notices.AppNotice;
+import com.bytequay.app.notices.AppNoticeService;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AgentModelSetting;
@@ -50,6 +53,7 @@ import com.bytequay.core.domain.AssistantDraft;
 import com.bytequay.core.domain.AssistantItem;
 import com.bytequay.core.domain.AssistantList;
 import com.bytequay.core.domain.AssistantReceipt;
+import com.bytequay.core.domain.AssistantReport;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.AfterEach;
@@ -71,6 +75,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -83,18 +88,21 @@ import java.util.function.Consumer;
 import static com.bytequay.core.domain.AssistantItem.Kind.FAILURE;
 import static com.bytequay.core.domain.AssistantItem.Kind.RECEIPT;
 import static com.bytequay.core.domain.AssistantItem.Kind.REPLY;
+import static com.bytequay.core.domain.AssistantItem.Kind.REPORT;
 import static com.bytequay.core.domain.AssistantItem.Kind.USER;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -110,6 +118,8 @@ class TestAssistantConversation
     private static final String C2 = "5f0c1d9a-2e7b-4a61-8c3f-9b4d2e6a1c07";
     private static final String C3 = "9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d";
     private static final AgendaTarget TASK = AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", "t1");
+    private static final String STARTED_ID = "3f2a1b0c-9d8e-4f7a-b6c5-d4e3f2a1b0c9";
+    private static final AgendaTarget STARTED = AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", STARTED_ID);
 
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
@@ -122,6 +132,7 @@ class TestAssistantConversation
     private final AssistantShow show = mock(AssistantShow.class);
     private final AssistantRows rows = mock(AssistantRows.class);
     private final AssistantWork work = mock(AssistantWork.class);
+    private final AppNoticeService notices = mock(AppNoticeService.class);
     private final ModelSettingsService models = mock(ModelSettingsService.class);
     private final AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
     private final AgentDriver driver = mock(AgentDriver.class);
@@ -196,7 +207,7 @@ class TestAssistantConversation
         InMemoryAppSettingsStore settings = new InMemoryAppSettingsStore();
         settings.put(CredentialService.GITHUB_ACCOUNT_SETTING, "7");
         setup = new SetupSettingsService(settings, mock(AppSettingsService.class), models, drivers, AgendaFixtures.mapper());
-        assistant = new AssistantService(store, reader, actions, show, rows, work, setup, drivers, resources,
+        assistant = new AssistantService(store, reader, actions, show, rows, work, notices, setup, drivers, resources,
                 new AgentProperties(runtime, Duration.ZERO, "", "codex", "0.159.3", temporaryDirectory.resolve("codex-home"), "claude", temporaryDirectory.resolve("claude-home")),
                 AgendaFixtures.mapper(), clock, executor);
     }
@@ -590,6 +601,104 @@ class TestAssistantConversation
         assertThat(assistantFolders.resolve("2026-10-01")).doesNotExist();
         assertThat(assistantFolders.resolve(C2)).isDirectory();
         assertThat(assistantFolders.resolve(C3)).isDirectory();
+    }
+
+    @Test
+    void aTaskTheConversationStartedReportsEachDecisionOnceThenItsResultWithNoModel()
+    {
+        assistant.report();
+        verify(notices, never()).current(anyCollection());
+
+        Instant asked = now.get();
+        startTask(C1, asked);
+        int opens = opened.size();
+        // What the task raised before it was asked is old news.
+        when(notices.current(anyCollection())).thenReturn(ImmutableList.of(notice("finished:t0", AppNotice.Kind.TURN_FINISHED, "", asked.minusSeconds(60))));
+        assistant.report();
+        assertThat(reports(C1)).isEmpty();
+
+        now.set(asked.plusSeconds(60));
+        when(notices.current(anyCollection())).thenReturn(ImmutableList.of(notice("approval:a1", AppNotice.Kind.APPROVAL, "Run mvn test", asked.plusSeconds(30))));
+        assistant.report();
+        assistant.report();
+        now.set(asked.plusSeconds(300));
+        when(notices.current(anyCollection())).thenReturn(ImmutableList.of(notice("finished:t1", AppNotice.Kind.TURN_FINISHED, "", asked.plusSeconds(290))));
+        assistant.report();
+        // The result ends the following, so nothing later is read for it.
+        when(notices.current(anyCollection())).thenReturn(ImmutableList.of(notice("failed:t2", AppNotice.Kind.FAILURE, "Boom", asked.plusSeconds(400))));
+        assistant.report();
+
+        assertThat(reports(C1)).extracting(AssistantItem::text)
+                .containsExactly("“Fix the flaky test” asked for your approval: Run mvn test", "“Fix the flaky test” is ready");
+        assertThat(reports(C1)).extracting(item -> item.report().orElseThrow()).containsExactly(
+                new AssistantReport(AssistantReport.State.DECISION, "approval:a1", STARTED), new AssistantReport(AssistantReport.State.READY, "finished:t1", STARTED));
+        verify(notices, times(4)).current(ImmutableList.of(new TaskId(UUID.fromString(STARTED_ID))));
+        assertThat(opened).hasSize(opens);
+
+        // A session that holds the conversation hears what was reported after its last reply.
+        assistant.send(C1, "what now?", ImmutableList.of(), Optional.empty(), "key-2");
+        waitForReply();
+        assertThat(opened.getLast().sessionReference()).isPresent();
+        assertThat(prompts.getLast()).contains("Since your last reply:\n[task ", "] “Fix the flaky test” asked for your approval: Run mvn test\n",
+                "] “Fix the flaky test” is ready\n").doesNotContain("Earlier in this conversation");
+    }
+
+    @Test
+    void afterAStartAFollowedTaskReportsOnlyWhatItDidNotTellYet()
+    {
+        Instant asked = now.get();
+        store.save(AssistantConversation.start(C1, "fix the flaky test", asked));
+        store.add(AssistantItem.user(C1, asked, "fix the flaky test", ImmutableList.of(), Optional.empty(), "key-1"));
+        store.add(started(C1, asked));
+        store.add(AssistantItem.report(C1, asked.plusSeconds(30), "“Fix the flaky test” asked for your approval: Run mvn test",
+                new AssistantReport(AssistantReport.State.DECISION, "approval:a1", STARTED)));
+        // A task asked for more than a day ago is not followed any more.
+        Instant earlier = asked.minus(Duration.ofDays(2));
+        store.save(AssistantConversation.start(C2, "start the old one", earlier));
+        store.add(AssistantItem.receipt(C2, earlier, "Started “Old one”", AssistantReceipt.done(AssistantReceipt.Operation.START_TASK,
+                Optional.of(AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", "7e6d5c4b-3a29-4180-9f7e-6d5c4b3a2918")))));
+
+        now.set(asked.plusSeconds(60));
+        when(notices.current(anyCollection())).thenReturn(ImmutableList.of(notice("approval:a1", AppNotice.Kind.APPROVAL, "Run mvn test", asked.plusSeconds(30))));
+        assistant.report();
+        when(notices.current(anyCollection())).thenReturn(ImmutableList.of(notice("failed:t1", AppNotice.Kind.FAILURE, "The turn stopped before it finished.",
+                asked.plusSeconds(50))));
+        assistant.report();
+
+        verify(notices, times(2)).current(ImmutableList.of(new TaskId(UUID.fromString(STARTED_ID))));
+        assertThat(reports(C1)).extracting(AssistantItem::text)
+                .containsExactly("“Fix the flaky test” asked for your approval: Run mvn test", "“Fix the flaky test” failed: The turn stopped before it finished.");
+        assertThat(reports(C2)).isEmpty();
+    }
+
+    /** The user's message starts the task: the act tool keeps the receipt while the reply is written. */
+    private void startTask(String conversationId, Instant at)
+    {
+        AtomicReference<Consumer<AssistantItem>> keep = new AtomicReference<>();
+        when(actions.tool(any(), any(), any())).thenAnswer(call -> {
+            keep.set(call.getArgument(2));
+            return new ReviewTool("assistant_act", "Act", ImmutableMap.of("type", "object"), arguments -> "{}", false);
+        });
+        assistant.send(conversationId, "fix the flaky test", ImmutableList.of(), Optional.empty(), "key-1");
+        waitForReply();
+        keep.get().accept(started(conversationId, at));
+    }
+
+    private static AssistantItem started(String conversationId, Instant at)
+    {
+        return AssistantItem.receipt(conversationId, at, "Started “Fix the flaky test”", new AssistantReceipt(AssistantReceipt.Operation.START_TASK,
+                AssistantReceipt.Outcome.DONE, Optional.empty(), Optional.of(STARTED), Optional.empty(), Optional.of("turn-1"), Optional.empty(), Optional.empty()));
+    }
+
+    private static AppNotice notice(String id, AppNotice.Kind kind, String message, Instant at)
+    {
+        return new AppNotice(id, kind, STARTED_ID, "ws1", Optional.of("turn-1"), Optional.empty(), "Fix the flaky test", Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), message, "owner/repository", "claude", Optional.empty(), at, Optional.empty());
+    }
+
+    private List<AssistantItem> reports(String conversationId)
+    {
+        return store.items(conversationId).stream().filter(item -> item.kind() == REPORT).collect(toImmutableList());
     }
 
     private void waitForReply()

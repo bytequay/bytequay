@@ -48,6 +48,7 @@ import com.google.common.collect.Multimaps;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -125,6 +126,19 @@ public class AppNoticeService
         // Unresolved requests must survive even when newer completed tasks fill the recent page.
         tasks.listRecent(200).forEach(task -> candidates.put(task.id(), task));
         tasks.listLive().forEach(task -> candidates.put(task.id(), task));
+        return notices(candidates);
+    }
+
+    /** The notices of these tasks only, for following a few tasks without reading all of them. */
+    public List<AppNotice> current(Collection<TaskId> taskIds)
+    {
+        Map<TaskId, AgentTask> candidates = new LinkedHashMap<>();
+        taskIds.forEach(id -> tasks.find(id).ifPresent(task -> candidates.put(id, task)));
+        return notices(candidates);
+    }
+
+    private List<AppNotice> notices(Map<TaskId, AgentTask> candidates)
+    {
         Map<String, AgentReview> reviewTasks = reviews.listOpenReviews().stream().collect(toImmutableMap(AgentReview::taskId, review -> review));
         Map<TaskId, AgentReview> scopedReviews = new LinkedHashMap<>();
         candidates.values().forEach(task -> Optional.ofNullable(reviewTasks.get(task.id().toString()))

@@ -28,6 +28,8 @@ import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.agent.spi.SessionAccess;
 import com.bytequay.app.agent.runtime.AgentProperties;
+import com.bytequay.app.notices.AppNotice;
+import com.bytequay.app.notices.AppNoticeService;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.SetupSettingsService;
 import com.bytequay.core.discussion.DiscussionSession;
@@ -36,16 +38,19 @@ import com.bytequay.core.domain.AssistantConversation;
 import com.bytequay.core.domain.AssistantDraft;
 import com.bytequay.core.domain.AssistantItem;
 import com.bytequay.core.domain.AssistantReceipt;
+import com.bytequay.core.domain.AssistantReport;
 import com.bytequay.core.domain.ServedRef;
 import com.bytequay.core.store.AssistantStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.io.MoreFiles;
 import com.google.common.io.RecursiveDeleteOption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -58,12 +63,15 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
@@ -73,6 +81,7 @@ import static com.bytequay.app.agenda.AgendaReader.clip;
 import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.util.Comparator.comparing;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -80,7 +89,7 @@ import static java.util.Objects.requireNonNull;
  * {@code assistant_context} to read, {@code assistant_act} to act on that message's words, and {@code assistant_show} to show what it
  * found. The panel starts a conversation for each new topic and may go back to an earlier one. A conversation resumes its provider
  * conversation from its own folder; a session that is new, on another agent, or lost by its provider opens with the conversation's
- * last items instead.
+ * last items instead. A task the conversation started or sent words to reports back into it.
  */
 @Service
 public class AssistantService
@@ -94,6 +103,10 @@ public class AssistantService
     private static final int SEED_ITEMS = 20;
     private static final int SEED_TEXT = 400;
     private static final int REASON = 200;
+    // ponytail: a task asked for over a day ago reports only in Finished; follow it longer if turns that long turn up.
+    private static final Duration FOLLOWED = Duration.ofDays(1);
+    // AppNoticeService's mark for an approval or a question a running turn waits on; the turn goes on once it is answered.
+    private static final String PENDING = "approval:";
     private static final DateTimeFormatter LOCAL_TIME = DateTimeFormatter.ofPattern("EEEE yyyy-MM-dd HH:mm", Locale.ENGLISH);
     private static final DateTimeFormatter CLOCK = DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH);
     // Fixed, so the session's setup is the same for every message.
@@ -129,6 +142,7 @@ public class AssistantService
     private final AssistantShow show;
     private final AssistantRows rows;
     private final AssistantWork work;
+    private final AppNoticeService notices;
     private final AgentDriverRegistry drivers;
     private final AgentResourceService resources;
     private final ObjectMapper mapper;
@@ -140,10 +154,14 @@ public class AssistantService
     private final Object slot = new Object();
     private Run running;
     private final Deque<AssistantItem> waiting = new ArrayDeque<>();
+    // ponytail: the tasks the conversations asked for, by task id, held in memory and read back from the receipts once after a start. A task
+    // reports to the conversation that asked it last, until it reports a result or a failure.
+    private final Map<String, Followed> followed = new ConcurrentHashMap<>();
+    private boolean restored;
 
     AssistantService(AssistantStore store, AssistantReader reader, AssistantActions actions, AssistantShow show, AssistantRows rows, AssistantWork work,
-            SetupSettingsService setup, AgentDriverRegistry drivers, AgentResourceService resources, AgentProperties properties, ObjectMapper mapper, Clock clock,
-            @Qualifier(IO_EXECUTOR) ExecutorService executor)
+            AppNoticeService notices, SetupSettingsService setup, AgentDriverRegistry drivers, AgentResourceService resources, AgentProperties properties, ObjectMapper mapper,
+            Clock clock, @Qualifier(IO_EXECUTOR) ExecutorService executor)
     {
         this.store = requireNonNull(store, "store is null");
         this.reader = requireNonNull(reader, "reader is null");
@@ -151,6 +169,7 @@ public class AssistantService
         this.show = requireNonNull(show, "show is null");
         this.rows = requireNonNull(rows, "rows is null");
         this.work = requireNonNull(work, "work is null");
+        this.notices = requireNonNull(notices, "notices is null");
         this.setup = requireNonNull(setup, "setup is null");
         this.drivers = requireNonNull(drivers, "drivers is null");
         this.resources = requireNonNull(resources, "resources is null");
@@ -219,8 +238,9 @@ public class AssistantService
     {
         // Not in line: the failed message is the conversation's last only until a message sent meanwhile is answered.
         return start(conversationId, false, () -> {
-            // A card answered with its button meanwhile leaves a receipt after the failure, which does not end the exchange.
-            List<AssistantItem> items = store.items(conversationId).stream().filter(item -> item.kind() != AssistantItem.Kind.RECEIPT).collect(toImmutableList());
+            // A card answered with its button meanwhile leaves a receipt after the failure, and a task may report; neither ends the exchange.
+            List<AssistantItem> items = store.items(conversationId).stream()
+                    .filter(item -> item.kind() != AssistantItem.Kind.RECEIPT && item.kind() != AssistantItem.Kind.REPORT).collect(toImmutableList());
             if (items.isEmpty() || items.getLast().kind() != AssistantItem.Kind.FAILURE) {
                 throw new AgentConflictException("There is no failed reply to retry");
             }
@@ -281,6 +301,74 @@ public class AssistantService
             store.save(touched(stored.orElseThrow(), item.at()));
         }
         store.add(item);
+        follow(item);
+    }
+
+    /**
+     * Writes into each conversation what the tasks it asked for raised since: each decision a turn waits on, then its result or why it
+     * failed, which ends the following. Code picks the notices and words them; no model takes part.
+     */
+    @Scheduled(initialDelayString = "PT5S", fixedDelayString = "PT5S", scheduler = "workflowScheduler")
+    public void report()
+    {
+        if (!restored) {
+            restore();
+            restored = true;
+        }
+        Instant now = clock.instant();
+        followed.values().removeIf(follow -> follow.since().isBefore(now.minus(FOLLOWED)));
+        if (followed.isEmpty()) {
+            return;
+        }
+        for (AppNotice notice : notices.current(followed.keySet().stream().flatMap(task -> AssistantRows.taskId(task).stream()).collect(toImmutableList()))) {
+            Followed follow = followed.get(notice.taskId());
+            if (follow != null && !notice.occurredAt().isBefore(follow.since()) && !follow.told().contains(notice.id())) {
+                append(AssistantItem.report(follow.conversationId(), now, reportLine(notice),
+                        new AssistantReport(reportState(notice), notice.id(), AgendaTarget.of(AgendaTarget.Kind.TASK, notice.workspaceId(), notice.taskId()))));
+            }
+        }
+    }
+
+    /** Follows again, after a start, what the last day's conversations asked for, from their receipts and reports in the order they came. */
+    private synchronized void restore()
+    {
+        Instant from = clock.instant().minus(FOLLOWED);
+        store.conversations(HISTORY).stream().filter(conversation -> !conversation.updatedAt().isBefore(from))
+                .flatMap(conversation -> store.items(conversation.id()).stream()).sorted(comparing(AssistantItem::at)).forEach(this::follow);
+    }
+
+    /** A task the conversation started or sent words to reports to it from now on; a report notes what it told, and a result ends that. */
+    private void follow(AssistantItem item)
+    {
+        item.receipt().filter(receipt -> receipt.outcome() == AssistantReceipt.Outcome.DONE
+                        && (receipt.operation() == AssistantReceipt.Operation.START_TASK || receipt.operation() == AssistantReceipt.Operation.REPLY_TO_TASK))
+                .flatMap(AssistantReceipt::target).filter(target -> target.kind() == AgendaTarget.Kind.TASK).flatMap(AgendaTarget::id)
+                .ifPresent(task -> followed.put(task, new Followed(item.conversationId(), item.at(), ImmutableSet.of())));
+        item.report().ifPresent(report -> report.target().id().ifPresent(task -> followed.computeIfPresent(task, (_, follow) ->
+                !follow.conversationId().equals(item.conversationId()) ? follow : report.noticeId().startsWith(PENDING) ? follow.with(report.noticeId()) : null)));
+    }
+
+    private static String reportLine(AppNotice notice)
+    {
+        String task = "“" + clip(notice.title(), 80) + "”";
+        return switch (notice.kind()) {
+            case TURN_FINISHED -> task + " is ready";
+            // Its title is the Epic's next work, not the task's.
+            case NEXT_WORK -> task + " is next";
+            case FAILURE -> task + " failed: " + notice.message();
+            case APPROVAL -> task + " asked for your approval: " + notice.message();
+            case QUESTION -> task + " asked: " + notice.message();
+            case RECOVERY, QUEUE_PAUSED, CI_ATTENTION -> task + ": " + notice.message();
+        };
+    }
+
+    private static AssistantReport.State reportState(AppNotice notice)
+    {
+        return switch (notice.kind()) {
+            case TURN_FINISHED, NEXT_WORK -> AssistantReport.State.READY;
+            case FAILURE -> AssistantReport.State.FAILED;
+            case APPROVAL, QUESTION, RECOVERY, QUEUE_PAUSED, CI_ATTENTION -> AssistantReport.State.DECISION;
+        };
     }
 
     private static AssistantConversation touched(AssistantConversation conversation, Instant at)
@@ -460,6 +548,23 @@ public class AssistantService
                 prompt.append('\n');
             }
         }
+        else {
+            // The session holds the conversation, but not what its tasks reported after its last reply.
+            List<AssistantItem> reported = new ArrayList<>();
+            for (AssistantItem item : store.items(message.conversationId())) {
+                if (item.kind() == AssistantItem.Kind.REPLY || item.kind() == AssistantItem.Kind.FAILURE) {
+                    reported.clear();
+                }
+                else if (item.kind() == AssistantItem.Kind.REPORT) {
+                    reported.add(item);
+                }
+            }
+            if (!reported.isEmpty()) {
+                prompt.append("Since your last reply:\n");
+                reported.forEach(item -> prompt.append(line(item)).append('\n'));
+                prompt.append('\n');
+            }
+        }
         prompt.append("Local time: ").append(LOCAL_TIME.format(clock.instant().atZone(ZoneId.systemDefault()))).append('\n');
         prompt.append("On screen: ").append(message.onScreen().orElse("nothing with a ref")).append('\n');
         List<String> cards = reader.cards(message.visible());
@@ -477,6 +582,7 @@ public class AssistantService
             case FAILURE -> "no reply";
             case LIST -> "you listed";
             case DRAFT -> "you drafted";
+            case REPORT -> "task";
         };
         String text = item.list().map(list -> item.text() + ": " + String.join(", ", list.refs())).orElse(item.text());
         return "[" + who + " " + CLOCK.format(item.at().atZone(ZoneId.systemDefault())) + "] " + clip(text, SEED_TEXT);
@@ -539,6 +645,15 @@ public class AssistantService
     private static String reason(RuntimeException failure)
     {
         return clip(Optional.ofNullable(failure.getMessage()).filter(message -> !message.isBlank()).orElse("The assistant could not answer"), REASON);
+    }
+
+    /** A task a conversation asked for at {@code since}, and the decisions it already told there. */
+    private record Followed(String conversationId, Instant since, Set<String> told)
+    {
+        Followed with(String noticeId)
+        {
+            return new Followed(conversationId, since, ImmutableSet.<String>builder().addAll(told).add(noticeId).build());
+        }
     }
 
     /** The one reply being written, in one conversation. Stop cancels its turn, or the turn as soon as it starts. */

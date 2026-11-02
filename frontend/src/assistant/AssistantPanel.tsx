@@ -13,8 +13,8 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import {
-  AlarmClock, ArrowUpRight, Ban, CalendarCheck, CheckCheck, CircleDot, Clock, Flag, History, ListEnd, ListPlus, ListTodo, MessageSquareReply, Play, RotateCw,
-  Send, ShieldCheck, SquarePen, SquarePlus, TriangleAlert, X, type LucideIcon,
+  AlarmClock, ArrowUpRight, Ban, CalendarCheck, CheckCheck, CircleCheck, CircleDot, CircleX, Clock, Flag, History, ListEnd, ListPlus, ListTodo, MessageCircleQuestion,
+  MessageSquareReply, Play, RotateCw, Send, ShieldCheck, SquarePen, SquarePlus, TriangleAlert, X, type LucideIcon,
 } from 'lucide-react';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import Composer from '../Composer';
@@ -212,8 +212,8 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, requ
   };
   const startNew = () => choose(crypto.randomUUID());
   const openSettings = (section: SettingsSection) => leave(() => onPage(settingsRoute(section)));
-  // A receipt a card's button left after a failed reply does not end that exchange, so Retry stays on the failure.
-  const lastExchange = items.findLast(item => item.kind !== 'RECEIPT')?.id;
+  // A receipt a card's button left after a failed reply, or a task's report, does not end that exchange, so Retry stays on the failure.
+  const lastExchange = items.findLast(item => item.kind !== 'RECEIPT' && item.kind !== 'REPORT')?.id;
   // A refusal in the latest exchange points down at a card's buttons, so the decisions show under the conversation.
   const pointsDown = items.slice(items.findLastIndex(item => item.kind === 'USER')).some(item => item.receipt?.fix === 'BUTTONS');
   const targets: Record<string, AgendaTargetDto> = {};
@@ -249,6 +249,12 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, requ
     setFailure(null);
     void action.then(then).catch(() => setFailure(message));
   };
+  const answeredNotice = (id: string) => {
+    setAnswered(current => new Set(current).add(id));
+    refresh();
+  };
+  const openNotice = (id: string) => noticeAction(window.bridge.openAppNotice(id), 'Unable to open this task.', onClose);
+  const clearNotice = (id: string) => noticeAction(window.bridge.removeAppNotice(id), 'Unable to clear this notice.');
   const pick = (pill: Pill) => {
     setHistory(false);
     setLane(null);
@@ -265,8 +271,12 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, requ
       <div className="assistant-talk" onClickCapture={openLink} onAuxClickCapture={openLink}>
         {items.map(item => item.kind === 'RECEIPT'
           ? <Receipt key={item.id} item={item} onOpen={openReceipt} onSettings={openSettings} />
-          : <Entry key={item.id} item={item} waiting={waitingIds.has(item.id)} rows={chat?.rows ?? {}} drafts={drafts} model={chat?.model ?? null} retryable={chatEnabled && !running && item.id === lastExchange}
-            onRetry={retry} onSettings={openSettings} onOpen={show} onComplete={completeTask} onPull={actOnPull} onRefresh={refresh} />)}
+          : item.kind === 'REPORT'
+            ? <Report key={item.id} item={item} notice={waiting.find(notice => notice.id === item.report?.noticeId)} conversation={conversation}
+              onAnswered={answeredNotice} onOpenNotice={openNotice} onClearNotice={clearNotice} onShow={show} />
+            : <Entry key={item.id} item={item} waiting={waitingIds.has(item.id)} rows={chat?.rows ?? {}} drafts={drafts} model={chat?.model ?? null}
+              retryable={chatEnabled && !running && item.id === lastExchange} onRetry={retry} onSettings={openSettings} onOpen={show} onComplete={completeTask}
+              onPull={actOnPull} onRefresh={refresh} />)}
         {running && <p className="assistant-thinking" role="status">Thinking<span className="assistant-caret" aria-hidden="true" /></p>}
       </div>
     );
@@ -338,10 +348,7 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, requ
         }}>
         <AssistantViews notices={waiting} view={history ? 'conversation' : view} lane={lane} card={card} talk={talk} pointsDown={pointsDown}
           composer={composer} scroller={scroller} visible={visible} conversation={conversation} onPick={pick} onView={setView} onLane={setLane}
-          onCardShown={() => setCard(null)} onLeave={leave} onPage={onPage}
-          onAnswered={id => { setAnswered(current => new Set(current).add(id)); refresh(); }}
-          onOpenNotice={id => noticeAction(window.bridge.openAppNotice(id), 'Unable to open this task.', onClose)}
-          onClearNotice={id => noticeAction(window.bridge.removeAppNotice(id), 'Unable to clear this notice.')} />
+          onCardShown={() => setCard(null)} onLeave={leave} onPage={onPage} onAnswered={answeredNotice} onOpenNotice={openNotice} onClearNotice={clearNotice} />
       </section>
     </div>
   );
@@ -523,6 +530,39 @@ function Entry({ item, waiting, rows, drafts, model, retryable, onRetry, onSetti
       <span className="assistant-spacer" />
       {item.notReady && <button type="button" className="assistant-button" onClick={() => onSettings('models')}>Open Settings</button>}
       {retryable && <button type="button" className="assistant-button" onClick={onRetry}><RotateCw size={12} aria-hidden="true" />Retry</button>}
+    </div>
+  );
+}
+
+/**
+ * What a task the conversation started or sent words to raised: while its notice lasts, that notice's own card, answered or opened in
+ * place; after, one line that opens the task.
+ */
+function Report({ item, notice, conversation, onAnswered, onOpenNotice, onClearNotice, onShow }: {
+  item: AssistantItemDto;
+  notice: AppNotice | undefined;
+  conversation: string;
+  onAnswered: (id: string) => void;
+  onOpenNotice: (id: string) => void;
+  onClearNotice: (id: string) => void;
+  onShow: (target: AgendaTargetDto) => void;
+}) {
+  const report = item.report;
+  if (report === null) return null;
+  if (notice !== undefined) {
+    const open = () => onOpenNotice(notice.id);
+    const clear = () => onClearNotice(notice.id);
+    if (report.state !== 'DECISION') return <ResultCard notice={notice} onShow={onShow} onOpen={open} onClear={clear} />;
+    return notice.id.startsWith(APPROVAL_NOTICE)
+      ? <ApprovalCard notice={notice} focused={false} conversation={conversation} onAnswered={() => onAnswered(notice.id)} onOpen={open} onClear={clear} />
+      : <NoticeCard notice={notice} focused={false} onOpen={open} onClear={clear} />;
+  }
+  const Icon = report.state === 'FAILED' ? CircleX : report.state === 'READY' ? CircleCheck : MessageCircleQuestion;
+  return (
+    <div className="assistant-receipt" title={item.text}>
+      <Icon className="assistant-receipt__icon" size={14} aria-hidden="true" />
+      <div className="assistant-receipt__text"><span className="assistant-receipt__lead">{item.text}</span></div>
+      <button type="button" className="assistant-button" onClick={() => onShow(report.target)}>Open</button>
     </div>
   );
 }

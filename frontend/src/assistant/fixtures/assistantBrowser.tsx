@@ -23,8 +23,8 @@ import type { AgentEventEnvelope } from '../../agents/events';
 import type { RunningTask } from '../../agents/runningTaskModel';
 import type { AppNotice } from '../../notices/contracts';
 import type {
-  AgendaDto, AgendaTargetDto, AgentHistoryPageDto, AgentPendingApprovalDto, AssistantItemDto, AssistantListStyle, AssistantReceiptDto, AssistantRowDto, AssistantSummaryDto, AssistantViewDto,
-  Bridge, PullRequestDto,
+  AgendaDto, AgendaTargetDto, AgentHistoryPageDto, AgentPendingApprovalDto, AssistantItemDto, AssistantListStyle, AssistantReceiptDto, AssistantReportDto, AssistantRowDto,
+  AssistantSummaryDto, AssistantViewDto, Bridge, PullRequestDto,
 } from '../../types';
 import { settingsRoute } from '../../settings/routes';
 import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../../workspaces/model';
@@ -57,14 +57,14 @@ const AGENDA: AgendaDto = {
 const VIEW: AssistantViewDto = {
   id: 'c0', model: 'Claude Sonnet', running: false, waiting: [],
   items: [
-    { id: 'u1', conversationId: 'c0', at: '2026-10-16T07:06:00Z', kind: 'USER', text: 'What should I look at first?', targets: {}, notReady: false, receipt: null, list: null, draft: null },
+    { id: 'u1', conversationId: 'c0', at: '2026-10-16T07:06:00Z', kind: 'USER', text: 'What should I look at first?', targets: {}, notReady: false, receipt: null, list: null, draft: null, report: null },
     { id: 'r1', conversationId: 'c0', at: '2026-10-16T07:06:20Z', kind: 'REPLY', targets: { 'pr:owner/repository#31377': PULL, 'task:t1': target('TASK', { id: 't1' }) },
-      text: 'Start with [#31377](pr:owner/repository#31377): it has waited 3 days and CI is green. Then answer elric-t on task:t1.', notReady: false, receipt: null, list: null, draft: null },
+      text: 'Start with [#31377](pr:owner/repository#31377): it has waited 3 days and CI is green. Then answer elric-t on task:t1.', notReady: false, receipt: null, list: null, draft: null, report: null },
     { id: 'c1', conversationId: 'c0', at: '2026-10-16T07:08:00Z', kind: 'RECEIPT', text: 'Started “Expose snapshot id in metadata”', targets: {}, notReady: false,
       receipt: { operation: 'START_TASK', outcome: 'DONE', detail: 'owner/repository · Claude Code Opus 5.5 · Auto-Draft PR', target: target('TASK', { id: 't9' }),
-        page: null, turnId: 'turn-9', fix: null, words: 'start the snapshot id one' }, list: null, draft: null },
+        page: null, turnId: 'turn-9', fix: null, words: 'start the snapshot id one' }, list: null, draft: null, report: null },
     { id: 'c2', conversationId: 'c0', at: '2026-10-16T07:08:01Z', kind: 'RECEIPT', text: 'Use the buttons: this one runs outside the sandbox', targets: {}, notReady: false,
-      receipt: { operation: 'ANSWER_APPROVAL', outcome: 'REFUSED', detail: null, target: null, page: null, turnId: null, fix: 'BUTTONS', words: 'allow it' }, list: null, draft: null },
+      receipt: { operation: 'ANSWER_APPROVAL', outcome: 'REFUSED', detail: null, target: null, page: null, turnId: null, fix: 'BUTTONS', words: 'allow it' }, list: null, draft: null, report: null },
   ],
   rows: {},
 };
@@ -90,7 +90,7 @@ const ROWS: Record<string, AssistantRowDto> = Object.fromEntries([
 const REFS = ['pr:owner/repository#31377', 'pr:owner/repository#31402', 'task:t1', 'jira:cloud:10042', 'work:w22', 'epic:LOCAL:w1', 'pr:owner/repository#1'];
 const listView = (style: AssistantListStyle, extra: AssistantRowDto[] = []): AssistantViewDto => {
   const list: AssistantItemDto = { id: 'l1', conversationId: 'c0', at: '2026-10-16T07:06:10Z', kind: 'LIST', text: 'Waiting on you', targets: {}, notReady: false,
-    receipt: null, list: { style, refs: [...REFS, ...extra.map(each => each.ref)] }, draft: null };
+    receipt: null, list: { style, refs: [...REFS, ...extra.map(each => each.ref)] }, draft: null, report: null };
   return { ...VIEW, items: [VIEW.items[0], list], rows: { ...ROWS, ...Object.fromEntries(extra.map(each => [each.ref, each])) } };
 };
 
@@ -521,7 +521,7 @@ async function waitsInLineWhileItAnswers(): Promise<void> {
   let replying = true;
   const sent = () => view.calls.sent.length;
   const queued: AssistantItemDto = { id: 'q1', conversationId: 'c0', at: '2026-10-16T07:09:00Z', kind: 'USER', text: 'and start the docs fix with Codex', targets: {},
-    notReady: false, receipt: null, list: null, draft: null };
+    notReady: false, receipt: null, list: null, draft: null, report: null };
   // As the backend keeps them: the first reply runs until the test ends it, and the second message waits in line behind it.
   const view = mount(VIEW, 0, [], [], undefined, undefined, {
     listAssistantConversations: async () => [],
@@ -655,7 +655,7 @@ async function showsAListAsRowsCardsOrATimeline(): Promise<void> {
 }
 
 const opened = (id: string, at: string, page: string | null, item: AgendaTargetDto | null, words: string): AssistantItemDto => ({
-  id, conversationId: 'c0', at, kind: 'RECEIPT', text: page === null ? 'Opened “Add Iceberg metadata cache”' : 'Opened Settings · Models', targets: {}, notReady: false, list: null, draft: null,
+  id, conversationId: 'c0', at, kind: 'RECEIPT', text: page === null ? 'Opened “Add Iceberg metadata cache”' : 'Opened Settings · Models', targets: {}, notReady: false, list: null, draft: null, report: null,
   receipt: { operation: 'OPEN', outcome: 'DONE', detail: null, target: item, page, turnId: null, fix: null, words },
 });
 
@@ -703,7 +703,7 @@ const taskView = (first: string): AssistantViewDto => {
   const rows = [taskRow('t1', 'Expose snapshot id in metadata', first), taskRow('t2', 'Retry Iceberg commit on conflict', 'running'),
     taskRow('t3', 'Drop the old cache key', 'completed')];
   const list: AssistantItemDto = { id: 'l2', conversationId: 'c0', at: '2026-10-16T07:06:10Z', kind: 'LIST', text: 'Your tasks', targets: {}, notReady: false, receipt: null,
-    list: { style: 'CARDS', refs: rows.map(each => each.ref) }, draft: null };
+    list: { style: 'CARDS', refs: rows.map(each => each.ref) }, draft: null, report: null };
   return { ...VIEW, items: [VIEW.items[0], list], rows: Object.fromEntries(rows.map(each => [each.ref, each])) };
 };
 
@@ -753,9 +753,9 @@ async function completesATaskFromItsCard(): Promise<void> {
 
 const draftView = (created: boolean): AssistantViewDto => {
   const draft: AssistantItemDto = { id: 'd1', conversationId: 'c0', at: '2026-10-16T07:06:10Z', kind: 'DRAFT', text: 'Iceberg snapshot metadata', targets: {}, notReady: false,
-    receipt: null, list: null, draft: { workspaceId: 'ws1', repository: 'owner/repository', body: 'Track the work that exposes snapshot ids.', workItemId: 'w-new' } };
+    receipt: null, list: null, draft: { workspaceId: 'ws1', repository: 'owner/repository', body: 'Track the work that exposes snapshot ids.', workItemId: 'w-new' }, report: null };
   const receipt: AssistantItemDto = { id: 'c9', conversationId: 'c0', at: '2026-10-16T07:07:00Z', kind: 'RECEIPT', text: 'Created “Iceberg snapshot ids” as an Epic',
-    targets: {}, notReady: false, list: null, draft: null,
+    targets: {}, notReady: false, list: null, draft: null, report: null,
     receipt: { operation: 'CREATE_EPIC', outcome: 'DONE', detail: 'owner/repository#77', target: target('WORK', { id: 'w-new' }), page: null, turnId: null, fix: null, words: null } };
   return { ...VIEW, items: created ? [VIEW.items[0], draft, receipt] : [VIEW.items[0], draft] };
 };
@@ -834,7 +834,7 @@ async function createsADraftedIssueAsAnEpic(): Promise<void> {
 async function readsTheMarksTheAssistantMade(): Promise<void> {
   let reads = 0;
   const acknowledged: AssistantItemDto = { id: 'c8', conversationId: 'c0', at: '2026-10-16T07:05:00Z', kind: 'RECEIPT', text: 'Acknowledged “Add Iceberg metadata cache”',
-    targets: {}, notReady: false, list: null, draft: null,
+    targets: {}, notReady: false, list: null, draft: null, report: null,
     receipt: { operation: 'ACKNOWLEDGE', outcome: 'DONE', detail: 'Back when something new happens', target: PULL, page: null, turnId: null, fix: null, words: 'clear it' } };
   const view = mount({ ...VIEW, items: [VIEW.items[0], acknowledged] }, 0, [], [], undefined, undefined, {
     getAttentionMarks: async () => { reads++; return []; },
@@ -956,7 +956,7 @@ async function actsOnAPullRequestFromItsCard(): Promise<void> {
 }
 
 const signIn: AssistantItemDto = { id: 'f1', conversationId: 'c0', at: '2026-10-16T07:06:30Z', kind: 'FAILURE', text: 'Claude sign-in required', targets: {},
-  notReady: true, receipt: null, list: null, draft: null };
+  notReady: true, receipt: null, list: null, draft: null, report: null };
 
 async function asksToSignInWhenTheModelIsNotReady(): Promise<void> {
   const view = mount({ ...VIEW, items: [VIEW.items[0], signIn] }, 0, []);
@@ -1075,6 +1075,35 @@ async function keepsAConversationForEachTopic(): Promise<void> {
   }
 }
 
+const report = (id: string, state: AssistantReportDto['state'], noticeId: string, text: string, task: string): AssistantItemDto => ({
+  id, conversationId: 'c0', at: '2026-10-16T07:12:00Z', kind: 'REPORT', text, targets: {}, notReady: false, receipt: null, list: null, draft: null,
+  report: { state, noticeId, target: target('TASK', { id: task }) },
+});
+
+async function reportsWhatItsTasksRaised(): Promise<void> {
+  const view = mount({ ...VIEW, items: [VIEW.items[0], VIEW.items[2],
+    report('k1', 'DECISION', 'approval:a1', '“Metadata cache” asked for your approval: Run the focused Maven test', 'task-1'),
+    report('k2', 'READY', 'finished:turn-9', '“Expose snapshot id in metadata” is ready', 't9')] });
+  try {
+    await settle();
+    enter(type(view.host, 'How is the snapshot id task going?'));
+    await settle();
+    const talk = element<HTMLElement>('.assistant-talk', view.host, 'The conversation shows');
+    element<HTMLButtonElement>('.assistant-card[data-card="approval:a1"] button[aria-label="Allow once: Run the focused Maven test"]', talk,
+      'A decision a task raised shows where it was asked, with the task’s own buttons').click();
+    await settle();
+    assert(JSON.stringify(view.calls.resolved) === JSON.stringify([['a1', 'ALLOW', null, null]]) && JSON.stringify(view.calls.answered) === '["a1"]',
+      'Answering it there reaches the task and leaves a receipt');
+    const lines = [...talk.querySelectorAll<HTMLElement>('.assistant-receipt')];
+    assert(talk.querySelector('.assistant-card') === null && lines.some(line => line.textContent?.startsWith('“Metadata cache” asked for your approval') === true),
+      `The answered decision stays as its line: ${lines.map(line => line.textContent).join(' | ')}`);
+    buttonIn(lines.find(line => line.textContent?.includes('is ready') === true), 'Open')?.click();
+    await settle();
+    assert(view.calls.left === 1, 'A result whose notice is gone opens its task');
+  }
+  finally { view.dispose(); }
+}
+
 export async function run(): Promise<{ name: string; error?: string }[]> {
   return runScenarios([['floats over the page', floatsOverThePage], ['shows the day once the user talks', showsTheDayOnceTheUserTalks],
     ['opens one view at a time', opensOneViewAtATime], ['answers with the task’s buttons', answersWithTheTasksButtons], ['sends with what is shown', sendsWithWhatIsShown],
@@ -1084,12 +1113,13 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     ['follows an open once when it arrives', followsAnOpenOnceWhenItArrives], ['completes a task from its card', completesATaskFromItsCard],
     ['creates a drafted issue as an Epic', createsADraftedIssueAsAnEpic], ['reads the marks the assistant made', readsTheMarksTheAssistantMade],
     ['acts on a pull request from its card', actsOnAPullRequestFromItsCard], ['asks to sign in when the model is not ready', asksToSignInWhenTheModelIsNotReady],
-    ['keeps the set-up box whole with chat off', keepsTheSetUpBoxWholeWithChatOff], ['keeps a conversation for each topic', keepsAConversationForEachTopic]]);
+    ['keeps the set-up box whole with chat off', keepsTheSetUpBoxWholeWithChatOff], ['keeps a conversation for each topic', keepsAConversationForEachTopic],
+    ['reports what its tasks raised', reportsWhatItsTasksRaised]]);
 }
 
 const receiptsView = (): AssistantViewDto => {
   const receipt = (id: string, text: string, fields: Partial<AssistantReceiptDto> & Pick<AssistantReceiptDto, 'operation'>): AssistantItemDto => ({
-    id, conversationId: 'c0', at: '2026-10-16T07:07:00Z', kind: 'RECEIPT', text, targets: {}, notReady: false, list: null, draft: null,
+    id, conversationId: 'c0', at: '2026-10-16T07:07:00Z', kind: 'RECEIPT', text, targets: {}, notReady: false, list: null, draft: null, report: null,
     receipt: { outcome: 'DONE', detail: null, target: PULL, page: null, turnId: null, fix: null, words: null, ...fields },
   });
   return { ...VIEW, items: [VIEW.items[0],
@@ -1102,19 +1132,26 @@ const receiptsView = (): AssistantViewDto => {
     signIn] };
 };
 
+// A decision and a result whose notices still show, as their cards, and a failure whose notice is gone, as its line.
+const reportsView = (): AssistantViewDto => ({ ...VIEW, items: [VIEW.items[0], VIEW.items[2],
+  report('k1', 'DECISION', 'approval:a1', '“Metadata cache” asked for your approval: Run the focused Maven test', 'task-1'),
+  report('k2', 'READY', 'finished:turn-2', '“Retry commit on conflict” is ready', 'task-2'),
+  report('k3', 'FAILED', 'failed:turn-4', '“Expose snapshot id in metadata” failed: The turn stopped before it finished.', 't9')] });
+
 let preview: { dispose: () => void } | null = null;
 
 /**
  * Draws a list the assistant showed in one style, for a screenshot; `tasks` is a list of task cards with an idle one focused, `draft` a
- * drafted issue, `receipts` what actions did and refused, ending with a reply that needs a sign-in, and `history` two conversations.
+ * drafted issue, `receipts` what actions did and refused, ending with a reply that needs a sign-in, `reports` what started tasks raised,
+ * and `history` two conversations.
  */
-export async function showListPreview(style: AssistantListStyle | 'tasks' | 'draft' | 'receipts' | 'history'): Promise<void> {
+export async function showListPreview(style: AssistantListStyle | 'tasks' | 'draft' | 'receipts' | 'reports' | 'history'): Promise<void> {
   preview?.dispose();
   document.body.style.margin = '0';
   document.body.style.background = 'var(--bg)';
-  const view = style === 'tasks' ? taskView('idle') : style === 'draft' ? draftView(false) : style === 'receipts' ? receiptsView()
+  const view = style === 'tasks' ? taskView('idle') : style === 'draft' ? draftView(false) : style === 'receipts' ? receiptsView() : style === 'reports' ? reportsView()
     : style === 'history' ? { ...VIEW, items: VIEW.items.slice(0, 2) } : listView(style);
-  const mounted = mount(view, 0, []);
+  const mounted = mount(view, 0, style === 'reports' ? NOTICES : []);
   preview = mounted;
   await new Promise(resolve => setTimeout(resolve, 150));
   enter(type(mounted.host, 'What is waiting on me?'));

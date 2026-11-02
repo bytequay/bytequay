@@ -94,7 +94,7 @@ function running(step: number): AgentTaskState {
 }
 
 const item = (id: string, kind: AssistantItemDto['kind'], text: string, receipt: AssistantItemDto['receipt'] = null): AssistantItemDto =>
-  ({ id, conversationId: 'c1', at: new Date().toISOString(), kind, text, targets: {}, notReady: false, receipt, list: null, draft: null });
+  ({ id, conversationId: 'c1', at: new Date().toISOString(), kind, text, targets: {}, notReady: false, receipt, list: null, draft: null, report: null });
 let conversation: AssistantViewDto = { id: 'c1', model: 'Claude Sonnet', running: false, waiting: [], items: [], rows: {} };
 const reply = (...items: AssistantItemDto[]) => { conversation = { ...conversation, running: false, items: [...conversation.items, ...items] }; };
 

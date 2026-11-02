@@ -28,9 +28,9 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * One entry in an assistant conversation: the user's message, the assistant's reply, what an action left, a list or a draft the
- * assistant showed, or why a reply failed.
+ * assistant showed, why a reply failed, or what a task the conversation asked for reported back.
  *
- * @param text the user's words, the reply's Markdown, a receipt's line, a list's or a draft's title, or the failure's reason
+ * @param text the user's words, the reply's Markdown, a receipt's or a report's line, a list's or a draft's title, or the failure's reason
  * @param visible a message's cards on screen when it was sent
  * @param onScreen a message's ref of the page the user was looking at
  * @param key a message's key from its sender, so sending it again adds nothing
@@ -39,6 +39,7 @@ import static java.util.Objects.requireNonNull;
  * @param receipt what a receipt's action was, and what it opens
  * @param list a list's style and refs, never its rows' text
  * @param draft a draft's repository and description
+ * @param report which of a task's notices a report tells, and the task
  */
 public record AssistantItem(
         String id,
@@ -53,11 +54,12 @@ public record AssistantItem(
         boolean notReady,
         Optional<AssistantReceipt> receipt,
         Optional<AssistantList> list,
-        Optional<AssistantDraft> draft)
+        Optional<AssistantDraft> draft,
+        Optional<AssistantReport> report)
 {
     public enum Kind
     {
-        USER, REPLY, RECEIPT, FAILURE, LIST, DRAFT
+        USER, REPLY, RECEIPT, FAILURE, LIST, DRAFT, REPORT
     }
 
     public AssistantItem
@@ -75,41 +77,48 @@ public record AssistantItem(
         checkArgument(receipt.isPresent() == (kind == Kind.RECEIPT), "only a receipt carries its action");
         checkArgument(list.isPresent() == (kind == Kind.LIST), "only a list carries its refs");
         checkArgument(draft.isPresent() == (kind == Kind.DRAFT), "only a draft carries its description");
+        checkArgument(report.isPresent() == (kind == Kind.REPORT), "only a report carries its notice");
     }
 
     public static AssistantItem user(String conversationId, Instant at, String text, List<String> visible, Optional<String> onScreen, String key)
     {
         return new AssistantItem(UUID.randomUUID().toString(), conversationId, at, Kind.USER, text, visible, onScreen, Optional.of(key), ImmutableMap.of(), false, Optional.empty(),
-                Optional.empty(), Optional.empty());
+                Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     public static AssistantItem reply(String conversationId, Instant at, String text, Map<String, AgendaTarget> targets)
     {
         return new AssistantItem(UUID.randomUUID().toString(), conversationId, at, Kind.REPLY, text, ImmutableList.of(), Optional.empty(), Optional.empty(), targets, false,
-                Optional.empty(), Optional.empty(), Optional.empty());
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     public static AssistantItem receipt(String conversationId, Instant at, String text, AssistantReceipt receipt)
     {
         return new AssistantItem(UUID.randomUUID().toString(), conversationId, at, Kind.RECEIPT, text, ImmutableList.of(), Optional.empty(), Optional.empty(), ImmutableMap.of(),
-                false, Optional.of(receipt), Optional.empty(), Optional.empty());
+                false, Optional.of(receipt), Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     public static AssistantItem list(String conversationId, Instant at, String title, AssistantList list)
     {
         return new AssistantItem(UUID.randomUUID().toString(), conversationId, at, Kind.LIST, title, ImmutableList.of(), Optional.empty(), Optional.empty(), ImmutableMap.of(),
-                false, Optional.empty(), Optional.of(list), Optional.empty());
+                false, Optional.empty(), Optional.of(list), Optional.empty(), Optional.empty());
     }
 
     public static AssistantItem draft(String conversationId, Instant at, String title, AssistantDraft draft)
     {
         return new AssistantItem(UUID.randomUUID().toString(), conversationId, at, Kind.DRAFT, title, ImmutableList.of(), Optional.empty(), Optional.empty(), ImmutableMap.of(),
-                false, Optional.empty(), Optional.empty(), Optional.of(draft));
+                false, Optional.empty(), Optional.empty(), Optional.of(draft), Optional.empty());
     }
 
     public static AssistantItem failure(String conversationId, Instant at, String reason, boolean notReady)
     {
         return new AssistantItem(UUID.randomUUID().toString(), conversationId, at, Kind.FAILURE, reason, ImmutableList.of(), Optional.empty(), Optional.empty(), ImmutableMap.of(),
-                notReady, Optional.empty(), Optional.empty(), Optional.empty());
+                notReady, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+    }
+
+    public static AssistantItem report(String conversationId, Instant at, String line, AssistantReport report)
+    {
+        return new AssistantItem(UUID.randomUUID().toString(), conversationId, at, Kind.REPORT, line, ImmutableList.of(), Optional.empty(), Optional.empty(), ImmutableMap.of(),
+                false, Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(report));
     }
 }

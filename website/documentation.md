@@ -249,6 +249,10 @@ words there. A task started some other way can't be linked to a PR later.
 Every action leaves a receipt with **Open**; **Stop…** asks, then cancels the
 first turn of a task it started. The Assistant never edits files or runs code itself.
 
+A task it starts or sends your words to reports back into the same
+conversation, without using your model allowance: each approval or question it
+waits on, with its buttons, then that it is ready or why it failed.
+
 <a id="dictation"></a>
 
 ## Dictate instead of typing

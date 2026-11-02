@@ -1549,8 +1549,8 @@ export type AssistantItemDto = {
   id: string;
   conversationId: string;
   at: string;
-  kind: 'USER' | 'REPLY' | 'RECEIPT' | 'FAILURE' | 'LIST' | 'DRAFT';
-  /** The user's words, the reply's Markdown, a receipt's line, a list's or a draft's title, or why the reply failed. */
+  kind: 'USER' | 'REPLY' | 'RECEIPT' | 'FAILURE' | 'LIST' | 'DRAFT' | 'REPORT';
+  /** The user's words, the reply's Markdown, a receipt's or a report's line, a list's or a draft's title, or why the reply failed. */
   text: string;
   /** Where each ref a reply names opens; only refs the conversation served. */
   targets: Record<string, AgendaTargetDto>;
@@ -1561,7 +1561,12 @@ export type AssistantItemDto = {
   list: AssistantListDto | null;
   /** A new issue the assistant drafted, which the user edits and creates as an Epic with a click. */
   draft: AssistantDraftDto | null;
+  /** What a task the conversation started or sent words to raised: a decision, a result, or why it failed. */
+  report: AssistantReportDto | null;
 };
+
+/** The task notice a report tells, drawn as that notice's own card while it lasts; then the line opens the task. */
+export type AssistantReportDto = { state: 'DECISION' | 'READY' | 'FAILED'; noticeId: string; target: AgendaTargetDto };
 
 /** A Needs attention mark as the backend keeps it; home/attention.ts turns it into the list's own entry. */
 export type AttentionMarkDto = {

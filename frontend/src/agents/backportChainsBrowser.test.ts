@@ -45,3 +45,36 @@ it('inherits Development settings and permits explicit provider changes and draf
     body: 'const results = await window.webContents.executeJavaScript("BackportChainsTests.runProviderChoice()");' });
   expect(results).toEqual([{ name: 'Optional provider accounts and editable Backport drafts on Home and Tasks' }]);
 }, deadline(30_000));
+
+it('selects and searches repository items without sending or using stale results', async () => {
+  const results = await fixture.run<ScenarioResult[]>({
+    width: 1100, height: 950, timeoutMs: 30_000,
+    preload: `const { contextBridge, ipcRenderer } = require('electron');
+      contextBridge.exposeInMainWorld('referenceInput', {
+        key: key => ipcRenderer.invoke('reference:key', key),
+        click: (x, y) => ipcRenderer.invoke('reference:click', x, y),
+      });`,
+    setup: `
+      ipcMain.handle('reference:key', async (_event, keyCode) => {
+        window.webContents.sendInputEvent({ type: 'keyDown', keyCode });
+        if (keyCode === 'Enter') window.webContents.sendInputEvent({ type: 'char', keyCode: '\\r' });
+        window.webContents.sendInputEvent({ type: 'keyUp', keyCode });
+        await new Promise(resolve => setTimeout(resolve, 30));
+      });
+      ipcMain.handle('reference:click', async (_event, x, y) => {
+        window.webContents.sendInputEvent({ type: 'mouseMove', x, y });
+        window.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
+        window.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
+        await new Promise(resolve => setTimeout(resolve, 30));
+      });`,
+    body: 'const results = await window.webContents.executeJavaScript("BackportChainsTests.runComposerSuggestions()");',
+  });
+  expect(results).toEqual([{ name: 'Composer recommendations, search, selection and stale response handling' }]);
+}, deadline(40_000));
+
+it('retains a selected reference through failed task creation and retry', async () => {
+  const results = await fixture.run<ScenarioResult[]>({
+    body: 'const results = await window.webContents.executeJavaScript("BackportChainsTests.runReferenceRetry()");',
+  });
+  expect(results).toEqual([{ name: 'Selected composer reference survives failed task creation and clears after retry' }]);
+}, deadline(30_000));

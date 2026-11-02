@@ -14,7 +14,7 @@
 
 import { useAgentAvailability } from './availability';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { CircleDot, Eye, EyeOff, GitPullRequest, ListChecks, Pencil, SquareCheck, Sun, type LucideIcon } from 'lucide-react';
+import { Eye, EyeOff, GitPullRequest, Pencil, SquareCheck, Sun } from 'lucide-react';
 import RepoAvatar from '../RepoAvatar';
 import AttentionList from '../home/AttentionList';
 import TodayList, { ACTION_ICONS, openTarget, useWideWindow } from '../home/TodayList';
@@ -30,7 +30,7 @@ import { useRenameDraft } from '../renameDraft';
 import { remoteErrorMessage } from '../remoteError';
 import { openArtifact } from '../artifacts/ArtifactsPage';
 import { displayModelName, laneLabel } from '../settings/model';
-import { BackportButton } from './BackportRequestHint';
+import { TaskShortcuts } from './TaskShortcuts';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import {
   ComposerDock, StartingAgentTask, TaskComposer, useAgentTaskCreation, useTaskChanges, useWorkspaceWork, type TaskComposerProps,
@@ -43,13 +43,6 @@ import type { AgentBridgePort } from './model';
 import type {
   AgentTaskActivityDto, AgentTaskChangesDto, AgentTaskDto, AgentTaskStartupPhase, ModelProviderDto,
 } from '../types';
-
-/** Starting points that fill the composer; the user edits or sends them as they are. */
-const SUGGESTIONS: { icon: LucideIcon; title: string; prompt: string }[] = [
-  { icon: CircleDot, title: 'Fix issues and failures', prompt: 'Investigate a failing test and fix the root cause.' },
-  { icon: ListChecks, title: 'Review code and suggest changes', prompt: 'Review recent changes and suggest safe improvements.' },
-  { icon: GitPullRequest, title: 'Contribute', prompt: '@contribute ' },
-];
 
 /**
  * Windows the user put away, per workspace, each with when. Renderer-local: the task itself is
@@ -324,16 +317,11 @@ export function AgentHomeView({
             })}
             <span className="today-start-divider" aria-hidden="true" />
           </>}
-          {backports && <BackportButton draft={draft} onDraftChange={onDraftChange} disabled={busy} />}
-          {SUGGESTIONS.map((suggestion) => {
-            const Icon = suggestion.icon;
-            return (
-              <button type="button" className="agt-start" key={suggestion.title} onClick={() => onDraftChange(suggestion.prompt)}>
-                <Icon size={13} strokeWidth={1.9} aria-hidden="true" />
-                {suggestion.title}
-              </button>
-            );
-          })}
+          <TaskShortcuts draft={draft} onDraftChange={onDraftChange} disabled={busy} backports={backports}
+            reference={composer.reference} onReferenceChange={composer.onReferenceChange} />
+          <button type="button" className="agt-start" disabled={busy} onClick={() => onDraftChange('@contribute ')}>
+            <GitPullRequest size={13} strokeWidth={1.9} aria-hidden="true" />Contribute
+          </button>
         </> : undefined}>
           {error !== null && <div className="cmt-error" role="alert">{error}</div>}
           <TaskComposer {...composer} workspaceId={workspaceId} backport={backports} />

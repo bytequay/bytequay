@@ -147,13 +147,11 @@ public class GitHubRepoClient
     public IssuePage fetchOpenIssuesPage(String pat, RepoRef repo, int page)
     {
         checkArgument(page > 0, "page must be positive");
-        List<IssueResponse> response = paginator.fetchPage(
-                pat,
-                "/repos/{owner}/{repo}/issues",
-                new ParameterizedTypeReference<List<IssueResponse>>() {},
-                page,
-                repo.owner(),
-                repo.repo());
+        List<IssueResponse> response = translating(() -> requireBody(get(gitHubRestClient, pat, builder -> builder.path("/repos/{owner}/{repo}/issues")
+                .queryParam("state", "open").queryParam("sort", "created").queryParam("direction", "desc")
+                .queryParam("per_page", GitHubPaginator.PAGE_SIZE).queryParam("page", page)
+                .build(repo.owner(), repo.repo())).retrieve().body(new ParameterizedTypeReference<List<IssueResponse>>() {}),
+                "Empty open issues response from GitHub"));
         List<RepositoryIssue> issues = response.stream()
                 .filter(value -> value.pullRequest() == null)
                 .filter(value -> value.id() > 0 && value.number() > 0)

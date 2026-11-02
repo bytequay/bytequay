@@ -101,7 +101,8 @@ public final class GitLabIssueClient
     {
         checkArgument(page > 0, "page must be positive");
         String path = projectPath(target) + "/issues?scope=all&state=" + (since.isPresent() ? "all" : "opened")
-                + "&order_by=updated_at&sort=asc&per_page=100&page=" + page + since.map(value -> "&updated_after=" + encode(value.toString())).orElse("");
+                + (since.isPresent() ? "&order_by=updated_at&sort=asc" : "&order_by=created_at&sort=desc")
+                + "&per_page=100&page=" + page + since.map(value -> "&updated_after=" + encode(value.toString())).orElse("");
         var response = http.get(target.access(), path, Optional.empty(), GitLabIssueResponse[].class);
         ImmutableList.Builder<RepositoryIssue> open = ImmutableList.builder();
         ImmutableList.Builder<Integer> closed = ImmutableList.builder();

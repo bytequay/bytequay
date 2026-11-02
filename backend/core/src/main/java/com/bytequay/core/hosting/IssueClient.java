@@ -26,6 +26,7 @@ import java.util.Optional;
 /** Remote issue operations normalized for the existing workspace issue surface. */
 public interface IssueClient
 {
+    /** One-based pages: open issues newest creation first without {@code since}, otherwise all changed issues oldest update first. */
     IssueSyncPage list(HostingTarget target, Optional<Instant> since, int page);
 
     Optional<RepositoryIssue> find(HostingTarget target, int number);

@@ -16,15 +16,15 @@ package com.bytequay.app.agent;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static java.util.Locale.ENGLISH;
 import static java.util.regex.Pattern.CASE_INSENSITIVE;
 
 /**
- * A message that starts with {@code @contribute} asks the task to find and fix one small, worthwhile problem in its repository. The transcript
- * keeps the user's short command; only the provider's input carries the full brief. How far the work goes is the task's automation setting.
+ * The transcript keeps the user's short command; only the provider's input carries the full brief.
  */
-final class ContributeCommand
+final class TaskCommand
 {
-    private static final Pattern COMMAND = Pattern.compile("^\\s*@contribute(?:\\s+|$)", CASE_INSENSITIVE);
+    private static final Pattern COMMAND = Pattern.compile("^\\s*@(contribute|fix|review)(?:\\s+|$)", CASE_INSENSITIVE);
     static final String BRIEF = """
             Find one small, worthwhile contribution to this repository that fixes a concrete problem real users or operators hit.
 
@@ -53,16 +53,31 @@ final class ContributeCommand
             - Add no AI attribution, disclosure, co-author, or generated-with text, and leave any AI-use question in the template unanswered.
             """;
 
-    private ContributeCommand() {}
+    private TaskCommand() {}
 
-    /** The message with a leading {@code @contribute} replaced by the brief; anything the user wrote after it follows the brief. */
+    /** Replace only a leading command, keeping the selected reference and the user's additional instructions. */
     static String expand(String message)
     {
         Matcher command = COMMAND.matcher(message);
         if (!command.find()) {
             return message;
         }
+        String brief = switch (command.group(1).toLowerCase(ENGLISH)) {
+            case "contribute" -> BRIEF;
+            case "fix" -> """
+                    Investigate the referenced open issue and fix its root cause in this repository. Read the issue and relevant code first, \
+                    implement the smallest justified fix, and verify it with focused tests. If the issue is missing or ambiguous, ask which \
+                    issue to fix before making changes. Follow this task's selected automation settings for delivery.
+                    """;
+            case "review" -> """
+                    Review the referenced pull request's current changes against its base. Read its description, diff, and relevant code, \
+                    then report actionable findings with file and line references and explain their impact. If no issues are found, say so \
+                    and mention any verification gaps. If the pull request is missing or ambiguous, ask which one to review. This request \
+                    is for review and suggestions only: do not modify files, commit, push, or publish comments, reviews, or approvals.
+                    """;
+            default -> throw new IllegalStateException("Unknown task command");
+        };
         String rest = message.substring(command.end()).strip();
-        return rest.isEmpty() ? BRIEF.strip() : BRIEF + "\n" + rest;
+        return rest.isEmpty() ? brief.strip() : brief + "\n" + rest;
     }
 }

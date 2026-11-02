@@ -86,6 +86,19 @@ async function startMain(): Promise<void> {
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
 }
 
+it('scopes composer suggestions and encodes literal searches without accepting unknown commands', async () => {
+  await startMain();
+  const fetch = vi.fn(async () => new Response('[]'));
+  vi.stubGlobal('fetch', fetch);
+  const suggest = desktop.handlers.get('composer:suggestions');
+  await suggest?.({}, 'workspace/one', 'FIX', '#12 & cache');
+  expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:9527/api/workspaces/workspace%2Fone/composer-suggestions?command=FIX&search=%2312+%26+cache',
+    expect.objectContaining({ headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
+  expect(() => suggest?.({}, 'workspace/one', 'UNKNOWN', '')).toThrow('Invalid composer command');
+  expect(() => suggest?.({}, 'workspace/one', 'FIX', 'a'.repeat(501))).toThrow('Invalid composer search');
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+
 it('imports login-shell tool directories before constructing Gemini setup', async () => {
   const backend = await import('./backendProcess');
   const gemini = await import('@bytequay/google/main');

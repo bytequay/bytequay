@@ -120,9 +120,9 @@ class TestGitHubRepoClient
     }
 
     @Test
-    void fetchesOpenIssuesAndExcludesPullRequestsFromGitHubIssuesEndpoint()
+    void fetchesNewestCreatedOpenIssuesAndExcludesPullRequestsFromGitHubIssuesEndpoint()
     {
-        server.expect(requestTo("https://api.github.test/repos/owner/repo/issues?per_page=100&page=1"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/issues?state=open&sort=created&direction=desc&per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         [{"id":10,"number":7,"title":"Issue","body":"Details",
                           "user":{"login":"alice","avatar_url":"avatar"},
@@ -143,6 +143,20 @@ class TestGitHubRepoClient
                     assertThat(issue.labels()).containsExactly("bug");
                     assertThat(issue.assignees()).containsExactly("bob");
                 });
+    }
+
+    @Test
+    void retainsOpenIssueOrderingAndPaginationWhenAPageContainsOnlyPullRequests()
+    {
+        String pullRequests = IntStream.rangeClosed(1, 100).mapToObj(number -> "{\"number\":" + number + ",\"pull_request\":{}}")
+                .collect(joining(",", "[", "]"));
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/issues?state=open&sort=created&direction=desc&per_page=100&page=2"))
+                .andRespond(withSuccess(pullRequests, MediaType.APPLICATION_JSON));
+
+        GitHubRepoClient.IssuePage page = client.fetchOpenIssuesPage("pat", REPOSITORY, 2);
+
+        assertThat(page.issues()).isEmpty();
+        assertThat(page.hasNext()).isTrue();
     }
 
     @Test

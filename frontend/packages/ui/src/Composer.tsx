@@ -29,26 +29,37 @@ export type ComposerProps = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'c
   submitTitle?: string;
   submitContent?: ReactNode;
   submitShortcut?: 'enter' | 'mod-enter';
+  /** Colors a host-owned reference without changing native textarea editing or layout. */
+  inlineHighlight?: { start: number; end: number; className: string; link?: { href: string; title: string; onOpen: () => void } };
 };
 
 /** Shared message entry, keyboard submission and controls; hosts own drafts and delivery. */
 export default function Composer({
   className = '', inputRef, header, notice, children, trailingActions, busy = false,
   onSubmit, submitEnabled, showSubmit = true, submitLabel = 'Send message', submitTitle = submitLabel,
-  submitContent, submitShortcut = 'enter', onKeyDown, onCompositionStart, onCompositionEnd, onChange, onScroll, rows = 1, ...input
+  submitContent, submitShortcut = 'enter', inlineHighlight, onKeyDown, onCompositionStart, onCompositionEnd, onChange, onScroll, rows = 1, ...input
 }: ComposerProps) {
   const composing = useRef(false);
   const highlights = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState(input.defaultValue ?? '');
   const text = String(input.value ?? draft);
   const parts = text.split(/((?<![\p{L}\p{N}_@])@[\p{L}\p{N}_-]+)/gu);
+  const highlighted = inlineHighlight !== undefined && inlineHighlight.start >= 0 && inlineHighlight.end <= text.length && inlineHighlight.end > inlineHighlight.start;
+  const link = highlighted ? inlineHighlight.link : undefined;
+  const keywords = (value: string) => value.split(/((?<![\p{L}\p{N}_@])@[\p{L}\p{N}_-]+)/gu)
+    .map((part, index) => index % 2 === 1 ? <span className="agt-compose__keyword" key={index}>{part}</span> : part);
   const submit = () => { if (submitEnabled) onSubmit(); };
   return <div className={`agt-compose ${className}`.trim()} aria-busy={busy}>
     <span className="agt-compose__streamer" aria-hidden="true" />
     {header}
-    <div className={`agt-compose__field${parts.length > 1 ? ' has-keywords' : ''}`}>
-      <div ref={highlights} className="agt-compose__highlights" aria-hidden="true" style={input.style}>
-        {parts.map((part, index) => index % 2 === 1 ? <span className="agt-compose__keyword" key={index}>{part}</span> : part)}{'\n'}
+    <div className={`agt-compose__field${parts.length > 1 || highlighted ? ' has-keywords' : ''}`}>
+      <div ref={highlights} className="agt-compose__highlights" aria-hidden={link === undefined ? true : undefined} style={input.style}>
+        {highlighted ? <><span aria-hidden="true">{keywords(text.slice(0, inlineHighlight.start))}</span>
+          {link === undefined ? <span className={inlineHighlight.className}>{text.slice(inlineHighlight.start, inlineHighlight.end)}</span>
+            : <a className={inlineHighlight.className} href={link.href} title={link.title} aria-label={link.title}
+              onClick={event => { event.preventDefault(); link.onOpen(); }}>{text.slice(inlineHighlight.start, inlineHighlight.end)}</a>}
+          <span aria-hidden="true">{keywords(text.slice(inlineHighlight.end))}{'\n'}</span>
+        </> : <>{keywords(text)}{'\n'}</>}
       </div>
       <textarea {...input} ref={inputRef} className="agt-compose__input" rows={rows}
         onChange={event => {

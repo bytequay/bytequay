@@ -163,6 +163,21 @@ class TestGitLabIssueClient
     }
 
     @Test
+    void listsOpenIssuesNewestCreationFirstAndPreservesPagination()
+    {
+        String path = "/gitlab/api/v4/projects/42/issues?scope=all&state=opened&order_by=created_at&sort=desc&per_page=100&page=2";
+        replies.put("GET " + path, new Reply(200, "[" + issue("opened") + "]", true));
+
+        var page = client.list(target(), Optional.empty(), 2);
+
+        assertThat(requested.get()).isEqualTo(path);
+        assertThat(page.openIssues()).singleElement().satisfies(issue -> assertThat(issue.number()).isEqualTo(7));
+        assertThat(page.closedNumbers()).isEmpty();
+        assertThat(page.hasNext()).isTrue();
+        assertThat(token.get()).isEqualTo("Bearer selected-token");
+    }
+
+    @Test
     void returnsExistingSourceContractWithPrivateServerPrefixAndNestedNamespace()
     {
         var source = client.source(target(), 7, true);
@@ -259,7 +274,7 @@ class TestGitLabIssueClient
     @Test
     void failsAccessErrorsWithoutPretendingTheIssueListIsEmpty()
     {
-        replies.put("GET /gitlab/api/v4/projects/42/issues?scope=all&state=opened&order_by=updated_at&sort=asc&per_page=100&page=1", new Reply(403, "{}", false));
+        replies.put("GET /gitlab/api/v4/projects/42/issues?scope=all&state=opened&order_by=created_at&sort=desc&per_page=100&page=1", new Reply(403, "{}", false));
         assertThatThrownBy(() -> client.list(target(), Optional.empty(), 1)).isInstanceOf(HostingFailure.class);
     }
 

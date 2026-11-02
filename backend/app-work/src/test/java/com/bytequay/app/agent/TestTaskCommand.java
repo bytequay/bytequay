@@ -15,11 +15,11 @@ package com.bytequay.app.agent;
 
 import org.junit.jupiter.api.Test;
 
-import static com.bytequay.app.agent.ContributeCommand.BRIEF;
-import static com.bytequay.app.agent.ContributeCommand.expand;
+import static com.bytequay.app.agent.TaskCommand.BRIEF;
+import static com.bytequay.app.agent.TaskCommand.expand;
 import static org.assertj.core.api.Assertions.assertThat;
 
-class TestContributeCommand
+class TestTaskCommand
 {
     @Test
     void replacesLeadingCommandWithBriefAndKeepsTheUsersWords()
@@ -34,5 +34,21 @@ class TestContributeCommand
         assertThat(expand("Fix the flaky test")).isEqualTo("Fix the flaky test");
         assertThat(expand("Please @contribute here")).isEqualTo("Please @contribute here");
         assertThat(expand("@contributed nothing")).isEqualTo("@contributed nothing");
+        assertThat(expand("@fixes nothing")).isEqualTo("@fixes nothing");
+        assertThat(expand("Please @review this")).isEqualTo("Please @review this");
+    }
+
+    @Test
+    void expandsFixAndReviewWithoutLosingSelectedReferencesOrInstructions()
+    {
+        assertThat(expand("  @Fix https://github.com/owner/repo/issues/12\nKeep the public API"))
+                .startsWith("Investigate the referenced open issue")
+                .endsWith("https://github.com/owner/repo/issues/12\nKeep the public API");
+        assertThat(expand("@REVIEW https://github.com/owner/repo/pull/34"))
+                .startsWith("Review the referenced pull request's current changes")
+                .contains("do not modify files, commit, push, or publish")
+                .endsWith("https://github.com/owner/repo/pull/34");
+        assertThat(expand("@review")).contains("ask which one to review");
+        assertThat(expand("@fix")).contains("ask which issue to fix");
     }
 }

@@ -406,6 +406,21 @@ Existing tasks keep the account they started with.
 3. Check **Automation**, then **Send**. The task gets its own branch and
    working copy.
 
+Choose **Backport**, **Fix issues and failures**, or **Review code and suggest
+changes** above the composer, or type **@backport**, **@fix**, or **@review**
+followed by a space. The picker suggests up to 10 items from this repository:
+the most recently merged PRs for Backport, newest open issues for Fix, and
+newest open PRs by other authors for Review. Type part of a title or number to
+search within that category; matching ignores capitalization and includes
+text anywhere in the title or number. Only the first word after the command
+is searched; adding a space after it closes the picker so you can continue
+writing instructions. Click a result, or use the arrow keys and Enter or Tab,
+to insert its title and number as blue text in the composer. Titles longer than
+40 characters are shortened. Hover over the blue text to see the full title;
+click it to open the issue or PR. Add any instructions, then send when ready.
+Escape dismisses the picker. Review asks for findings and
+suggestions without changing code or publishing a review.
+
 To contribute to a repository, start the message with **@contribute**, choose
 **Contribute** on Home, or ask the Assistant to find a contribution there. The
 task looks for one small, worthwhile problem real users hit, fixes it with

@@ -607,6 +607,63 @@
   white-space: nowrap;
 }
 
+.agt-mentions.is-items {
+  width: min(560px, calc(100% - 20px));
+  max-height: min(420px, 50vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.agt-mentions__heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 8px 10px;
+  color: var(--text-1);
+  font-size: 12px;
+}
+
+.agt-mentions__heading span,
+.agt-mentions__status {
+  color: var(--fg-muted);
+}
+
+.agt-mentions__status {
+  padding: 12px 10px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.agt-mentions button .agt-mentions__item {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.agt-mentions__item strong {
+  overflow: hidden;
+  color: var(--text-1);
+  font-weight: 500;
+  text-overflow: ellipsis;
+}
+
+.agt-mentions__item > span {
+  font-size: 12px;
+}
+
+.agt-compose__reference { color: var(--fg-link); }
+
+.agt-compose__reference[href] {
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.agt-compose__reference[href]:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }
+
 .agt-compose__hint {
   padding: 4px 14px;
   color: var(--fg-muted);

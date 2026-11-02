@@ -50,6 +50,15 @@ type CiStatus = 'PASSING' | 'FAILING' | 'PENDING' | 'NONE';
 /** A workspace id, or the connected account a request no workspace lists opens through. */
 export type PullRequestRoute = string | { accountId: number };
 
+export type ComposerSuggestionCommand = 'BACKPORT' | 'FIX' | 'REVIEW';
+export type ComposerSuggestionDto = {
+  number: number;
+  title: string;
+  url: string;
+  author: string;
+  updatedAt: string;
+};
+
 export type PullRequestDto = {
   id: number;
   repo: string;
@@ -1953,6 +1962,7 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   previewCherryPickPullRequest: (request: CherryPickPullRequestPreviewRequest) => Promise<CherryPickPreview>;
   /** Merged pull requests stored for a workspace's repository, newest merge first. */
   listMergedPullRequests: (workspaceId: string, search: string) => Promise<PullRequestDto[]>;
+  getComposerSuggestions: (workspaceId: string, command: ComposerSuggestionCommand, search: string) => Promise<ComposerSuggestionDto[]>;
   /**
    * Probes every configured provider and returns its readiness.
    *

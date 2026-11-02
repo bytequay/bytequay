@@ -13,11 +13,13 @@
  */
 
 import { AgentSetupNotice, useAgentAvailability } from './availability';
-import { BackportButton } from './BackportRequestHint';
+import { TaskShortcuts } from './TaskShortcuts';
+import { useTaskSuggestions } from './useTaskSuggestions';
+import { editReferenceDraft, referenceDraft, removeReferenceDraft, type ComposerReference } from './composerReference';
 import { notifyJiraChanged, type JiraIssue } from '../jira/contracts';
 import { JiraSourceAttachment } from '../jira/JiraSourceAttachment';
-import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArchiveRestore, Check, Circle, FileText, GitBranch, GitPullRequest, Link2, LoaderCircle, Trash2 } from 'lucide-react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Archive, ArchiveRestore, Check, Circle, Link2, LoaderCircle, Trash2 } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { Chevron } from '../Chevron';
 import RepoAvatar from '../RepoAvatar';
@@ -192,6 +194,11 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
   const [laneId, setLaneId] = useState(initialLaunch?.laneId ?? INTERACTIVE_LANE_ID);
   const [selection, setSelection] = useState<TaskModelSelection | null>(null);
   const [draft, setDraft] = useState(initialDraft ?? (sourceJira === null ? '' : `Implement ${sourceJira.key}: ${sourceJira.title}`));
+  const [reference, setReference] = useState<ComposerReference | null>(null);
+  const changeDraft = useCallback((value: string) => {
+    setDraft(value);
+    setReference(current => referenceDraft(value, current) === null ? null : current);
+  }, []);
   const [issue, setIssue] = useState<DevelopmentIssue | null>(null);
   const [sourceLoading, setSourceLoading] = useState(sourceIssueNumber !== null);
   const [sourceError, setSourceError] = useState<string | null>(null);
@@ -450,6 +457,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       if (!isCurrent()) return;
       if (task.workspaceId === workspaceId) setTasks((current) => [task, ...current.filter((existing) => existing.id !== task.id)]);
       setDraft('');
+      setReference(null);
       // A choice made for one task does not carry over to the next.
       setAutomation(savedAutomation);
       clearImages();
@@ -524,6 +532,8 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       models,
       selection,
       draft,
+      reference,
+      onReferenceChange: setReference,
       blocker,
       busy,
       attaching: operation === 'attachment',
@@ -533,7 +543,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       onAttach: () => { void attach(); },
       onPasteImages: () => { void attach('clipboard'); },
       onRemoveImage: removeImage,
-      onDraftChange: setDraft,
+      onDraftChange: changeDraft,
       onSelectProvider: selectProvider,
       onSelectModel: (model: string, effort: string | null, serviceTier: string | null) => setSelection({ model, effort, serviceTier }),
       onCreate: () => { void create(); },
@@ -836,6 +846,8 @@ export type TaskComposerProps = {
   workspaceId?: string;
   /** The first message; sending it creates the task and names it until the agent answers. */
   draft: string;
+  reference?: ComposerReference | null;
+  onReferenceChange?: (reference: ComposerReference | null) => void;
   /** Why creation is unavailable; null when the task can be created. */
   blocker: string | null;
   laneId: string;
@@ -859,13 +871,6 @@ export type TaskComposerProps = {
   onAskArtifacts?: (question: string) => Promise<unknown>;
 };
 
-/** The @ commands the new-task composer completes, in the order it lists them. */
-const MENTIONS = [
-  { name: 'backport', detail: 'Backport a PR through related workspaces', icon: GitBranch },
-  { name: 'contribute', detail: 'Find and fix one small, worthwhile problem', icon: GitPullRequest },
-  { name: 'artifacts', detail: 'Ask about this repository in Artifacts', icon: FileText },
-];
-
 /** What follows a leading @artifacts, or null when the draft does not start with it. */
 export function artifactsQuestion(draft: string): string | null {
   const match = /^\s*@artifacts(?:\s|$)/i.exec(draft);
@@ -876,39 +881,35 @@ export function artifactsQuestion(draft: string): string | null {
 export function TaskComposer({
   draft, blocker, laneId, providers, models, selection, onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenSettings, workspaceId,
   images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage, automation, issueAttachment, onAskArtifacts,
-  backport = false,
+  backport = false, reference = null, onReferenceChange,
 }: TaskComposerProps & { backport?: boolean }): React.JSX.Element {
   const availability = useAgentAvailability(workspaceId);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const composing = useRef(false);
-  const nextCaret = useRef<number | null>(null);
-  const dismissed = useRef<{ value: string; caret: number } | null>(null);
-  // `chosen` is the option the arrow keys moved to; a change to the text resets it to the first.
-  const [mention, setMention] = useState<{ value: string; names: string[]; chosen: string | null } | null>(null);
   const [asking, setAsking] = useState(false);
-  const mentionId = useId();
   const disabled = busy && !attaching;
-  const offered = MENTIONS.filter(entry => entry.name === 'artifacts' ? onAskArtifacts !== undefined : backport);
-  const options = !disabled && mention?.value === draft ? offered.filter(entry => mention.names.includes(entry.name)) : [];
-  const active = options.find(entry => entry.name === mention?.chosen) ?? options[0];
+  const selected = onReferenceChange === undefined ? null : referenceDraft(draft, reference);
+  const visibleDraft = selected?.text ?? draft;
+  const changeVisibleDraft = (text: string) => {
+    if (selected === null || reference === null) { onDraftChange(text); return; }
+    const edited = editReferenceDraft(text, reference);
+    onReferenceChange?.(edited.reference);
+    onDraftChange(edited.draft);
+  };
+  const removeReference = () => {
+    if (selected === null) return;
+    onReferenceChange?.(null);
+    onDraftChange(removeReferenceDraft(draft, reference));
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(selected.start, selected.start);
+      inputRef.current?.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    });
+  };
+  const suggestions = useTaskSuggestions({ draft: visibleDraft, onDraftChange: changeVisibleDraft, workspaceId, inputRef, disabled, backport,
+    artifacts: onAskArtifacts !== undefined, referenceSelected: selected !== null,
+    onChooseReference: onReferenceChange === undefined ? undefined : (command, item) => onReferenceChange({ command, item }),
+  });
   const question = onAskArtifacts === undefined ? null : artifactsQuestion(draft);
-  const updateMention = (input: HTMLTextAreaElement): void => {
-    const caret = input.selectionStart;
-    if (dismissed.current?.value === input.value && dismissed.current.caret === caret) return;
-    dismissed.current = null;
-    const match = /^\s*@([^\s@]*)$/.exec(input.value.slice(0, caret));
-    const suffix = input.value.slice(caret).match(/^\S*/)?.[0] ?? '';
-    const typed = match === null || composing.current || caret !== input.selectionEnd ? null : (match[1] + suffix).toLowerCase();
-    const names = typed === null ? [] : offered.filter(entry => entry.name.startsWith(typed)).map(entry => entry.name);
-    const value = input.value;
-    setMention(current => names.length === 0 ? null : { value, names, chosen: current?.value === value ? current.chosen : null });
-  };
-  const selectMention = (name: string): void => {
-    nextCaret.current = name.length + 2;
-    // The list only opens on a leading partial of the name, so the leading token is what it replaces.
-    onDraftChange(`@${name} ${draft.replace(/^\s*@\S*\s*/, '')}`);
-    setMention(null);
-  };
   const submit = (): void => {
     if (question === null) onCreate();
     else if (question !== '' && !asking && onAskArtifacts !== undefined) {
@@ -916,12 +917,6 @@ export function TaskComposer({
       onAskArtifacts(question).then(() => onDraftChange(''), () => {}).finally(() => setAsking(false));
     }
   };
-  useLayoutEffect(() => {
-    if (nextCaret.current === null || inputRef.current === null) return;
-    inputRef.current.focus();
-    inputRef.current.setSelectionRange(nextCaret.current, nextCaret.current);
-    nextCaret.current = null;
-  });
   if (!availability.any && !busy) return <AgentSetupNotice workspaceId={workspaceId} />;
   const imagesAccepted = !isDeepSeekKeyLane(laneId)
     && acceptsImages(models, selection?.model, providers.find((provider) => provider.id === laneId)?.capabilities ?? null);
@@ -945,8 +940,12 @@ export function TaskComposer({
         </div>
       )}
       {issueAttachment}
-      <Composer className="is-new-task" inputRef={inputRef} aria-label="Describe a task" placeholder="Let's ship something"
-        value={draft} disabled={disabled} busy={busy || asking} onSubmit={submit}
+      <Composer {...suggestions.inputProps} className="is-new-task" inputRef={inputRef} aria-label="Describe a task" placeholder="Let's ship something"
+        value={visibleDraft} disabled={disabled} busy={busy || asking} onSubmit={submit}
+        inlineHighlight={selected === null || reference === null ? undefined : {
+          start: selected.start, end: selected.end, className: 'agt-compose__reference',
+          link: { href: reference.item.url, title: reference.item.title, onOpen: () => { void window.bridge.openInAppBrowser(reference.item.url); } },
+        }}
         submitEnabled={question !== null ? question !== '' && !busy && !asking : !busy && blocker === null && selection !== null && draft.trim() !== ''}
         submitLabel={question !== null ? 'Ask in Artifacts' : 'Send — creates the task'}
         submitTitle={question !== null ? 'Starts an Artifacts conversation with this question' : 'Sends the first message, which creates the task'}
@@ -956,37 +955,30 @@ export function TaskComposer({
           {question !== null && <div className="agt-backport-hint" role="status">
             <strong>Artifacts</strong> · Asks in a new Artifacts conversation, which reads this repository and cannot change it.
           </div>}
-          {active !== undefined && <div className="agt-mentions" id={mentionId} role="listbox" aria-label="Task suggestions">
-            {options.map(entry => <button key={entry.name} type="button" id={`${mentionId}-${entry.name}`} role="option" aria-selected={entry === active}
-              tabIndex={-1} onMouseDown={event => event.preventDefault()} onClick={() => selectMention(entry.name)}>
-              <entry.icon size={15} strokeWidth={1.8} aria-hidden="true" />@{entry.name}<span>{entry.detail}</span>
-            </button>)}
-          </div>}
+          {suggestions.list}
         </>}
-        aria-autocomplete={offered.length > 0 ? 'list' : undefined}
-        aria-controls={active !== undefined ? mentionId : undefined}
-        aria-activedescendant={active !== undefined ? `${mentionId}-${active.name}` : undefined}
-        onChange={event => { onDraftChange(event.target.value); updateMention(event.currentTarget); }}
-        onFocus={event => updateMention(event.currentTarget)} onSelect={event => updateMention(event.currentTarget)}
-        onBlur={() => setMention(null)}
-        onCompositionStart={() => { composing.current = true; setMention(null); }}
-        onCompositionEnd={event => { composing.current = false; updateMention(event.currentTarget); }}
         onPaste={event => pasteImage(event, imagesAccepted && blocker === null && !busy, onPasteImages)}
+        onCopy={event => {
+          if (selected === null || event.currentTarget.selectionStart !== 0 || event.currentTarget.selectionEnd !== visibleDraft.length) return;
+          event.preventDefault();
+          event.clipboardData.setData('text/plain', draft);
+        }}
+        onCut={event => {
+          if (selected === null || event.currentTarget.selectionStart !== 0 || event.currentTarget.selectionEnd !== visibleDraft.length) return;
+          event.preventDefault();
+          event.clipboardData.setData('text/plain', draft);
+          onReferenceChange?.(null);
+          onDraftChange('');
+        }}
         onKeyDown={event => {
-          if (active === undefined) return;
-          if (event.key === 'Escape') {
+          const caret = event.currentTarget.selectionStart;
+          const atEnd = selected !== null && (caret === selected.end || caret === selected.end + 1 && visibleDraft[selected.end] === ' ');
+          if (selected !== null && !event.nativeEvent.isComposing && caret === event.currentTarget.selectionEnd
+            && (event.key === 'Backspace' && atEnd || event.key === 'Delete' && caret === selected.start)) {
             event.preventDefault();
-            dismissed.current = { value: draft, caret: event.currentTarget.selectionStart };
-            setMention(null);
+            removeReference();
           }
-          else if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey) {
-            event.preventDefault(); selectMention(active.name);
-          }
-          else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-            event.preventDefault();
-            const step = event.key === 'ArrowDown' ? 1 : options.length - 1;
-            setMention(current => current && { ...current, chosen: options[(options.indexOf(active) + step) % options.length].name });
-          }
+          else suggestions.inputProps.onKeyDown?.(event);
         }}>
         <ComposerModelControls models={models} model={selection?.model ?? null} effort={selection?.effort} serviceTier={selection?.serviceTier}
           providers={providers} laneId={laneId} onSelectProvider={onSelectProvider} onSelectModel={onSelectModel}
@@ -1291,7 +1283,8 @@ export function AgentTaskList({
 
         {/* Anchored under the list: sending this first message is what creates a task. */}
         {active && (
-          <ComposerDock repository={repository} chips={availability.any && backports ? <BackportButton draft={draft} onDraftChange={onDraftChange} disabled={busy} /> : undefined}>
+          <ComposerDock repository={repository} chips={availability.any ? <TaskShortcuts draft={draft} onDraftChange={onDraftChange} disabled={busy} backports={backports}
+            reference={composer.reference} onReferenceChange={composer.onReferenceChange} /> : undefined}>
             <TaskComposer {...composer} backport={backports} />
           </ComposerDock>
         )}

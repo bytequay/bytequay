@@ -267,6 +267,7 @@ const bridge: Bridge = {
   previewCherryPickRange: invoke('cherrypick:preview'),
   previewCherryPickPullRequest: invoke('cherrypick:preview-pull-request'),
   listMergedPullRequests: invoke('prs:merged'),
+  getComposerSuggestions: invoke('composer:suggestions'),
   refreshAgentProviderReadiness: invoke('agent:providers:refresh'),
   startCherryPickExecution: invoke('cherrypick:execution:start'),
   getCherryPickExecution: invoke('cherrypick:execution:get'),

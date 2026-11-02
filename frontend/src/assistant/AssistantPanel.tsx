@@ -29,6 +29,7 @@ import { useMyWork } from '../home/useMyWork';
 import type { WorkLane } from '../home/work';
 import { requestPullComment } from '../pulls/PullOverview';
 import { APPROVAL_NOTICE, type AppNotice } from '../notices/contracts';
+import { remoteErrorMessage } from '../remoteError';
 import { settingsRoute, type SettingsSection } from '../settings/routes';
 import type { AgendaTargetDto, AssistantItemDto, AssistantReceiptDto, AssistantRowDto, AssistantSummaryDto } from '../types';
 import AssistantList from './AssistantList';
@@ -255,6 +256,29 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, requ
   };
   const openNotice = (id: string) => noticeAction(window.bridge.openAppNotice(id), 'Unable to open this task.', onClose);
   const clearNotice = (id: string) => noticeAction(window.bridge.removeAppNotice(id), 'Unable to clear this notice.');
+  // Only a task's latest report takes a reply; the earlier ones are its history.
+  const latestReports = new Map<string, string>();
+  for (const item of items) {
+    const task = item.report?.target.id;
+    if (task != null) latestReports.set(task, item.id);
+  }
+  // The user's words go straight to the report's task, with no model between; the receipt comes with the next read.
+  const replyOnReport = (itemId: string) => (text: string, key: string): Promise<boolean> =>
+    window.bridge.replyFromAssistant(conversation, itemId, text, key).then(() => {
+      setFailure(null);
+      refresh();
+      return true;
+    }, (cause: unknown) => {
+      setFailure(remoteErrorMessage(cause));
+      return false;
+    });
+  const reportEntry = (item: AssistantItemDto) => {
+    const notice = waiting.find(each => each.id === item.report?.noticeId);
+    // Not while the task waits on an approval, which its card's buttons answer.
+    const replyable = latestReports.get(item.report?.target.id ?? '') === item.id && notice?.id.startsWith(APPROVAL_NOTICE) !== true;
+    return <Report key={item.id} item={item} notice={notice} conversation={conversation} onAnswered={answeredNotice} onOpenNotice={openNotice}
+      onClearNotice={clearNotice} onShow={show} onReply={replyable ? replyOnReport(item.id) : undefined} />;
+  };
   const pick = (pill: Pill) => {
     setHistory(false);
     setLane(null);
@@ -272,8 +296,7 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, requ
         {items.map(item => item.kind === 'RECEIPT'
           ? <Receipt key={item.id} item={item} onOpen={openReceipt} onSettings={openSettings} />
           : item.kind === 'REPORT'
-            ? <Report key={item.id} item={item} notice={waiting.find(notice => notice.id === item.report?.noticeId)} conversation={conversation}
-              onAnswered={answeredNotice} onOpenNotice={openNotice} onClearNotice={clearNotice} onShow={show} />
+            ? reportEntry(item)
             : <Entry key={item.id} item={item} waiting={waitingIds.has(item.id)} rows={chat?.rows ?? {}} drafts={drafts} model={chat?.model ?? null}
               retryable={chatEnabled && !running && item.id === lastExchange} onRetry={retry} onSettings={openSettings} onOpen={show} onComplete={completeTask}
               onPull={actOnPull} onRefresh={refresh} />)}
@@ -536,9 +559,9 @@ function Entry({ item, waiting, rows, drafts, model, retryable, onRetry, onSetti
 
 /**
  * What a task the conversation started or sent words to raised: while its notice lasts, that notice's own card, answered or opened in
- * place; after, one line that opens the task.
+ * place; after, one line that opens the task. A task's latest report takes a reply.
  */
-function Report({ item, notice, conversation, onAnswered, onOpenNotice, onClearNotice, onShow }: {
+function Report({ item, notice, conversation, onAnswered, onOpenNotice, onClearNotice, onShow, onReply }: {
   item: AssistantItemDto;
   notice: AppNotice | undefined;
   conversation: string;
@@ -546,23 +569,71 @@ function Report({ item, notice, conversation, onAnswered, onOpenNotice, onClearN
   onOpenNotice: (id: string) => void;
   onClearNotice: (id: string) => void;
   onShow: (target: AgendaTargetDto) => void;
+  onReply?: (text: string, key: string) => Promise<boolean>;
 }) {
   const report = item.report;
   if (report === null) return null;
+  let entry: ReactNode;
   if (notice !== undefined) {
     const open = () => onOpenNotice(notice.id);
     const clear = () => onClearNotice(notice.id);
-    if (report.state !== 'DECISION') return <ResultCard notice={notice} onShow={onShow} onOpen={open} onClear={clear} />;
-    return notice.id.startsWith(APPROVAL_NOTICE)
-      ? <ApprovalCard notice={notice} focused={false} conversation={conversation} onAnswered={() => onAnswered(notice.id)} onOpen={open} onClear={clear} />
-      : <NoticeCard notice={notice} focused={false} onOpen={open} onClear={clear} />;
+    entry = report.state !== 'DECISION' ? <ResultCard notice={notice} onShow={onShow} onOpen={open} onClear={clear} />
+      : notice.id.startsWith(APPROVAL_NOTICE)
+        ? <ApprovalCard notice={notice} focused={false} conversation={conversation} onAnswered={() => onAnswered(notice.id)} onOpen={open} onClear={clear} />
+        : <NoticeCard notice={notice} focused={false} onOpen={open} onClear={clear} />;
   }
-  const Icon = report.state === 'FAILED' ? CircleX : report.state === 'READY' ? CircleCheck : MessageCircleQuestion;
+  else {
+    const Icon = report.state === 'FAILED' ? CircleX : report.state === 'READY' ? CircleCheck : MessageCircleQuestion;
+    entry = (
+      <div className="assistant-receipt" title={item.text}>
+        <Icon className="assistant-receipt__icon" size={14} aria-hidden="true" />
+        <div className="assistant-receipt__text"><span className="assistant-receipt__lead">{item.text}</span></div>
+        <button type="button" className="assistant-button" onClick={() => onShow(report.target)}>Open</button>
+      </div>
+    );
+  }
+  return <>{entry}{onReply !== undefined && <ReplyToTask onSend={onReply} />}</>;
+}
+
+/** A reply on a task's report, which goes to the task itself: Enter sends, Escape puts it away. */
+function ReplyToTask({ onSend }: { onSend: (text: string, key: string) => Promise<boolean> }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  // One key for each reply, so one sent again after its answer was lost reaches the task once.
+  const [key, setKey] = useState(() => crypto.randomUUID());
+  const input = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => { if (open) input.current?.focus(); }, [open]);
+  if (!open) {
+    return <div className="assistant-reply-to"><button type="button" className="assistant-link" onClick={() => setOpen(true)}>Reply to the task</button></div>;
+  }
+  const send = () => {
+    const words = text.trim();
+    if (words === '' || sending) return;
+    setSending(true);
+    void onSend(words, key).then(sent => {
+      setSending(false);
+      if (!sent) return;
+      setText('');
+      setKey(crypto.randomUUID());
+      setOpen(false);
+    });
+  };
   return (
-    <div className="assistant-receipt" title={item.text}>
-      <Icon className="assistant-receipt__icon" size={14} aria-hidden="true" />
-      <div className="assistant-receipt__text"><span className="assistant-receipt__lead">{item.text}</span></div>
-      <button type="button" className="assistant-button" onClick={() => onShow(report.target)}>Open</button>
+    <div className="assistant-reply-to">
+      <textarea ref={input} className="assistant-reply-to__text" aria-label="Reply to the task" placeholder="Reply to the task" rows={1} maxLength={16 * 1024}
+        value={text} disabled={sending} onChange={event => setText(event.target.value)}
+        onKeyDown={event => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            setOpen(false);
+          }
+          else if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+            event.preventDefault();
+            send();
+          }
+        }} />
+      <button type="button" className="assistant-button" disabled={text.trim() === '' || sending} onClick={send}>Send</button>
     </div>
   );
 }

@@ -2131,6 +2131,8 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   recordAssistantAnswer: (conversationId: string, approvalId: string) => Promise<void>;
   /** Keeps the receipt for a draft the user created with its own button. */
   recordAssistantDraft: (conversationId: string, itemId: string) => Promise<void>;
+  /** Sends the user's words straight to the task a report named, with no model between; the conversation keeps the receipt. */
+  replyFromAssistant: (conversationId: string, itemId: string, text: string, key: string) => Promise<{ itemId: string }>;
   getAssistantPermissions: () => Promise<AssistantPermissionsDto>;
   saveAssistantPermissions: (permissions: AssistantPermissionsDto) => Promise<AssistantPermissionsDto>;
 

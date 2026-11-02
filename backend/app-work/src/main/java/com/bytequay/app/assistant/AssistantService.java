@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.OneShotSession;
+import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -287,6 +288,31 @@ public class AssistantService
         if (!kept) {
             append(work.drafted(draft, conversationId, clock.instant()));
         }
+    }
+
+    /**
+     * Sends the user's own words to the task one of the conversation's reports named, with no model between them, and keeps the receipt;
+     * the task then reports here again.
+     *
+     * @param itemId the report replied on
+     * @param key the sender's key for the reply; sent again, it adds nothing and gives the first receipt's id
+     * @return the receipt's item id
+     * @throws IllegalArgumentException when the item is not one of the conversation's reports
+     */
+    // Under append's lock, so a reply sent twice at once still keeps one receipt.
+    public synchronized String reply(String conversationId, String itemId, String text, String key)
+    {
+        checkArgument(AssistantConversation.isId(conversationId), "conversationId is not a conversation id");
+        List<AssistantItem> items = store.items(conversationId);
+        Optional<AssistantItem> sent = items.stream().filter(item -> item.key().filter(key::equals).isPresent()).findFirst();
+        if (sent.isPresent()) {
+            return sent.orElseThrow().id();
+        }
+        TaskId task = items.stream().filter(item -> item.id().equals(itemId)).findFirst().flatMap(AssistantItem::report).flatMap(report -> report.target().id())
+                .flatMap(AssistantRows::taskId).orElseThrow(() -> new IllegalArgumentException("That is not one of this conversation's reports"));
+        AssistantItem receipt = actions.reply(conversationId, task, text, key);
+        append(receipt);
+        return receipt.id();
     }
 
     /** Adds the item, beginning its conversation with it when it is the first; the user's own message moves the conversation up the history. */

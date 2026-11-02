@@ -634,6 +634,36 @@
   font-size: 12px;
 }
 
+/* A reply on a task's report, which goes to the task itself. */
+.assistant-reply-to {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: -4px;
+  font-size: 12.5px;
+}
+
+.assistant-reply-to__text {
+  box-sizing: border-box;
+  flex: 1;
+  min-width: 0;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid var(--assistant-line);
+  border-radius: 6px;
+  background: var(--surface-canvas);
+  color: var(--fg-default);
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 19.5px;
+  resize: vertical;
+}
+
+.assistant-reply-to__text:focus-visible {
+  outline: 2px solid var(--control-strong);
+  outline-offset: 2px;
+}
+
 /* Today's agenda, calmer here: reasons as dim words, not coloured pills. */
 .assistant-today {
   padding: 4px 12px 8px;

@@ -33,7 +33,7 @@ import static java.util.Objects.requireNonNull;
  * @param text the user's words, the reply's Markdown, a receipt's or a report's line, a list's or a draft's title, or the failure's reason
  * @param visible a message's cards on screen when it was sent
  * @param onScreen a message's ref of the page the user was looking at
- * @param key a message's key from its sender, so sending it again adds nothing
+ * @param key a message's key from its sender, or a reply's to a task, so sending it again adds nothing
  * @param targets where each ref a reply names opens; only refs the conversation served
  * @param notReady whether a failure is the model not being ready, which Settings fixes
  * @param receipt what a receipt's action was, and what it opens
@@ -96,6 +96,13 @@ public record AssistantItem(
     {
         return new AssistantItem(UUID.randomUUID().toString(), conversationId, at, Kind.RECEIPT, text, ImmutableList.of(), Optional.empty(), Optional.empty(), ImmutableMap.of(),
                 false, Optional.of(receipt), Optional.empty(), Optional.empty(), Optional.empty());
+    }
+
+    /** The receipt of a reply the user sent a task from its report, under the reply's key. */
+    public static AssistantItem receipt(String conversationId, Instant at, String text, AssistantReceipt receipt, String key)
+    {
+        return new AssistantItem(UUID.randomUUID().toString(), conversationId, at, Kind.RECEIPT, text, ImmutableList.of(), Optional.empty(), Optional.of(key),
+                ImmutableMap.of(), false, Optional.of(receipt), Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     public static AssistantItem list(String conversationId, Instant at, String title, AssistantList list)

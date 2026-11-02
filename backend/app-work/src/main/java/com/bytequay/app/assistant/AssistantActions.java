@@ -15,6 +15,7 @@ package com.bytequay.app.assistant;
 
 import com.bytequay.agent.core.AgentApproval;
 import com.bytequay.agent.core.AgentApprovalService;
+import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.ApprovalDecision;
@@ -237,6 +238,31 @@ class AssistantActions
         String title = tasks.find(approval.request().taskId()).map(AgentTask::title).orElse("a task");
         AssistantReceipt receipt = AssistantReceipt.done(question ? Operation.ANSWER_QUESTION : Operation.ANSWER_APPROVAL, target(approval.request().taskId()));
         return AssistantItem.receipt(conversationId, clock.instant(), verb + " · " + clip(title, 80), receipt);
+    }
+
+    /**
+     * The user's own words to a task, typed on its report, sent with no model between them: a new turn, or the queue behind the turn at
+     * work, as a reply the assistant sends does. Sent again under the same key, it is the same input.
+     *
+     * @throws IllegalArgumentException when the task is gone
+     * @throws AgentConflictException when the task has ended, or is a review's, which its page answers
+     */
+    AssistantItem reply(String conversationId, TaskId taskId, String words, String key)
+    {
+        AgentTask task = tasks.find(taskId).orElseThrow(() -> new IllegalArgumentException("That task is gone"));
+        if (task.state() != TaskState.OPEN) {
+            throw new AgentConflictException("That task has ended");
+        }
+        if (!task.interactive()) {
+            throw new AgentConflictException("Reply to a review from its page");
+        }
+        String input = "assistant-reply:" + key;
+        TaskInput.Accepted sent = TaskInput.accepted(turns, task.id(), input)
+                .orElseGet(() -> TaskInput.send(turns, task.id(), task.version(), words, input, task.worktreeMutationClaim().isPresent(), Optional.empty()));
+        boolean queued = sent.queuedInputId().isPresent();
+        AssistantReceipt receipt = new AssistantReceipt(Operation.REPLY_TO_TASK, Outcome.DONE, queued ? Optional.of("After its current turn") : Optional.empty(),
+                target(task.id()), Optional.empty(), sent.turnId().map(TurnId::toString), Optional.empty(), Optional.of(words));
+        return AssistantItem.receipt(conversationId, clock.instant(), (queued ? "Queued your words for " : "Sent your words to ") + clip(task.title(), 80), receipt, key);
     }
 
     /**

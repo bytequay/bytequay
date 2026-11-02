@@ -382,6 +382,7 @@ const bridge: Bridge = {
   retryAssistant: invoke('assistant:retry'),
   recordAssistantAnswer: invoke('assistant:answered'),
   recordAssistantDraft: invoke('assistant:drafted'),
+  replyFromAssistant: invoke('assistant:reply'),
   getAssistantPermissions: invoke('settings:assistant'),
   saveAssistantPermissions: invoke('settings:assistant:save'),
 

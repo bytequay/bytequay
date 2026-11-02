@@ -671,6 +671,47 @@ class TestAssistantConversation
         assertThat(reports(C2)).isEmpty();
     }
 
+    @Test
+    void aReplyTypedOnAReportGoesStraightToItsTaskOnceAndTheTaskReportsBackAgain()
+            throws Exception
+    {
+        Instant asked = now.get();
+        store.save(AssistantConversation.start(C1, "fix the flaky test", asked));
+        store.add(AssistantItem.user(C1, asked, "fix the flaky test", ImmutableList.of(), Optional.empty(), "key-1"));
+        AssistantItem ready = AssistantItem.report(C1, asked.plusSeconds(300), "“Fix the flaky test” is ready",
+                new AssistantReport(AssistantReport.State.READY, "finished:t1", STARTED));
+        store.add(ready);
+        now.set(asked.plusSeconds(400));
+        when(actions.reply(C1, new TaskId(UUID.fromString(STARTED_ID)), "also update the README", "reply-1")).thenAnswer(call -> AssistantItem.receipt(C1, now.get(),
+                "Sent your words to Fix the flaky test", new AssistantReceipt(AssistantReceipt.Operation.REPLY_TO_TASK, AssistantReceipt.Outcome.DONE, Optional.empty(),
+                        Optional.of(STARTED), Optional.empty(), Optional.of("turn-2"), Optional.empty(), Optional.of("also update the README")), "reply-1"));
+        MockMvc http = standaloneSetup(new AssistantController(assistant, mock(AssistantSettings.class))).setControllerAdvice(new GlobalExceptionHandler()).build();
+
+        String sent = assistant.reply(C1, ready.id(), "also update the README", "reply-1");
+        // Sent again with its key, a reply is the same reply.
+        http.perform(post("/api/assistant/replies").contentType(MediaType.APPLICATION_JSON).content(reply(ready.id(), "also update the README", "reply-1")))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.itemId").value(sent));
+        http.perform(post("/api/assistant/replies").contentType(MediaType.APPLICATION_JSON).content(reply(ready.id(), " ", "reply-2")))
+                .andExpect(status().isBadRequest());
+        // Only a report of this conversation takes a reply.
+        http.perform(post("/api/assistant/replies").contentType(MediaType.APPLICATION_JSON).content(reply("u-unknown", "and the tests", "reply-3")))
+                .andExpect(status().isBadRequest());
+        verify(actions, times(1)).reply(any(), any(), any(), any());
+        assertThat(store.items(C1)).extracting(AssistantItem::kind).containsExactly(USER, REPORT, RECEIPT);
+        assertThat(opened).isEmpty();
+
+        when(notices.current(anyCollection())).thenReturn(ImmutableList.of(notice("finished:t2", AppNotice.Kind.TURN_FINISHED, "", asked.plusSeconds(500))));
+        now.set(asked.plusSeconds(600));
+        assistant.report();
+        assertThat(reports(C1)).extracting(item -> item.report().orElseThrow().noticeId()).containsExactly("finished:t1", "finished:t2");
+    }
+
+    private static String reply(String itemId, String text, String key)
+    {
+        return "{\"conversationId\": \"" + C1 + "\", \"itemId\": \"" + itemId + "\", \"text\": \"" + text + "\", \"key\": \"" + key + "\"}";
+    }
+
     /** The user's message starts the task: the act tool keeps the receipt while the reply is written. */
     private void startTask(String conversationId, Instant at)
     {

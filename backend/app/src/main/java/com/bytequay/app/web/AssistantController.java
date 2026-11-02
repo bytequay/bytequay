@@ -109,6 +109,19 @@ public class AssistantController
         assistant.answered(request.conversationId(), request.approvalId());
     }
 
+    /** The user's own words to the task a report named, sent with no model between them; the conversation keeps the receipt. */
+    @PostMapping("/assistant/replies")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public Accepted reply(@RequestBody ReplyRequest request)
+    {
+        checkArgument(request != null, "reply is required");
+        checkConversation(request.conversationId());
+        checkText(request.itemId(), "itemId", REF);
+        checkText(request.text(), "text", AssistantService.MAXIMUM_TEXT);
+        checkText(request.key(), "key", REF);
+        return new Accepted(assistant.reply(request.conversationId(), request.itemId(), request.text(), request.key()));
+    }
+
     /** A draft the user created with its own button in the panel; the conversation keeps its receipt. */
     @PostMapping("/assistant/drafts")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -156,4 +169,10 @@ public class AssistantController
     public record AnsweredRequest(String conversationId, String approvalId) {}
 
     public record DraftedRequest(String conversationId, String itemId) {}
+
+    /**
+     * @param itemId the report replied on
+     * @param key the sender's own key for this reply, so sending it twice sends it once
+     */
+    public record ReplyRequest(String conversationId, String itemId, String text, String key) {}
 }

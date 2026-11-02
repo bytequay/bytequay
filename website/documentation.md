@@ -251,7 +251,8 @@ first turn of a task it started. The Assistant never edits files or runs code it
 
 A task it starts or sends your words to reports back into the same
 conversation, without using your model allowance: each approval or question it
-waits on, with its buttons, then that it is ready or why it failed.
+waits on, with its buttons, then that it is ready or why it failed. **Reply to
+the task** under its latest report sends your words straight to that task.
 
 <a id="dictation"></a>
 

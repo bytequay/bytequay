@@ -127,14 +127,15 @@ let pages: string[] = [];
 
 type Calls = {
   sent: unknown[][]; resolved: unknown[][]; opened: string[]; removed: string[]; stopped: number; closed: number; cancelled: string[]; answered: string[];
-  completed: unknown[][]; left: number; taken: number;
+  completed: unknown[][]; left: number; taken: number; replied: unknown[][];
 };
 
 type Mounted = { host: HTMLElement; calls: Calls; render: (open: boolean, request?: AssistantRequest) => void; dispose: () => void };
 
 function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, running: RunningTask[] = [], replied: () => AssistantViewDto = () => view,
   completed: () => AssistantViewDto = () => view, scripted: Partial<Bridge> = {}, chatEnabled = true): Mounted {
-  const calls: Calls = { sent: [], resolved: [], opened: [], removed: [], stopped: 0, closed: 0, cancelled: [], answered: [], completed: [], left: 0, taken: 0 };
+  const calls: Calls = { sent: [], resolved: [], opened: [], removed: [], stopped: 0, closed: 0, cancelled: [], answered: [], completed: [], left: 0, taken: 0,
+    replied: [] };
   let failures = failSends;
   history = [step(1, 'sed -n 1,100p IcebergMetadata.java', 'READ', 'IcebergMetadata.java')];
   pages = [];
@@ -168,6 +169,7 @@ function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, 
     readAgentPendingApprovals: async (taskId: string, turnId: string) => taskId === APPROVAL.taskId && turnId === APPROVAL.turnId ? [APPROVAL] : [],
     resolveAgentApproval: async (...args: unknown[]) => { calls.resolved.push(args); return {}; },
     recordAssistantAnswer: async (_conversation: string, id: string) => { calls.answered.push(id); },
+    replyFromAssistant: async (...args: unknown[]) => { calls.replied.push(args); return { itemId: 'sent-1' }; },
     cancelAgentTurn: async (turnId: string) => { calls.cancelled.push(turnId); return {}; },
     completeAgentTask: async (...args: unknown[]) => {
       calls.completed.push(args);
@@ -1083,12 +1085,25 @@ const report = (id: string, state: AssistantReportDto['state'], noticeId: string
 async function reportsWhatItsTasksRaised(): Promise<void> {
   const view = mount({ ...VIEW, items: [VIEW.items[0], VIEW.items[2],
     report('k1', 'DECISION', 'approval:a1', '“Metadata cache” asked for your approval: Run the focused Maven test', 'task-1'),
+    report('k0', 'FAILED', 'failed:turn-8', '“Expose snapshot id in metadata” failed: The turn stopped before it finished.', 't9'),
     report('k2', 'READY', 'finished:turn-9', '“Expose snapshot id in metadata” is ready', 't9')] });
   try {
     await settle();
     enter(type(view.host, 'How is the snapshot id task going?'));
     await settle();
     const talk = element<HTMLElement>('.assistant-talk', view.host, 'The conversation shows');
+    const replies = () => [...talk.querySelectorAll<HTMLButtonElement>('.assistant-reply-to .assistant-link')];
+    assert(replies().length === 1, `Only a task's latest report takes a reply, and not while it waits on an approval: ${replies().length}`);
+    replies()[0].click();
+    await settle();
+    const box = element<HTMLTextAreaElement>('.assistant-reply-to textarea', talk, 'Reply opens a box under the report');
+    assert(document.activeElement === box, 'The box takes the focus');
+    changeInput(box, 'also update the README');
+    enter(box);
+    await settle();
+    assert(JSON.stringify(view.calls.replied.map(call => call.slice(1, 3))) === '[["k2","also update the README"]]',
+      `The reply goes to the report's task: ${JSON.stringify(view.calls.replied)}`);
+    assert(talk.querySelector('.assistant-reply-to textarea') === null && view.calls.closed === 0, 'A sent reply puts its box away and the Assistant stays');
     element<HTMLButtonElement>('.assistant-card[data-card="approval:a1"] button[aria-label="Allow once: Run the focused Maven test"]', talk,
       'A decision a task raised shows where it was asked, with the task’s own buttons').click();
     await settle();
@@ -1097,6 +1112,7 @@ async function reportsWhatItsTasksRaised(): Promise<void> {
     const lines = [...talk.querySelectorAll<HTMLElement>('.assistant-receipt')];
     assert(talk.querySelector('.assistant-card') === null && lines.some(line => line.textContent?.startsWith('“Metadata cache” asked for your approval') === true),
       `The answered decision stays as its line: ${lines.map(line => line.textContent).join(' | ')}`);
+    assert(replies().length === 2, 'Once answered, its task takes a reply too');
     buttonIn(lines.find(line => line.textContent?.includes('is ready') === true), 'Open')?.click();
     await settle();
     assert(view.calls.left === 1, 'A result whose notice is gone opens its task');
@@ -1157,6 +1173,12 @@ export async function showListPreview(style: AssistantListStyle | 'tasks' | 'dra
   enter(type(mounted.host, 'What is waiting on me?'));
   await new Promise(resolve => setTimeout(resolve, 150));
   if (style === 'tasks') mounted.host.querySelector<HTMLElement>('.assistant-item-card')?.focus();
+  if (style === 'reports') {
+    [...mounted.host.querySelectorAll<HTMLButtonElement>('.assistant-reply-to .assistant-link')].at(-1)?.click();
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const box = mounted.host.querySelector<HTMLTextAreaElement>('.assistant-reply-to textarea');
+    if (box !== null) changeInput(box, 'Try again with the snapshot cache off');
+  }
   if (style !== 'history') return;
   mounted.host.querySelector<HTMLButtonElement>('button[aria-label="New conversation"]')?.click();
   await new Promise(resolve => setTimeout(resolve, 50));

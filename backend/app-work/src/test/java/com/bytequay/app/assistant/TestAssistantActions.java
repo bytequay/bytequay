@@ -462,6 +462,34 @@ class TestAssistantActions
     }
 
     @Test
+    void sendsAReplyTypedOnAReportStraightToItsTaskOnceAndRefusesAnEndedTask()
+    {
+        doReturn(Optional.empty()).when(turns).findTurnByIdempotencyKey(any(), any());
+        AssistantItem sent = actions.reply("c1", task.id(), "also update the README", "k1");
+
+        assertThat(sent.text()).isEqualTo("Sent your words to Retry Iceberg commit on conflict");
+        assertThat(sent.key()).contains("k1");
+        AssistantReceipt receipt = sent.receipt().orElseThrow();
+        assertThat(receipt.operation()).isEqualTo(AssistantReceipt.Operation.REPLY_TO_TASK);
+        assertThat(receipt.outcome()).isEqualTo(DONE);
+        assertThat(receipt.words()).contains("also update the README");
+        assertThat(receipt.turnId()).isPresent();
+        assertThat(receipt.target()).contains(AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", task.id().toString()));
+        ArgumentCaptor<StartAgentTurnCommand> started = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
+        verify(turns).start(started.capture());
+        assertThat(started.getValue().message()).isEqualTo("also update the README");
+        assertThat(started.getValue().idempotencyKey()).isEqualTo("assistant-reply:k1");
+
+        // Sent again under its key, it is the same input.
+        doReturn(Optional.of(turn(task.id()))).when(turns).findTurnByIdempotencyKey(task.id(), "assistant-reply:k1");
+        actions.reply("c1", task.id(), "also update the README", "k1");
+        verify(turns, times(1)).start(any());
+
+        when(tasks.find(task.id())).thenReturn(Optional.of(task.fail("Boom", NOW, NOW.plusSeconds(60))));
+        assertThatThrownBy(() -> actions.reply("c1", task.id(), "one more thing", "k2")).isInstanceOf(AgentConflictException.class).hasMessage("That task has ended");
+    }
+
+    @Test
     void startsATaskFromTheUsersWordsWithTheSavedAutomation()
     {
         AssistantItem message = message("start one in repository: add a metadata table for snapshot ids", ImmutableList.of());

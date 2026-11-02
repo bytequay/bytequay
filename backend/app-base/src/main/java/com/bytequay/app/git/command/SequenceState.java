@@ -18,6 +18,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.core.domain.Checks.isSha;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -88,7 +89,7 @@ public record SequenceState(Kind kind, String head, Optional<String> stoppedComm
                 requireNonNull(mode, "mode is null");
                 requireNonNull(blobSha, "blobSha is null");
                 checkArgument(mode.matches("[0-7]{6}"), "mode is invalid");
-                checkArgument(blobSha.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "blobSha is invalid");
+                checkArgument(isSha(blobSha), "blobSha is invalid");
             }
         }
 

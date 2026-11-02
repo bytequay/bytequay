@@ -20,6 +20,7 @@ import java.time.Instant;
 import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkText;
+import static com.bytequay.core.domain.Checks.isSha;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -175,7 +176,7 @@ public record MemorySource(
             checkText(turnId, "turnId", 200);
             checkText(command, "command", MAX_COMMAND_LENGTH);
             checkText(directory, "directory", 1000);
-            checkArgument(commit.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "commit must be a full commit ID");
+            checkArgument(isSha(commit), "commit must be a full commit ID");
         }
     }
 }

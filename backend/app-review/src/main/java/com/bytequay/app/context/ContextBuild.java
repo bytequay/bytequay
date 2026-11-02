@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.bytequay.core.domain.Checks.isSha;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -49,7 +50,7 @@ public record ContextBuild(
         ContextLimits.text(workspaceId, "workspaceId", 200);
         ContextLimits.text(taskId, "taskId", 200);
         checkArgument(requestDigest.matches("sha256:[0-9a-f]{64}"), "Invalid build request digest");
-        checkArgument(baselineSha.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "Invalid build baseline");
+        checkArgument(isSha(baselineSha), "Invalid build baseline");
         requireNonNull(physicalRepository, "physicalRepository is null");
         requireNonNull(repository, "repository is null");
         requireNonNull(branch, "branch is null");

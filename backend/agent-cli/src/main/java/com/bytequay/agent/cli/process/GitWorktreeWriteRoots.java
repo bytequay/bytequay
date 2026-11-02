@@ -23,6 +23,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
+import static com.bytequay.core.domain.Checks.isSha;
 import static com.google.common.base.Preconditions.checkState;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.nio.file.LinkOption.NOFOLLOW_LINKS;
@@ -83,19 +84,14 @@ public final class GitWorktreeWriteRoots
     private static void requireRebase(Path gitDirectory, String head)
             throws IOException
     {
-        checkState(validObjectId(head), "Agent Git writes require a named local branch or an in-progress rebase");
+        checkState(isSha(head), "Agent Git writes require a named local branch or an in-progress rebase");
         Path merge = gitDirectory.resolve("rebase-merge");
         Path apply = gitDirectory.resolve("rebase-apply");
         checkState(Files.exists(merge, NOFOLLOW_LINKS) != Files.exists(apply, NOFOLLOW_LINKS), "Agent Git writes require exactly one rebase state directory");
         Path rebase = canonicalDirectory(Files.exists(merge, NOFOLLOW_LINKS) ? merge : apply);
         String ref = metadata(rebase.resolve("head-name"));
         checkState(ref.startsWith("refs/heads/") && validRef(ref), "Agent rebase branch ref is unsafe");
-        checkState(validObjectId(metadata(rebase.resolve("orig-head"))) && validObjectId(metadata(rebase.resolve("onto"))), "Agent rebase commit metadata is unsafe");
-    }
-
-    private static boolean validObjectId(String value)
-    {
-        return value.matches("[0-9a-f]{40}|[0-9a-f]{64}");
+        checkState(isSha(metadata(rebase.resolve("orig-head"))) && isSha(metadata(rebase.resolve("onto"))), "Agent rebase commit metadata is unsafe");
     }
 
     private static String metadata(Path path)

@@ -61,10 +61,16 @@ public final class Checks
         return value;
     }
 
+    /** Whether the value is a full SHA-1 or SHA-256 Git object ID in lowercase hex. */
+    public static boolean isSha(String value)
+    {
+        return SHA.matcher(value).matches();
+    }
+
     public static String checkSha(String value, String name)
     {
         requireNonNull(value, name + " is null");
-        checkArgument(SHA.matcher(value).matches(), name + " is not a full Git SHA");
+        checkArgument(isSha(value), name + " is not a full Git SHA");
         return value;
     }
 

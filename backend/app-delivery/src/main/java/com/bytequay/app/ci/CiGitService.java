@@ -42,6 +42,7 @@ import static com.bytequay.app.ci.CiPushResult.Outcome.REJECTED;
 import static com.bytequay.app.ci.CiPushResult.Outcome.RETRYABLE;
 import static com.bytequay.app.ci.CiPushResult.Outcome.STALE;
 import static com.bytequay.app.ci.CiPushResult.Outcome.UNCERTAIN;
+import static com.bytequay.core.domain.Checks.isSha;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -397,7 +398,7 @@ public class CiGitService
         }
         String[] fields = result.output().strip().split("\\s+", 2);
         if (fields.length != 2 || !fields[1].equals("refs/heads/" + headRef)
-                || !fields[0].matches("(?:[0-9a-f]{40}|[0-9a-f]{64})")) {
+                || !isSha(fields[0])) {
             return Optional.empty();
         }
         return Optional.of(fields[0]);

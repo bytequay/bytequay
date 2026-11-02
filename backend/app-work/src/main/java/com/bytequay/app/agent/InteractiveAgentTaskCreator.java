@@ -57,6 +57,7 @@ import static com.bytequay.app.agent.runtime.WorkflowAgentTasks.repositoryIdenti
 import static com.bytequay.app.agent.runtime.WorkflowAgentTasks.requireReady;
 import static com.bytequay.app.utils.Locks.withLock;
 import static com.bytequay.core.domain.Checks.checkText;
+import static com.bytequay.core.domain.Checks.isSha;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -124,7 +125,7 @@ public final class InteractiveAgentTaskCreator
     public AgentTask createRelated(TaskId taskId, String workspaceId, String message, AgentLaneId laneId, AgentTaskDefaults defaults,
             String idempotencyKey, Optional<String> startCommit)
     {
-        startCommit.ifPresent(value -> checkArgument(value.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "Investigation requires a full commit SHA"));
+        startCommit.ifPresent(value -> checkArgument(isSha(value), "Investigation requires a full commit SHA"));
         try {
             return create(taskId, workspaceId, message, laneId, defaults, idempotencyKey, Optional.empty(), defaults.developmentAutomation(),
                     Optional.empty(), Optional.empty(), Optional.empty(), startCommit);

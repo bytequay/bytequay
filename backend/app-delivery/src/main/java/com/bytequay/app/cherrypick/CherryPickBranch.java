@@ -29,6 +29,7 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.bytequay.core.domain.Checks.isSha;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -199,7 +200,7 @@ final class CherryPickBranch
             String value = line.strip();
             if (value.startsWith(ORIGIN_PREFIX) && value.endsWith(")")) {
                 String sha = value.substring(ORIGIN_PREFIX.length(), value.length() - 1).strip();
-                if (sha.matches("[0-9a-f]{40}|[0-9a-f]{64}")) {
+                if (isSha(sha)) {
                     return Optional.of(sha.toLowerCase(Locale.ROOT));
                 }
             }

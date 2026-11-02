@@ -41,6 +41,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static com.bytequay.app.git.command.RepositoryUrls.isPlainHttps;
+import static com.bytequay.core.domain.Checks.isSha;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -176,7 +177,7 @@ public class ManagedWorkspaceGit
         }
         requireGitSuccess(result, "verify published backport branch");
         String[] values = result.output().strip().split("\\s+", -1);
-        if (result.truncated() || values.length != 2 || !values[1].equals(ref) || !values[0].matches("[0-9a-f]{40}|[0-9a-f]{64}")) {
+        if (result.truncated() || values.length != 2 || !values[1].equals(ref) || !isSha(values[0])) {
             throw new Failure("Remote result is unclear. Inspect the branch before continuing.", "Invalid ls-remote result");
         }
         return Optional.of(values[0]);

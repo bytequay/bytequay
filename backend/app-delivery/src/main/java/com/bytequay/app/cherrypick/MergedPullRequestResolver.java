@@ -39,6 +39,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import static com.bytequay.core.domain.Checks.isSha;
 import static java.util.Objects.requireNonNull;
 
 /** Proves a PR's landed range in a configured source remote without changing a checkout or replaying merges. */
@@ -186,7 +187,7 @@ public class MergedPullRequestResolver
     private Optional<String> singleParent(Path repository, String sha)
     {
         String parents = read(repository, "show", "--no-patch", "--format=%P", sha, "--").strip();
-        return parents.matches("(?:[0-9a-f]{40}|[0-9a-f]{64})") ? Optional.of(parents) : Optional.empty();
+        return isSha(parents) ? Optional.of(parents) : Optional.empty();
     }
 
     private String changes(Path repository, String base, String tip)

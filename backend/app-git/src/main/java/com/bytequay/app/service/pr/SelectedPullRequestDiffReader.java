@@ -39,6 +39,7 @@ import java.util.Set;
 
 import static com.bytequay.app.service.pr.SelectedPullRequestReader.allowsCachedFallback;
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
+import static com.bytequay.core.domain.Checks.isSha;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -186,7 +187,7 @@ public class SelectedPullRequestDiffReader
     {
         List<DiffFile> files = cached.diff().files();
         Optional<Integer> reported = cached.raw().map(PrRawDetail::changedFiles).filter(value -> value >= 0);
-        Optional<String> head = cached.includeMetadata() ? cached.diff().headSha().filter(value -> value.matches("(?:[0-9a-f]{40}|[0-9a-f]{64})")) : Optional.empty();
+        Optional<String> head = cached.includeMetadata() ? cached.diff().headSha().filter(value -> isSha(value)) : Optional.empty();
         ImmutableList.Builder<String> gaps = ImmutableList.builder();
         gaps.add("The content version identifies this cached default-diff artifact; it does not verify complete upstream coverage or the final merged diff.");
         if (!coordinatesMatch(cached)) {
@@ -260,7 +261,7 @@ public class SelectedPullRequestDiffReader
             requireNonNull(version, "version is null");
             checkArgument(version.matches("[0-9a-f]{64}"), "Diff version must be lowercase SHA-256");
             requireNonNull(observedHeadSha, "observedHeadSha is null");
-            observedHeadSha.ifPresent(value -> checkArgument(value.matches("(?:[0-9a-f]{40}|[0-9a-f]{64})"), "Observed head must be a full SHA"));
+            observedHeadSha.ifPresent(value -> checkArgument(isSha(value), "Observed head must be a full SHA"));
             requireNonNull(sourceUpdatedAt, "sourceUpdatedAt is null");
             requireNonNull(reportedChangedFiles, "reportedChangedFiles is null");
             requireNonNull(readAt, "readAt is null");

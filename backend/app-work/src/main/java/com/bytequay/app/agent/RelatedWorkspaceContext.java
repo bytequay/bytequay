@@ -24,6 +24,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Component;
 
+import static com.bytequay.core.domain.Checks.isSha;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -106,7 +107,7 @@ public class RelatedWorkspaceContext
             var repository = repositories.requireLocalRepository(destination.id());
             String ref = "refs/remotes/" + repository.sourceRemote() + "/" + repository.defaultBranch();
             var result = git.run(repository.repository(), "rev-parse", "--verify", "--end-of-options", ref + "^{commit}");
-            if (!result.successful() || result.truncated() || !result.output().strip().matches("[0-9a-f]{40}|[0-9a-f]{64}")) {
+            if (!result.successful() || result.truncated() || !isSha(result.output().strip())) {
                 entry.put("unavailable", "Monitored branch commit is not available locally; synchronize this workspace");
                 return;
             }

@@ -21,6 +21,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.core.domain.Checks.isSha;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -49,7 +50,7 @@ public record ContextSpecCheck(
     {
         ContextLimits.text(id, "check id", 100);
         ContextLimits.pathPrefix(directory);
-        checkArgument(baselineSha.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "Invalid check baseline");
+        checkArgument(isSha(baselineSha), "Invalid check baseline");
         ContextLimits.text(requestKey, "requestKey", 90);
         specs = ImmutableList.copyOf(specs);
         ContextLimits.unique(specs, "specs", MAX_SPECS);

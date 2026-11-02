@@ -68,6 +68,7 @@ import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 
 import static com.bytequay.app.utils.Locks.withLock;
+import static com.bytequay.core.domain.Checks.isSha;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
@@ -154,7 +155,7 @@ public class ContextBuildService
 
     private View run(String workspaceId, Request request, String baselineSha, ContextBuild.Work work)
     {
-        checkArgument(baselineSha.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "Invalid run baseline");
+        checkArgument(isSha(baselineSha), "Invalid run baseline");
         Lock lock = locks.get(workspaceId);
         return withLock(lock, () -> {
             String digest = digest(ImmutableList.of(request, baselineSha, switch (work) {
@@ -179,7 +180,7 @@ public class ContextBuildService
             models.validateSelection(lane.value(), model.model(), model.effort(), Optional.empty());
             WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(workspaceId);
             GitCommandRunner.Result resolved = git.run(workspace.repository(), "rev-parse", "--verify", baselineSha + "^{commit}");
-            checkArgument(resolved.successful() && !resolved.truncated() && resolved.output().strip().matches("[0-9a-f]{40}|[0-9a-f]{64}"), "The check's baseline is unavailable");
+            checkArgument(resolved.successful() && !resolved.truncated() && isSha(resolved.output().strip()), "The check's baseline is unavailable");
             TaskId id = continued.map(build -> TaskId.valueOf(build.taskId())).orElseGet(TaskId::random);
             String title = (switch (work) {
                 case ContextBuild.Check ignored -> "Check ";
@@ -409,7 +410,7 @@ public class ContextBuildService
             GitCommandRunner.Result resolved = git.run(workspace.repository(), "rev-parse", "--verify",
                     "refs/remotes/" + workspace.sourceRemote() + "/" + workspace.defaultBranch() + "^{commit}");
             String sha = resolved.output().strip();
-            return resolved.successful() && !resolved.truncated() && sha.matches("[0-9a-f]{40}|[0-9a-f]{64}")
+            return resolved.successful() && !resolved.truncated() && isSha(sha)
                     ? Optional.of(new Baseline(workspace.defaultBranch(), sha)) : Optional.empty();
         }
         catch (RuntimeException unavailable) {

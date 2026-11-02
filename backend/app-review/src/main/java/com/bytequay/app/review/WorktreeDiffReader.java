@@ -34,6 +34,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 
+import static com.bytequay.core.domain.Checks.isSha;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -98,7 +99,7 @@ public class WorktreeDiffReader
 
     public String commit(Path checkout, String revision)
     {
-        checkArgument(revision.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "A full commit ID is required");
+        checkArgument(isSha(revision), "A full commit ID is required");
         return require(checkout, "rev-parse", "--verify", revision + "^{commit}").strip();
     }
 

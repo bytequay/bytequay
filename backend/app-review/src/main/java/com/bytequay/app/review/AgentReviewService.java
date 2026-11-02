@@ -118,6 +118,7 @@ import static com.bytequay.app.review.AgentReviewService.CompletionAction.REPAIR
 import static com.bytequay.app.review.AgentReviewService.CompletionAction.VALIDATE;
 import static com.bytequay.app.review.ReviewSnapshots.GIT_OPERATION_PATHS;
 import static com.bytequay.app.utils.Locks.withLock;
+import static com.bytequay.core.domain.Checks.isSha;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -1072,7 +1073,7 @@ public class AgentReviewService
                 credentials.gitAuthenticationEnvironment(workspace.workspaceId(), ImmutableList.of(route.repository().httpCloneUrl().toString())), fetch.build());
         checkState(fetched.successful() && !fetched.truncated(), "Cannot fetch the latest PR commit: %s", fetched.output().strip());
         String head = snapshots.resolve(workspace.repository(), headRef);
-        checkState(head.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "Cannot identify the latest PR commit");
+        checkState(isSha(head), "Cannot identify the latest PR commit");
         return head;
     }
 
@@ -1184,7 +1185,7 @@ public class AgentReviewService
                 dirty = true;
             }
         }
-        checkState(head.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "Cannot identify the working copy HEAD");
+        checkState(isSha(head), "Cannot identify the working copy HEAD");
         checkState(branch.equals(worktree.generatedBranch()), "The working copy is on another branch");
         List<Path> operations = git.gitPaths(checkout, GIT_OPERATION_PATHS);
         checkState(operations.size() == GIT_OPERATION_PATHS.size(), "Cannot inspect the working copy's Git operations");

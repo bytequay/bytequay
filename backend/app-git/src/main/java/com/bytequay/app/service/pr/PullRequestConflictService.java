@@ -38,6 +38,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
+import static com.bytequay.core.domain.Checks.isSha;
 import static java.util.Objects.requireNonNull;
 
 @Service
@@ -81,7 +82,7 @@ public class PullRequestConflictService
             if (identity.state() != PullRequestIdentity.State.OPEN) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "This pull request is no longer open. Refresh the pull request.");
             }
-            if (!identity.baseRepository().fullName().equalsIgnoreCase(repository.fullPath()) || !sha(identity.headSha())) {
+            if (!identity.baseRepository().fullName().equalsIgnoreCase(repository.fullPath()) || !isSha(identity.headSha())) {
                 throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "The hosting provider returned an invalid pull-request comparison.");
             }
             Result shallow = git.run(local.repository(), "rev-parse", "--is-shallow-repository");
@@ -95,7 +96,7 @@ public class PullRequestConflictService
             Result remote = git.run(local.repository(), Duration.ofMinutes(2), authentication,
                     ImmutableList.of("ls-remote", "--exit-code", "--refs", "--", url, baseRef));
             String[] target = remote.output().strip().split("\\s+", -1);
-            if (!remote.successful() || remote.truncated() || target.length != 2 || !sha(target[0]) || !target[1].equals(baseRef)) {
+            if (!remote.successful() || remote.truncated() || target.length != 2 || !isSha(target[0]) || !target[1].equals(baseRef)) {
                 throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Could not read the current target branch. Check repository access and retry.");
             }
             // Fetch exact remote commits without moving local branches, tracking refs, or FETCH_HEAD.
@@ -119,7 +120,7 @@ public class PullRequestConflictService
     static List<String> conflictPaths(Result result)
     {
         String[] fields = result.output().split("\u0000", -1);
-        if (result.truncated() || (result.exitCode() != 0 && result.exitCode() != 1) || fields.length < 2 || !sha(fields[0])
+        if (result.truncated() || (result.exitCode() != 0 && result.exitCode() != 1) || fields.length < 2 || !isSha(fields[0])
                 || !fields[fields.length - 1].isEmpty()
                 || (result.exitCode() == 0 && fields.length != 2)
                 || (result.exitCode() == 1 && fields.length < 3)
@@ -127,10 +128,5 @@ public class PullRequestConflictService
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Could not determine conflicted files. Check that Git supports merge-tree --write-tree and retry.");
         }
         return ImmutableList.copyOf(Arrays.asList(fields).subList(1, fields.length - 1));
-    }
-
-    private static boolean sha(String value)
-    {
-        return value.matches("[0-9a-f]{40}|[0-9a-f]{64}");
     }
 }

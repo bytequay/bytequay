@@ -60,6 +60,7 @@ import java.util.concurrent.locks.Lock;
 
 import static com.bytequay.app.utils.Locks.withLock;
 import static com.bytequay.core.domain.Checks.checkText;
+import static com.bytequay.core.domain.Checks.isSha;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -126,7 +127,7 @@ public class RelatedWorkspaceWork
             requireNonNull(commit, "commit is null");
             requireNonNull(revision, "revision is null");
             checkArgument((purpose == Purpose.INVESTIGATE) == commit.isPresent(), "Investigation requires an exact commit; fixes use the normal development branch");
-            commit.ifPresent(value -> checkArgument(value.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "Commit must be a full SHA"));
+            commit.ifPresent(value -> checkArgument(isSha(value), "Commit must be a full SHA"));
             revision.ifPresent(value -> checkArgument(!value.isBlank() && value.length() <= 200, "Revision label must contain 1 to 200 characters"));
         }
     }

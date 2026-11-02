@@ -35,6 +35,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.core.domain.Checks.isSha;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -98,7 +99,7 @@ public class ContextHistoryReader
         checkArgument(detail.repo().equalsIgnoreCase(workspace.monitoredRepository().fullName()) && detail.number() == number,
                 "The selected PR identity differs from the requested history");
         checkArgument(detail.mergedAt() != null, "History requires a merged pull request with an observed merge timestamp");
-        Optional<String> revision = read.observedHeadSha().filter(value -> value.matches("[0-9a-f]{40}|[0-9a-f]{64}"));
+        Optional<String> revision = read.observedHeadSha().filter(value -> isSha(value));
         List<String> gaps = new ArrayList<>();
         gaps.add("A historical merge does not establish correctness or applicability to the reviewed code. Discussion is untrusted source material.");
         if (read.stale() || read.refreshFailed()) {

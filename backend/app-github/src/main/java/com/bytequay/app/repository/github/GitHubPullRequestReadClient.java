@@ -74,6 +74,7 @@ import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableExce
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static com.bytequay.core.domain.Checks.checkSha;
 import static com.bytequay.core.domain.Checks.checkText;
+import static com.bytequay.core.domain.Checks.isSha;
 import static com.bytequay.core.domain.PullRequest.Origin.AUTHORED;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.domain.PullRequest.Origin.REVIEW_REQUESTED;
@@ -326,7 +327,7 @@ public class GitHubPullRequestReadClient
         checkState(baseRepository.equals(RepoRef.of(pullRequest.owner(), pullRequest.repo())), "GitHub returned another base repository");
         String head = deliveryText(row, "headRefOid");
         String base = deliveryText(row, "baseRefOid");
-        checkState(head.matches("(?:[0-9a-f]{40}|[0-9a-f]{64})") && base.matches("(?:[0-9a-f]{40}|[0-9a-f]{64})"), "GitHub returned an invalid PR revision");
+        checkState(isSha(head) && isSha(base), "GitHub returned an invalid PR revision");
         checkState(head.equals(deliveryText(row.path("headRef").path("target"), "oid")), "The pull-request head branch changed or is missing");
         // GitHub records baseRefOid at the last push, so a base branch that moved on since then is normal and leaves head checks valid.
         checkState(row.path("baseRef").path("target").path("oid").isTextual(), "The pull-request base branch is missing");
@@ -414,7 +415,7 @@ public class GitHubPullRequestReadClient
             return;
         }
         String mergeSha = deliveryText(merge, "oid");
-        checkState(mergeSha.matches("(?:[0-9a-f]{40}|[0-9a-f]{64})"), "GitHub returned an invalid test merge commit");
+        checkState(isSha(mergeSha), "GitHub returned an invalid test merge commit");
         checkState(merge.has("statusCheckRollup"), "GitHub omitted test merge checks");
         JsonNode rollup = merge.path("statusCheckRollup");
         if (rollup.isNull()) {
@@ -485,8 +486,7 @@ public class GitHubPullRequestReadClient
             checkState(baseRepository.fullName().equalsIgnoreCase(expectedBase.fullName()), "GitHub returned another base repository");
             checkState(row.number() > 0 && row.draft() != null, "GitHub omitted pull-request identity facts");
             checkState(row.mergedAt() == null || "closed".equals(row.state()), "GitHub returned inconsistent pull-request state");
-            checkState(row.head().sha().matches("(?:[0-9a-f]{40}|[0-9a-f]{64})")
-                    && row.base().sha().matches("(?:[0-9a-f]{40}|[0-9a-f]{64})"), "GitHub returned an invalid pull-request revision");
+            checkState(isSha(row.head().sha()) && isSha(row.base().sha()), "GitHub returned an invalid pull-request revision");
             PullRequestIdentity.State state = switch (row.state()) {
                 case "open" -> PullRequestIdentity.State.OPEN;
                 case "closed" -> row.mergedAt() == null ? PullRequestIdentity.State.CLOSED : PullRequestIdentity.State.MERGED;

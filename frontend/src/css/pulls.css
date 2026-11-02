@@ -1037,7 +1037,7 @@
 .lrc__badge.is-ready { border-color: light-dark(#4ac26b, var(--dark-green)); color: var(--fg-success); }
 .lrc__badge.is-danger { border-color: light-dark(#ff8182, var(--dark-red-border)); color: var(--fg-danger); }
 /* Each section under the header draws the rule above it, so a folded card shows none. */
-.lrc > :not(summary, .agr-thread):not(:first-child), .lrc > .agr-thread > .lrc-message { border-top: 1px solid var(--lrc-rule); }
+.lrc > :not(summary, .agr-thread):not(:first-child), .lrc > .agr-thread > :is(.lrc-message, .agr-thread__fold) { border-top: 1px solid var(--lrc-rule); }
 .lrc-message { padding: 12px 16px 14px; }
 .lrc-message__head { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; color: var(--fg-subtle); font-size: 12px; }
 .lrc-message__head strong { color: var(--text-1); font-size: var(--ui-font-size); font-weight: 600; }

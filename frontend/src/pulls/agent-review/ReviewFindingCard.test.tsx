@@ -121,6 +121,22 @@ describe('finding suggestions', () => {
     expect(html).toMatch(/<span class="agr-finding__by"><svg class="provider-icon" data-brand="openai"[^>]*><path [^>]*><\/path><\/svg> Agent · <time>/);
   });
 
+  it('folds the middle of a long discussion, keeping the first question and the latest exchange', () => {
+    const message: Omit<ReviewMessageDto, 'id' | 'body' | 'author'> = { findingId: finding.id, targetRevision: finding.revision, turnId: null, queuedInputId: null,
+      createdAt: '2026-09-06T16:19:00Z' };
+    const rounds = [1, 2, 3].flatMap(round => [{ ...message, id: `q${round}`, author: 'USER' as const, body: `Question ${round}` },
+      { ...message, id: `a${round}`, author: 'AGENT' as const, body: `Answer ${round}` }]);
+    const html = render(finding, undefined, 'review', rounds);
+    expect(html).toContain('Question 1');
+    expect(html).toContain('Show 3 more replies');
+    expect(html).not.toContain('Answer 1');
+    expect(html).not.toContain('Question 2');
+    expect(html).not.toContain('Answer 2');
+    expect(html.indexOf('Show 3 more replies')).toBeLessThan(html.indexOf('Question 3'));
+    expect(html).toContain('Answer 3');
+    expect(render(finding, undefined, 'review', rounds.slice(0, 4))).not.toContain('more replies');
+  });
+
   it.each(['review', 'changes'] as const)('renders reviewer file citations in %s without exposing Markdown delimiters', projection => {
     const path = '/Users/me/Library/Application Support/ByteQuay/worktree/BaseIcebergConnectorTest.java:4436';
     const html = render(finding, undefined, projection, [{ ...reviewFixture().messages[1], findingId: finding.id,

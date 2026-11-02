@@ -75,9 +75,6 @@ export function parseContextBuildView(value: unknown, workspaceId: string): Cont
 export type ContextSpecSourceDto = { url: string; kind: 'PAGE' | 'REFERENCE_CODE'; links: number; sections: string[] };
 /** A module a check can start from, with the page its own code cites in the most sections. */
 export type ContextSpecModuleDto = { directory: string; page: string | null; sections: number; links: number };
-export type ContextSpecCheckState = 'CHECKING' | 'REPRODUCING' | 'DONE' | 'STOPPED' | 'FAILED';
-export type ContextSpecCandidateType = 'BUG' | 'FEATURE_REQUEST' | 'IMPROVEMENT';
-export type ContextSpecCandidateStatus = 'PENDING' | 'REPRODUCING' | 'CONFIRMED' | 'REFUTED' | 'NOT_REPRODUCED' | 'ALREADY_REPORTED';
 /** One gap a check found; only a confirmed one, whose test ByteQuay saw fail, is a finding with an issue draft. */
 export type ContextSpecCandidateDto = ReturnType<typeof specCandidate>;
 /** The latest spec check of one directory: the pages it read to find specs, and the specs it checked against. */

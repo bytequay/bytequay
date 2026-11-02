@@ -38,19 +38,7 @@ export type ReviewCandidateValidationDto = ReturnType<typeof parseCandidateValid
 /** The review's conclusion on one pull-request thread the user started, with the thread's place and opening words when it was judged. */
 export type ReviewThreadVerdictDto = ReturnType<typeof parseThreadVerdict>;
 
-export type ReviewPerspective = 'BEHAVIOR' | 'INTERACTIONS' | 'DESIGN';
-
 export type ReviewCandidateDto = ReturnType<typeof parseCandidate>;
-
-export type ReviewPerspectiveAssessmentDto = {
-  perspective: ReviewPerspective;
-  question: string;
-  responsibilities: string[];
-  paths: string[];
-  evidenceRefs: string[];
-  status: 'CHECKED' | 'NOT_APPLICABLE' | 'BLOCKED';
-  explanation: string;
-};
 
 export type ReviewInvestigationDto = NonNullable<ReturnType<typeof parseInvestigation>>;
 

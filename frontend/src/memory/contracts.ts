@@ -16,10 +16,8 @@ import { parseContextBuildView, type ContextBuildViewDto } from '../repository-c
 
 export type MemoryKind = 'RULE' | 'RECIPE' | 'SPEC';
 export type MemoryPart = 'REVIEW_COMMENT' | 'REVIEW' | 'COMMENT' | 'CLOSE';
-export type MemoryWhere = 'TASK_MESSAGE' | 'REVIEW_MESSAGE' | 'RESOLVE' | 'DISMISS';
 /** Where a memory came from, with the words it rests on; the user's words and commands have no address. */
 export type MemorySourceDto = ReturnType<typeof source>;
-export type MemoryReportDto = { reason: string; quote: string; taskId: string; at: string };
 /** One rule or spec agents receive, titled with the situation it covers; `missingScope` lists scope paths gone from the monitored head. */
 export type MemoryDto = ReturnType<typeof parseMemory>;
 /** Whether reviews and development tasks of the workspace receive memory and the memory tool. */

@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { build } from 'vite';
 import { expect, it } from 'vitest';
+import { errorMessage, ipcFailure } from '../errorMessage';
 import { deadline, runBrowserFixture } from '../fixtures/browserFixture';
 
 // A saved page as the writer produces one: the app theme and its classes, a diagram, steps, and a script.
@@ -359,19 +360,23 @@ it('renders a conversation as a task transcript, asks with the question card, th
     const result = await runBrowserFixture<Record<string, unknown>>({
       prefix: 'bytequay-artifacts-', entry: 'src/artifacts/fixtures/artifactsBrowser.tsx', global: 'ArtifactTests', styles: true, width: 1280, height: 800,
       beforeReady: `const { ArtifactView } = require(${JSON.stringify(join(directory, 'artifactView.cjs'))});`,
+      // Mirrors the app preload, which hands screens the main process's reason without Electron's wrapper.
       preload: `const { contextBridge, ipcRenderer } = require('electron');
+${errorMessage}
+${ipcFailure}
+const invoke = (channel, ...args) => ipcRenderer.invoke(channel, ...args).catch(failure => { throw ipcFailure(failure); });
 contextBridge.exposeInMainWorld('bridge', {
-  listArtifacts: id => ipcRenderer.invoke('fixture:list', id),
-  startArtifact: (id, text) => ipcRenderer.invoke('fixture:start', id, text),
-  viewArtifact: (id, artifactId) => ipcRenderer.invoke('fixture:view', id, artifactId),
-  artifactEvents: (id, artifactId, before, after) => ipcRenderer.invoke('fixture:events', id, artifactId, before, after),
-  sendArtifact: (id, artifactId, text) => ipcRenderer.invoke('fixture:send', id, artifactId, text),
-  answerArtifactOffer: (id, artifactId, offerId, accept) => ipcRenderer.invoke('fixture:offer', id, artifactId, offerId, accept),
-  answerArtifactQuestion: (id, artifactId, approvalId, allow, answers) => ipcRenderer.invoke('fixture:question', id, artifactId, approvalId, allow, answers),
-  stopArtifact: (id, artifactId) => ipcRenderer.invoke('fixture:stop', id, artifactId),
-  showArtifact: (target, bounds, allowFocusRestore) => ipcRenderer.invoke('artifacts:show', target, bounds, allowFocusRestore),
+  listArtifacts: id => invoke('fixture:list', id),
+  startArtifact: (id, text) => invoke('fixture:start', id, text),
+  viewArtifact: (id, artifactId) => invoke('fixture:view', id, artifactId),
+  artifactEvents: (id, artifactId, before, after) => invoke('fixture:events', id, artifactId, before, after),
+  sendArtifact: (id, artifactId, text) => invoke('fixture:send', id, artifactId, text),
+  answerArtifactOffer: (id, artifactId, offerId, accept) => invoke('fixture:offer', id, artifactId, offerId, accept),
+  answerArtifactQuestion: (id, artifactId, approvalId, allow, answers) => invoke('fixture:question', id, artifactId, approvalId, allow, answers),
+  stopArtifact: (id, artifactId) => invoke('fixture:stop', id, artifactId),
+  showArtifact: (target, bounds, allowFocusRestore) => invoke('artifacts:show', target, bounds, allowFocusRestore),
   onArtifactReading: listener => { const receive = (_event, target) => listener(target); ipcRenderer.on('artifacts:reading', receive); return () => ipcRenderer.removeListener('artifacts:reading', receive); },
-  captureFocusBreakBackground: () => ipcRenderer.invoke('fixture:background'),
+  captureFocusBreakBackground: () => invoke('fixture:background'),
 });`,
       setup: SETUP, body: BODY, timeoutMs: 90_000,
     });

@@ -231,7 +231,9 @@ async function myWorkOverHome(): Promise<void> {
     assert(onTop(ticketLayer()) && !assistant.checkVisibility(), 'Closing a nested issue stays in the ticket');
     ticketLayer()?.querySelector<HTMLAnchorElement>('.md-reference')?.click();
     await until(() => onTop(issueLayer()), 'The linked issue opens again');
-    issueLayer()?.querySelector<HTMLAnchorElement>(`a[href="${jiraIssue.url}"]`)?.click();
+    const ticketLink = () => issueLayer()?.querySelector<HTMLAnchorElement>(`a[href="${jiraIssue.url}"]`) ?? null;
+    await until(() => ticketLink() !== null, 'The reopened issue shows its link to the ticket');
+    ticketLink()?.click();
     await until(() => ticketLayer()?.matches(':modal') ?? false, 'The issue brings the existing ticket back to the top');
     ticketLayer()?.querySelector<HTMLButtonElement>('[aria-label="Close ticket"]')?.click();
     await until(() => ticketLayer() === null && onTop(issueLayer()), 'Closing the reordered ticket returns to the issue');

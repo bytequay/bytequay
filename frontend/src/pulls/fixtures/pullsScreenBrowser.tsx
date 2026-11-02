@@ -1913,10 +1913,6 @@ export async function runPreparePrivateThreads(mode: 'ready' | 'failure' | 'mode
   host.style.cssText = 'width:1250px;height:850px';
   const mount = (selected = number) => flushSync(() => root.render(<PullsScreen initialPr={{ repo, number: selected }}
     repositoryScope={mode === 'workspace' ? undefined : { workspaceId: 'workspace-1', repository: repo }} onClose={() => {}} />));
-  const waitFor = async (condition: () => boolean, message: string) => {
-    for (let attempt = 0; attempt < 60 && !condition(); attempt++) await settle();
-    assert(condition(), message);
-  };
   const field = () => {
     const input = fixtureElement<HTMLTextAreaElement>('[aria-label="Private question to the agent"]', host, 'The private question must remain editable');
     return input;
@@ -1928,9 +1924,9 @@ export async function runPreparePrivateThreads(mode: 'ready' | 'failure' | 'mode
   const send = () => field().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }));
   try {
     mount();
-    await waitFor(() => host.querySelector('.pr-ask-agent') !== null, `Ask agent must be visible without a task or review (${mode})`);
+    await until(() => host.querySelector('.pr-ask-agent') !== null, `Ask agent must be visible without a task or review (${mode})`);
     host.querySelector<HTMLButtonElement>('.pr-ask-agent')?.click();
-    await waitFor(() => host.querySelector('textarea') !== null && !host.textContent?.includes('Loading PR context…'), 'The inline composer must open');
+    await until(() => host.querySelector('textarea') !== null && !host.textContent?.includes('Loading PR context…'), 'The inline composer must open');
     type('Does their explanation address my concern?');
     await settle();
     assert(prepareCount === 0 && asked.length === 0 && reviewCount === 0, 'Opening and typing must not prepare or invoke an agent');
@@ -1942,16 +1938,16 @@ export async function runPreparePrivateThreads(mode: 'ready' | 'failure' | 'mode
       assert(prepareCount === 0 && field().value.includes('my concern'), 'Setup must block sending without losing the question');
       const watch = [...host.querySelectorAll('button')].find(button => button.textContent === 'Watch repository');
       watch?.click();
-      await waitFor(() => document.querySelector('.modal-preview__confirm') !== null, 'Setup must open the existing watch confirmation');
+      await until(() => document.querySelector('.modal-preview__confirm') !== null, 'Setup must open the existing watch confirmation');
       assert(!watched && prepareCount === 0, 'Opening setup must not watch the repository or create agent context');
       document.querySelector<HTMLButtonElement>('.modal-preview__confirm')?.click();
-      await waitFor(() => document.querySelector('.modal') === null && !host.textContent?.includes(`Watch ${repo}`)
+      await until(() => document.querySelector('.modal') === null && !host.textContent?.includes(`Watch ${repo}`)
         && !host.textContent?.includes('Loading PR context…'), 'Confirmed setup must refresh the PR without navigating away');
       assert(watched && field().value === 'Does their explanation address my concern?', 'Successful setup must preserve the question');
     }
     send();
     if (mode === 'failure' || mode === 'model') {
-      await waitFor(() => host.textContent?.includes(mode === 'failure' ? 'Could not fetch the PR branch' : 'Choose a Review model') === true,
+      await until(() => host.textContent?.includes(mode === 'failure' ? 'Could not fetch the PR branch' : 'Choose a Review model') === true,
         'Failed setup must appear beside the question');
       assert(field().value === 'Does their explanation address my concern?', 'Failure must keep the exact question');
       if (mode === 'model') {
@@ -1959,35 +1955,35 @@ export async function runPreparePrivateThreads(mode: 'ready' | 'failure' | 'mode
         readyModel = true;
         flushSync(() => root.render(null));
         mount();
-        await waitFor(() => host.querySelector('[aria-label="Private question to the agent"]') !== null
+        await until(() => host.querySelector('[aria-label="Private question to the agent"]') !== null
           && !host.textContent?.includes('Loading PR context…'), 'Returning from settings must reopen the draft');
         assert(field().value === 'Does their explanation address my concern?', 'Navigation to model setup must preserve the draft');
       }
       send();
     }
-    await waitFor(() => release !== null, 'The first question must prepare a working copy');
+    await until(() => release !== null, 'The first question must prepare a working copy');
     assert(host.textContent?.includes('Preparing PR context…'), 'Preparation must show progress in the private composer');
     assert(asked.length === 0 && reviewCount === 0, 'Preparation must not start a review or send before context is ready');
     if (mode === 'switch') {
       mount(number + 1);
-      await waitFor(() => host.textContent?.includes('Please check the next PR.') === true, 'The second PR must open while the first prepares');
+      await until(() => host.textContent?.includes('Please check the next PR.') === true, 'The second PR must open while the first prepares');
     }
     const finish = release as (() => void) | null;
     assert(finish !== null, 'Preparation resolver must exist');
     finish();
-    await waitFor(() => asked.length === 1, 'Prepared context must receive the first question exactly once');
+    await until(() => asked.length === 1, 'Prepared context must receive the first question exactly once');
     assert(asked[0].key === 'issue_comment:8101' && asked[0].question === 'Does their explanation address my concern?', 'The original comment must receive the question');
     if (mode === 'switch') {
       assert(!host.textContent?.includes('The exception is handled by the caller.'), 'A late answer must not enter the next PR');
       assert(host.textContent?.includes('Please check the next PR.'), 'Late preparation must not change the selected PR');
       return 'Late preparation remains bound to its original PR';
     }
-    await waitFor(() => host.textContent?.includes('The exception is handled by the caller.') === true, 'The first answer must appear inline');
+    await until(() => host.textContent?.includes('The exception is handled by the caller.') === true, 'The first answer must appear inline');
     flushSync(() => root.render(null));
     mount();
-    await waitFor(() => host.textContent?.includes('The exception is handled by the caller.') === true, 'Saved discussion must reopen after navigation');
+    await until(() => host.textContent?.includes('The exception is handled by the caller.') === true, 'Saved discussion must reopen after navigation');
     type('Which caller?'); await settle(); send();
-    await waitFor(() => asked.length === 2, 'Follow-up must reuse the prepared discussion');
+    await until(() => asked.length === 2, 'Follow-up must reuse the prepared discussion');
     assert(Number(prepareCount) === (mode === 'failure' ? 2 : 1) && reviewCount === 0, 'Follow-ups must reuse context without starting a review');
     assert(saved[0].messages.length === 4, 'The discussion must retain both exchanges');
     return `Private comment ${mode} flow prepares once, keeps drafts and reuses its discussion`;

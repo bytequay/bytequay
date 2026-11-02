@@ -31,6 +31,15 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 .ide-notice { display: flex; gap: 10px; justify-content: space-between; padding: 7px 12px; background: light-dark(#fff1d8, var(--dark-orange-soft)); color: light-dark(#704100, var(--dark-orange)); }
 .ide-loading { padding: 24px; font: 13px -apple-system, sans-serif; }
 .ide-review-zone { box-sizing: border-box; max-width: 800px; }
+.ide-workbench .ct-line-change { pointer-events: none; }
+.ide-workbench .ct-line-change::before { pointer-events: auto; cursor: pointer; }
+.ide-change-preview { overflow: hidden; border: 1px solid var(--vscode-editorWidget-border, var(--ide-edge)); border-radius: 4px; color: var(--ide-fg); background: var(--ide-bg); }
+.ide-change-preview > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 8px; background: var(--ide-bar); }
+.ide-change-preview > header strong { font-size: 12px; font-weight: 500; }
+.ide-change-preview > header button { display: grid; place-items: center; flex-shrink: 0; padding: 4px; border: 0; border-radius: 3px; color: inherit; background: transparent; cursor: pointer; }
+.ide-change-preview > header button:hover { background: var(--vscode-toolbar-hoverBackground); }
+.ide-change-preview > header button:focus-visible { outline: 2px solid var(--vscode-focusBorder); }
+.ide-change-preview > p { margin: 0; padding: 4px 8px; font-size: 11px; color: var(--vscode-descriptionForeground); }
 .ide-add-comment.pull-diff-code__add-comment { transform: none; opacity: 1; pointer-events: auto; }
 .ide-commentable .line-numbers { cursor: pointer; }
 .ide-commentable .line-numbers:hover { color: var(--vscode-textLink-foreground); }

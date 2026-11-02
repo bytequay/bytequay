@@ -41,9 +41,9 @@ export async function runArchivedCodeScenarios(): Promise<{ name: string; error?
   };
   try {
     flushSync(() => root.render(<SourceSnapshot path="notes.txt" text={text} cards={[]} commentRange={null} lineChanges={[
-      { kind: 'ADDED', line: 2, count: 2 }, { kind: 'MODIFIED', line: 7, count: 1 },
-      { kind: 'DELETED', line: 0, count: 3 }, { kind: 'DELETED', line: 20, count: 2 },
-      { kind: 'ADDED', line: 0, count: 1 }, { kind: 'MODIFIED', line: 21, count: 1 },
+      { kind: 'ADDED', line: 2, count: 2, originalLines: [] }, { kind: 'MODIFIED', line: 7, count: 1, originalLines: ['previous'] },
+      { kind: 'DELETED', line: 0, count: 3, originalLines: ['first', '', 'third'] }, { kind: 'DELETED', line: 20, count: 2, originalLines: ['last', 'footer'] },
+      { kind: 'ADDED', line: 0, count: 1, originalLines: [] }, { kind: 'MODIFIED', line: 21, count: 1, originalLines: ['outside'] },
     ]} />)); await settle();
     assert(host.querySelectorAll('.ct-line-change.is-added').length === 2, 'Each added line has a green marker');
     assert(host.querySelectorAll('.ct-line-change.is-modified').length === 1, 'Updated lines have a separate marker and invalid ranges are omitted');

@@ -434,7 +434,9 @@ public class ReviewCodeService
     {
         ImmutableList.Builder<LineChange> changes = ImmutableList.builder();
         boolean writesPath = false;
-        for (String line : Splitter.on('\n').split(diff)) {
+        List<String> lines = Splitter.on('\n').splitToList(diff);
+        for (int index = 0; index < lines.size(); index++) {
+            String line = lines.get(index);
             if (line.startsWith("diff --git ")) {
                 writesPath = false;
             }
@@ -444,17 +446,37 @@ public class ReviewCodeService
                 writesPath = (label.length() > 1 && label.startsWith("\"") && label.endsWith("\"") ? unquote(label) : label).equals("b/" + path);
             }
             Matcher hunk = HUNK_HEADER.matcher(line);
-            if (!writesPath || !hunk.lookingAt()) {
+            if (!hunk.lookingAt()) {
                 continue;
             }
             int removed = hunk.group(1) == null ? 1 : Integer.parseInt(hunk.group(1));
             int start = Integer.parseInt(hunk.group(2));
             int added = hunk.group(3) == null ? 1 : Integer.parseInt(hunk.group(3));
+            ImmutableList.Builder<String> original = ImmutableList.builder();
+            int addedLines = 0;
+            while (index + 1 < lines.size()) {
+                String content = lines.get(index + 1);
+                if (content.startsWith("-")) {
+                    original.add(content.substring(1));
+                }
+                else if (content.startsWith("+")) {
+                    addedLines++;
+                }
+                else if (!content.equals("\\ No newline at end of file")) {
+                    break;
+                }
+                index++;
+            }
+            List<String> originalLines = original.build();
+            // A partial hunk must not offer a preview that silently leaves out removed code.
+            if (!writesPath || originalLines.size() != removed || addedLines != added) {
+                continue;
+            }
             if (added > 0) {
-                changes.add(new LineChange(removed == 0 ? LineChange.Kind.ADDED : LineChange.Kind.MODIFIED, start, added));
+                changes.add(new LineChange(removed == 0 ? LineChange.Kind.ADDED : LineChange.Kind.MODIFIED, start, added, originalLines));
             }
             else if (removed > 0) {
-                changes.add(new LineChange(LineChange.Kind.DELETED, start, removed));
+                changes.add(new LineChange(LineChange.Kind.DELETED, start, removed, originalLines));
             }
         }
         return changes.build();
@@ -1078,8 +1100,9 @@ public class ReviewCodeService
      *
      * @param line the first added or modified line; for {@link Kind#DELETED}, the line the removed lines followed, 0 for the top of the file
      * @param count the added or modified lines; for {@link Kind#DELETED}, the removed lines
+     * @param originalLines the removed lines from the merge base, without their diff prefixes or newline separators
      */
-    public record LineChange(Kind kind, int line, int count)
+    public record LineChange(Kind kind, int line, int count, List<String> originalLines)
     {
         public enum Kind
         {
@@ -1092,6 +1115,9 @@ public class ReviewCodeService
         {
             requireNonNull(kind, "kind is null");
             checkArgument(line >= 0 && count > 0, "invalid line change: %s,%s", line, count);
+            originalLines = ImmutableList.copyOf(originalLines);
+            checkArgument(kind == Kind.ADDED ? originalLines.isEmpty() : !originalLines.isEmpty(), "original lines do not match change kind: %s", kind);
+            checkArgument(kind != Kind.DELETED || originalLines.size() == count, "deleted line count does not match original lines");
         }
     }
 }

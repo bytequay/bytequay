@@ -137,7 +137,9 @@ class TestReviewCodeController
     {
         when(code.file(host("review-1"), "src/test/java/TestCode.java", Optional.empty())).thenReturn(new CodeFile(
                 "src/test/java/TestCode.java", Optional.of("class TestCode {}\n"), Optional.of("hash"), Optional.empty(), Optional.empty(), Optional.of("@@ -1 +1 @@"),
-                ImmutableList.of(new LineChange(LineChange.Kind.MODIFIED, 1, 1), new LineChange(LineChange.Kind.DELETED, 0, 2))));
+                ImmutableList.of(
+                        new LineChange(LineChange.Kind.MODIFIED, 1, 1, ImmutableList.of("class Before {}")),
+                        new LineChange(LineChange.Kind.DELETED, 0, 2, ImmutableList.of("first", "second")))));
         when(code.file(host("review-1"), "image.png", Optional.empty())).thenReturn(new CodeFile(
                 "image.png", Optional.empty(), Optional.empty(), Optional.of("This review has ended — read-only"), Optional.of("Binary file"), Optional.empty(), ImmutableList.of()));
 
@@ -146,7 +148,9 @@ class TestReviewCodeController
                 .andExpect(content().json("""
                         {"path": "src/test/java/TestCode.java", "content": "class TestCode {}\\n", "contentHash": "hash", "editable": true,
                          "readOnlyReason": null, "unavailableReason": null, "prPatch": "@@ -1 +1 @@",
-                         "lineChanges": [{"kind": "MODIFIED", "line": 1, "count": 1}, {"kind": "DELETED", "line": 0, "count": 2}]}
+                         "lineChanges": [
+                           {"kind": "MODIFIED", "line": 1, "count": 1, "originalLines": ["class Before {}"]},
+                           {"kind": "DELETED", "line": 0, "count": 2, "originalLines": ["first", "second"]}]}
                         """, JsonCompareMode.STRICT));
         mvc.perform(get("/api/agent-review/review-1/code/file").param("path", "image.png"))
                 .andExpect(status().isOk())

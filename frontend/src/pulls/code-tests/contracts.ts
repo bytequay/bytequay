@@ -63,19 +63,21 @@ export type ReviewCodeFileDto = ReturnType<typeof parseReviewCodeFile>;
  * One contiguous change against the merge base: `line` and `count` are the added or modified lines, or for
  * DELETED the line the removed lines followed (0 for the top of the file) and how many were removed.
  */
-export type LineChangeDto = { kind: 'ADDED' | 'MODIFIED' | 'DELETED'; line: number; count: number };
+export type LineChangeDto = { kind: 'ADDED' | 'MODIFIED' | 'DELETED'; line: number; count: number; originalLines: string[] };
 
 const LINE_CHANGE_KINDS = ['ADDED', 'MODIFIED', 'DELETED'] as const;
 
-// Gutter decoration only, so an entry this renderer cannot place is dropped instead of failing the whole read.
+// Drop incomplete changes instead of showing a misleading preview or failing the whole file read.
 function lineChanges(value: unknown): LineChangeDto[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item: unknown) => {
     if (typeof item !== 'object' || item === null) return [];
-    const { kind, line, count } = item as Record<string, unknown>;
+    const { kind, line, count, originalLines } = item as Record<string, unknown>;
     return LINE_CHANGE_KINDS.some(known => known === kind) && Number.isInteger(line) && Number.isInteger(count)
-      && (line as number) >= 0 && (count as number) > 0
-      ? [{ kind: kind as LineChangeDto['kind'], line: line as number, count: count as number }]
+      && (line as number) >= (kind === 'DELETED' ? 0 : 1) && (count as number) > 0
+      && Array.isArray(originalLines) && originalLines.every((line: unknown) => typeof line === 'string')
+      && (kind === 'ADDED' ? originalLines.length === 0 : kind === 'DELETED' ? originalLines.length === count : originalLines.length > 0)
+      ? [{ kind: kind as LineChangeDto['kind'], line: line as number, count: count as number, originalLines: originalLines as string[] }]
       : [];
   });
 }

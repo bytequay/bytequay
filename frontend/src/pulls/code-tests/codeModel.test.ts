@@ -119,14 +119,24 @@ describe('review code contracts', () => {
       path: 'A.java',
       content: 'a\n',
       lineChanges: [
-        { kind: 'MODIFIED', line: 2, count: 1 },
-        { kind: 'DELETED', line: 0, count: 3 },
+        { kind: 'MODIFIED', line: 2, count: 1, originalLines: ['old value'] },
+        { kind: 'DELETED', line: 0, count: 3, originalLines: ['first', '', 'last'] },
+        { kind: 'ADDED', line: 1, count: 1, originalLines: [] },
         { kind: 'RENAMED', line: 1, count: 1 },
         { kind: 'ADDED', line: 1.5, count: 1 },
         { kind: 'ADDED', line: 4, count: 0 },
+        { kind: 'MODIFIED', line: 1, count: 1 },
+        { kind: 'MODIFIED', line: 1, count: 1, originalLines: [42] },
+        { kind: 'MODIFIED', line: 1, count: 1, originalLines: [] },
+        { kind: 'DELETED', line: 0, count: 2, originalLines: ['partial'] },
+        { kind: 'ADDED', line: 1, count: 1, originalLines: ['unexpected'] },
         null,
       ],
-    }).lineChanges).toEqual([{ kind: 'MODIFIED', line: 2, count: 1 }, { kind: 'DELETED', line: 0, count: 3 }]);
+    }).lineChanges).toEqual([
+      { kind: 'MODIFIED', line: 2, count: 1, originalLines: ['old value'] },
+      { kind: 'DELETED', line: 0, count: 3, originalLines: ['first', '', 'last'] },
+      { kind: 'ADDED', line: 1, count: 1, originalLines: [] },
+    ]);
   });
 
   it('places a finding only on the clean reviewed revision that still holds its excerpt', () => {

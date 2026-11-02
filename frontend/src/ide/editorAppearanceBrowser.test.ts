@@ -22,7 +22,7 @@ import { expect, it } from 'vitest';
 import { deadline } from '../fixtures/browserFixture';
 import { electronFixtureLifecycle } from '../fixtures/electronFixtureLifecycle';
 
-it('renders native syntax, folding, type icons, test colors, usages, search, private line comments, and change markers', async () => {
+it('renders native syntax, folding, type icons, test colors, usages, search, private line comments, and clickable change previews', async () => {
   const timeout = deadline(90_000);
   const directory = await mkdtemp(join(tmpdir(), 'bytequay-editor-appearance-'));
   const server = await createServer({ configFile: resolve('vite.ide.config.ts'), logLevel: 'error',

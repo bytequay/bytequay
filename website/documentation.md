@@ -339,6 +339,10 @@ explore**. It opens a local editor and starts no agent.
 - Edit and save files, then use a test’s play button to run it. **Run** shows
   results and output; **Terminal** opens a shell in the task’s working copy.
 - **Blame** shows line authorship; **Git history** shows commits and changes.
+- Click a colored gutter marker to preview added, updated, or deleted code
+  compared with the branch’s base. **Escape** closes the preview. It shows saved
+  changes; save your edits to include them. **Show Saved Change at Cursor** is
+  also available in the editor’s context menu and command palette.
 
 The editor keeps its IDEA-style layout and VS Code navigation and test support.
 Debugger controls, automatic completion, and inlay hints are disabled. Rust

@@ -608,18 +608,18 @@ class TestReviewCodeService
         when(store.listRuns(REVIEW_ID)).thenReturn(ImmutableList.of(run(pullRequestHead, base)));
 
         assertThat(service.file(service.reviewHost(REVIEW_ID), path).lineChanges()).containsExactly(
-                new LineChange(LineChange.Kind.MODIFIED, 2, 1),
-                new LineChange(LineChange.Kind.ADDED, 4, 2),
-                new LineChange(LineChange.Kind.DELETED, 6, 1),
-                new LineChange(LineChange.Kind.ADDED, 8, 1));
+                new LineChange(LineChange.Kind.MODIFIED, 2, 1, ImmutableList.of("b")),
+                new LineChange(LineChange.Kind.ADDED, 4, 2, ImmutableList.of()),
+                new LineChange(LineChange.Kind.DELETED, 6, 1, ImmutableList.of("e")),
+                new LineChange(LineChange.Kind.ADDED, 8, 1, ImmutableList.of()));
         assertThat(service.file(service.reviewHost(REVIEW_ID), "src/test/java/TestUntracked.java").lineChanges()).isEmpty();
 
         AgentTask completed = openTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(), ImmutableList.of()), NOW, NOW.plusSeconds(60));
         when(reviews.task(REVIEW_ID)).thenReturn(completed.withWorktreeRemovedAt(NOW));
         assertThat(service.file(service.reviewHost(REVIEW_ID), path).lineChanges()).containsExactly(
-                new LineChange(LineChange.Kind.MODIFIED, 2, 1),
-                new LineChange(LineChange.Kind.ADDED, 4, 2),
-                new LineChange(LineChange.Kind.DELETED, 6, 1));
+                new LineChange(LineChange.Kind.MODIFIED, 2, 1, ImmutableList.of("b")),
+                new LineChange(LineChange.Kind.ADDED, 4, 2, ImmutableList.of()),
+                new LineChange(LineChange.Kind.DELETED, 6, 1, ImmutableList.of("e")));
 
         // Git sorts blocks by path, so an unpaired rename source can follow the destination.
         String diff = """
@@ -629,6 +629,7 @@ class TestReviewCodeService
                 +++ b/A B.java\t
                 @@ -1,2 +0,0 @@
                 -x
+                -y
                 @@ -9 +7,2 @@ tail
                 -old
                 +new\r@@ -3,0 +0,0 @@
@@ -646,10 +647,67 @@ class TestReviewCodeService
                 -a
                 +b
                 """;
-        assertThat(ReviewCodeService.lineChanges(diff, "A B.java")).containsExactly(new LineChange(LineChange.Kind.DELETED, 0, 2), new LineChange(LineChange.Kind.MODIFIED, 7, 2));
+        assertThat(ReviewCodeService.lineChanges(diff, "A B.java")).containsExactly(
+                new LineChange(LineChange.Kind.DELETED, 0, 2, ImmutableList.of("x", "y")),
+                new LineChange(LineChange.Kind.MODIFIED, 7, 2, ImmutableList.of("old")));
         assertThat(ReviewCodeService.lineChanges(diff, "Gone.java")).isEmpty();
-        assertThat(ReviewCodeService.lineChanges(diff, "Q\"uote\tX.java")).containsExactly(new LineChange(LineChange.Kind.MODIFIED, 4, 1));
+        assertThat(ReviewCodeService.lineChanges(diff, "Q\"uote\tX.java")).containsExactly(new LineChange(LineChange.Kind.MODIFIED, 4, 1, ImmutableList.of("a")));
         assertThat(ReviewCodeService.unquote("\"b/\\303\\251t\\\\\\\"é\"")).isEqualTo("b/ét\\\"é");
+    }
+
+    @Test
+    void previewsOriginalLinesWithoutTreatingTheirContentsAsPatchMetadata()
+    {
+        String diff = """
+                diff --git a/Example.java b/Example.java
+                --- a/Example.java
+                +++ b/Example.java
+                @@ -1,2 +0,0 @@
+                -  header\t
+                -
+                @@ -4,4 +2,2 @@
+                --- old label
+                -+++ b/Other.java
+                -\t old \r
+                -old eof
+                \\ No newline at end of file
+                +++ b/Other.java
+                +@@ -9 +8 @@
+                @@ -9 +6,0 @@
+                -tail
+                \\ No newline at end of file
+                """;
+
+        assertThat(ReviewCodeService.lineChanges(diff, "Example.java")).containsExactly(
+                new LineChange(LineChange.Kind.DELETED, 0, 2, ImmutableList.of("  header\t", "")),
+                new LineChange(LineChange.Kind.MODIFIED, 2, 2, ImmutableList.of("-- old label", "+++ b/Other.java", "\t old \r", "old eof")),
+                new LineChange(LineChange.Kind.DELETED, 6, 1, ImmutableList.of("tail")));
+        assertThat(ReviewCodeService.lineChanges(diff, "Other.java")).isEmpty();
+    }
+
+    @Test
+    void omitsIncompleteOrMismatchedChangePreviews()
+    {
+        String diff = """
+                diff --git a/Example.java b/Example.java
+                --- a/Example.java
+                +++ b/Example.java
+                @@ -1,2 +1 @@
+                -one of two removed lines
+                +new
+                @@ -5 +4 @@
+                -old
+                +new
+                +unexpected extra line
+                @@ -9 +8 @@
+                -old
+                +new
+                @@ -12 +11,2 @@
+                -old
+                +only one added line
+                """;
+
+        assertThat(ReviewCodeService.lineChanges(diff, "Example.java")).containsExactly(new LineChange(LineChange.Kind.MODIFIED, 8, 1, ImmutableList.of("old")));
     }
 
     @Test
@@ -672,11 +730,13 @@ class TestReviewCodeService
                 1,
                 null)))));
 
-        assertThat(service.file(service.reviewHost(REVIEW_ID), "src/test/java/TestAfter.java").lineChanges()).containsExactly(new LineChange(LineChange.Kind.MODIFIED, 3, 1));
+        assertThat(service.file(service.reviewHost(REVIEW_ID), "src/test/java/TestAfter.java").lineChanges())
+                .containsExactly(new LineChange(LineChange.Kind.MODIFIED, 3, 1, ImmutableList.of("three")));
 
         AgentTask completed = openTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(), ImmutableList.of()), NOW, NOW.plusSeconds(60));
         when(reviews.task(REVIEW_ID)).thenReturn(completed.withWorktreeRemovedAt(NOW));
-        assertThat(service.file(service.reviewHost(REVIEW_ID), "src/test/java/TestAfter.java").lineChanges()).containsExactly(new LineChange(LineChange.Kind.MODIFIED, 3, 1));
+        assertThat(service.file(service.reviewHost(REVIEW_ID), "src/test/java/TestAfter.java").lineChanges())
+                .containsExactly(new LineChange(LineChange.Kind.MODIFIED, 3, 1, ImmutableList.of("three")));
     }
 
     @Test
@@ -905,7 +965,9 @@ class TestReviewCodeService
         git(checkout, "commit", "-am", "Task change");
         write(checkout, MAIN_PATH, "a\nB\nc\nlocal\n");
 
-        assertThat(service.file(taskHost(), MAIN_PATH).lineChanges()).containsExactly(new LineChange(LineChange.Kind.MODIFIED, 2, 1), new LineChange(LineChange.Kind.ADDED, 4, 1));
+        assertThat(service.file(taskHost(), MAIN_PATH).lineChanges()).containsExactly(
+                new LineChange(LineChange.Kind.MODIFIED, 2, 1, ImmutableList.of("b")),
+                new LineChange(LineChange.Kind.ADDED, 4, 1, ImmutableList.of()));
 
         // Without a fetched PR base, the visible baseline remains the task's starting commit.
         when(pullRequests.findWorkspacePullRequestDetail(WORKSPACE_ID, REPOSITORY.fullName(), 7)).thenReturn(Optional.empty());

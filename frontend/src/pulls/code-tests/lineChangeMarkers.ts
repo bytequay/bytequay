@@ -20,7 +20,7 @@ export function lineChangeMarkers(changes: readonly LineChangeDto[], lineCount: 
     const end = deleted ? start : start + change.count - 1;
     if (start < 1 || end > lineCount) return [];
     const label = { ADDED: 'Added', MODIFIED: 'Updated', DELETED: 'Deleted' }[change.kind];
-    return [{ start, end, className: `ct-line-change is-${change.kind.toLowerCase()}${deleted && change.line === 0 ? ' is-before' : ''}`,
+    return [{ change, start, end, className: `ct-line-change is-${change.kind.toLowerCase()}${deleted && change.line === 0 ? ' is-before' : ''}`,
       title: `${label} ${change.count} ${change.count === 1 ? 'line' : 'lines'}${deleted ? (change.line === 0 ? ' before line 1' : ` after line ${change.line}`) : ''} compared with the base` }];
   });
 }

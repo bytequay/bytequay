@@ -53,7 +53,7 @@ function mount() {
     };
     flushSync(() => view.root.render(<>
       <InAppBrowser tab={tab} fullScreen railExpanded={false} error={null} onError={onError} onBack={onBack} />
-      {breakShown && <FocusBreakScreen companion="chubby-cat" remainingSeconds={60} exiting={false} onLocked={() => {}} onExited={() => {}} onDismiss={() => { breakShown = false; render(currentTab); }} />}
+      {breakShown && <FocusBreakScreen companion="chubby-cat" remainingSeconds={60} durationSeconds={60} exiting={false} onLocked={() => {}} onExited={() => {}} onDismiss={() => { breakShown = false; render(currentTab); }} />}
     </>));
   };
   render('first');
@@ -161,6 +161,8 @@ export async function run() {
         await untilCatArrives(view.host);
         const dismiss = button('Dismiss', view.host);
         assert(view.surface() === null && document.activeElement === dismiss, 'The locked break focuses Dismiss with the native page detached');
+        const timer = dismiss.querySelector<HTMLElement>('[role="timer"]');
+        assert(dismiss.textContent === 'Dismiss · 1:00' && timer?.checkVisibility({ visibilityProperty: true }), 'Dismiss shows the countdown over the native page');
         const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
         dismiss.dispatchEvent(enter);
         assert(!enter.defaultPrevented && view.searches() === 0, 'Browser Find must leave Enter to the cat controls');

@@ -1,6 +1,6 @@
 {
   "purpose": "Original continuous animal footage for ByteQuay focus breaks. This is an asset production brief, not a runtime configuration.",
-  "completion": "The user supplied the orange cat entrance/rest and wake-up/leave clips. Transparent WebM playback includes the breathing loop and natural exit. Husky video production remains pending; the husky uses its existing sprites.",
+  "completion": "The user supplied the orange cat entrance/rest and wake-up/leave clips. Transparent WebM playback includes the breathing loop and natural exit.",
   "generationTool": "Built-in image_gen created the reference PNGs and closed-eyelid reference crop. The user generated the orange cat source videos externally; Runway removed their backgrounds and upscaled them.",
   "videoProvider": "Runway removed the background and upscaled the user-supplied orange cat footage. Local processing refines its alpha edge, repairs missing walking fur and pre-renders a stable breathing loop. A generated still supplies only the closed eyelids, composited into the existing footage.",
   "delivery": {
@@ -16,7 +16,7 @@
     "note": "Preserve coherent source motion. Repeating or blending the current eight sprite poses is not an acceptable replacement.",
     "canvas": "Same resolution, aspect ratio, animal scale, floor anchor, camera and illumination for all three clips of one animal; target 1024x1024 delivery if source supports it.",
     "background": "Remove background with a temporally stable matte preserving fur and whiskers. Check over both light and dark app backgrounds. A checkerboard or black background baked into the video is not transparency.",
-    "framing": "Entire body, tail and paws remain inside the frame throughout; leave vertical space for the husky to stand.",
+    "framing": "Entire body, tail and paws remain inside the frame throughout.",
     "horizontalMovement": "Walk on the spot facing left; the app moves the entire video from right edge to center in sync with video progress.",
     "boundaries": "Walk ends in a stable four-paw standing pose. Settle starts at that exact pose. Settle ends at the loop's starting pose. Loop beginning and end must match without a pop."
   },
@@ -44,31 +44,6 @@
           "targetSeconds": 8,
           "firstFrame": "Use the final decoded frame of chubby-cat-settle as the first-frame reference.",
           "prompt": "The same cat remains comfortably lying in the established pose. Gentle visible breathing and subtle ear movement, one slow blink, a small natural yawn, then returns smoothly to the exact initial resting pose, eye state, closed mouth and tail position. Keep body shape and fur stable. Make a calm seamless loop with matching initial and final pose and motion."
-        }
-      ]
-    },
-    {
-      "id": "dancing-husky",
-      "reference": "dancing-husky-reference.png",
-      "referenceSource": "dancing-husky-walk.png",
-      "referencePrompt": "Use case: photorealistic-natural. Asset type: a single high-resolution character reference and first frame for an original continuous animal video in the ByteQuay break screen. The attached sprite sheet is ONLY a character identity reference. Create ONE SINGLE full-body Siberian husky, not a grid, not multiple dogs. Preserve the reference character: fluffy charcoal-gray and white coat, symmetrical white facial mask and chest, bright blue eyes, pointed ears, big fluffy upward curled tail, friendly slightly open mouth. It must look like a real photographic animal with detailed individual fur and convincing canine anatomy, not a cartoon or plush toy. Pose: standing naturally on all four paws, body facing LEFT in side view with face gently angled toward the viewer, friendly relaxed expression. No human hands or human body proportions. Full body including all paws, ears, whiskers and entire tail inside frame. Square canvas, dog centered horizontally, virtual ground at 86% image height, occupy approximately 65% canvas width, generous transparent space above to support later standing on hind legs and dancing. Soft neutral studio illumination from upper left, no dramatic rim light, no cast backdrop, no accessories, no collar, no clothing, no text or logos. Background genuinely transparent with clean fine fur edges and no white halo or colored fringe. This is a clean single character reference for later video generation, not an animation or sprite sheet.",
-      "clips": [
-        {
-          "output": "dancing-husky-walk.webm",
-          "targetSeconds": 3,
-          "prompt": "The same fluffy gray-and-white blue-eyed husky walks calmly on the spot facing left on all four paws for two complete natural gait cycles. Natural alternating paw placements and weight transfer, curled tail softly sways. Body stays centered; never moves across the canvas. Finish all four paws planted in a relaxed standing pose and hold briefly."
-        },
-        {
-          "output": "dancing-husky-settle.webm",
-          "targetSeconds": 3,
-          "firstFrame": "Use the final decoded frame of dancing-husky-walk as the first-frame reference.",
-          "prompt": "Starting from the exact four-paw standing pose, the same husky turns gently toward the viewer and smoothly rises onto its hind paws. Keep canine anatomy, fur and proportions realistic; lift its two front paws loosely at chest height, with a friendly relaxed expression. Maintain balance with natural rear-leg and tail motion. End centered in a stable playful dance-ready pose, leaving full ears and tail within frame."
-        },
-        {
-          "output": "dancing-husky-loop.webm",
-          "targetSeconds": 4,
-          "firstFrame": "Use the final decoded frame of dancing-husky-settle as the first-frame reference.",
-          "prompt": "The same husky in the established upright pose performs a playful restrained side-to-side dance: shift weight left, then right, small alternate hind-paw steps, front paws gently swing together and apart, fluffy tail counterbalances. Clearly a photorealistic dog with canine paws and anatomy, never a human body. No abrupt hops or limb deformation. Return to the exact initial pose, foot positions and motion for a seamless repeating dance."
         }
       ]
     }

@@ -22,14 +22,14 @@ export function FocusBreakSettings() {
       <div className="setw-section"><span className="setw-section-title">Focus breaks</span></div>
       {error !== null && <div className="setw-error" role="alert">{error}</div>}
       <SettingsCard>
-        <SettingsRow title="Break reminders" subtitle="Let your companion remind you when it’s time to rest.">
+        <SettingsRow title="Break reminders" subtitle="Take a screen break when it’s time to rest.">
           <Toggle on={preferences.enabled} label="Break reminders" onChange={enabled => updatePreferences({ ...preferences, enabled })} />
         </SettingsRow>
         <SettingsRow title="Break companion">
           <SelectPill quiet ariaLabel="Break companion" value={preferences.companion}
-            label={preferences.companion === 'chubby-cat' ? 'Chubby orange cat' : 'Dancing husky'}
-            options={[{ value: 'chubby-cat', label: 'Chubby orange cat' }, { value: 'dancing-husky', label: 'Dancing husky' }]}
-            onSelect={value => updatePreferences({ ...preferences, companion: value === 'dancing-husky' ? value : 'chubby-cat' })} />
+            label={preferences.companion === 'windows-update' ? 'Windows update' : 'Chubby orange cat'}
+            options={[{ value: 'chubby-cat', label: 'Chubby orange cat' }, { value: 'windows-update', label: 'Windows update' }]}
+            onSelect={value => updatePreferences({ ...preferences, companion: value === 'windows-update' ? value : 'chubby-cat' })} />
         </SettingsRow>
         <SettingsRow title="Focus time">
           <SelectPill quiet ariaLabel="Focus time" value={String(preferences.workMinutes)} label={`${preferences.workMinutes} min`}

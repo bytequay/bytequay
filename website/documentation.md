@@ -656,22 +656,28 @@ needed.
 ## Take a companion break
 
 Open **Settings → Personal → General → Focus breaks** and turn on **Break
-reminders**. Choose **Chubby orange cat** or **Dancing husky** under **Break
-companion**. Your companion walks into ByteQuay first. When it reaches the
+reminders**. Choose **Chubby orange cat** or **Windows update** under **Break
+companion**. The cat walks into ByteQuay first. When it reaches the
 center, it blocks interaction with your work while your current page stays
 visible behind it. The orange cat plays a smooth video: it lies down, rolls onto its
 side, yawns, then sleeps with closed eyes and gentle breathing for the remainder of the break.
-When the break ends, the cat wakes up and walks offscreen. The husky stands up,
-steps, and sways its paws. Reduced motion skips the walk and shows a still
-companion. If the cat video cannot play, the break uses its resting image.
+When the break ends, the cat wakes up and walks offscreen. Reduced motion skips
+the walk and shows a still cat. If the cat video cannot play, the break uses
+its resting image.
+
+For a different screensaver, choose **Windows update** in the same picker. A
+blue Windows-style update screen fills ByteQuay, with spinning dots and a
+percentage that advances with your break. Reduced motion keeps the dots still.
+This is a playful animation: it does not install updates or restart your Mac.
 
 Choose your focus and break times; the default is 25 minutes of focus followed
 by a 5-minute break. The break fills only the ByteQuay window, and your agents
 keep working.
 
 Use **Pause timer** or **Take a break now** in the same settings. The break
-shows only your companion and a small **Dismiss** button. Choose **Dismiss**
-or press **Esc** to see the remaining break time. Choose **End break** to return
+shows your selected animation and a small **Dismiss** button with the remaining
+break time, such as **Dismiss · 4:59**. Choose **Dismiss** or press **Esc** to
+open the confirmation. Choose **End break** to return
 to work, or **Keep taking a break** to close the confirmation. During the cat's
 walk out, choose **Dismiss** or press
 **Esc** to return immediately. The next focus session starts when the companion leaves.

@@ -24,7 +24,7 @@ describe('focus breaks', () => {
   });
 
   it('restores the selected companion and defaults missing or unknown choices to the cat', () => {
-    expect(parseFocusPreferences({ ...preferences, companion: 'dancing-husky' })).toEqual({ ...preferences, companion: 'dancing-husky' });
+    expect(parseFocusPreferences({ ...preferences, companion: 'windows-update' })).toEqual({ ...preferences, companion: 'windows-update' });
     expect(parseFocusPreferences({ enabled: true, workMinutes: 25, breakMinutes: 5 })).toEqual(preferences);
     expect(parseFocusPreferences({ ...preferences, companion: 'unknown' })).toEqual(preferences);
   });

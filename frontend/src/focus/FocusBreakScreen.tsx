@@ -11,22 +11,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { BreakCompanion } from './BreakCompanion';
+import { WindowsUpdate } from './WindowsUpdate';
 import type { FocusBreakBackground } from './contracts';
 import { formatFocusTime, type BreakCompanionKind } from './model';
 import './focus-breaks.css';
 
-export function FocusBreakScreen({ companion, remainingSeconds, exiting, background = [], onLocked, onDismiss, onExited }: {
+export function FocusBreakScreen({ companion, remainingSeconds, durationSeconds, exiting, background = [], onLocked, onDismiss, onExited }: {
   companion: BreakCompanionKind;
   remainingSeconds: number;
+  durationSeconds: number;
   exiting: boolean;
   background?: FocusBreakBackground[];
   onLocked: () => void;
   onDismiss: () => void;
   onExited: () => void;
 }) {
+  const timerId = useId();
   const dismissButton = useRef<HTMLButtonElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -38,6 +41,12 @@ export function FocusBreakScreen({ companion, remainingSeconds, exiting, backgro
   const [confirming, setConfirming] = useState(false);
   const companionArrived = useCallback(() => setArrival({ companion, arrived: true }), [companion]);
   const requestDismiss = () => { if (exiting) onExited(); else setConfirming(true); };
+
+  useEffect(() => {
+    if (companion !== 'windows-update') return;
+    if (exiting) onExited();
+    else companionArrived();
+  }, [companion, exiting, companionArrived, onExited]);
 
   useEffect(() => {
     const element = dialog.current;
@@ -73,7 +82,7 @@ export function FocusBreakScreen({ companion, remainingSeconds, exiting, backgro
   useEffect(() => { if (locked) dismissButton.current?.focus(); }, [locked]);
 
   return (
-    <dialog ref={dialog} className="focus-break" data-focus-break="" data-stage={locked ? 'locked' : 'entering'} data-focus-break-entrance={locked ? undefined : ''}
+    <dialog ref={dialog} className="focus-break" data-focus-break="" data-companion={companion} data-stage={locked ? 'locked' : 'entering'} data-focus-break-entrance={locked ? undefined : ''}
       role={locked ? 'dialog' : undefined} aria-modal={locked ? true : undefined} aria-hidden={locked ? undefined : true}
       aria-label="Focus break"
       onCancel={event => { if (!locked) return; event.preventDefault(); event.stopPropagation(); requestDismiss(); }}
@@ -82,13 +91,18 @@ export function FocusBreakScreen({ companion, remainingSeconds, exiting, backgro
         event.stopPropagation();
         if (event.key === 'Escape') { event.preventDefault(); requestDismiss(); }
       }}>
-      {background.map((pane, index) => <img key={index} className="focus-break__background" src={pane.image} alt="" draggable={false}
+      {companion !== 'windows-update' && background.map((pane, index) => <img key={index} className="focus-break__background" src={pane.image} alt="" draggable={false}
         style={{ left: pane.x, top: pane.y, width: pane.width, height: pane.height }} />)}
       <div className="focus-break__content">
-        <BreakCompanion key={companion} companion={companion} locked={locked} exiting={exiting} onArrived={companionArrived} onExited={onExited} />
+        {companion === 'windows-update'
+          ? <WindowsUpdate remainingSeconds={remainingSeconds} durationSeconds={durationSeconds} />
+          : <BreakCompanion key={companion} locked={locked} exiting={exiting} onArrived={companionArrived} onExited={onExited} />}
       </div>
-      <span className="focus-break__timer" role="timer" aria-label="Break time remaining">{formatFocusTime(remainingSeconds)}</span>
-      <button ref={dismissButton} type="button" className="bq-button focus-break__dismiss" onClick={requestDismiss}>Dismiss</button>
+      <button ref={dismissButton} type="button" className="bq-button focus-break__dismiss" aria-label="Dismiss"
+        aria-describedby={exiting ? undefined : timerId} onClick={requestDismiss}>
+        Dismiss{!exiting && <><span aria-hidden="true"> · </span><span id={timerId} className="focus-break__timer" role="timer"
+          aria-label="Break time remaining" aria-live="off">{formatFocusTime(remainingSeconds)}</span></>}
+      </button>
       {confirming && !exiting && <ConfirmDialog title="End your break?" confirmLabel="End break" cancelLabel="Keep taking a break"
         onCancel={() => setConfirming(false)} onConfirm={() => { setConfirming(false); onDismiss(); }}>
         <p><span className="focus-break__confirmation-time" role="timer">{formatFocusTime(remainingSeconds)}</span> remaining in your break.</p>

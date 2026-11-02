@@ -129,6 +129,7 @@ export function FocusBreakProvider({ children }: { children: ReactNode }) {
     <FocusBreakContext.Provider value={state}>
       <FocusBreakBackgroundContext.Provider value={invalidateBackground}>{children}</FocusBreakBackgroundContext.Provider>
       {preferences.enabled && companionVisible && <FocusBreakScreen companion={preferences.companion} background={background}
+        durationSeconds={preferences.breakMinutes * 60}
         remainingSeconds={clock.phase === 'focus' ? 0 : state.remainingSeconds}
         exiting={clock.phase === 'focus'} onLocked={lockBreak} onExited={companionExited} onDismiss={dismiss} />}
     </FocusBreakContext.Provider>

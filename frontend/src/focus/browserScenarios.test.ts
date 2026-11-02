@@ -14,7 +14,7 @@
 import { testBrowserScenarios } from '../fixtures/browserScenarios';
 
 testBrowserScenarios([{
-  name: 'walks selectable companions in before locking the break and preserves work underneath', expected: 20, timeout: 45_000,
+  name: 'shows selectable focus breaks and preserves work underneath', expected: 20, timeout: 45_000,
   fixture: {
     prefix: 'bytequay-focus-breaks-', entry: 'src/focus/fixtures/focusBreaksBrowser.tsx', global: 'FocusBreakTests', styles: true, width: 1120, height: 760, timeoutMs: 40_000,
     preload: "const {contextBridge,ipcRenderer}=require('electron'); contextBridge.exposeInMainWorld('pressEscape',()=>ipcRenderer.invoke('test:escape')); contextBridge.exposeInMainWorld('clickPoint',(x,y)=>ipcRenderer.invoke('test:click',x,y)); contextBridge.exposeInMainWorld('setReducedMotion',reduced=>ipcRenderer.invoke('test:motion',reduced));",

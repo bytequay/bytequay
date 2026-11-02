@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-export type BreakCompanionKind = 'chubby-cat' | 'dancing-husky';
+export type BreakCompanionKind = 'chubby-cat' | 'windows-update';
 export type FocusBreakPreferences = { enabled: boolean; workMinutes: number; breakMinutes: number; companion: BreakCompanionKind };
 export type FocusClock = { phase: 'focus' | 'entering' | 'break'; remainingMs: number; updatedAt: number; paused: boolean };
 
@@ -26,7 +26,7 @@ export function parseFocusPreferences(value: unknown): FocusBreakPreferences {
     enabled: saved.enabled === true,
     workMinutes: typeof saved.workMinutes === 'number' && WORK_MINUTES.includes(saved.workMinutes) ? saved.workMinutes : 25,
     breakMinutes: typeof saved.breakMinutes === 'number' && BREAK_MINUTES.includes(saved.breakMinutes) ? saved.breakMinutes : 5,
-    companion: saved.companion === 'dancing-husky' ? 'dancing-husky' : 'chubby-cat',
+    companion: saved.companion === 'windows-update' ? saved.companion : 'chubby-cat',
   };
 }
 

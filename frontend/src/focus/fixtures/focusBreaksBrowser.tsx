@@ -19,11 +19,10 @@ import { assert, button, element, runScenarios, settle, until } from '../../fixt
 import { GeneralPage } from '../../settings/PersonalPages';
 import { FocusBreakProvider, useFocusBreaks } from '../FocusBreakProvider';
 import type { FocusBreakBackground } from '../contracts';
-import { BreakCompanion, CAT_ARRIVAL_SECONDS, CAT_LEAVE_SECONDS, CAT_REST_SECONDS, CAT_VIDEO_STALL_MS, COMPANION_ENTER_MS, COMPANION_LEAVE_MS, COMPANION_SETTLE_MS } from '../BreakCompanion';
+import { BreakCompanion, CAT_ARRIVAL_SECONDS, CAT_LEAVE_SECONDS, CAT_REST_SECONDS, CAT_VIDEO_STALL_MS, COMPANION_LEAVE_MS } from '../BreakCompanion';
 import chubbyCatVideo from '../assets/chubby-cat.webm';
 import chubbyCatLeaveVideo from '../assets/chubby-cat-leave.webm';
-import dancingHuskySettle from '../assets/dancing-husky-settle.png';
-import { FOCUS_PREFERENCES_KEY, parseFocusPreferences, type BreakCompanionKind, type FocusBreakPreferences } from '../model';
+import { FOCUS_PREFERENCES_KEY, parseFocusPreferences, type FocusBreakPreferences } from '../model';
 import '../../index.css';
 
 declare global { interface Window {
@@ -182,7 +181,7 @@ function controlCatVideo() {
 function controlCompanionTimers() {
   const originalSet = window.setTimeout, originalClear = window.clearTimeout;
   const media = controlCatVideo();
-  const delays = new Set([COMPANION_ENTER_MS, COMPANION_SETTLE_MS, COMPANION_LEAVE_MS, CAT_VIDEO_STALL_MS]);
+  const delays = new Set([COMPANION_LEAVE_MS, CAT_VIDEO_STALL_MS]);
   const timers = new Map<number, { delay: number; run: () => void }>();
   let id = 2_000_000;
   window.setTimeout = ((handler: TimerHandler, delay?: number, ...args: unknown[]) => {
@@ -221,27 +220,14 @@ async function startWalking(root: ParentNode, motion: ReturnType<typeof controlC
 
 async function companionArrived(root: ParentNode, motion: ReturnType<typeof controlCompanionTimers>) {
   await startWalking(root, motion);
-  const companion = element('.break-companion', root).dataset.companion === 'dancing-husky' ? 'dancing-husky' : 'chubby-cat';
-  const walkArtwork = await animatedArtwork(root, companion);
+  animatedArtwork(root);
   assert(!element<HTMLDialogElement>('dialog[open]', root).matches(':modal'), 'The walk does not lock the app before arrival');
-  if (companion === 'chubby-cat') {
-    const video = element<HTMLVideoElement>(mainVideoSelector, root);
-    motion.media.frame(video, CAT_ARRIVAL_SECONDS - 1 / 30); await settle();
-    assert(!element<HTMLDialogElement>('dialog[open]', root).matches(':modal'), 'The cat must finish its walk before locking');
-    motion.media.frame(video, CAT_ARRIVAL_SECONDS); await settle();
-    await until(() => companionPhase(root) === 'performing', 'The decoded arrival frame locks the app and continues the performance');
-    assert(!video.paused && video.currentTime === CAT_ARRIVAL_SECONDS, 'Locking resumes the same clip without jumping or replaying its walk');
-  }
-  else {
-    await motion.tick(COMPANION_ENTER_MS);
-    await until(() => companionPhase(root) === 'settling', 'The husky settles only after arriving and locking the app');
-    const settleArtwork = await animatedArtwork(root, companion);
-    assert(settleArtwork !== walkArtwork, 'Settling uses its own poses after the walk');
-    await motion.tick(COMPANION_SETTLE_MS);
-    assert(companionPhase(root) === 'looping', 'The companion animates for the remaining break');
-    const loopArtwork = await animatedArtwork(root, companion);
-    assert(loopArtwork !== walkArtwork && loopArtwork !== settleArtwork, 'The dancing loop follows both arrival sequences');
-  }
+  const video = element<HTMLVideoElement>(mainVideoSelector, root);
+  motion.media.frame(video, CAT_ARRIVAL_SECONDS - 1 / 30); await settle();
+  assert(!element<HTMLDialogElement>('dialog[open]', root).matches(':modal'), 'The cat must finish its walk before locking');
+  motion.media.frame(video, CAT_ARRIVAL_SECONDS); await settle();
+  await until(() => companionPhase(root) === 'performing', 'The decoded arrival frame locks the app and continues the performance');
+  assert(!video.paused && video.currentTime === CAT_ARRIVAL_SECONDS, 'Locking resumes the same clip without jumping or replaying its walk');
   assert(element<HTMLDialogElement>('dialog[open]', root).matches(':modal'), 'Arrival locks interaction behind the break');
 }
 
@@ -253,8 +239,7 @@ async function confirmDismiss(root: ParentNode) {
 }
 
 async function companionLeaves(root: ParentNode, motion: ReturnType<typeof controlCompanionTimers>) {
-  const phase = element('.break-companion', root).dataset.companion === 'chubby-cat' ? 'fading' : 'leaving';
-  await until(() => companionPhase(root) === phase, 'The companion begins its short exit before the resting section');
+  await until(() => companionPhase(root) === 'fading', 'The cat begins its short exit before the resting section');
   assert(element<HTMLDialogElement>('dialog[open]', root).matches(':modal'), 'The break stays locked during its exit');
   const leaveVideo = root.querySelector<HTMLVideoElement>(leaveVideoSelector);
   assert(!leaveVideo || leaveVideo.paused && motion.media.state(leaveVideo).plays === 0, 'Early dismissal does not play the resting exit clip');
@@ -262,22 +247,11 @@ async function companionLeaves(root: ParentNode, motion: ReturnType<typeof contr
   assert(root.querySelector('dialog') === null, 'The break releases the app when the companion leaves');
 }
 
-async function animatedArtwork(root: ParentNode, companion: BreakCompanionKind) {
-  assert(element('.break-companion', root).dataset.companion === companion, 'The chosen companion is rendered');
-  if (companion === 'chubby-cat') {
-    const video = element<HTMLVideoElement>(mainVideoSelector, root);
-    assert(video.readyState >= 2 && !video.paused, 'The cat renders a decoded native video');
-    assert(video.muted && video.playsInline && !video.loop, 'The performance plays silently inline without replaying the entrance');
-    return video.getAttribute('src');
-  }
-  const frames = element('.break-companion__frames', root);
-  const source = getComputedStyle(frames).backgroundImage.replace(/^url\(["']?|["']?\)$/g, '');
-  const artwork = new Image();
-  artwork.src = source;
-  await artwork.decode();
-  assert(artwork.naturalWidth > 100 && artwork.naturalHeight > 100, 'The companion renders a loaded raster sprite sheet');
-  assert(frames.getAnimations().some(animation => animation.playState === 'running'), 'The selected companion continues its sprite animation');
-  return source;
+function animatedArtwork(root: ParentNode) {
+  assert(element('.break-companion', root).dataset.companion === 'chubby-cat', 'The cat is rendered');
+  const video = element<HTMLVideoElement>(mainVideoSelector, root);
+  assert(video.readyState >= 2 && !video.paused, 'The cat renders a decoded native video');
+  assert(video.muted && video.playsInline && !video.loop, 'The performance plays silently inline without replaying the entrance');
 }
 
 async function chooseCompanion(root: ParentNode, label: string) {
@@ -336,17 +310,21 @@ export async function run() {
         const dismiss = button('Dismiss', dialog);
         assert(document.activeElement === dismiss && dialog.getAttribute('aria-label') === 'Focus break', 'Locking focuses the compact dismiss control in a named dialog');
         assert(dialog.querySelector('h1, p, .focus-break__eyebrow, .focus-break__caption, .focus-break__hint') === null, 'The companion screen removes visible headings and instructions');
-        assert(dialog.querySelectorAll('button').length === 1 && element('[role="timer"]', dialog).getBoundingClientRect().width <= 1, 'Only Dismiss remains visible while the clock remains accessible');
+        const timer = element('[role="timer"]', dismiss);
+        assert(dialog.querySelectorAll('button').length === 1 && timer.checkVisibility({ visibilityProperty: true }) && timer.getBoundingClientRect().width > 1
+          && dismiss.textContent === 'Dismiss · 1:00', 'The only button shows the remaining break time beside Dismiss');
+        assert(timer.getAttribute('aria-label') === 'Break time remaining' && timer.getAttribute('aria-live') === 'off'
+          && dismiss.getAttribute('aria-describedby') === timer.id, 'The countdown describes Dismiss without announcing every tick');
         assert(getComputedStyle(dialog).backgroundColor === 'rgba(0, 0, 0, 0)' && getComputedStyle(dialog).backgroundImage === 'none'
           && getComputedStyle(dialog, '::backdrop').backgroundColor === 'rgba(0, 0, 0, 0)', 'The current page remains visible through the break and its backdrop');
         assert(element('.break-companion', dialog).getBoundingClientRect().width >= 900, 'The cat fills most of the app viewport');
-        assert(dismiss.getBoundingClientRect().height <= 32 && dismiss.getBoundingClientRect().width < 100, 'Dismiss stays compact beside the large companion');
+        assert(dismiss.getBoundingClientRect().height <= 32 && dismiss.getBoundingClientRect().width < 140, 'Dismiss and its countdown stay compact beside the large companion');
         await clickLikeUser(button('Keep working', view.host));
         assert(view.workClicks() === 1, 'The modal lock blocks underlying app actions');
         draft.focus();
         assert(document.activeElement !== draft, 'The lock also prevents focusing an underlying draft');
         clock.tick(1000); await settle();
-        assert(element('[role="timer"]', dialog).textContent === '0:59', 'The countdown starts when the companion locks the app');
+        assert(button('Dismiss', dialog).textContent === 'Dismiss · 0:59', 'The visible countdown starts when the cat locks the app');
         await window.pressEscape();
         await until(() => view.host.querySelector('.bq-confirm-dialog:modal') !== null, 'Escape asks before ending the break');
         button('End break', view.host).click(); await settle();
@@ -550,7 +528,7 @@ export async function run() {
       try {
         await settle(); button('Take a break now', view.host).click(); await settle();
         await companionArrived(view.host, motion);
-        await animatedArtwork(view.host, 'chubby-cat');
+        animatedArtwork(view.host);
         button('Dismiss', view.host).click(); await settle();
         await until(() => view.host.querySelector('.bq-confirm-dialog:modal') !== null, 'Dismiss opens a confirmation');
         const confirmation = element<HTMLDialogElement>('.bq-confirm-dialog', view.host);
@@ -573,36 +551,87 @@ export async function run() {
       }
       finally { view.dispose(); clock.restore(); motion.restore(); }
     }],
-    ['Choose a different companion without resetting the timer and restore that choice', async () => {
+    ['Save a Windows update break, follow its progress, and dismiss without losing work', async () => {
       const clock = controlClock();
-      const motion = controlCompanionTimers();
       let view = mount(saved);
       try {
-        await settle(); button('Take a break now', view.host).click(); await settle();
-        await companionArrived(view.host, motion);
-        const catArtwork = await animatedArtwork(view.host, 'chubby-cat');
-        await confirmDismiss(view.host);
-        await companionLeaves(view.host, motion);
-        clock.tick(30_000); await settle();
-        await chooseCompanion(view.host, 'Dancing husky');
-        assert(view.host.textContent?.includes('14:30 remaining'), 'Changing companion preserves the active countdown');
-        clock.tick(30_000); await settle();
-        assert(view.host.textContent?.includes('14:00 remaining'), 'The existing countdown continues after a companion change');
+        await settle(); clock.tick(30_000); await settle();
+        await chooseCompanion(view.host, 'Windows update');
+        assert(view.host.textContent?.includes('14:30 remaining'), 'Choosing the update screen preserves the current focus timer');
         button('Pause timer', view.host).click(); await settle();
         await chooseCompanion(view.host, 'Chubby orange cat');
-        await chooseCompanion(view.host, 'Dancing husky');
+        await chooseCompanion(view.host, 'Windows update');
         clock.tick(30_000); await settle();
-        assert(view.host.textContent?.includes('14:00 remaining') && button('Resume timer', view.host), 'Changing companions preserves the paused countdown');
+        assert(view.host.textContent?.includes('14:30 remaining') && button('Resume timer', view.host), 'Changing the screen preserves a paused focus timer');
         const restored = parseFocusPreferences(JSON.parse(localStorage.getItem(FOCUS_PREFERENCES_KEY) ?? '{}'));
-        assert(restored.companion === 'dancing-husky', 'The selected companion is persisted');
+        assert(restored.companion === 'windows-update', 'The update screen choice is saved');
         view.dispose(); view = mount(restored); await settle();
-        assert(button('Break companion', view.host).textContent?.includes('Dancing husky'), 'A new window restores the selected companion');
-        button('Take a break now', view.host).click(); await settle();
-        await companionArrived(view.host, motion);
-        const huskyArtwork = await animatedArtwork(view.host, 'dancing-husky');
-        assert(huskyArtwork !== catArtwork, 'The two choices render their own artwork');
+        assert(button('Break companion', view.host).textContent?.includes('Windows update'), 'A new window restores the update screen choice');
+        const draft = element<HTMLTextAreaElement>('textarea', view.host); draft.focus();
+        button('Take a break now', view.host).click();
+        await until(() => view.host.querySelector('.focus-break')?.matches(':modal') === true, 'The update screen locks without waiting for animal playback');
+        const dialog = element<HTMLDialogElement>('.focus-break', view.host);
+        assert(dialog.dataset.companion === 'windows-update' && dialog.getBoundingClientRect().width === innerWidth
+          && dialog.getBoundingClientRect().height === innerHeight && getComputedStyle(dialog).backgroundColor !== 'rgba(0, 0, 0, 0)',
+        'The update screen covers the app with an opaque background');
+        assert(dialog.querySelector('video, .break-companion') === null && dialog.querySelectorAll('.windows-update__spinner span').length === 5,
+          'The update screen uses its own spinner without loading an animal');
+        assert(element('.windows-update__spinner', dialog).getAnimations({ subtree: true }).some(animation => animation.playState === 'running'),
+          'The update spinner animates during the break');
+        assert(element('.windows-update__progress', dialog).textContent === '0% complete' && element('[role="timer"]', dialog).textContent === '1:00',
+          'A new update break starts with its full duration');
+        const dismiss = button('Dismiss', dialog);
+        const timer = element('[role="timer"]', dismiss);
+        assert(dismiss.textContent === 'Dismiss · 1:00' && timer.checkVisibility({ visibilityProperty: true }) && timer.getBoundingClientRect().width > 1,
+          'The update screen shows its remaining time inside Dismiss');
+        await clickLikeUser(button('Keep working', view.host));
+        assert(view.workClicks() === 0, 'The update screen blocks underlying actions');
+        clock.tick(6000); await settle();
+        assert(element('.windows-update__progress', dialog).textContent === '10% complete', 'Exact percentage boundaries do not round down');
+        clock.tick(24_000); await settle();
+        assert(element('.windows-update__progress', dialog).textContent === '50% complete', 'Update progress follows the actual break countdown');
+        assert(button('Dismiss', dialog).textContent === 'Dismiss · 0:30', 'The visible update countdown follows the same break timer');
+        await window.pressEscape();
+        await until(() => view.host.querySelector('.bq-confirm-dialog:modal') !== null, 'Escape asks before ending an update break');
+        assert(element('[role="timer"]', element('.bq-confirm-dialog', view.host)).textContent === '0:30', 'The confirmation shows the remaining break time');
+        button('Keep taking a break', view.host).click(); await settle();
+        assert(dialog.matches(':modal') && element('.windows-update__progress', dialog).textContent === '50% complete', 'Keeping the break preserves its progress and lock');
+        await window.pressEscape();
+        await until(() => view.host.querySelector('.bq-confirm-dialog:modal') !== null, 'The update break can be dismissed after keeping it');
+        button('End break', view.host).click();
+        await until(() => view.host.querySelector('dialog') === null, 'Ending an update break returns immediately');
+        assert(document.activeElement === draft && draft.value === 'Keep this draft.' && view.host.textContent?.includes('15:00 remaining'),
+          'Dismissal restores the untouched draft and starts a full focus session');
       }
-      finally { view.dispose(); clock.restore(); motion.restore(); }
+      finally { view.dispose(); clock.restore(); }
+    }],
+    ['The update screen waits for a form, respects reduced motion, and closes at expiry', async () => {
+      await window.setReducedMotion(true);
+      const clock = controlClock();
+      const view = mount({ ...saved, companion: 'windows-update' });
+      const confirmation = document.createElement('dialog');
+      confirmation.innerHTML = '<button>Finish confirmation</button>';
+      document.body.append(confirmation);
+      try {
+        await settle(); confirmation.showModal();
+        button('Take a break now', view.host).click();
+        await until(() => view.host.querySelector('.windows-update') !== null, 'The update surface is ready while the form is open');
+        const dialog = element<HTMLDialogElement>('.focus-break', view.host);
+        assert(!dialog.matches(':modal') && !element('.windows-update', dialog).checkVisibility({ visibilityProperty: true }),
+          'An update break does not cover an unfinished form');
+        clock.tick(30_000); await settle();
+        assert(element('[role="timer"]', dialog).textContent === '1:00', 'Waiting for a form preserves the full break');
+        confirmation.close(); confirmation.remove();
+        const draft = element<HTMLTextAreaElement>('textarea', view.host); draft.focus();
+        await until(() => dialog.matches(':modal'), 'Closing the form lets the update break lock');
+        assert(!element('.windows-update__spinner', dialog).getAnimations({ subtree: true }).some(animation => animation.playState === 'running'),
+          'Reduced motion stops the update spinner');
+        clock.tick(60_000); await settle();
+        await until(() => view.host.querySelector('dialog') === null, 'An elapsed update break releases the app automatically');
+        assert(document.activeElement === draft && draft.value === 'Keep this draft.' && view.host.textContent?.includes('15:00 remaining'),
+          'Expiry restores work and starts the next focus session');
+      }
+      finally { confirmation.remove(); view.dispose(); clock.restore(); await window.setReducedMotion(false); }
     }],
     ['Restart with saved preferences and stop the timer when disabled', async () => {
       const clock = controlClock();
@@ -620,7 +649,7 @@ export async function run() {
       }
       finally { view.dispose(); clock.restore(); localStorage.removeItem(FOCUS_PREFERENCES_KEY); }
     }],
-    ['Changing companions during the walk restarts arrival and disabling cancels it', async () => {
+    ['Disabling reminders during the cat walk cancels arrival', async () => {
       const clock = controlClock();
       const motion = controlCompanionTimers();
       const view = mount(saved);
@@ -629,14 +658,10 @@ export async function run() {
         await startWalking(view.host, motion);
         const oldVideo = element<HTMLVideoElement>(mainVideoSelector, view.host);
         clock.tick(30_000); await settle();
-        await chooseCompanion(view.host, 'Dancing husky');
-        assert(oldVideo.paused && motion.media.state(oldVideo).callbacks.size === 0, 'Switching companion stops the old video and decoded-frame callbacks');
-        await until(() => companionPhase(view.host) === 'entering'
-          && element('.break-companion', view.host).dataset.companion === 'dancing-husky' && motion.count() === 1,
-        'Switching companions cancels the previous walk and starts one arrival timer after the new artwork loads');
         assert(!element<HTMLDialogElement>('dialog[open]', view.host).matches(':modal') && element('[role="timer"]', view.host).textContent === '1:00',
-          'Switching during entry keeps the app unlocked and preserves the full break');
+          'The app stays unlocked and preserves the full break during arrival');
         button('Break reminders', view.host).click(); await settle();
+        assert(oldVideo.paused && motion.media.state(oldVideo).callbacks.size === 0, 'Disabling stops the video and decoded-frame callbacks');
         assert(view.host.querySelector('dialog') === null && motion.count() === 0 && clock.count() === 0, 'Disabling during entry removes the companion and releases both timers');
         clock.tick(60_000); await settle();
         assert(view.host.querySelector('dialog') === null, 'A canceled walk cannot later lock the app');
@@ -656,7 +681,7 @@ export async function run() {
         confirmation.showModal();
         motion.media.frame(element<HTMLVideoElement>(mainVideoSelector, view.host), CAT_ARRIVAL_SECONDS); await settle();
         assert(companionPhase(view.host) === 'waiting', 'The first cat waits after reaching the confirmation');
-        await chooseCompanion(view.host, 'Dancing husky');
+        await chooseCompanion(view.host, 'Windows update');
         await chooseCompanion(view.host, 'Chubby orange cat');
         confirmation.close(); confirmation.remove(); await settle();
         assert(!element<HTMLDialogElement>('dialog[open]', view.host).matches(':modal'), 'A previous appearance of this companion cannot lock the new entrance');
@@ -694,55 +719,22 @@ export async function run() {
       }
       finally { view.dispose(); clock.restore(); motion.restore(); }
     }],
-    ['Reduced motion keeps either companion still and dismisses without an exit delay', async () => {
+    ['Reduced motion keeps the cat still and dismisses without an exit delay', async () => {
       await window.setReducedMotion(true);
       const clock = controlClock();
       const motion = controlCompanionTimers();
+      const view = mount(saved);
       try {
-        for (const companion of ['chubby-cat', 'dancing-husky'] as const) {
-          const view = mount({ ...saved, companion });
-          try {
-            await settle(); button('Take a break now', view.host).click(); await settle();
-            await until(() => companionPhase(view.host) === 'still', 'Reduced motion uses a resting still');
-            await until(() => element<HTMLDialogElement>('dialog[open]', view.host).matches(':modal'), 'Reduced motion locks directly without a walk');
-            assert(element('.break-companion', view.host).dataset.companion === companion, 'Reduced motion keeps the selected companion');
-            assert(motion.count() === 0, 'Reduced motion schedules no animation transitions');
-            assert(!element('.break-companion', view.host).getAnimations({ subtree: true }).some(animation => animation.playState === 'running'), 'Reduced motion stops the sprite and entrance animations');
-            await confirmDismiss(view.host);
-            await until(() => view.host.querySelector('dialog') === null, 'Reduced motion returns without playing an exit');
-          }
-          finally { view.dispose(); }
-        }
+        await settle(); button('Take a break now', view.host).click(); await settle();
+        await until(() => companionPhase(view.host) === 'still', 'Reduced motion uses a resting still');
+        await until(() => element<HTMLDialogElement>('dialog[open]', view.host).matches(':modal'), 'Reduced motion locks directly without a walk');
+        assert(element('.break-companion', view.host).dataset.companion === 'chubby-cat', 'Reduced motion keeps the cat');
+        assert(motion.count() === 0, 'Reduced motion schedules no animation transitions');
+        assert(!element('.break-companion', view.host).getAnimations({ subtree: true }).some(animation => animation.playState === 'running'), 'Reduced motion stops the entrance animation');
+        await confirmDismiss(view.host);
+        await until(() => view.host.querySelector('dialog') === null, 'Reduced motion returns without playing an exit');
       }
-      finally { clock.restore(); motion.restore(); await window.setReducedMotion(false); }
-    }],
-    ['Unavailable companion artwork leaves the accessible clock and dismiss control usable', async () => {
-      const originalImage = window.Image;
-      const clock = controlClock();
-      const motion = controlCompanionTimers();
-      try {
-        for (const failure of ['all', 'settle'] as const) {
-          window.Image = class extends originalImage {
-            override set src(source: string) {
-              if (failure === 'all' || source === dancingHuskySettle) queueMicrotask(() => this.dispatchEvent(new Event('error')));
-              else super.src = source;
-            }
-            override get src() { return super.src; }
-          };
-          const view = mount({ ...saved, companion: 'dancing-husky' });
-          try {
-            await settle(); button('Take a break now', view.host).click(); await settle();
-            await until(() => companionPhase(view.host) === (failure === 'all' ? 'unavailable' : 'still'), 'Failed artwork produces a usable fallback');
-            await until(() => element<HTMLDialogElement>('dialog[open]', view.host).matches(':modal'), 'Missing artwork still opens the dismissible break');
-            assert(element('[role="timer"]', view.host).textContent === '1:00' && motion.count() === 0, 'Artwork failure keeps the full countdown and skips incomplete arrival animations');
-            await confirmDismiss(view.host);
-            if (failure === 'all') await until(() => view.host.querySelector('dialog') === null, 'Missing artwork never traps the app behind an animation');
-            else await companionLeaves(view.host, motion);
-          }
-          finally { view.dispose(); }
-        }
-      }
-      finally { clock.restore(); motion.restore(); window.Image = originalImage; }
+      finally { view.dispose(); clock.restore(); motion.restore(); await window.setReducedMotion(false); }
     }],
     ['Video failure, rejected playback, and missing decoded progress keep the break usable', async () => {
       for (const failure of ['error', 'rejected-play', 'loading-timeout', 'stalled-playback'] as const) {
@@ -833,6 +825,9 @@ export async function run() {
         clock.tick(59_000); await settle();
         assert(companionPhase(view.host) === 'leaving' && video.paused && motion.media.state(video).callbacks.size === 0 && !leaveVideo.paused,
           'Expiry stops the resting loop and starts the separate exit clip');
+        const dismiss = button('Dismiss', view.host);
+        assert(dismiss.textContent === 'Dismiss' && !dismiss.querySelector('[role="timer"]')?.checkVisibility({ visibilityProperty: true }),
+          'The completed break keeps Dismiss available without showing a countdown during the cat exit');
         assert(!video.hidden && leaveVideo.getAttribute('data-ready') === 'false', 'The last resting frame remains visible until the first decoded exit frame');
         motion.media.ready(leaveVideo); await settle();
         assert(!video.hidden && leaveVideo.getAttribute('data-ready') === 'false', 'Readiness alone does not expose an undecoded exit frame');
@@ -863,7 +858,7 @@ export async function run() {
 
         const direct = createFixtureRoot();
         let exits = 0;
-        const render = (exiting: boolean) => flushSync(() => direct.root.render(<BreakCompanion companion="chubby-cat" locked exiting={exiting}
+        const render = (exiting: boolean) => flushSync(() => direct.root.render(<BreakCompanion locked exiting={exiting}
           onArrived={() => {}} onExited={() => { exits++; }} />));
         try {
           render(false);

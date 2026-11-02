@@ -11,17 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import chubbyCatVideo from './assets/chubby-cat.webm';
 import chubbyCatLeaveVideo from './assets/chubby-cat-leave.webm';
 import chubbyCatPoster from './assets/chubby-cat-poster.png';
-import dancingHusky from './assets/dancing-husky.png';
-import dancingHuskyWalk from './assets/dancing-husky-walk.png';
-import dancingHuskySettle from './assets/dancing-husky-settle.png';
-import type { BreakCompanionKind } from './model';
-
-export const COMPANION_ENTER_MS = 1800;
-export const COMPANION_SETTLE_MS = 1200;
 export const COMPANION_LEAVE_MS = 350;
 export const CAT_ARRIVAL_SECONDS = 5.2;
 export const CAT_REST_SECONDS = 15;
@@ -30,10 +23,7 @@ export const CAT_LEAVE_EDGE_SECONDS = 6.25;
 export const CAT_LEAVE_SECONDS = 9;
 export const CAT_VIDEO_STALL_MS = 5000;
 
-type Phase = 'loading' | 'entering' | 'waiting' | 'settling' | 'looping' | 'leaving' | 'still' | 'unavailable';
 type VideoPhase = 'loading' | 'entering' | 'waiting' | 'performing' | 'resting' | 'leaving' | 'fading' | 'still';
-type Sheet = 'walk' | 'settle' | 'loop';
-const HUSKY_SHEETS = { walk: dancingHuskyWalk, settle: dancingHuskySettle, loop: dancingHusky };
 
 type PlaybackProps = {
   locked: boolean;
@@ -41,10 +31,6 @@ type PlaybackProps = {
   onArrived: () => void;
   onExited: () => void;
 };
-
-export function BreakCompanion({ companion, ...props }: PlaybackProps & { companion: BreakCompanionKind }) {
-  return companion === 'chubby-cat' ? <CatVideoCompanion {...props} /> : <HuskySpriteCompanion {...props} />;
-}
 
 function useReducedMotion() {
   const [reducedMotion, setReducedMotion] = useState(() => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
@@ -57,7 +43,7 @@ function useReducedMotion() {
   return reducedMotion;
 }
 
-function CatVideoCompanion({ locked, exiting, onArrived, onExited }: PlaybackProps) {
+export function BreakCompanion({ locked, exiting, onArrived, onExited }: PlaybackProps) {
   const [phase, setPhase] = useState<VideoPhase>('loading');
   const [posterUnavailable, setPosterUnavailable] = useState(false);
   const [leaveReady, setLeaveReady] = useState(false);
@@ -218,70 +204,5 @@ function CatVideoCompanion({ locked, exiting, onArrived, onExited }: PlaybackPro
       {phase === 'still' && (posterUnavailable ? <span className="break-companion__fallback">🐾</span>
         : <img className="break-companion__poster" src={chubbyCatPoster} alt="" draggable={false} onError={() => setPosterUnavailable(true)} />)}
     </div>
-  </div>;
-}
-
-function HuskySpriteCompanion({ locked, exiting, onArrived, onExited }: PlaybackProps) {
-  const [phase, setPhase] = useState<Phase>('loading');
-  const [images, setImages] = useState<Partial<Record<Sheet, string>> | null>(null);
-  const reducedMotion = useReducedMotion();
-  const arrived = useRef(false);
-  const arrival = useRef(onArrived);
-  arrival.current = onArrived;
-  const exit = useRef(onExited);
-  exit.current = onExited;
-  const notifyArrived = useCallback(() => {
-    if (!arrived.current) { arrived.current = true; arrival.current(); }
-  }, []);
-  const canAnimate = Boolean(images?.walk && images.settle && images.loop);
-
-  useEffect(() => {
-    let live = true;
-    const pending: HTMLImageElement[] = [];
-    const available: Partial<Record<Sheet, string>> = {};
-    void Promise.all(Object.entries(HUSKY_SHEETS).map(([name, source]) => new Promise<void>(resolve => {
-      const image = new Image();
-      pending.push(image);
-      image.onload = () => { available[name as Sheet] = source; resolve(); };
-      image.onerror = () => resolve();
-      image.src = source;
-    }))).then(() => { if (live) setImages(available); });
-    return () => { live = false; for (const image of pending) { image.onload = null; image.onerror = null; } };
-  }, []);
-
-  useEffect(() => {
-    if (exiting) {
-      if (!locked || !images || !Object.keys(images).length || reducedMotion) { exit.current(); return; }
-      setPhase('leaving');
-    }
-    else if (images) {
-      if (reducedMotion || !canAnimate) {
-        notifyArrived();
-        setPhase(Object.keys(images).length ? 'still' : 'unavailable');
-      }
-      else setPhase(current => current === 'loading' ? 'entering'
-        : current === 'still' ? locked ? 'looping' : 'waiting'
-          : current === 'waiting' && locked ? 'settling' : current);
-    }
-  }, [canAnimate, exiting, images, locked, notifyArrived, phase, reducedMotion]);
-
-  useEffect(() => {
-    let timer: number | undefined;
-    if (phase === 'entering') timer = window.setTimeout(() => { setPhase('waiting'); notifyArrived(); }, COMPANION_ENTER_MS);
-    else if (phase === 'settling') timer = window.setTimeout(() => setPhase('looping'), COMPANION_SETTLE_MS);
-    else if (phase === 'leaving') timer = window.setTimeout(() => exit.current(), COMPANION_LEAVE_MS);
-    return () => window.clearTimeout(timer);
-  }, [notifyArrived, phase]);
-
-  const sheet: Sheet = phase === 'entering' || phase === 'waiting' ? 'walk' : phase === 'settling' ? 'settle' : 'loop';
-  const source = images?.[sheet] ?? images?.loop ?? images?.settle ?? images?.walk;
-  const frameTime = sheet === 'walk' ? 900 : sheet === 'settle' ? COMPANION_SETTLE_MS : 1600;
-  return <div className="break-companion" data-phase={phase} data-sheet={sheet} data-companion="dancing-husky" aria-hidden="true" style={{
-    '--companion-sheet': source ? `url("${source}")` : 'none',
-    '--companion-enter-time': `${COMPANION_ENTER_MS}ms`, '--companion-leave-time': `${COMPANION_LEAVE_MS}ms`, '--companion-frame-time': `${frameTime}ms`,
-  } as CSSProperties}>
-    {phase === 'unavailable' ? <span className="break-companion__fallback">🐾</span> : <div className="break-companion__actor">
-      <div key={`${sheet}-current`} className="break-companion__frames" /><div key={`${sheet}-next`} className="break-companion__frames break-companion__frames--next" />
-    </div>}
   </div>;
 }

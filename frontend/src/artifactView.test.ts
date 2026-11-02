@@ -16,7 +16,7 @@ import type { BrowserWindow } from 'electron';
 import type { EventEmitter } from 'node:events';
 import { ArtifactView } from './artifactView';
 
-type MockContents = EventEmitter & { destroyed: boolean; focused: boolean; close: () => void; focus: () => void; loadURL: () => Promise<undefined>; executeJavaScript: () => Promise<undefined> };
+type MockContents = EventEmitter & { destroyed: boolean; focused: boolean; close: () => void; focus: () => void; loadURL: () => Promise<undefined>; executeJavaScript: () => Promise<undefined>; getURL: () => string };
 const desktop = vi.hoisted(() => ({ contents: [] as MockContents[], removeChildView: vi.fn() }));
 vi.mock('electron', async () => {
   const { EventEmitter } = await import('node:events');
@@ -31,7 +31,7 @@ vi.mock('electron', async () => {
         isFocused: () => this.contents.focused,
         focus: vi.fn(() => { this.contents.focused = true; }),
         close: vi.fn(() => { this.contents.destroyed = true; this.contents.emit('destroyed'); }),
-        loadURL: vi.fn(async () => undefined), executeJavaScript: vi.fn(async () => undefined), setBackgroundThrottling: vi.fn(), setWebRTCIPHandlingPolicy: vi.fn(), setWindowOpenHandler: vi.fn(),
+        loadURL: vi.fn(async () => undefined), executeJavaScript: vi.fn(async () => undefined), getURL: vi.fn(() => ''), setBackgroundThrottling: vi.fn(), setWebRTCIPHandlingPolicy: vi.fn(), setWindowOpenHandler: vi.fn(),
         session: {
           protocol: { isProtocolHandled: () => false, handle: vi.fn() },
           webRequest: { onBeforeRequest: vi.fn() }, setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn(),
@@ -47,7 +47,7 @@ vi.mock('electron', async () => {
 const window = {
   isDestroyed: () => false,
   isFocused: () => true,
-  webContents: { getZoomFactor: () => 1 },
+  webContents: { getZoomFactor: () => 1, send: vi.fn() },
   getContentBounds: () => ({ width: 1000, height: 800 }),
   contentView: { addChildView: vi.fn(), removeChildView: desktop.removeChildView },
 } as unknown as BrowserWindow;
@@ -116,6 +116,24 @@ it('waits for the selected page to load when it is presented again during a pend
   finishLoad();
   await Promise.all([first, repeated, restored]);
   expect(completed).toHaveBeenCalledTimes(3);
+});
+
+it('takes the page the reader moved to while a requested page loaded', async () => {
+  await artifacts.show(target, bounds);
+  const contents = desktop.contents[0];
+  let finishLoad!: () => void;
+  vi.mocked(contents.executeJavaScript).mockImplementationOnce(() => new Promise<undefined>(resolve => { finishLoad = () => resolve(undefined); }));
+  const loading = artifacts.show({ ...target, pageId: 'another-page' }, bounds);
+  await vi.waitFor(() => expect(contents.executeJavaScript).toHaveBeenCalledOnce());
+  // The reader shows the requested page, then the user picks the first one again before the load settles.
+  contents.emit('did-navigate-in-page', {}, 'bytequay-artifact://artifact/workspace/#page', true);
+  expect(window.webContents.send).not.toHaveBeenCalled();
+  vi.mocked(contents.getURL).mockReturnValue('bytequay-artifact://artifact/workspace/#page');
+  finishLoad();
+  await loading;
+  await vi.waitFor(() => expect(window.webContents.send).toHaveBeenCalledWith('artifacts:reading', { workspaceId: 'workspace', artifactId: 'artifact', pageId: 'page' }));
+  await artifacts.show({ ...target, pageId: 'another-page' }, bounds);
+  expect(contents.executeJavaScript).toHaveBeenCalledTimes(2);
 });
 
 it('reports a pending read failure to repeated presentations and allows a retry', async () => {

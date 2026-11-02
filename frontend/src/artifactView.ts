@@ -127,10 +127,28 @@ export class ArtifactView {
     const settled = () => {
       if (this.loading !== loading) return;
       this.loading = undefined;
-      if (this.view === view && !view.webContents.isDestroyed()) view.webContents.setBackgroundThrottling(true);
+      if (this.view !== view || view.webContents.isDestroyed()) return;
+      view.webContents.setBackgroundThrottling(true);
+      // Page changes made in the reader while this load ran were set aside; take the page it shows now.
+      this.track(view, view.webContents.getURL());
     };
     void loading.then(settled, settled);
     return loading;
+  }
+
+  /** Follows the page the reader reports in its address, so the app marks it and a click on it is not taken as already shown. */
+  private track(view: WebContentsView, address: string): void {
+    const book = this.book;
+    if (!book || this.view !== view || !URL.canParse(address)) return;
+    const url = new URL(address);
+    const pageId = url.hash.slice(1);
+    url.hash = '';
+    if (url.href !== book.url || !book.target.pages.some(page => page.id === pageId)) return;
+    const wanted = `${book.key} ${pageId}`;
+    // While a requested page loads, the reader may still report the page it is replacing.
+    if (this.loading !== undefined && this.wanted !== wanted) return;
+    this.wanted = wanted;
+    this.window()?.webContents.send('artifacts:reading', { workspaceId: book.target.workspaceId, artifactId: book.target.artifactId, pageId });
   }
 
   private create(): WebContentsView {
@@ -157,18 +175,7 @@ export class ArtifactView {
       if (!event.isMainFrame && !(event.initiator === contents.mainFrame && event.frame?.parent === contents.mainFrame
         && this.book?.target.pages.some(page => event.url === `${this.book?.url}pages/${encodeURIComponent(page.id)}/`))) event.preventDefault();
     });
-    contents.on('did-navigate-in-page', (_event, address, isMainFrame) => {
-      const book = this.book;
-      if (!isMainFrame || !book || this.view !== view) return;
-      const url = new URL(address);
-      const pageId = url.hash.slice(1);
-      url.hash = '';
-      if (url.href !== book.url || !book.target.pages.some(page => page.id === pageId)) return;
-      const wanted = `${book.key} ${pageId}`;
-      if (this.loading !== undefined && this.wanted !== wanted) return;
-      this.wanted = wanted;
-      this.window()?.webContents.send('artifacts:reading', { workspaceId: book.target.workspaceId, artifactId: book.target.artifactId, pageId });
-    });
+    contents.on('did-navigate-in-page', (_event, address, isMainFrame) => { if (isMainFrame) this.track(view, address); });
     contents.on('render-process-gone', () => { this.wanted = null; this.book = null; });
     contents.on('destroyed', () => { if (this.view === view) this.closeHidden(); });
     this.view = view;

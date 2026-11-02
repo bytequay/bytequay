@@ -33,6 +33,12 @@ public interface AgentApprovalHandler
     Duration WAIT = Duration.ofMinutes(5);
 
     /**
+     * Why a driver stops the turn when an approval or question waited {@link #WAIT}
+     * without an answer; the user reads it wherever the turn's failure shows.
+     */
+    String UNANSWERED = "No answer within " + WAIT.toMinutes() + " minutes";
+
+    /**
      * Presents one provider permission request to ByteQuay for an explicit decision.
      *
      * <p>The returned stage completes with a user decision or a timeout denial. A

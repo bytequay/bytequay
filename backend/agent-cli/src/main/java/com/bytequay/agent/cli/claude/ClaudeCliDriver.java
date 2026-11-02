@@ -26,6 +26,7 @@ import com.bytequay.agent.cli.process.ProcessStream;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.cli.process.ProviderCli;
 import com.bytequay.agent.cli.process.SecretRedactor;
+import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDeliveryUncertainException;
@@ -771,7 +772,7 @@ public final class ClaudeCliDriver
                                 return ProviderApprovalDecision.deny();
                             }
                             if (decision.timedOut()) {
-                                expected.interruptionReason = "Claude approval timed out";
+                                expected.interruptionReason = AgentApprovalHandler.UNANSWERED;
                                 expected.cancel();
                             }
                             return decision;

@@ -2427,7 +2427,7 @@ public final class CodexCliDriver
                     throw new AgentUnavailableException("Codex approval does not support the requested scoped permission");
                 }
                 if (decision.timedOut()) {
-                    expire(expectedTurn, "Codex approval timed out");
+                    expire(expectedTurn, AgentApprovalHandler.UNANSWERED);
                 }
                 boolean allow = decision.decision() == ProviderApprovalDecision.Decision.ALLOW;
                 JsonNode wireDecision = TextNode.valueOf(decision.timedOut() ? "cancel" : allow ? "accept" : "decline");

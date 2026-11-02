@@ -1504,7 +1504,7 @@ class TestCodexCliDriver
 
         AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
         assertThat(result.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
-        assertThat(result.terminalReason()).contains("Codex approval timed out");
+        assertThat(result.terminalReason()).contains("No answer within 5 minutes");
         assertThat(result.providerQuiescent()).isTrue();
         assertThat(server.finishedWorkStops.get()).isGreaterThanOrEqualTo(1);
         assertThat(server.result(98).path("decision").asText()).isEqualTo("cancel");
@@ -1539,7 +1539,7 @@ class TestCodexCliDriver
         AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
         assertThat(result.state()).isEqualTo(AgentTurnResult.State.FAILED);
         assertThat(result.terminalReason()).hasValueSatisfying(reason -> assertThat(reason)
-                .contains("Codex approval timed out", "no current turn history"));
+                .contains("No answer within 5 minutes", "no current turn history"));
         assertThat(result.providerQuiescent()).isEqualTo(!processUnverifiable);
         assertThat(server.finishedWorkStops).hasValue(0);
     }

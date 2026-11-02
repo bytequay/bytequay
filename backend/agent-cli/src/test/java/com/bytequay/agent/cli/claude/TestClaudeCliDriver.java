@@ -1986,7 +1986,7 @@ class TestClaudeCliDriver
         if (timedOut) {
             AgentTurnResult result = await(turn);
             assertThat(result.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
-            assertThat(result.terminalReason()).contains("Claude approval timed out");
+            assertThat(result.terminalReason()).contains("No answer within 5 minutes");
             assertThat(result.providerQuiescent()).isTrue();
             assertThat(supervisor.turns.getFirst().cancelled).isTrue();
             assertThat(supervisor.turns.getFirst().workFinished).isFalse();

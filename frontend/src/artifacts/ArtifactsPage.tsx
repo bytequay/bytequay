@@ -415,7 +415,7 @@ function ArtifactFrame({ workspaceId, artifactId, pageId, pages }: { workspaceId
     let live = true;
     let awaitingPage = true;
     const present = (allowFocusRestore = true) => {
-      const obscured = [...document.querySelectorAll('[role="dialog"], [data-focus-break-entrance]')].some(dialog => !dialog.contains(frame) && dialog.getClientRects().length > 0);
+      const obscured = [...document.querySelectorAll('dialog:modal, [role="dialog"], [data-focus-break-entrance]')].some(dialog => !dialog.contains(frame) && dialog.getClientRects().length > 0);
       const box = frame.getBoundingClientRect();
       const active = error === null && !covered && box.width > 0 && box.height > 0;
       const visible = active && !obscured;

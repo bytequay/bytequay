@@ -15,10 +15,12 @@
 import { Activity, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createFixtureRoot } from '../../../fixtures/reactFixture';
+import { ConfirmDialog } from '../../../ConfirmDialog';
+import UnsavedChanges from '../../../ide/UnsavedChanges';
 import CodeTestsTab, { type CodeTestsBridge } from '../CodeTestsTab';
 import type { AgentReviewDto } from '../../agent-review/contracts';
 import type { PullRequestDetailDto } from '../../../types';
-import type { IdeContext, IdeEvent } from '../../../ide/contracts';
+import type { IdeContext, IdeEvent, IdeUnsavedChanges } from '../../../ide/contracts';
 import { reviewFixture, runningReviewFixture } from '../../agent-review/fixtures/review';
 import { textButton, assert, settle } from '../../../fixtures/harness';
 import { parseAgentTask } from '../../../agents/contracts';
@@ -109,7 +111,7 @@ export async function runStartup(taskHost: boolean): Promise<string> {
     flushSync(() => show(false)); await settle(); flushSync(() => show(true)); await settle();
     assert(Number(starts) === 2 && !host.textContent?.includes('Start IDE'), 'Tab switches must retain a successfully started editor');
     readyId = null;
-    event({ id: 'editor', dirty: 0, busy: false, closed: true }); await settle();
+    event({ id: 'editor', unsaved: { files: [], drafts: 0 }, busy: false, closed: true }); await settle();
     assert(Number(starts) === 2 && host.textContent?.includes('Start IDE'), 'An expired editor must require fresh confirmation');
     readyId = 'editor';
     flushSync(() => show(false)); await settle(); flushSync(() => show(true)); await settle();
@@ -120,7 +122,7 @@ export async function runStartup(taskHost: boolean): Promise<string> {
     flushSync(() => show(true)); await settle();
     assert(Number(starts) === 2 && checks === previousChecks + 1 && !host.textContent?.includes('Start IDE'), 'A ready editor must resume without confirmation or startup');
     suspendedId = 'editor'; readyId = null; nativeVisible = false; visibility(false); await settle();
-    event({ id: 'editor', dirty: 0, busy: false, closed: true, suspended: true }); await settle();
+    event({ id: 'editor', unsaved: { files: [], drafts: 0 }, busy: false, closed: true, suspended: true }); await settle();
     assert(Number(starts) === 2, 'Suspension must not restart code tools while the native window is hidden');
     nativeVisible = true; visibility(true); await settle();
     assert(Number(starts) === 3, 'Restoring the native window resumes its suspended active editor without another confirmation');
@@ -129,7 +131,7 @@ export async function runStartup(taskHost: boolean): Promise<string> {
     flushSync(() => show(false)); await settle();
     suspendedId = 'resumed'; readyId = null;
     nativeVisible = false;
-    event({ id: 'resumed', dirty: 0, busy: false, closed: true, suspended: true });
+    event({ id: 'resumed', unsaved: { files: [], drafts: 0 }, busy: false, closed: true, suspended: true });
     flushSync(() => show(true)); await settle();
     assert(Number(starts) === 3 && !host.querySelector('[role="alert"]'), 'Activity reactivation must await fresh native visibility and reconcile its stale editor ID');
     nativeVisible = true; visibility(true); await settle();
@@ -200,17 +202,18 @@ export async function run(): Promise<string> {
   let show: (active: boolean) => void = () => {};
   let event: (event: IdeEvent) => void = () => {};
   let context: IdeContext | undefined;
-  let unsaved = 0;
+  let unsaved: IdeUnsavedChanges = { files: [], drafts: 0 };
   const calls: string[] = [];
+  const presentations: Parameters<typeof window.ide.present>[] = [];
   const oldIde = window.ide;
   window.ide = {
     resume: async () => { calls.push('resume'); return 'editor'; },
     open: async host => { assert(host.kind === 'review' && host.reviewId === initial.id, 'The editor must open the selected review'); calls.push('open'); return 'editor'; },
-    present: async () => {}, update: async (_id, value) => { context = value; }, reply: () => {},
+    present: async (...args) => { presentations.push(args); }, update: async (_id, value) => { context = value; }, reply: () => {},
     onRequest: () => () => {},
     onEvent: listener => { event = listener; return () => {}; },
     onVisibility: listener => { listener(true); return () => {}; },
-    close: async () => { calls.push('close'); event({ id: 'editor', closed: true, dirty: 0, busy: false }); },
+    close: async () => { calls.push('close'); event({ id: 'editor', closed: true, unsaved: { files: [], drafts: 0 }, busy: false }); },
   };
   const unused = async (): Promise<never> => { throw new Error('Unexpected bridge call'); };
   const bridge: CodeTestsBridge = {
@@ -221,12 +224,17 @@ export async function run(): Promise<string> {
     openCodeTerminal: unused, writeReviewTerminal: unused, resizeReviewTerminal: unused, onReviewTerminalEvent: () => () => {},
     listAgentReviews: unused, prepareReviewWorktree: unused, getAgentReview: unused, subscribeAgentReview: unused, getAgentTask: unused,
   };
-  const { host, root, dispose } = createFixtureRoot(); host.style.cssText = 'height:820px;width:1050px';
+  const { host, root, dispose } = createFixtureRoot(); host.style.cssText = 'display:flex;flex-direction:column;height:820px;width:1050px';
+  const confirmation = createFixtureRoot();
+  const confirmClose = () => flushSync(() => confirmation.root.render(<ConfirmDialog title="Discard unsaved changes?" confirmLabel="Discard"
+    onCancel={() => confirmation.root.render(null)} onConfirm={() => { confirmation.root.render(null); root.render(null); }}>
+    <UnsavedChanges {...unsaved} />
+  </ConfirmDialog>));
   function Harness() {
     const [review, setReview] = useState<AgentReviewDto>(() => ({ ...runningReviewFixture(), worktreeSync: initial.worktreeSync })); update = setReview;
     const [active, setActive] = useState(true); show = setActive;
     return <CodeTestsTab workspaceId="workspace-1" review={review} onReviewChange={setReview} active={active} ownReviewStream={false}
-      bridge={bridge} onUnsavedChange={count => { unsaved = count; }} />;
+      bridge={bridge} onUnsavedChange={changes => { unsaved = changes; }} />;
   }
   try {
     flushSync(() => root.render(<Harness />)); await settle();
@@ -237,9 +245,23 @@ export async function run(): Promise<string> {
     assert(context?.review?.activeTurn === null && context.review.runs[0]?.state === 'ACCEPTED', 'The editor must receive the completed review');
     assert(calls.filter(call => call === 'resume').length === 1 && !calls.includes('open') && !calls.includes('close') && host.querySelector('.ct-ide-surface') !== null,
       'Completing a review and reopening its code must retain the existing editor');
-    event({ id: 'editor', dirty: 1, busy: false }); await settle();
-    assert(unsaved === 1, 'Source drafts must keep the host unsaved-change guard');
+    event({ id: 'editor', unsaved: { files: ['src/main.go'], drafts: 0 }, busy: false }); await settle();
+    assert(unsaved.files.join(',') === 'src/main.go' && unsaved.drafts === 0, 'Source drafts must keep the host unsaved-change guard');
     assert(host.querySelector('dialog[open]') === null, 'No working-copy action dialog should remain');
+    assert(presentations.at(-1)?.[1] != null, 'The editor is visible before confirming close');
+    confirmClose(); await settle();
+    assert(confirmation.host.querySelector('dialog:modal') !== null, 'Closing with drafts opens a native modal confirmation');
+    assert(confirmation.host.querySelector('li code')?.textContent === 'src/main.go', 'The visible confirmation names the unsaved file');
+    assert(presentations.at(-1)?.[1] === null && presentations.at(-1)?.[2] === true,
+      'The native editor must be hidden and retained so the discard confirmation is visible and reachable');
+    textButton('Cancel', confirmation.host).click(); await settle();
+    assert(confirmation.host.querySelector('dialog') === null && presentations.at(-1)?.[0] === 'editor' && presentations.at(-1)?.[1] != null
+      && !calls.includes('close') && unsaved.files.join(',') === 'src/main.go' && unsaved.drafts === 0, 'Cancelling restores the same editor with its unsaved drafts');
+    confirmClose(); await settle();
+    assert(presentations.at(-1)?.[1] === null, 'Confirming close again must expose the dialog again');
+    textButton('Discard', confirmation.host).click(); await settle();
+    assert(confirmation.host.querySelector('dialog') === null && host.querySelector('.ct-ide-surface') === null && presentations.at(-1)?.[1] === null,
+      'Confirming discard must leave the working copy with no native editor covering the page');
     return 'Completing a review retains the editor and its unsaved-change guard';
-  } finally { dispose(); window.ide = oldIde; }
+  } finally { confirmation.dispose(); dispose(); window.ide = oldIde; }
 }

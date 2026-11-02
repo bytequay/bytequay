@@ -23,6 +23,8 @@ import type { ReviewCardFocus } from '../agents/InstructionCard';
 import TaskPaneDivider, { useTaskPane } from '../agents/TaskPaneDivider';
 import TaskHeader from '../agents/TaskHeader';
 import { ConfirmDialog } from '../ConfirmDialog';
+import type { IdeUnsavedChanges } from '../ide/contracts';
+import UnsavedChanges from '../ide/UnsavedChanges';
 import '../css/pulls.css';
 import '../css/review-tasks.css';
 import { isFindShortcut } from '../FindBar';
@@ -410,11 +412,11 @@ function PullsContent({
   const [codeTabKey, setCodeTabKey] = useState<string | null>(null);
   const [summaryTabKey, setSummaryTabKey] = useState<string | null>(null);
   // Unsaved Tears of time drafts live only in that tab; leaving the PR or closing the pane asks first.
-  const codeUnsaved = useRef(0);
-  const [discardDrafts, setDiscardDrafts] = useState<{ files: number; act: () => void } | null>(null);
+  const codeUnsaved = useRef<IdeUnsavedChanges>({ files: [], drafts: 0 });
+  const [discardDrafts, setDiscardDrafts] = useState<{ changes: IdeUnsavedChanges; act: () => void } | null>(null);
   const withCodeDrafts = useCallback((act: () => void) => {
-    if (codeUnsaved.current === 0) act();
-    else setDiscardDrafts({ files: codeUnsaved.current, act });
+    if (codeUnsaved.current.files.length === 0 && codeUnsaved.current.drafts === 0) act();
+    else setDiscardDrafts({ changes: codeUnsaved.current, act });
   }, []);
   const closePane = useMemo(() => onClose === undefined ? undefined : () => withCodeDrafts(() => {
     const pr = selectedPullRequest.current?.pr;
@@ -1120,7 +1122,7 @@ function PullsContent({
       </section>}
 
       {reviewWorkspace !== undefined && <section className="agr-workspace-conversation" aria-label="Review agent conversation">
-        <TaskHeader title={selectedPr?.title ?? 'WorkBench'} onBack={reviewWorkspace.onBack} actions={reviewWorkspace.headerAction} />
+        <TaskHeader title={selectedPr?.title ?? 'WorkBench'} onBack={() => withCodeDrafts(reviewWorkspace.onBack)} actions={reviewWorkspace.headerAction} />
         {detail !== null && review !== null ? <AgentReviewTab detail={detail} workspaceId={workspaceId} viewer={viewer}
           review={review} onReviewChange={updateReview} mode="conversation" localReview={localReview}
           composerContext={selectedPr === null ? undefined : <PullRequestChip pullRequest={selectedPr} pressed={paneShown && detailTab === 'overview'}
@@ -1233,7 +1235,7 @@ function PullsContent({
                   onReviewChange={updateReview}
                   active={detailTab === 'code'}
                   ownReviewStream={reviewWorkspace === undefined}
-                  onUnsavedChange={count => { codeUnsaved.current = count; }}
+                  onUnsavedChange={changes => { codeUnsaved.current = changes; }}
                   onAgentDraft={reviewWorkspace === undefined ? undefined : taskId => {
                     if (taskId !== review?.task.id) return false;
                     // The zoomed card covers the review conversation that now holds the draft.
@@ -1323,12 +1325,12 @@ function PullsContent({
       {toast && <Toast key={toast.id} text={toast.text} onDismiss={() => setToast(null)} />}
       {discardDrafts !== null && (
         <ConfirmDialog
-          title={`Discard unsaved changes to ${discardDrafts.files} ${discardDrafts.files === 1 ? 'file' : 'files'}?`}
+          title="Discard unsaved changes?"
           confirmLabel="Discard"
           onConfirm={() => { const act = discardDrafts.act; setDiscardDrafts(null); act(); }}
           onCancel={() => setDiscardDrafts(null)}
         >
-          <p>Your edits in Tears of time were never saved to the worktree.</p>
+          <UnsavedChanges {...discardDrafts.changes} />
         </ConfirmDialog>
       )}
     </div>

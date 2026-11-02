@@ -51,8 +51,9 @@ export type IdeContext = {
 
 export type IdeRequest = { id: string; requestId: string; method: string; args: unknown[] };
 export type IdeReply = { requestId: string; value?: unknown; error?: string };
-export type IdeEvent = { id: string; dirty: number; busy: boolean; closed?: boolean; suspended?: boolean; error?: string };
-export type IdeStateReport = Pick<IdeEvent, 'dirty' | 'busy' | 'error'> & { idleCheckId?: string };
+export type IdeUnsavedChanges = { files: string[]; drafts: number };
+export type IdeEvent = { id: string; unsaved: IdeUnsavedChanges; busy: boolean; closed?: boolean; suspended?: boolean; error?: string };
+export type IdeStateReport = Pick<IdeEvent, 'unsaved' | 'busy' | 'error'> & { idleCheckId?: string };
 export type IdeBounds = { x: number; y: number; width: number; height: number };
 
 /** Only the ByteQuay renderer can own or position an IDE view. */

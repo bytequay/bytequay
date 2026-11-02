@@ -16,6 +16,7 @@ import { Archive, ArchiveRestore, CircleCheck, PanelRight } from 'lucide-react';
 import React, { useCallback, useMemo } from 'react';
 import '../css/agents.css';
 import PinButton from '../home/PinButton';
+import type { IdeUnsavedChanges } from '../ide/contracts';
 import { JiraSourceAttachment } from '../jira/JiraSourceAttachment';
 import { useNoticeSource } from '../notices/useNoticeSource';
 import type { CommitRange, DiffAgentComment } from '../pulls/PullChanges';
@@ -302,7 +303,7 @@ export function AgentTaskBody({
   attaching?: boolean;
   onRemoveAttachment?: (attachmentId: string) => void;
   onTogglePanel?: () => void;
-  onCodeUnsavedChange?: (count: number) => void;
+  onCodeUnsavedChange?: (changes: IdeUnsavedChanges) => void;
   onOpenAgent?: (threadId: string) => void;
   onCloseAgent?: () => void;
   /** Which side-panel tab is showing, and the pull requests found on the task's branch. */

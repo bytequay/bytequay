@@ -25,7 +25,7 @@ import { parseCodeQuery, parseCodeQueryReply, queryFailure, type CodeQueryReques
 import { parseExecutionRequest } from './ide/executionProtocol';
 import { parseLocalRun } from './pulls/code-tests/contracts';
 import { validateIdeAction } from './ide/actionPolicy';
-import type { IdeConnection, IdeContext, IdeEvent, IdeReply, IdeRequest, IdeStateReport } from './ide/contracts';
+import type { IdeConnection, IdeContext, IdeEvent, IdeReply, IdeRequest, IdeStateReport, IdeUnsavedChanges } from './ide/contracts';
 
 declare const IDE_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 
@@ -44,7 +44,7 @@ type Editor = {
   retained: boolean;
   presented?: boolean;
   restoreFocus: boolean;
-  dirty: number;
+  unsaved: IdeUnsavedChanges;
   busy: boolean;
   /** The last report sent on to the window; the editor repeats its report every few seconds. */
   reported?: string;
@@ -171,6 +171,7 @@ export class IdeViews {
       if (bounds === null && covered && editor.visible) editor.restoreFocus = editor.contents.isFocused();
       if (bounds === null && !covered) editor.restoreFocus = false;
       if (!allowFocusRestore) editor.restoreFocus = false;
+      const wasVisible = editor.visible;
       editor.covered = bounds === null && covered;
       editor.visible = bounds !== null;
       this.reportVisibility(editor);
@@ -182,6 +183,8 @@ export class IdeViews {
       window.contentView.addChildView(editor.view);
       editor.view.setVisible(true);
       this.onPresent();
+      // Activity pages reset their exit guard while hidden, even when the native editor keeps its drafts.
+      if (!wasVisible) window.webContents.send('ide:event', { id, unsaved: editor.unsaved, busy: editor.busy } satisfies IdeEvent);
       if (editor.restoreFocus && window.isFocused()) editor.contents.focus();
       editor.restoreFocus = false;
     });
@@ -314,15 +317,17 @@ export class IdeViews {
     });
     ipcMain.on('ide:report', (event, report: IdeStateReport) => {
       const editor = child(event);
-      if (!Number.isSafeInteger(report.dirty) || report.dirty < 0 || typeof report.busy !== 'boolean') return;
-      editor.dirty = report.dirty;
+      const unsaved = report?.unsaved;
+      if (!unsaved || !Array.isArray(unsaved.files) || unsaved.files.some(path => typeof path !== 'string' || !path || path.length > 4096 || path.includes('\0'))
+        || !Number.isSafeInteger(unsaved.drafts) || unsaved.drafts < 0 || typeof report.busy !== 'boolean') return;
+      editor.unsaved = { files: [...unsaved.files], drafts: unsaved.drafts };
       editor.busy = report.busy;
-      if (report.idleCheckId === editor.idleCheck?.id) editor.idleCheck?.finish(editor.dirty === 0 && !editor.busy);
+      if (report.idleCheckId === editor.idleCheck?.id) editor.idleCheck?.finish(editor.unsaved.files.length === 0 && editor.unsaved.drafts === 0 && !editor.busy);
       const error = typeof report.error === 'string' ? report.error.slice(0, 10_000) : undefined;
-      const reported = JSON.stringify([editor.dirty, editor.busy, error]);
+      const reported = JSON.stringify([editor.unsaved, editor.busy, error]);
       if (reported === editor.reported) return;
       editor.reported = reported;
-      this.window()?.webContents.send('ide:event', { id: editor.id, dirty: editor.dirty, busy: editor.busy, error } satisfies IdeEvent);
+      this.window()?.webContents.send('ide:event', { id: editor.id, unsaved: editor.unsaved, busy: editor.busy, error } satisfies IdeEvent);
     });
   }
 
@@ -358,7 +363,7 @@ export class IdeViews {
     view.setBackgroundColor('#00000000');
     // Electron clears view.webContents on destruction; retain the handle for cleanup and isDestroyed().
     const contents = view.webContents;
-    const editor: Editor = { id, host, connection, view, contents, context: null, visible: false, covered: false, retained: false, restoreFocus: false, dirty: 0, busy: false, lastUsed: Date.now(), queryReady: false, execution: null, executionStarting: false, saves: 0, suspending: false, queries: new Map(), closing: null, pending: new Map() };
+    const editor: Editor = { id, host, connection, view, contents, context: null, visible: false, covered: false, retained: false, restoreFocus: false, unsaved: { files: [], drafts: 0 }, busy: false, lastUsed: Date.now(), queryReady: false, execution: null, executionStarting: false, saves: 0, suspending: false, queries: new Map(), closing: null, pending: new Map() };
     this.editors.set(id, editor);
     try {
       const resources = await Promise.all(['extensions', 'server'].map(name => realpath(path.join(connection.bundleRoot, name))));
@@ -398,7 +403,7 @@ export class IdeViews {
       contents.on('will-navigate', event => event.preventDefault());
       contents.on('will-attach-webview', event => event.preventDefault());
       contents.on('render-process-gone', () => {
-        this.window()?.webContents.send('ide:event', { id, dirty: editor.dirty, busy: false, error: 'The editor stopped. Reopen Tears of time to reconnect.' } satisfies IdeEvent);
+        this.window()?.webContents.send('ide:event', { id, unsaved: editor.unsaved, busy: false, error: 'The editor stopped. Reopen Tears of time to reconnect.' } satisfies IdeEvent);
         void this.close(id).catch(() => {});
       });
       view.setVisible(false);
@@ -515,13 +520,13 @@ export class IdeViews {
       try { await runtimeRequest(`/${editor.connection.taskId}/${editor.connection.sessionId}/touch`, 'POST'); }
       catch (cause) {
         editor.reported = undefined;
-        this.window()?.webContents.send('ide:event', { id: editor.id, dirty: editor.dirty, busy: editor.busy, error: `The IDE connection needs recovery: ${String(cause)}` } satisfies IdeEvent);
+        this.window()?.webContents.send('ide:event', { id: editor.id, unsaved: editor.unsaved, busy: editor.busy, error: `The IDE connection needs recovery: ${String(cause)}` } satisfies IdeEvent);
       }
     }));
   }
 
   private canSuspend(editor: Editor): boolean {
-    return !editor.retained && editor.dirty === 0 && !editor.busy && !this.hasTerminal(editor.contents)
+    return !editor.retained && editor.unsaved.files.length === 0 && editor.unsaved.drafts === 0 && !editor.busy && !this.hasTerminal(editor.contents)
       && editor.pending.size === 0 && editor.queries.size === 0 && editor.execution === null && !editor.executionStarting
       && editor.saves === 0 && Date.now() - editor.lastUsed > 120_000;
   }
@@ -567,7 +572,7 @@ export class IdeViews {
         if (this.suspended.size > 64 && oldest !== undefined) this.suspended.delete(oldest);
       }
       if (this.editors.size === 0) { this.background?.destroy(); this.background = null; }
-      this.window()?.webContents.send('ide:event', { id, dirty: editor.dirty, busy: false, closed: true, suspended: editor.suspending } satisfies IdeEvent);
+      this.window()?.webContents.send('ide:event', { id, unsaved: editor.unsaved, busy: false, closed: true, suspended: editor.suspending } satisfies IdeEvent);
     };
     editor.closing = closing().finally(() => { editor.closing = null; });
     return editor.closing;

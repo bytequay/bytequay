@@ -69,6 +69,51 @@ describe('IDE draft recovery', () => {
     expect(sourceDrafts(localStorage)).toEqual([{ path: 'main.go', base: 'base', text: 'second edit' }]);
     tracking.dispose();
   });
+  it('clears a manually reverted edit even while both dirty flags remain set', () => {
+    const { runtime, document, change } = fixture('original line\n');
+    const tracking = trackSourceDrafts(runtime, vi.fn());
+    const dirty = () => tracking.isDirty(runtime.api.workspace.textDocuments[0]);
+    document.isDirty = true; document.nativeDirty = true;
+    document.getText = () => 'edited line\n'; change.listener({ document });
+    expect(dirty()).toBe(true);
+    document.getText = () => 'original line\n'; change.listener({ document });
+    expect(dirty()).toBe(false);
+    expect(sourceDrafts(localStorage)).toEqual([]);
+    document.getText = () => 'original line\n\n'; change.listener({ document });
+    expect(dirty()).toBe(true);
+    expect(sourceDrafts(localStorage)).toEqual([{ path: 'main.go', base: 'original line\n', text: 'original line\n\n' }]);
+    tracking.dispose();
+  });
+  it('ignores a stale extension dirty flag after Undo restores the saved contents', () => {
+    const { runtime, document, change } = fixture('base');
+    const tracking = trackSourceDrafts(runtime, vi.fn());
+    document.isDirty = true; document.nativeDirty = true;
+    document.getText = () => 'draft'; change.listener({ document });
+    document.nativeDirty = false; document.getText = () => 'base'; change.listener({ document });
+    expect(tracking.isDirty(runtime.api.workspace.textDocuments[0])).toBe(false);
+    expect(sourceDrafts(localStorage)).toEqual([]);
+    tracking.dispose();
+  });
+  it('uses a retained draft base for a document already dirty when tracking starts', () => {
+    store.set(key, JSON.stringify([{ path: 'main.go', base: 'base', text: 'draft' }]));
+    const { runtime, document, change } = fixture('draft');
+    document.nativeDirty = true;
+    const tracking = trackSourceDrafts(runtime, vi.fn());
+    expect(tracking.isDirty(runtime.api.workspace.textDocuments[0])).toBe(true);
+    document.getText = () => 'base'; change.listener({ document });
+    expect(tracking.isDirty(runtime.api.workspace.textDocuments[0])).toBe(false);
+    expect(sourceDrafts(localStorage)).toEqual([]);
+    tracking.dispose();
+  });
+  it('keeps an unknown native-dirty document protected until its contents are saved', () => {
+    const { runtime, document, save } = fixture('draft');
+    document.nativeDirty = true;
+    const tracking = trackSourceDrafts(runtime, vi.fn());
+    expect(tracking.isDirty(runtime.api.workspace.textDocuments[0])).toBe(true);
+    save.listener({ resource: document.uri, text: 'draft' });
+    expect(tracking.isDirty(runtime.api.workspace.textDocuments[0])).toBe(false);
+    tracking.dispose();
+  });
   it('keeps newer edits when a previous save completes, including the extension API clean notification', async () => {
     const { runtime, document, change, save } = fixture('base');
     const tracking = trackSourceDrafts(runtime, vi.fn());
@@ -79,6 +124,10 @@ describe('IDE draft recovery', () => {
     // The pinned extension API reports clean on save even when the native model has newer edits.
     document.isDirty = false; change.listener({ document });
     expect(sourceDrafts(localStorage)).toEqual([{ path: 'main.go', base: 'saved snapshot', text: 'typed during save' }]);
+    expect(tracking.isDirty(runtime.api.workspace.textDocuments[0])).toBe(true);
+    document.getText = () => 'base'; change.listener({ document });
+    expect(tracking.isDirty(runtime.api.workspace.textDocuments[0])).toBe(true);
+    document.getText = () => 'typed during save'; change.listener({ document });
     tracking.dispose();
     const restored = fixture('saved snapshot');
     await restoreSourceDrafts(restored.runtime, vi.fn());
@@ -92,6 +141,7 @@ describe('IDE draft recovery', () => {
     document.getText = () => 'saved snapshot'; change.listener({ document });
     save.listener({ resource: document.uri, text: 'saved snapshot' });
     expect(sourceDrafts(localStorage)).toEqual([]);
+    expect(tracking.isDirty(runtime.api.workspace.textDocuments[0])).toBe(false);
     tracking.dispose();
   });
   it('takes the current disk text as the base after a clean document closes and reopens', () => {

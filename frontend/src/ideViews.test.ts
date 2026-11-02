@@ -63,7 +63,7 @@ vi.mock('electron', async () => {
         send: vi.fn((...args: unknown[]) => {
           const [name, id] = args;
           if (name === 'ide:idle-check' && desktop.idleReplies) desktop.handlers.get('ide:report')?.(
-            { sender: this.contents, senderFrame: this.contents.mainFrame }, { dirty: 0, busy: false, idleCheckId: id });
+            { sender: this.contents, senderFrame: this.contents.mainFrame }, { unsaved: { files: [], drafts: 0 }, busy: false, idleCheckId: id });
         }), setWindowOpenHandler: vi.fn(),
         session: { fetch: vi.fn().mockImplementation(async () => new Response('avatar')), protocol: { handle: vi.fn().mockImplementation((scheme: string) => this.handled.add(scheme)),
           isProtocolHandled: vi.fn(async (scheme: string) => this.handled.has(scheme)),
@@ -299,7 +299,7 @@ it('cancels an idle check when an inactive editor is selected and ignores its st
   const check = desktop.views[0].contents.send.mock.calls.find(([name]) => name === 'ide:idle-check')?.[1];
   expect(typeof check).toBe('string');
   invoke('ide:present', parent(), id, { x: 0, y: 0, width: 900, height: 700 });
-  invoke('ide:report', child(), { dirty: 0, busy: false, idleCheckId: check });
+  invoke('ide:report', child(), { unsaved: { files: [], drafts: 0 }, busy: false, idleCheckId: check });
   await vi.advanceTimersByTimeAsync(150_000);
   expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
   desktop.idleReplies = true;
@@ -313,20 +313,65 @@ it('cancels an idle check when an inactive editor is selected and ignores its st
 it('requires a fresh clean renderer reply and retains startup or restoration without one', async () => {
   desktop.idleReplies = false;
   await invoke('ide:open', parent(), host);
-  invoke('ide:report', child(), { dirty: 0, busy: false });
+  invoke('ide:report', child(), { unsaved: { files: [], drafts: 0 }, busy: false });
   await vi.advanceTimersByTimeAsync(600_000);
   expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
   const check = desktop.views[0].contents.send.mock.calls.filter(([name]) => name === 'ide:idle-check').at(-1)?.[1];
-  invoke('ide:report', child(), { dirty: 1, busy: false, idleCheckId: check });
+  invoke('ide:report', child(), { unsaved: { files: ['src/main.go'], drafts: 0 }, busy: false, idleCheckId: check });
   await vi.advanceTimersByTimeAsync(15_000);
   expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
-  invoke('ide:report', child(), { dirty: 0, busy: true });
+  invoke('ide:report', child(), { unsaved: { files: [], drafts: 0 }, busy: true });
   desktop.idleReplies = true;
   await vi.advanceTimersByTimeAsync(150_000);
   expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
-  invoke('ide:report', child(), { dirty: 0, busy: false });
+  invoke('ide:report', child(), { unsaved: { files: [], drafts: 0 }, busy: false });
   await vi.advanceTimersByTimeAsync(15_000);
   expect(desktop.views[0].contents.close).toHaveBeenCalledOnce();
+});
+
+it('reports the files and text drafts blocking exit, including file changes with the same count', async () => {
+  const id = await invoke('ide:open', parent(), host);
+  const first = { files: ['src/main.go'], drafts: 0 };
+  invoke('ide:report', child(), { unsaved: first, busy: false });
+  expect(sender.send).toHaveBeenLastCalledWith('ide:event', { id, unsaved: first, busy: false });
+  sender.send.mockClear();
+  invoke('ide:report', child(), { unsaved: first, busy: false });
+  expect(sender.send).not.toHaveBeenCalled();
+  const second = { files: ['src/other.go'], drafts: 0 };
+  invoke('ide:report', child(), { unsaved: second, busy: false });
+  expect(sender.send).toHaveBeenLastCalledWith('ide:event', { id, unsaved: second, busy: false });
+  invoke('ide:report', child(), { unsaved: { files: [], drafts: 1 }, busy: false });
+  await vi.advanceTimersByTimeAsync(150_000);
+  expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
+  invoke('ide:report', child(), { unsaved: { files: [], drafts: 0 }, busy: false });
+  await vi.advanceTimersByTimeAsync(15_000);
+  expect(desktop.views[0].contents.close).toHaveBeenCalledOnce();
+});
+
+it('rejects invalid unsaved reports without dropping the existing protection', async () => {
+  await invoke('ide:open', parent(), host);
+  invoke('ide:report', child(), { unsaved: { files: ['src/main.go'], drafts: 0 }, busy: false });
+  sender.send.mockClear();
+  for (const unsaved of [null, {}, { files: [1], drafts: 0 }, { files: [''], drafts: 0 }, { files: [], drafts: -1 }, { files: [], drafts: 0.5 }]) {
+    invoke('ide:report', child(), { unsaved, busy: false });
+  }
+  expect(sender.send).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(150_000);
+  expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
+});
+
+it('restores the unsaved exit guard when a retained editor is shown again', async () => {
+  const id = await invoke('ide:open', parent(), host);
+  const bounds = { x: 0, y: 0, width: 900, height: 700 };
+  invoke('ide:present', parent(), id, bounds);
+  const unsaved = { files: ['src/main.go'], drafts: 1 };
+  invoke('ide:report', child(), { unsaved, busy: false });
+  invoke('ide:present', parent(), id, null);
+  sender.send.mockClear();
+  invoke('ide:report', child(), { unsaved, busy: false });
+  expect(sender.send).not.toHaveBeenCalled();
+  invoke('ide:present', parent(), id, bounds);
+  expect(sender.send).toHaveBeenLastCalledWith('ide:event', { id, unsaved, busy: false });
 });
 
 it('retains an accepted save until the backend write settles even with a clean renderer report', async () => {
@@ -390,13 +435,13 @@ it('keeps a covered editor alive without reclaiming focus chosen during companio
 
 it('keeps unsaved drafts, running tests and paused debugging alive while hidden', async () => {
   await invoke('ide:open', parent(), host);
-  invoke('ide:report', child(), { dirty: 1, busy: false });
+  invoke('ide:report', child(), { unsaved: { files: ['src/main.go'], drafts: 0 }, busy: false });
   await vi.advanceTimersByTimeAsync(150_000);
   expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
-  invoke('ide:report', child(), { dirty: 0, busy: true });
+  invoke('ide:report', child(), { unsaved: { files: [], drafts: 0 }, busy: true });
   await vi.advanceTimersByTimeAsync(150_000);
   expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
-  invoke('ide:report', child(), { dirty: 0, busy: false });
+  invoke('ide:report', child(), { unsaved: { files: [], drafts: 0 }, busy: false });
   await vi.advanceTimersByTimeAsync(15_000);
   expect(desktop.views[0].contents.close).toHaveBeenCalledOnce();
 });

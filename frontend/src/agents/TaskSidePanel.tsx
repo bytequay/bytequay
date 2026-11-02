@@ -13,6 +13,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import type { IdeUnsavedChanges } from '../ide/contracts';
 import { privateThreadSource } from '../pulls/PrivateThread';
 import { pullReviewThreads, type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
 import { PullDetailHeader } from '../pulls/PullsScreen';
@@ -163,8 +164,8 @@ export default function TaskSidePanel({
   /** Renders the Summary; a development task's reviewer comes with it, so it can sit in the Summary's own strip and timeline. */
   learning?: React.ReactNode | ((onSelectCommit: (sha: string) => void, review?: TaskReviewOptions) => React.ReactNode);
   reviewFocus?: ReviewCardFocus | null;
-  /** How many files hold unsaved Tears of time drafts, so the screen can confirm before they are dropped. */
-  onCodeUnsavedChange?: (count: number) => void;
+  /** Unsaved Tears of time files and text drafts, so the screen can identify what would be dropped. */
+  onCodeUnsavedChange?: (changes: IdeUnsavedChanges) => void;
   width: number;
   showAgents: boolean;
   /** The Subagents and Discussions tabs the conversation opened, in the order it opened them. */

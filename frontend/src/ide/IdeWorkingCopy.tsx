@@ -20,10 +20,11 @@ import type { CodeCommentsOptions } from '../pulls/code-tests/useCodeComments';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import type { AgentTaskDto } from '../types';
 import { pollVisible } from './pollVisible';
+import type { IdeUnsavedChanges } from './contracts';
 
 export default function IdeWorkingCopy({ host, onReviewChange, onUnsavedChange, onAgentDraft, comments, active, ownReviewStream, bridge, startRequested = false }: {
   host: CodeTestsHost; onReviewChange: (review: AgentReviewDto) => void; onExit?: () => void;
-  onUnsavedChange?: (count: number) => void; onAgentDraft?: (taskId: string) => boolean; comments?: CodeCommentsOptions; active: boolean; ownReviewStream: boolean; bridge: CodeTestsBridge;
+  onUnsavedChange?: (changes: IdeUnsavedChanges) => void; onAgentDraft?: (taskId: string) => boolean; comments?: CodeCommentsOptions; active: boolean; ownReviewStream: boolean; bridge: CodeTestsBridge;
   startRequested?: boolean;
 }) {
   const [hostRef] = useState<CodeHostRef>(() => host.kind === 'review' ? { kind: 'review', reviewId: host.review.id }
@@ -36,7 +37,7 @@ export default function IdeWorkingCopy({ host, onReviewChange, onUnsavedChange, 
   const reviewId = review?.id ?? null;
   const open = review?.state === 'OPEN';
   const unsavedCallback = useRef(onUnsavedChange); unsavedCallback.current = onUnsavedChange;
-  useEffect(() => () => unsavedCallback.current?.(0), []);
+  useEffect(() => () => unsavedCallback.current?.({ files: [], drafts: 0 }), []);
   useEffect(() => {
     if (!active || hostRef.kind !== 'task') return;
     let live = true;

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { IdeEvent } from '../contracts';
+import type { IdeEvent, IdeUnsavedChanges } from '../contracts';
 
 /** Parent-renderer interaction fixture; the separate native runtime checks cover editor contents. */
 export function installDesktopFixture() {
@@ -23,10 +23,14 @@ export function installDesktopFixture() {
     resume: async () => { opens++; return 'fixture-editor'; },
     open: async () => { opens++; return 'fixture-editor'; },
     present: async (_id, bounds) => { visible = bounds !== null; }, update: async () => {}, reply: () => {},
-    close: async () => listener({ id: 'fixture-editor', dirty: 0, busy: false, closed: true }),
+    close: async () => listener({ id: 'fixture-editor', unsaved: { files: [], drafts: 0 }, busy: false, closed: true }),
     onRequest: () => () => {}, onEvent: receive => { listener = receive; return () => { listener = () => {}; }; },
-    onVisibility: receive => { receive(true); return () => {}; },
+    onVisibility: receive => {
+      let live = true;
+      queueMicrotask(() => { if (live) receive(true); });
+      return () => { live = false; };
+    },
   };
   return { get opens() { return opens; }, get visible() { return visible; },
-    report: (dirty: number) => listener({ id: 'fixture-editor', dirty, busy: false }), dispose: () => { window.ide = previous; } };
+    report: (unsaved: IdeUnsavedChanges) => listener({ id: 'fixture-editor', unsaved, busy: false }), dispose: () => { window.ide = previous; } };
 }

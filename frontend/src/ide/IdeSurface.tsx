@@ -22,7 +22,7 @@ import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import type { CodeHostRef } from '../pulls/code-tests/contracts';
 import type { CodeCommentsOptions } from '../pulls/code-tests/useCodeComments';
 import type { GitHubCodeSnippetRequest, AgentTaskDto, HostingServerDto, InlineReviewCommentDto, PullReactionContent, PullRequestDetailDto } from '../types';
-import type { IdeContext, IdeRequest } from './contracts';
+import type { IdeContext, IdeRequest, IdeUnsavedChanges } from './contracts';
 import { useHostingPresentation } from '../pulls/PullRequestWorkspace';
 import { useFocusBreakSurface } from '../focus/background';
 
@@ -34,7 +34,7 @@ export type IdeSurfaceProps = {
   detail?: PullRequestDetailDto | null;
   comments?: CodeCommentsOptions;
   onReviewChange: (review: AgentReviewDto) => void;
-  onUnsavedChange?: (count: number) => void;
+  onUnsavedChange?: (changes: IdeUnsavedChanges) => void;
   /** Brings the conversation holding a prepared draft into view; false when this page does not show that conversation. */
   onAgentDraft?: (taskId: string) => boolean;
   startRequested?: boolean;
@@ -170,7 +170,7 @@ export default function IdeSurface(props: IdeSurfaceProps) {
     });
     const stopEvent = window.ide.onEvent(event => {
       if (event.id !== idRef.current) return;
-      current.current.onUnsavedChange?.(event.dirty);
+      current.current.onUnsavedChange?.(event.unsaved);
       if (event.closed) {
         resumeId.current = event.suspended ? event.id : null;
         idRef.current = null; setId(null); setStartRequested(false); setNeedsStart(event.suspended !== true);
@@ -210,7 +210,7 @@ export default function IdeSurface(props: IdeSurfaceProps) {
     const target = element.current;
     if (!id || idRef.current !== id || !target) return;
     const present = (allowFocusRestore = true) => {
-      const obscured = [...document.querySelectorAll('[role="dialog"], [data-focus-break-entrance]')].some(dialog => !dialog.contains(target) && dialog.getClientRects().length > 0);
+      const obscured = [...document.querySelectorAll('dialog:modal, [role="dialog"], [data-focus-break-entrance]')].some(dialog => !dialog.contains(target) && dialog.getClientRects().length > 0);
       const bounds = target.getBoundingClientRect();
       const active = current.current.active && !error && bounds.width > 0 && bounds.height > 0;
       const visible = active && !obscured;

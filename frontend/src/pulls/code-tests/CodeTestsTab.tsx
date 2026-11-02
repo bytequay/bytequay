@@ -17,6 +17,7 @@ import { remoteErrorMessage } from '../../remoteError';
 import type { AgentReviewDto } from '../agent-review/contracts';
 import { latestRun } from '../agent-review/model';
 import IdeWorkingCopy from '../../ide/IdeWorkingCopy';
+import type { IdeUnsavedChanges } from '../../ide/contracts';
 import ArchivedCode from './ArchivedCode';
 import type { CodeCommentsOptions } from './useCodeComments';
 import { shortSha } from './codeModel';
@@ -66,8 +67,8 @@ export default function CodeTestsTab({
   active: boolean;
   /** False when another surface already streams this review in the same window. */
   ownReviewStream: boolean;
-  /** How many files hold unsaved drafts, so the host can confirm before unmounting them. */
-  onUnsavedChange?: (count: number) => void;
+  /** Unsaved files and text drafts, so the host can identify what would be dropped. */
+  onUnsavedChange?: (changes: IdeUnsavedChanges) => void;
   /** Shows the conversation a run's failure was drafted into; false when this page does not show it. */
   onAgentDraft?: (taskId: string) => boolean;
   /** Review comment plumbing shared with Changes; absent when the pull request page cannot comment. */

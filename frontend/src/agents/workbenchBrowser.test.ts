@@ -34,6 +34,13 @@ it('keeps local WorkBench views and drafts when switching destinations in Chromi
   expect(result).toContain('unsaved code before a PR exists');
 }, deadline(30_000));
 
+it('names unsaved files and text drafts before leaving and lets clean editors exit', async () => {
+  const result = await fixture.run<string>({
+    body: "const results = await window.webContents.executeJavaScript('WorkbenchTests.unsavedExit()');",
+  });
+  expect(result).toContain('clean editors leave without confirmation');
+}, deadline(30_000));
+
 it('opens Discussions from the conversation as a tab that closes in Chromium', async () => {
   const result = await fixture.run<string>({
     body: "const results = await window.webContents.executeJavaScript('WorkbenchTests.utilityTabs()');" });

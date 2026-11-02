@@ -252,6 +252,12 @@ done('a1', 't3');
 const first = await shown('a1', 'Deletes on read');
 const checks = await first.executeJavaScript('window.checks');
 const tried = await first.executeJavaScript("document.getElementById('toggle').click(); !document.getElementById('answer').hidden");
+await inApp('(() => { const dialog = document.createElement("dialog"); dialog.id = "confirmation"; dialog.textContent = "Confirm closing"; document.body.append(dialog); dialog.showModal(); })()');
+const modalHidesPage = await until(() => !artifactView.view.getVisible(), 'the native modal to cover the page without an explicit role');
+await inApp('document.getElementById("confirmation").close()');
+const afterModal = await shown('a1', 'Deletes on read');
+const modalRetainedPage = afterModal === first && await first.executeJavaScript('!document.getElementById("answer").hidden');
+await inApp('document.getElementById("confirmation").remove()');
 window.webContents.debugger.attach('1.3');
 await window.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
 await inApp('(() => { const entrance = document.createElement("dialog"); entrance.id = "companion-entrance"; entrance.open = true; entrance.textContent = "A companion is arriving"; const input = document.createElement("input"); input.id = "entrance-focus-choice"; document.body.append(entrance, input); })()');
@@ -341,7 +347,7 @@ await click('[aria-label="Back to Artifacts"]');
 await type('Ask about this repository', 'Where are dynamic filters applied?');
 await send('Send');
 const started = await until(async () => { const bubbles = await text('.agt-user__bubble'); return bubbles.length === 1 && bubbles; }, 'the new conversation');
-const results = { rows, turnCount, asked, answered, offered, questionClosed, making: making.replace(/\\d+:\\d\\d/, 'm:ss'), checks, tried, entranceRetainedPage, entranceKeepsNewFocus, stayed, navigationBlocked, placed,
+const results = { rows, turnCount, asked, answered, offered, questionClosed, making: making.replace(/\\d+:\\d\\d/, 'm:ss'), checks, tried, modalHidesPage, modalRetainedPage, entranceRetainedPage, entranceKeepsNewFocus, stayed, navigationBlocked, placed,
   light, dark, panel, pageLine, keptVisible, versions, delayedBreakBackground, refused, kept, counted, hiddenOnList, missing, failure, started, calls };`;
 
 it('renders a conversation as a task transcript, asks with the question card, then shows its page versions beside it, locked down', async () => {
@@ -379,6 +385,8 @@ contextBridge.exposeInMainWorld('bridge', {
       making: 'Writing the page…m:ss',
       checks: { ran: true, network: true, backend: true, webrtc: true, popup: true, evalBlocked: true, bridge: true },
       tried: true,
+      modalHidesPage: true,
+      modalRetainedPage: true,
       entranceRetainedPage: true,
       entranceKeepsNewFocus: true,
       stayed: 'bytequay-artifact://a1/w1/pages/v1/',

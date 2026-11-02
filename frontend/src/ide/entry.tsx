@@ -102,6 +102,7 @@ function reviewOptions(context: IdeContext): CodeCommentsOptions | undefined {
 
 function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; context: IdeContext; connection: IdeConnection }) {
   const restoring = useRef(true);
+  const sourceDraftTracker = useRef<ReturnType<typeof trackSourceDrafts> | null>(null);
   const [active, setActive] = useState<TextEditor | undefined>(runtime.api.window.activeTextEditor);
   const [generation, setGeneration] = useState(0);
   const [files, setFiles] = useState<ReviewCodeFilesDto | null>(null);
@@ -139,7 +140,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
     return () => media.removeEventListener('change', apply);
   }, [runtime, theme]);
   const command = (name: string) => { void runtime.api.commands.executeCommand(name).then(undefined, cause => setError(String(cause))); };
-  const report = () => window.ideWorkbench.report(idleState(runtime, restoring.current));
+  const report = () => window.ideWorkbench.report(idleState(runtime, restoring.current, sourceDraftTracker.current?.isDirty));
 
   useEffect(() => {
     let previous = runtime.executions.run?.id;
@@ -161,22 +162,28 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
   useEffect(() => {
     restoring.current = true;
     const drafts = trackSourceDrafts(runtime, setError);
+    sourceDraftTracker.current = drafts;
     let navigation: ReturnType<typeof trackNavigation> | undefined;
     let live = true;
     void restoreSourceDrafts(runtime, draft => setRecovered(current => [...current, draft]))
       .then(() => restoreNavigation(runtime)).then(() => { if (live) restoring.current = false; }).catch(cause => setError(String(cause)))
       .finally(() => { if (live) { navigation = trackNavigation(runtime, setError); report(); } });
-    return () => { live = false; drafts.dispose(); navigation?.dispose(); };
+    return () => { live = false; sourceDraftTracker.current = null; drafts.dispose(); navigation?.dispose(); };
   }, [runtime]); // eslint-disable-line react-hooks/exhaustive-deps -- Reports read native mutable state and the restoration ref.
 
   useEffect(() => {
-    const stopIdle = window.ideWorkbench.onIdleCheck(idleCheckId => window.ideWorkbench.report({ ...idleState(runtime, restoring.current), idleCheckId }));
+    let live = true;
+    const stopIdle = window.ideWorkbench.onIdleCheck(idleCheckId => window.ideWorkbench.report({ ...idleState(runtime, restoring.current, sourceDraftTracker.current?.isDirty), idleCheckId }));
     const editor = runtime.api.window.onDidChangeActiveTextEditor(value => { setActive(value); setGeneration(value => value + 1); });
     const changed = runtime.api.workspace.onDidChangeTextDocument(() => { setGeneration(value => value + 1); report(); });
     const saved = runtime.api.workspace.onDidSaveTextDocument(() => { setGeneration(value => value + 1); report(); });
+    const written = runtime.saves.onDidSave(report);
+    const settled = () => queueMicrotask(() => { if (live) report(); });
+    const opened = runtime.api.workspace.onDidOpenTextDocument(settled);
+    const closed = runtime.api.workspace.onDidCloseTextDocument(settled);
     const tests = runtime.tests.onResultsChanged(report);
     const debug = runtime.debug.onDidChangeState(report);
-    document.addEventListener('input', report);
+    document.addEventListener('input', settled);
     const timer = setInterval(report, 5_000);
     const showPanel = (id: string | undefined) => {
       // Java test runs use the debug adapter, but their output belongs in Run.
@@ -188,7 +195,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
       setPanelCollapsed(false);
     };
     const panel = runtime.panels.onDidPaneCompositeOpen(event => { if (event.viewContainerLocation === 1) showPanel(event.composite.getId()); });
-    return () => { stopIdle(); editor.dispose(); changed.dispose(); saved.dispose(); tests.dispose(); debug.dispose(); panel.dispose(); clearInterval(timer); document.removeEventListener('input', report); };
+    return () => { live = false; stopIdle(); editor.dispose(); changed.dispose(); saved.dispose(); written.dispose(); opened.dispose(); closed.dispose(); tests.dispose(); debug.dispose(); panel.dispose(); clearInterval(timer); document.removeEventListener('input', settled); };
   }, [runtime]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {

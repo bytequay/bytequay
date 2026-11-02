@@ -19,6 +19,8 @@ import WorktreeChanges from '../pulls/code-tests/WorktreeChanges';
 import TaskPaneDivider, { useTaskPane } from './TaskPaneDivider';
 import TaskHeader from './TaskHeader';
 import { ConfirmDialog } from '../ConfirmDialog';
+import type { IdeUnsavedChanges } from '../ide/contracts';
+import UnsavedChanges from '../ide/UnsavedChanges';
 import type { ReviewCardFocus } from './InstructionCard';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import { mergeReviewFindings } from '../pulls/agent-review/model';
@@ -93,11 +95,14 @@ function LocalReviewWorkspace({ review, onReviewChange, onBack, headerAction }: 
   const [navigation, setNavigation] = useState<ReviewNavigationTarget | null>(null);
   const [commitSelection, setCommitSelection] = useState<{ commitSha: string; headSha?: string; baseSha?: string; token: number } | null>(null);
   const selectCommit = (commitSha: string, snapshot?: { headSha: string; baseSha: string }): void => { setNavigation(null); setCommitSelection(current => ({ commitSha, ...snapshot, token: (current?.token ?? 0) + 1 })); setTab('changes'); };
-  const unsaved = useRef(0);
-  const [discard, setDiscard] = useState<{ act: () => void } | null>(null);
+  const unsaved = useRef<IdeUnsavedChanges>({ files: [], drafts: 0 });
+  const [discard, setDiscard] = useState<{ changes: IdeUnsavedChanges; act: () => void } | null>(null);
   if (tab === 'code' && !codeVisited) setCodeVisited(true);
   if (tab === 'changes' && !changesVisited) setChangesVisited(true);
-  const leave = (act: () => void): void => { if (unsaved.current === 0) act(); else setDiscard({ act }); };
+  const leave = (act: () => void): void => {
+    if (unsaved.current.files.length === 0 && unsaved.current.drafts === 0) act();
+    else setDiscard({ changes: unsaved.current, act });
+  };
   const navigateToChanges = (target: ReviewNavigationTarget): void => { setCommitSelection(null); setNavigation(target); setTab('changes'); };
   return <div className="pulls-page pulls-page--review-workspace">
     <section className="agr-workspace-conversation" aria-label="Review agent conversation">
@@ -130,13 +135,13 @@ function LocalReviewWorkspace({ review, onReviewChange, onBack, headerAction }: 
       </div>}
       {codeVisited && <div className="pull-detail__code" hidden={tab !== 'code'}>
         <CodeTestsTab workspaceId={review.workspaceId} review={review} onReviewChange={onReviewChange}
-          active={tab === 'code'} ownReviewStream={false} onUnsavedChange={count => { unsaved.current = count; }} />
+          active={tab === 'code'} ownReviewStream={false} onUnsavedChange={changes => { unsaved.current = changes; }} />
       </div>}
       {(tab === 'overview' || tab === 'files') && <div className="agt-panel__empty">No pull request is linked to this local review.</div>}
     </section>
-    {discard !== null && <ConfirmDialog title={`Discard unsaved changes to ${unsaved.current} files?`} confirmLabel="Discard"
+    {discard !== null && <ConfirmDialog title="Discard unsaved changes?" confirmLabel="Discard"
       onConfirm={() => { setDiscard(null); discard.act(); }} onCancel={() => setDiscard(null)}>
-      <p>Your edits in Tears of time were never saved to the worktree.</p>
+      <UnsavedChanges {...discard.changes} />
     </ConfirmDialog>}
   </div>;
 }

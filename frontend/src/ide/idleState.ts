@@ -13,12 +13,18 @@
  */
 import type { IdeRuntime } from './runtime';
 import type { IdeStateReport } from './contracts';
+import type { TextDocument } from 'vscode';
 
 /** Shared by the visible workbench and agent-created query runtimes without a mounted workbench. */
-export function idleState(runtime: IdeRuntime, restoring = false): IdeStateReport {
-  const privateDrafts = [...document.querySelectorAll('textarea')].filter(node => !node.classList.contains('inputarea') && node.value.trim()).length;
+export function idleState(runtime: IdeRuntime, restoring = false, isDirty = (document: TextDocument) => runtime.saves.isDirty(document.uri)): IdeStateReport {
+  const drafts = [...document.querySelectorAll('textarea')].filter(node => !node.classList.contains('inputarea') && !node.readOnly && node.value.trim()).length;
+  const files = [...new Set(runtime.api.workspace.textDocuments.filter(isDirty).map(document => {
+    const { uri } = document;
+    return uri.scheme === 'vscode-remote' && uri.path.startsWith(runtime.workspace.path + '/')
+      ? uri.path.slice(runtime.workspace.path.length + 1) : uri.path.split('/').at(-1) || 'Untitled';
+  }))];
   return {
-    dirty: runtime.api.workspace.textDocuments.filter(document => document.isDirty || runtime.saves.isDirty(document.uri)).length + privateDrafts,
+    unsaved: { files, drafts },
     busy: restoring || runtime.saves.pending || runtime.executions.starting || runtime.executions.run !== null || runtime.terminals.instances.length > 0
       || runtime.api.debug.activeDebugSession !== undefined || runtime.tests.results.some(result => result.completedAt === undefined),
   };

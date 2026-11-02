@@ -14,6 +14,8 @@
 
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { ConfirmDialog } from '../ConfirmDialog';
+import type { IdeUnsavedChanges } from '../ide/contracts';
+import UnsavedChanges from '../ide/UnsavedChanges';
 import type { AttentionItem } from '../home/attention';
 import { useAttentionVisit } from '../home/useAttentionVisit';
 import type { DiffAgentComment } from '../pulls/PullChanges';
@@ -160,13 +162,13 @@ export default function AgentTaskScreen({
   // A switch from the reviewer keeps its panel open on the same tab; only the conversation changes.
   const [panelChoice, setPanelChoice] = useState<boolean | null>(() => carriedPanelTab() === null ? null : true);
   // Unsaved Tears of time drafts in the side panel are dropped when the panel closes or the task screen is left.
-  const codeUnsaved = useRef(0);
-  const trackCodeUnsaved = useCallback((count: number) => { codeUnsaved.current = count; }, []);
+  const codeUnsaved = useRef<IdeUnsavedChanges>({ files: [], drafts: 0 });
+  const trackCodeUnsaved = useCallback((changes: IdeUnsavedChanges) => { codeUnsaved.current = changes; }, []);
   const withCodeDrafts = (act: () => void): void => {
-    if (codeUnsaved.current === 0) { act(); return; }
+    if (codeUnsaved.current.files.length === 0 && codeUnsaved.current.drafts === 0) { act(); return; }
     setAsk({
-      title: `Discard unsaved changes to ${codeUnsaved.current} ${codeUnsaved.current === 1 ? 'file' : 'files'}?`,
-      body: <p>Your edits in Tears of time were never saved to the worktree.</p>,
+      title: 'Discard unsaved changes?',
+      body: <UnsavedChanges {...codeUnsaved.current} />,
       label: 'Discard',
       act,
     });

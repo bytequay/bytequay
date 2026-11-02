@@ -35,7 +35,20 @@ export function trackSourceDrafts(runtime: IdeRuntime, onError: (message: string
     && document.uri.path.startsWith(runtime.workspace.path + '/') ? document.uri.path.slice(runtime.workspace.path.length + 1) : null;
   const remember = (document: import('vscode').TextDocument) => {
     const path = pathOf(document);
-    if (path !== null && !runtime.saves.isDirty(document.uri)) bases.set(document, document.getText());
+    if (path === null) return;
+    if (!runtime.saves.isDirty(document.uri)) bases.set(document, document.getText());
+    else if (!bases.has(document)) {
+      try {
+        const draft = sourceDrafts(localStorage).find(draft => draft.path === path);
+        if (draft) bases.set(document, draft.base);
+      }
+      catch { onError('Saved editor drafts could not be read. Keep this editor open until your changes are saved.'); }
+    }
+  };
+  const isDirty = (document: import('vscode').TextDocument) => {
+    const base = bases.get(document);
+    // Native dirty flags can stay set after typing the original text back, while extension flags can lag Undo.
+    return base === undefined ? runtime.saves.isDirty(document.uri) : document.getText() !== base;
   };
   runtime.api.workspace.textDocuments.forEach(remember);
   const opened = runtime.api.workspace.onDidOpenTextDocument(remember);
@@ -50,7 +63,8 @@ export function trackSourceDrafts(runtime: IdeRuntime, onError: (message: string
     else {
       const base = existing?.base ?? bases.get(event.document);
       if (base === undefined) { onError(`Could not record the original contents of ${path}. Keep this editor open until saved.`); return; }
-      drafts.set(path, { path, base, text: event.document.getText() });
+      if (event.document.getText() === base) drafts.delete(path);
+      else drafts.set(path, { path, base, text: event.document.getText() });
     }
     try { localStorage.setItem(KEY, JSON.stringify([...drafts.values()])); }
     catch { onError('Editor draft storage is full. Save your changes before closing ByteQuay.'); }
@@ -69,7 +83,7 @@ export function trackSourceDrafts(runtime: IdeRuntime, onError: (message: string
     }
     catch { onError('Could not update the saved draft. Its previous contents have been retained.'); }
   });
-  return { dispose: () => { opened.dispose(); changed.dispose(); saved.dispose(); } };
+  return { isDirty, dispose: () => { opened.dispose(); changed.dispose(); saved.dispose(); } };
 }
 
 export async function restoreSourceDrafts(runtime: IdeRuntime, onConflict: (draft: SourceDraft) => void) {

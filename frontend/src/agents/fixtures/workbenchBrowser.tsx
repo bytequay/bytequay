@@ -38,7 +38,7 @@ import { createPreviewBridge, previewTask, TASK_BODY_NOOPS } from './previewBrid
 import type { TaskDiscussionDto } from '../discussions/contracts';
 import type { AgentTaskDto, Bridge } from '../../types';
 import type { CodeHostRef, WorktreeChangesDto, WorktreeChangesRequest } from '../../pulls/code-tests/contracts';
-import { assert, changeInput, settle, element } from '../../fixtures/harness';
+import { assert, button, changeInput, settle, element, until } from '../../fixtures/harness';
 import '../../css/base.css';
 
 export async function run(keepMounted = false, showChanges = false, zoomChanges = false): Promise<string> {
@@ -125,7 +125,7 @@ export async function run(keepMounted = false, showChanges = false, zoomChanges 
     assert(host.querySelector('.pull-changes__toolbar') === null, 'Hidden Changes must not leave a toolbar in the header');
     const editor = host.querySelector<HTMLElement>('.ct-ide-surface');
     assert(editor !== null && desktop.opens === 1, 'Code must open one native editor without PR or review prerequisites');
-    desktop.report(1); await settle();
+    desktop.report({ files: ['notes.txt'], drafts: 0 }); await settle();
     click('PR'); await settle();
     assert(host.textContent?.includes('No pull request yet') === true, 'The PR destination must show its actual empty state');
     assert(getComputedStyle(editor).display !== 'none' && editor.closest('[hidden]') !== null, 'The code editor must be hidden through its kept ancestor');
@@ -327,6 +327,52 @@ export async function agentSwitch(published = false, utility = false): Promise<s
     dispose(); Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge });
     window.location.hash = '';
   }
+}
+
+export async function unsavedExit(): Promise<string> {
+  const desktop = installDesktopFixture();
+  const bridge = createPreviewBridge('workspace-1');
+  const taskId = bridge.events[0].taskId;
+  const getTask = bridge.getAgentTask;
+  bridge.getAgentTask = async (id, workspaceId) => ({ ...await getTask(id, workspaceId), interactive: true, checkoutRemovedAt: null, mutationClaim: null });
+  const originalBridge = window.bridge;
+  Object.defineProperty(window, 'bridge', { configurable: true, value: { ...bridge, findTaskAgentReview: async (): Promise<null> => null,
+    readWorktreeChanges: async (): Promise<WorktreeChangesDto> => ({ scope: 'ALL', selectedCommit: null, sourceFingerprint: 'working-copy',
+      baseSha: 'base', headSha: 'head', baseLabel: 'main', branch: 'feature', truncated: false,
+      commits: [], staged: [], unstaged: [], untracked: [], files: [] }),
+  } });
+  const { host, root, dispose } = createFixtureRoot();
+  host.style.cssText = 'width:1400px;height:850px';
+  let exits = 0;
+  try {
+    flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={taskId} bridge={bridge} onBack={() => { exits++; }} />));
+    await until(() => host.querySelector('[aria-label="Show or hide the side panel"]') !== null, 'The task loaded');
+    button('Show or hide the side panel', host).click(); await settle();
+    button('Tears of time', host).click();
+    await until(() => host.querySelector('.ct-ide-surface') !== null && desktop.opens > 0, 'The native editor opened');
+    assert(desktop.opens === 1, `The native editor opens once (opened ${desktop.opens} times)`);
+    const editor = host.querySelector('.ct-ide-surface');
+    desktop.report({ files: ['src/main.go', 'README.md'], drafts: 1 }); await settle();
+    button('Back to tasks', host).click(); await settle();
+    const confirmation = element<HTMLDialogElement>('dialog:modal', host);
+    assert([...confirmation.querySelectorAll('li code')].map(item => item.textContent).join(',') === 'src/main.go,README.md'
+      && confirmation.textContent?.includes('1 unsent text draft remains') && exits === 0,
+    'A blocked exit must name each unsaved file and distinguish text drafts');
+    button('Cancel', confirmation).click(); await settle();
+    assert(host.querySelector('dialog:modal') === null && host.querySelector('.ct-ide-surface') === editor && exits === 0,
+      'Cancelling keeps the same editor and task open');
+    desktop.report({ files: [], drafts: 2 }); await settle();
+    button('Back to tasks', host).click(); await settle();
+    const draftsOnly = element<HTMLDialogElement>('dialog:modal', host);
+    assert(draftsOnly.querySelector('li') === null && draftsOnly.textContent?.includes('2 unsent text drafts remain')
+      && !draftsOnly.textContent?.includes('files'), 'Text drafts alone must not be described as changed files');
+    button('Cancel', draftsOnly).click(); await settle();
+    desktop.report({ files: [], drafts: 0 }); await settle();
+    button('Back to tasks', host).click(); await settle();
+    assert(Number(exits) === 1 && host.querySelector('dialog:modal') === null, 'Reverted or saved edits must allow leaving without confirmation');
+    return 'Blocked exits list unsaved files and text drafts; clean editors leave without confirmation';
+  }
+  finally { dispose(); desktop.dispose(); Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge }); }
 }
 
 export async function taskHeaderLayout(): Promise<string> {

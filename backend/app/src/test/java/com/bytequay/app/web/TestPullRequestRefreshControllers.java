@@ -115,6 +115,7 @@ class TestPullRequestRefreshControllers
         List<PullRequest> candidates = ImmutableList.of(attentionPullRequest(12), attentionPullRequest(13));
         when(pullRequests.listAttentionCandidates()).thenReturn(candidates);
         when(pullRequests.findCachedAuthorAvatarUrls(ImmutableSet.of(12L, 13L))).thenReturn(ImmutableMap.of(12L, avatar));
+        when(pullRequests.findCachedHeadShas(ImmutableSet.of(12L, 13L))).thenReturn(ImmutableMap.of(12L, "displayed-head"));
         when(pullRequests.findCachedLatestActivities(candidates)).thenReturn(ImmutableMap.of(12L, new PrActivitySummary(
                 "reviewed", Optional.of("reviewer"), NOW, Optional.of("APPROVED"), Optional.empty(), Optional.empty(),
                 Optional.of("Looks good, one nit."), Optional.of("src/Main.java"), OptionalInt.of(14))));
@@ -131,6 +132,7 @@ class TestPullRequestRefreshControllers
                 .andExpect(jsonPath("$[0].repo").value("owner/repository"))
                 .andExpect(jsonPath("$[0].author").value("alice"))
                 .andExpect(jsonPath("$[0].authorAvatarUrl").value(avatar))
+                .andExpect(jsonPath("$[0].headSha").value("displayed-head"))
                 .andExpect(jsonPath("$[0].latestActivity.event").value("reviewed"))
                 .andExpect(jsonPath("$[0].latestActivity.actor").value("reviewer"))
                 .andExpect(jsonPath("$[0].latestActivity.state").value("APPROVED"))
@@ -146,6 +148,7 @@ class TestPullRequestRefreshControllers
                 .andExpect(jsonPath("$[0].pullRequest").doesNotExist())
                 .andExpect(jsonPath("$[1].id").value(13))
                 .andExpect(jsonPath("$[1].authorAvatarUrl").value(nullValue()))
+                .andExpect(jsonPath("$[1].headSha").value(nullValue()))
                 .andExpect(jsonPath("$[1].latestActivity").value(nullValue()))
                 .andExpect(jsonPath("$[1].attentionActivityAt").value(nullValue()))
                 .andExpect(jsonPath("$[1].commitsSinceReview").isEmpty())
@@ -154,6 +157,7 @@ class TestPullRequestRefreshControllers
 
         verify(pullRequests).listAttentionCandidates();
         verify(pullRequests).findCachedAuthorAvatarUrls(ImmutableSet.of(12L, 13L));
+        verify(pullRequests).findCachedHeadShas(ImmutableSet.of(12L, 13L));
         verify(pullRequests).findCachedLatestActivities(candidates);
         verify(pullRequests).findCachedAttentionActivities(candidates);
         verify(pullRequests).findCachedCommitsSinceReview(candidates);

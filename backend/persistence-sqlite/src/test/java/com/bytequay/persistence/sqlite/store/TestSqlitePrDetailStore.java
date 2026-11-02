@@ -171,6 +171,24 @@ class TestSqlitePrDetailStore
     }
 
     @Test
+    void readsOnlyRequestedCachedHeadCommits()
+    {
+        store.save(prId, avatarDetail(null));
+        store.save(prId + 100, avatarDetail(null));
+
+        assertThat(store.findHeadShas(ImmutableSet.of(prId, prId + 200))).containsExactlyEntriesOf(ImmutableMap.of(prId, "a".repeat(40)));
+        assertThat(store.findHeadShas(ImmutableSet.of())).isEmpty();
+
+        var detail = details.findById(prId).orElseThrow();
+        detail.setHeadSha(null);
+        details.saveAndFlush(detail);
+        assertThat(store.findHeadShas(ImmutableSet.of(prId))).isEmpty();
+        detail.setHeadSha(" ");
+        details.saveAndFlush(detail);
+        assertThat(store.findHeadShas(ImmutableSet.of(prId))).isEmpty();
+    }
+
+    @Test
     void batchesCurrentPrStatesWithoutHydratingDiscussionOrChecks()
     {
         store.save(prId, withTimeline(avatarDetail(null), new PrTimelineEvent(1L, "added_to_merge_queue", "me", NOW, null, Optional.empty())));

@@ -35,6 +35,7 @@ import com.bytequay.persistence.sqlite.entity.PullRequestEntity;
 import com.bytequay.persistence.sqlite.repository.PrCheckRunJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PrDetailJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PrDetailJpaRepository.AuthorAvatar;
+import com.bytequay.persistence.sqlite.repository.PrDetailJpaRepository.HeadCommit;
 import com.bytequay.persistence.sqlite.repository.PrDetailJpaRepository.RequestedReviewers;
 import com.bytequay.persistence.sqlite.repository.PrDetailJpaRepository.StateSummary;
 import com.bytequay.persistence.sqlite.repository.PrReviewJpaRepository;
@@ -223,6 +224,16 @@ public class SqlitePrDetailStore
         }
         return detailRepo.findAuthorAvatarUrls(prIds).stream()
                 .collect(toImmutableMap(AuthorAvatar::getPrId, AuthorAvatar::getAuthorAvatarUrl));
+    }
+
+    @Override
+    public Map<Long, String> findHeadShas(Set<Long> prIds)
+    {
+        requireNonNull(prIds, "prIds is null");
+        if (prIds.isEmpty()) {
+            return ImmutableMap.of();
+        }
+        return detailRepo.findHeadShas(prIds).stream().collect(toImmutableMap(HeadCommit::getPrId, HeadCommit::getHeadSha));
     }
 
     @Override

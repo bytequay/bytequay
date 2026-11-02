@@ -392,6 +392,25 @@ button.mw-pill:hover { background: light-dark(#eceff2, var(--dark-border-muted))
 }
 
 .mw-next__act:hover { background: light-dark(#f0f1f3, var(--dark-hover)); }
+.mw-merge-action { display: flex; flex-direction: column; gap: 6px; }
+
+.mw-merge {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--fg-success);
+  border-radius: 6px;
+  background: var(--surface-elevated);
+  color: var(--fg-success);
+  font: inherit;
+  cursor: pointer;
+}
+
+.mw-merge:hover:not(:disabled) { background: var(--mw-subtle); }
+.mw-merge:disabled { cursor: default; opacity: 0.65; }
+.mw-merge__error { color: var(--fg-danger); overflow-wrap: anywhere; }
 .mw-card__ended { color: var(--fg-muted); }
 
 /* ── All my work ─────────────────────────────────────────────────

@@ -13,6 +13,7 @@
  */
 import { routedPullRequestBridge } from '../pulls/PullRequestWorkspace';
 import { mergeReady } from '../pulls/PullsScreen';
+import type { PullRequestRoute } from '../types';
 
 /** What a pull request's card in the Assistant panel can do; each is the user's own click, never the assistant's. */
 export type PullAction = 'approve' | 'merge' | 'comment' | 'close';
@@ -38,8 +39,8 @@ export async function approvePull(repo: string, number: number, head: string | n
  * Uses the merge sheet's guard after reading the provider again, bound to the head commit the card showed.
  * Queue branches schedule GitHub's merge when ready.
  */
-export async function mergePull(repo: string, number: number, head: string | null, workspaceId?: string): Promise<void> {
-  const bridge = workspaceId === undefined ? window.bridge : routedPullRequestBridge(window.bridge, workspaceId);
+export async function mergePull(repo: string, number: number, head: string | null, route?: PullRequestRoute): Promise<void> {
+  const bridge = route === undefined ? window.bridge : routedPullRequestBridge(window.bridge, route);
   const stored = await bridge.findStoredPullRequest(repo, number);
   if (stored === null) throw new Error('ByteQuay no longer holds this pull request.');
   await bridge.refreshPullRequestDetailByRef(repo, number);

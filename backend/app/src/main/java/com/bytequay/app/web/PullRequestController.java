@@ -85,13 +85,14 @@ public class PullRequestController
         Map<Long, PullRequestRoute> routes = workspaceId == null ? pullRequests.attentionRoutes(candidates) : ImmutableMap.of();
         PullRequestRoute none = PullRequestRoute.of(null, null);
         Map<Long, String> avatars = pullRequests.findCachedAuthorAvatarUrls(candidates.stream().map(PullRequest::id).collect(toImmutableSet()));
+        Map<Long, String> heads = pullRequests.findCachedHeadShas(candidates.stream().map(PullRequest::id).collect(toImmutableSet()));
         Map<Long, PrActivitySummary> activities = pullRequests.findCachedLatestActivities(candidates);
         Map<Long, Instant> attentionActivities = pullRequests.findCachedAttentionActivities(candidates);
         Map<Long, List<PrCommitLine>> commits = pullRequests.findCachedCommitsSinceReview(candidates);
         Map<Long, List<String>> failingChecks = pullRequests.findCachedFailingChecks(candidates);
         Set<Long> mentioned = pullRequests.findMentioned(candidates);
         return candidates.stream()
-                .map(pullRequest -> new AttentionPullRequest(pullRequest, avatars.get(pullRequest.id()), activities.get(pullRequest.id()),
+                .map(pullRequest -> new AttentionPullRequest(pullRequest, heads.get(pullRequest.id()), avatars.get(pullRequest.id()), activities.get(pullRequest.id()),
                         attentionActivities.get(pullRequest.id()), commits.getOrDefault(pullRequest.id(), ImmutableList.of()),
                         failingChecks.getOrDefault(pullRequest.id(), ImmutableList.of()), mentioned.contains(pullRequest.id()),
                         routes.getOrDefault(pullRequest.id(), none).workspaceId().orElse(null),
@@ -105,6 +106,7 @@ public class PullRequestController
      */
     public record AttentionPullRequest(
             @JsonUnwrapped PullRequest pullRequest,
+            String headSha,
             String authorAvatarUrl,
             PrActivitySummary latestActivity,
             Instant attentionActivityAt,

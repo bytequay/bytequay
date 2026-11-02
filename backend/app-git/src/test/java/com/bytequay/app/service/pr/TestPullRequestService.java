@@ -614,6 +614,18 @@ class TestPullRequestService
     }
 
     @Test
+    void readsAttentionHeadCommitsWithoutFetchingDetails()
+    {
+        when(detailStore.findHeadShas(ImmutableSet.of(12L, 13L))).thenReturn(ImmutableMap.of(12L, "displayed-head"));
+
+        assertThat(service.findCachedHeadShas(ImmutableSet.of(12L, 13L))).containsExactlyEntriesOf(ImmutableMap.of(12L, "displayed-head"));
+
+        verify(detailStore).findHeadShas(ImmutableSet.of(12L, 13L));
+        verifyNoMoreInteractions(detailStore);
+        verifyNoInteractions(gitHub, writes, repositories, actions, accounts, diffStore, metadata);
+    }
+
+    @Test
     void readsTheStoredDescriptionWithoutFetchingOrMarkingThePullRequestViewed()
     {
         PrRawDetail undescribed = new PrRawDetail(null, null, null, null, null, null, REVIEWED_AT, null, null, ImmutableList.of(), null, ImmutableList.of(), null, false, true,

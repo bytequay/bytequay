@@ -105,6 +105,10 @@ memory.
   you reply or push an update; opening a PR does not clear that feedback.
   Approved PRs stay actionable: **Ready to merge** when merge readiness is
   confirmed, otherwise **Needs you** to check merge requirements.
+  Click **Merge · no conflicts** on a ready card to merge directly. ByteQuay
+  checks the latest commit and merge requirements first; repositories with a
+  merge queue use that queue. Each PR has its own button when a card links
+  several PRs, and any failure appears on the card.
   Open issues you opened anywhere on GitHub, updated in the last 30 days,
   wait in **In review**.
   **All my work** lists everything, including finished work.

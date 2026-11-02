@@ -338,6 +338,11 @@ public class PullRequestService
         return details.findAuthorAvatarUrls(prIds);
     }
 
+    public Map<Long, String> findCachedHeadShas(Set<Long> prIds)
+    {
+        return details.findHeadShas(prIds);
+    }
+
     public Map<Long, Instant> findCachedAttentionActivities(List<PullRequest> pullRequests)
     {
         return store.findAttentionActivities(pullRequests.stream().map(PullRequest::id).collect(toImmutableSet()));

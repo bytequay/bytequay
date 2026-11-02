@@ -11,14 +11,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowRight, Check, ChevronRight, CircleDot, ExternalLink, GitPullRequest, GitPullRequestDraft, Hand, Hourglass, Laptop, LoaderCircle, MessageCircleQuestion,
+  ArrowRight, Check, ChevronRight, CircleDot, ExternalLink, GitMerge, GitPullRequest, GitPullRequestDraft, Hand, Hourglass, Laptop, LoaderCircle, MessageCircleQuestion,
   SquareKanban, X, type LucideIcon,
 } from 'lucide-react';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import Avatar from '../Avatar';
+import { mergePull } from '../assistant/pullActions';
 import { CardActions, CardAge, Card } from '../cards/Card';
+import { remoteErrorMessage } from '../remoteError';
 import type { AgendaTargetDto } from '../types';
 import { WORK_LANES, WORK_SOURCES, workPrStatus, type WorkItem, type WorkLane, type WorkPr, type WorkSource } from './work';
 import { openTarget } from './TodayList';
@@ -196,6 +198,7 @@ function WorkCard({ item, onOpen, onDecision }: { item: WorkItem; onOpen: (targe
   const DecisionIcon = item.decision === null ? null : DECISION_ICONS[item.decision] ?? Hourglass;
   const { running } = item;
   const label = cardLabel(item);
+  const mergePrs = item.lane === 'ready' && item.ended === null ? item.prs.filter(pr => pr.state === 'open') : [];
   return (
     <div role="listitem">
       <Card compact className="mw-card" label={`${label}: ${item.title}`} onOpen={() => onOpen(item.target)}>
@@ -222,17 +225,81 @@ function WorkCard({ item, onOpen, onDecision }: { item: WorkItem; onOpen: (targe
             </button>
           </div>
         )}
-        {item.next !== null && (
+        {mergePrs.length > 0 ? mergePrs.map(pr => (
+          <MergeWorkPull key={pr.row?.id ?? `${pr.repo}#${pr.number}`} pr={pr} multiple={mergePrs.length > 1} />
+        )) : item.next !== null && (
           <div className="mw-next">
             <ArrowRight size={13} aria-hidden="true" />
             <span className="mw-next__text">{item.next}</span>
-            {/* ponytail: opens where the step is done; a one-click Merge here needs the head commit on My work's rows to bind it to. */}
             <CardActions>
               <button type="button" className="mw-next__act" onClick={event => { event.stopPropagation(); onOpen(item.target); }}>Open</button>
             </CardActions>
           </div>
         )}
       </Card>
+    </div>
+  );
+}
+
+function MergeWorkPull({ pr, multiple }: { pr: WorkPr; multiple: boolean }) {
+  const [state, setState] = useState<'idle' | 'merging' | 'requested'>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const [loadedHead, setLoadedHead] = useState<string | null>(null);
+  const [headError, setHeadError] = useState<string | null>(null);
+  const [headAttempt, setHeadAttempt] = useState(0);
+  const submitted = useRef(false);
+  const row = pr.row;
+  const workspaceId = row?.workspaceId;
+  const accountId = row?.accountId;
+  const route = useMemo(() => workspaceId ?? (accountId == null ? undefined : { accountId }), [workspaceId, accountId]);
+  const head = row?.headSha ?? loadedHead;
+  const checkingHead = !head && headError === null;
+  const failure = error ?? (!head ? headError : null);
+
+  useEffect(() => {
+    if (row?.headSha) return;
+    let active = true;
+    // A ready summary can exist without a detail snapshot; refreshing loads its commit without marking the PR viewed.
+    void window.bridge.refreshPullRequestDetailByRef(pr.repo, pr.number, undefined, true, route).then(refresh => {
+      if (!active) return;
+      if (!refresh.full || !refresh.detail.headSha) throw new Error('Could not load the latest commit. Try again.');
+      setLoadedHead(refresh.detail.headSha);
+      window.dispatchEvent(new Event('bytequay:pr-attention-updated'));
+    }).catch(cause => { if (active) setHeadError(remoteErrorMessage(cause)); });
+    return () => { active = false; };
+  }, [pr.repo, pr.number, row?.headSha, route, headAttempt]);
+
+  const merge = async () => {
+    if (submitted.current || !head) return;
+    submitted.current = true;
+    setState('merging');
+    setError(null);
+    try {
+      await mergePull(pr.repo, pr.number, head, route);
+      setState('requested');
+    }
+    catch (cause) {
+      setError(remoteErrorMessage(cause));
+      setState('idle');
+      submitted.current = false;
+      return;
+    }
+    // A refresh failure must not turn an accepted merge into a retryable write.
+    await window.bridge.refreshPullRequestDetailByRef(pr.repo, pr.number, undefined, undefined, route).catch(() => {});
+    window.dispatchEvent(new Event('bytequay:pr-attention-updated'));
+  };
+  return (
+    <div className="mw-merge-action" onClick={event => event.stopPropagation()}>
+      <button type="button" className="mw-merge" aria-label={`Merge ${pr.repo} #${pr.number}`} disabled={state !== 'idle' || checkingHead}
+        onClick={() => {
+          if (!head) { setHeadError(null); setHeadAttempt(attempt => attempt + 1); }
+          else void merge();
+        }}>
+        {state === 'merging' || checkingHead ? <LoaderCircle size={13} className="mw-run__spin" aria-hidden="true" /> : <GitMerge size={13} aria-hidden="true" />}
+        {checkingHead ? 'Checking merge…' : !head ? 'Retry merge check' : state === 'merging' ? 'Merging…' : state === 'requested' ? 'Merge requested'
+          : `${multiple ? `Merge #${pr.number}` : 'Merge'} · no conflicts`}
+      </button>
+      {failure !== null && <div className="mw-merge__error" role="alert">{failure}</div>}
     </div>
   );
 }

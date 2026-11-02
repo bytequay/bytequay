@@ -65,6 +65,9 @@ public interface PrDetailStore
     /** Reads only cached author avatar URLs; missing details or avatars have no entry. */
     Map<Long, String> findAuthorAvatarUrls(Set<Long> prIds);
 
+    /** Reads only cached head commits; missing details or head commits have no entry. */
+    Map<Long, String> findHeadShas(Set<Long> prIds);
+
     /** Reads the latest cached remote timeline action for each requested PR, including inline replies. */
     Map<Long, PrActivitySummary> findLatestActivities(Set<Long> prIds);
 

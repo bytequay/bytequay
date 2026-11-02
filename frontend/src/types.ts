@@ -111,6 +111,8 @@ export type PullRequestDto = {
   commitsSinceReview?: { sha: string; message: string; actor: string | null; committedAt: string }[];
   /** Needs attention only: the latest checks failing on a PR whose CI fails. */
   failingChecks?: string[];
+  /** Needs attention only: the cached head commit that a direct merge must still match. */
+  headSha?: string | null;
   /** Needs attention only: the viewer's inbox files this PR as a direct @mention. */
   mentioned?: boolean;
   /** Needs attention only: the watched workspace a hosted request opens through. */

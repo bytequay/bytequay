@@ -46,6 +46,9 @@ public interface PrDetailJpaRepository
             + "WHERE e.prId IN :ids AND e.authorAvatarUrl IS NOT NULL AND TRIM(e.authorAvatarUrl) <> ''")
     List<AuthorAvatar> findAuthorAvatarUrls(@Param("ids") Set<Long> ids);
 
+    @Query("SELECT e.prId AS prId, e.headSha AS headSha FROM PrDetailEntity e WHERE e.prId IN :ids AND e.headSha IS NOT NULL AND TRIM(e.headSha) <> ''")
+    List<HeadCommit> findHeadShas(@Param("ids") Set<Long> ids);
+
     @Query("SELECT e.prId AS prId, e.state AS state, e.draft AS draft, e.mergedAt AS mergedAt FROM PrDetailEntity e WHERE e.prId IN :ids")
     List<StateSummary> findStates(@Param("ids") Set<Long> ids);
 
@@ -92,5 +95,12 @@ public interface PrDetailJpaRepository
         long getPrId();
 
         String getAuthorAvatarUrl();
+    }
+
+    interface HeadCommit
+    {
+        long getPrId();
+
+        String getHeadSha();
     }
 }

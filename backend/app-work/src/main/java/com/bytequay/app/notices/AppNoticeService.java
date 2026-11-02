@@ -27,7 +27,6 @@ import com.bytequay.agent.core.store.AgentApprovalStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.QueuedInputStore;
-import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.service.epic.EpicNextWork;
 import com.bytequay.app.utils.ContextText;
@@ -194,7 +193,7 @@ public class AppNoticeService
             // The development task's page shows the repair's card under the same name.
             return Optional.of(notice(task, review, overview, latest, "approval:" + request.id(), question ? AppNotice.Kind.QUESTION : AppNotice.Kind.APPROVAL,
                     request.taskId().equals(task.id()) ? message : "CI Autofix · " + message, request.requestedAt(),
-                    Optional.of(request.requestedAt().plus(AgentApprovalHandler.WAIT)), Optional.empty()));
+                    Optional.of(request.expiresAt()), Optional.empty()));
         }
         Optional<WorktreeMutationClaim> recovery = task.worktreeMutationClaim().filter(claim -> claim.kind() == WorktreeMutationClaim.Kind.RECOVERY
                 || claim.kind() == WorktreeMutationClaim.Kind.TURN && latest.filter(turn -> turn.state().active()).isEmpty());

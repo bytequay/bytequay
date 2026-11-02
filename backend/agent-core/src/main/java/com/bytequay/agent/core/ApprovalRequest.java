@@ -13,6 +13,7 @@
  */
 package com.bytequay.agent.core;
 
+import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 
 import java.time.Instant;
@@ -28,5 +29,11 @@ public record ApprovalRequest(ApprovalId id, TaskId taskId, TurnId turnId, Provi
         requireNonNull(turnId, "turnId is null");
         requireNonNull(providerRequest, "providerRequest is null");
         requireNonNull(requestedAt, "requestedAt is null");
+    }
+
+    /** When the user's answer stops being awaited, since every driver asks with the same wait; the countdown and the notices read it. */
+    public Instant expiresAt()
+    {
+        return requestedAt.plus(AgentApprovalHandler.WAIT);
     }
 }

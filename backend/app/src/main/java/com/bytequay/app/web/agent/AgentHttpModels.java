@@ -22,7 +22,6 @@ import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.StoredAgentAttachment;
 import com.bytequay.agent.core.TaskCompletion;
-import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
@@ -87,7 +86,7 @@ public final class AgentHttpModels
                 request.id().toString(), request.taskId().toString(), request.turnId().toString(),
                 new AgentEventSource(source.providerThreadId(), source.parentProviderThreadId(), source.logicalAgentPath(),
                         source.providerTurnId(), source.providerItemId(), Optional.empty()),
-                request.requestedAt(), request.requestedAt().plus(AgentApprovalHandler.WAIT), provider.title(), provider.detail(),
+                request.requestedAt(), request.expiresAt(), provider.title(), provider.detail(),
                 switch (provider.kind()) {
                     case COMMAND, FILE_CHANGE -> provider.kind().name();
                     case TOOL, OTHER -> "OTHER";

@@ -33,5 +33,5 @@ export function jiraDetail(issue: JiraIssue = jiraIssue): JiraIssueDetail {
     assignees: [{ accountId: 'me', displayName: 'Alex Chen', avatarUrl: null }], fetchedAt: issue.updatedAt, error: null, commentsTruncated: false,
     hierarchyLevel: 0, children: [], childrenTruncated: false, links: [], richTextFields: [],
     project: 'Engineering', reporter: { accountId: 'reviewer', displayName: 'Sam Rivera', avatarUrl: null }, peopleFields: [{ id: 'customfield_1', name: 'Co-Assignee(s)', people: [{ accountId: 'vlad', displayName: 'Vera Lind', avatarUrl: null }] }],
-    teamFields: [{ id: 'customfield_2', name: 'Team', team: 'ENG-Connectors' }] };
+    teamFields: [{ id: 'customfield_2', name: 'Team', team: 'ENG-Platform' }] };
 }

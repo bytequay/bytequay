@@ -295,12 +295,12 @@ class TestDefaultJiraClient
     {
         ObjectNode value = (ObjectNode) ticket();
         ((ObjectNode) value.path("fields")).setAll((ObjectNode) json("""
-                {"project":{"key":"ENG","name":"Engineering"},"reporter":{"accountId":"anu","displayName":"Anu"},
-                 "parent":{"id":"1000","key":"ENG-3802","fields":{"summary":"Lakekeeper","issuetype":{"name":"Epic"}}},
-                 "customfield_1":[{"accountId":"vlad","displayName":"Vlad"}],"customfield_2":{"accountId":"sam","displayName":"Sam"},"customfield_3":[],
-                 "customfield_4":{"id":"t1","name":"ENG-Connectors","title":"ENG-Connectors"},"customfield_5":{"id":"7","value":"Option"}}
+                {"project":{"key":"ENG","name":"Engineering"},"reporter":{"accountId":"ana","displayName":"Ana"},
+                 "parent":{"id":"1000","key":"ENG-1","fields":{"summary":"Storage catalogs","issuetype":{"name":"Epic"}}},
+                 "customfield_1":[{"accountId":"vic","displayName":"Vic"}],"customfield_2":{"accountId":"sam","displayName":"Sam"},"customfield_3":[],
+                 "customfield_4":{"id":"t1","name":"ENG-Platform","title":"ENG-Platform"},"customfield_5":{"id":"7","value":"Option"}}
                 """));
-        value.set("names", json("{\"customfield_1\":\"Co-Assignee(s)\",\"customfield_2\":\"Approver\",\"customfield_4\":\"Team\",\"customfield_5\":\"Pillars\"}"));
+        value.set("names", json("{\"customfield_1\":\"Co-Assignee(s)\",\"customfield_2\":\"Approver\",\"customfield_4\":\"Team\",\"customfield_5\":\"Areas\"}"));
         value.set("schema", json("{\"customfield_4\":{\"type\":\"team\",\"custom\":\"com.atlassian.jira.plugin.system.customfieldtypes:atlassian-team\"}}"));
         List<String> reads = new ArrayList<>();
         doAnswer(call -> {
@@ -311,12 +311,12 @@ class TestDefaultJiraClient
         JiraDtos.Detail detail = jira.detail("connection", "cloud", "1001", true);
         assertThat(reads).singleElement().asString().contains("expand=names,schema");
         assertThat(detail.project()).contains("Engineering");
-        assertThat(detail.reporter()).contains(new JiraDtos.Person("anu", "Anu", Optional.empty()));
-        assertThat(detail.issue().parent()).contains(new JiraDtos.Parent("1000", "ENG-3802", "Lakekeeper", Optional.of("Epic")));
+        assertThat(detail.reporter()).contains(new JiraDtos.Person("ana", "Ana", Optional.empty()));
+        assertThat(detail.issue().parent()).contains(new JiraDtos.Parent("1000", "ENG-1", "Storage catalogs", Optional.of("Epic")));
         assertThat(detail.peopleFields()).containsExactly(
                 new JiraDtos.PeopleField("customfield_2", "Approver", ImmutableList.of(new JiraDtos.Person("sam", "Sam", Optional.empty()))),
-                new JiraDtos.PeopleField("customfield_1", "Co-Assignee(s)", ImmutableList.of(new JiraDtos.Person("vlad", "Vlad", Optional.empty()))));
-        assertThat(detail.teamFields()).containsExactly(new JiraDtos.TeamField("customfield_4", "Team", "ENG-Connectors"));
+                new JiraDtos.PeopleField("customfield_1", "Co-Assignee(s)", ImmutableList.of(new JiraDtos.Person("vic", "Vic", Optional.empty()))));
+        assertThat(detail.teamFields()).containsExactly(new JiraDtos.TeamField("customfield_4", "Team", "ENG-Platform"));
         assertThat(jira.detail("connection", "cloud", "1001", false).peopleFields()).isEqualTo(detail.peopleFields());
 
         // A detail cached before these fields existed still opens, without them.

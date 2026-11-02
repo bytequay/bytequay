@@ -862,7 +862,7 @@ describe('PullOverview', () => {
   it('shows commits and force pushes in the timeline', () => {
     const value = detail();
     value.recentActivity = [
-      timelineActivity({ actor: 'Yuri Ebbing', eventType: 'committed', timestamp: '2026-08-20T10:00:00Z', remoteId: null }, { commitSha: '4f81d3193402', commitMessage: 'Retry BigQuery Storage Write API' }),
+      timelineActivity({ actor: 'Yuri Ebbing', eventType: 'committed', timestamp: '2026-08-20T10:00:00Z', remoteId: null }, { commitSha: '4f81d3193402', commitMessage: 'Retry storage writes' }),
       timelineActivity({ actor: 'ezra-b', eventType: 'head_ref_force_pushed', timestamp: '2026-08-20T10:02:00Z', remoteId: 21 }),
       timelineActivity({ actor: 'ezra-b', eventType: 'head_ref_force_pushed', timestamp: '2026-08-20T10:03:00Z', remoteId: 22 }),
     ];
@@ -872,15 +872,15 @@ describe('PullOverview', () => {
     expect(groupTimelineActivities(value.recentActivity).map(group => group[0].eventType))
       .toEqual(['committed', 'head_ref_force_pushed']);
     expect(groupTimelineActivities(value.recentActivity)[1]).toHaveLength(2);
-    expect(html).toContain('Retry BigQuery Storage Write API');
+    expect(html).toContain('Retry storage writes');
     expect(html).toContain('<code>4f81d31</code>');
     expect(html).toContain('force-pushed the head branch 2 times');
     expect(html.match(/force-pushed the head branch/g)).toHaveLength(1);
-    expect(html.indexOf('Retry BigQuery Storage Write API')).toBeLessThan(html.indexOf('force-pushed the head branch'));
+    expect(html.indexOf('Retry storage writes')).toBeLessThan(html.indexOf('force-pushed the head branch'));
   });
 
   it.each([
-    ['jc/lakekeeper-azure-credential-vending', 'stale-branch', 'deleted the <code>jc/lakekeeper-azure-credential-vending</code> branch'],
+    ['feature/credential-refresh', 'stale-branch', 'deleted the <code>feature/credential-refresh</code> branch'],
     [null, 'feature/overview', 'deleted the <code>feature/overview</code> branch'],
     [null, null, 'deleted the head branch'],
   ])('names the deleted head branch from detail %s and summary %s', (headRef, summaryHeadRef, expected) => {

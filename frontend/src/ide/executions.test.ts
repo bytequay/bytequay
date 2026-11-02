@@ -13,7 +13,7 @@
  */
 /* eslint-disable import/no-unresolved -- Pinned VS Code service types. */
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { getService, ITestService, IDebugService } from '@codingame/monaco-vscode-api';
+import { getService, ITestService, ITestProfileService, IDebugService } from '@codingame/monaco-vscode-api';
 import type { IDebugSession } from '@codingame/monaco-vscode-api/vscode/vs/workbench/contrib/debug/common/debug';
 import type * as vscode from 'vscode';
 import type { ITestResult } from '@codingame/monaco-vscode-api/vscode/vs/workbench/contrib/testing/common/testResult';
@@ -29,7 +29,7 @@ vi.mock('@codingame/monaco-vscode-api/vscode/vs/base/browser/markdownRenderer', 
 
 const services = vi.hoisted(() => new Map<unknown, unknown>());
 vi.mock('@codingame/monaco-vscode-api', () => ({ getService: async (id: unknown) => services.get(id),
-  ITestService: 'tests', ITestResultService: 'results', IDebugService: 'debug', ITerminalService: 'terminals', ICommandService: 'commands' }));
+  ITestService: 'tests', ITestResultService: 'results', ITestProfileService: 'profiles', IDebugService: 'debug', ITerminalService: 'terminals', ICommandService: 'commands' }));
 vi.mock('@codingame/monaco-vscode-api/vscode/vs/workbench/contrib/terminal/browser/terminal.service', () => ({ ITerminalInstanceService: 'terminalInstances' }));
 vi.mock('@codingame/monaco-vscode-api/vscode/vs/workbench/contrib/tasks/common/taskService.service', () => ({ ITaskService: 'tasks' }));
 
@@ -48,6 +48,7 @@ let adapterEvents: Event<{ type: string; event: string; body: { output?: string;
 let originalDebug: ReturnType<typeof vi.fn>;
 let originalTests: ReturnType<typeof vi.fn>;
 let originalTask: ReturnType<typeof vi.fn>;
+let addedProfile: ReturnType<typeof vi.fn>;
 let rawTask: { _executeTask: (...args: unknown[]) => unknown; _reRunTaskCommand: (only: boolean) => unknown };
 let save: ReturnType<typeof vi.fn>;
 let start: ReturnType<typeof vi.fn>;
@@ -75,6 +76,9 @@ beforeEach(async () => {
   originalTask = vi.fn().mockImplementation(async () => ({ exitCode: 0 }));
   services.set('tests', { runResolvedTests: originalTests, startContinuousRun: vi.fn(), onDidCancelTestRun: noEvent, cancelTestRun: vi.fn() });
   services.set('results', { results: testResults, onResultsChanged: noEvent });
+  addedProfile = vi.fn();
+  services.set('profiles', { addProfile: addedProfile, removeProfile: vi.fn(),
+    all: () => [{ profiles: [{ controllerId: 'java', profileId: 1, group: 2 }, { controllerId: 'java', profileId: 2, group: 4 }] }] });
   const adapters = { createDebugAdapter: () => ({ onEvent: adapterEvents.event, onError: noEvent }) };
   services.set('debug', { startDebugging: originalDebug, stopSession: vi.fn(), onWillNewSession: onSession.event, onDidEndSession: onEndSession.event, getAdapterManager: () => adapters });
   services.set('terminalInstances', { getBackend: async () => ({ getEnvironment: async () => ({}) }) });
@@ -91,6 +95,18 @@ beforeEach(async () => {
 });
 afterEach(() => { gate?.dispose(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
+it('removes existing and late debug profiles from gutter actions while retaining Run profiles', async () => {
+  const profiles = await getService(ITestProfileService);
+  expect(profiles.removeProfile).toHaveBeenCalledOnce();
+  expect(profiles.removeProfile).toHaveBeenCalledWith('java', 2);
+  const controller = { id: 'go' } as Parameters<typeof profiles.addProfile>[0];
+  const profile = { controllerId: 'go', profileId: 3, group: 2 } as Parameters<typeof profiles.addProfile>[1];
+  profiles.addProfile(controller, profile);
+  profiles.addProfile(controller, { ...profile, profileId: 4, group: 4 });
+  expect(addedProfile).toHaveBeenCalledOnce();
+  expect(addedProfile).toHaveBeenCalledWith(controller, profile);
+});
+
 it('saves before requesting ownership and never dispatches a test whose claim is denied', async () => {
   start.mockRejectedValueOnce(new Error('The agent is working'));
   const tests = await getService(ITestService);
@@ -103,24 +119,85 @@ it('saves before requesting ownership and never dispatches a test whose claim is
   expect(start).toHaveBeenCalledTimes(1);
 });
 
-it('holds a paused or restarting debug session until backend process verification succeeds', async () => {
+it('protects slow execution preparation before a backend claim exists', async () => {
+  let prepared!: (saved: boolean) => void;
+  save.mockImplementationOnce(() => new Promise<boolean>(resolve => { prepared = resolve; }));
+  const starting = (await getService(ITestService)).runResolvedTests(request);
+  expect(gate.starting).toBe(true);
+  expect(gate.run).toBeNull();
+  await vi.advanceTimersByTimeAsync(180_000);
+  expect(gate.starting).toBe(true);
+  expect(start).not.toHaveBeenCalled();
+  prepared(false);
+  await expect(starting).rejects.toThrow('Save or resolve');
+  expect(gate.starting).toBe(false);
+});
+
+it('holds a restarting run adapter until backend process verification succeeds', async () => {
   const debug = await getService(IDebugService);
-  await debug.startDebugging(undefined, 'Example');
-  expect(originalDebug).toHaveBeenCalledWith(undefined, 'Example', undefined, false);
+  expect(vi.getTimerCount()).toBe(0);
+  await debug.startDebugging(undefined, 'Example', { noDebug: true });
+  expect(vi.getTimerCount()).toBe(1);
+  expect(originalDebug).toHaveBeenCalledWith(undefined, 'Example', { noDebug: true }, false);
   await vi.advanceTimersByTimeAsync(2000);
   expect(finish).not.toHaveBeenCalled();
   onEndSession.fire({ session, restart: true });
   await vi.advanceTimersByTimeAsync(500);
   expect(finish).not.toHaveBeenCalled();
-  finish.mockResolvedValue({ ...liveRun, scope: 'DEBUG', status: 'COMPLETED', treeUnverified: true });
+  finish.mockResolvedValue({ ...liveRun, scope: 'RUN', status: 'COMPLETED', treeUnverified: true });
   onEndSession.fire({ session, restart: false });
   await vi.advanceTimersByTimeAsync(500);
   expect(gate.run?.treeUnverified).toBe(true);
-  await expect(debug.startDebugging(undefined, 'Another')).rejects.toThrow('Stop the current execution');
-  finish.mockResolvedValue({ ...liveRun, scope: 'DEBUG', status: 'COMPLETED', treeUnverified: false });
+  expect(vi.getTimerCount()).toBe(1);
+  await expect(debug.startDebugging(undefined, 'Another', { noDebug: true })).rejects.toThrow('Stop the current execution');
+  finish.mockResolvedValue({ ...liveRun, scope: 'RUN', status: 'COMPLETED', treeUnverified: false });
   await vi.advanceTimersByTimeAsync(250);
   expect(gate.run).toBeNull();
+  expect(vi.getTimerCount()).toBe(0);
   expect(finish.mock.calls[0][1]).toMatchObject({ tests: [], cancelled: false, failed: false });
+});
+
+it('rejects debugging before saving, claiming the worktree, or starting a controller', async () => {
+  const debug = await getService(IDebugService);
+  const tests = await getService(ITestService);
+  await expect(debug.startDebugging(undefined, 'Example')).rejects.toThrow('Debugging is not enabled');
+  await expect(debug.startDebugging(undefined, { type: 'java', request: 'launch', name: 'Example', noDebug: false })).rejects.toThrow('Debugging is not enabled');
+  await expect(tests.runResolvedTests({ ...request, group: 4 })).rejects.toThrow('choose Run tests');
+  expect(save).not.toHaveBeenCalled();
+  expect(start).not.toHaveBeenCalled();
+  expect(originalDebug).not.toHaveBeenCalled();
+  expect(originalTests).not.toHaveBeenCalled();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it('stops the capture timer only after a force stop verifies the process tree', async () => {
+  await (await getService(IDebugService)).startDebugging(undefined, 'Example', { noDebug: true });
+  vi.mocked(window.ideWorkbench.stopExecution).mockResolvedValueOnce({ ...liveRun, treeUnverified: true });
+  await gate.stop(true);
+  expect(vi.getTimerCount()).toBe(1);
+  vi.mocked(window.ideWorkbench.stopExecution).mockResolvedValueOnce({ ...liveRun, treeUnverified: false });
+  await gate.stop(true);
+  expect(gate.run).toBeNull();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it('preserves the Java noDebug adapter under its existing test execution claim', async () => {
+  const debug = await getService(IDebugService);
+  const result = await originalTests();
+  originalTests.mockImplementation(async () => {
+    await debug.startDebugging(undefined, { type: 'java', request: 'launch', name: 'Java test', noDebug: true });
+    return result;
+  });
+  await (await getService(ITestService)).runResolvedTests(request);
+  await vi.advanceTimersByTimeAsync(500);
+  expect(start).toHaveBeenCalledOnce();
+  expect(start).toHaveBeenCalledWith({ scope: 'TESTS', label: 'Run tests', path: null });
+  expect(originalDebug).toHaveBeenCalledOnce();
+  expect(gate.run?.scope).toBe('TESTS');
+  expect(finish).not.toHaveBeenCalled();
+  onEndSession.fire({ session, restart: false });
+  await vi.advanceTimersByTimeAsync(500);
+  expect(finish).toHaveBeenCalledOnce();
 });
 
 it('retries the same output sequence before finishing and preserves UTF-8 split across chunks', async () => {
@@ -170,8 +247,8 @@ it('rejects malformed execution frames and strips renderer-supplied owner fields
 
 it('records remote adapter events and closes only execution-owned shells before completion', async () => {
   const debug = await getService(IDebugService);
-  await debug.startDebugging(undefined, 'Example');
-  const adapter = debug.getAdapterManager().createDebugAdapter({ configuration: { request: 'launch' } } as IDebugSession);
+  await debug.startDebugging(undefined, 'Example', { noDebug: true });
+  const adapter = debug.getAdapterManager().createDebugAdapter({ configuration: { request: 'launch', noDebug: true } } as IDebugSession);
   const nativeListener = vi.fn();
   adapter?.onEvent(nativeListener);
   const terminal = { onData: noEvent, onExit: noEvent, dispose: vi.fn() };

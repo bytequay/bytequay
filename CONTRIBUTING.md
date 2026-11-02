@@ -113,6 +113,70 @@ read the app's database. Run them while other builds are idle:
 The benchmarks check their results but impose no timing thresholds on CI.
 They measure local processing only, excluding model and network latency.
 
+The IDE runtime benchmark uses eight generated Java projects and isolated
+Electron, extension-host, and language-server profiles. On macOS with JDK 25,
+after preparing the frontend dependencies and IDE bundle, run from the
+repository root:
+
+```bash
+node scripts/benchmark-ide.mjs --label current --runs 3
+```
+
+It checks real definitions and references, then samples the owned process trees
+through 70 seconds of idle time. Results in
+`frontend/test-results/ide-trim/<label>/results.json` include peak and idle summed
+RSS, CPU time, navigation latency, and the source hashes. Keep builds and tests
+idle during measurement. RSS includes shared pages and is not unique physical
+memory. This harness measures the editor runtime, not the whole desktop app or
+its hidden-view UI polling.
+
+For a before/after comparison, preserve `frontend/vendor/ide` before rebuilding
+it, then supply that copy with `--bundle <path>` and the baseline commit with
+`--ref <commit>`. This selects the baseline runtime, execution coordinator, and
+extension manifest. Use the same dependencies and workload for both sets.
+`--integration true --runs 1` separately verifies a real Java Run test using
+cached JUnit 4.13.2 and Hamcrest Core 1.3 artifacts in `~/.m2`; this shorter
+integration run is not a resource comparison. The harness never reads the app
+database or starts an agent.
+
+For the draft-retention comparison, preserve the tracker before changing it:
+
+```bash
+mkdir -p frontend/vendor/ide-benchmark/idle-cleanup-before
+cp frontend/src/ide/drafts.ts frontend/vendor/ide-benchmark/idle-cleanup-before/
+```
+
+Then run from the repository root:
+
+```bash
+node scripts/benchmark-ide-drafts.mjs
+```
+
+For the restore-speed comparison, preserve the aggressive idle-cleanup source
+before changing it to retain the selected editor:
+
+```bash
+mkdir -p frontend/vendor/ide-benchmark/fast-resume-before
+cp frontend/src/ideViews.ts frontend/src/idePreload.ts frontend/src/ide/drafts.ts frontend/src/ide/runtime.ts frontend/vendor/ide-benchmark/fast-resume-before/
+node scripts/benchmark-ide-lifecycle.mjs --prepare-only true
+node scripts/benchmark-ide-lifecycle.mjs --prepared true --runs 3
+```
+
+The draft diagnostic uses the production tracker with synthetic document
+events and forced garbage collection; it measures retained JavaScript heap,
+not application RSS. The lifecycle comparison uses real native windows, VS
+Code services, and Java navigation with an isolated synthetic backend adapter.
+Both variants use production minification and reuse their server port, matching
+the app. Each trial stays minimized for 150 seconds, covering the two-minute
+grace period and maintenance tick. The baseline suspends; the current policy
+keeps the selected editor running. Separate timing milestones record editor
+restoration and real Java definition/reference readiness. The harness excludes
+the full React application and Spring backend. Its paired results and source
+hashes are in `frontend/test-results/ide-fast-resume/`. Keep builds and other
+tests stopped during the prepared lifecycle run. `--diagnostic true --runs 1`
+uses a shifted clock for a shorter smoke check and is excluded from resource
+comparisons.
+
 ## Claude accounts
 
 Settings → Models shows CLI status and the default Claude account, with Sign

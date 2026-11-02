@@ -45,6 +45,7 @@ import { installHeaderFolding } from './folding';
 import { installTestTabColors } from './testTabColors';
 import { coordinateSaves } from './save';
 import { coordinateExecutions } from './executions';
+import { installEditorActions } from './editorActions';
 import { ExtensionPolicy } from './extensionPolicy';
 import getStatus from './statusEntries';
 import manifest from './runtimeManifest.json';
@@ -80,6 +81,7 @@ export function resolveIdeTheme(preference: string): string {
 export type IdeRuntime = Awaited<ReturnType<typeof startRuntime>>;
 
 export async function startRuntime(connection: IdeConnection, container: HTMLElement) {
+  installEditorActions();
   window.MonacoEnvironment = { getWorker: (_id, label) => label === 'TextMateWorker' ? new TextmateWorker() : new EditorWorker() };
   const workspace = URI.from({ scheme: 'vscode-remote', authority: connection.authority, path: connection.root });
   const theme = resolveIdeTheme(localStorage.getItem('bytequay.ide.theme') ?? 'Follow app');
@@ -90,7 +92,12 @@ export async function startRuntime(connection: IdeConnection, container: HTMLEle
     'workbench.startupEditor': 'none', 'workbench.editor.restoreViewState': true,
     'editor.bracketPairColorization.enabled': false, 'editor.folding': true, 'editor.foldingHighlight': false, 'editor.foldingImportsByDefault': true, 'editor.semanticHighlighting.enabled': true,
     'editor.minimap.enabled': false, 'editor.fontSize': 12, 'editor.fontFamily': 'Menlo, monospace', 'editor.scrollBeyondLastLine': false,
+    'editor.quickSuggestions': false, 'editor.suggestOnTriggerCharacters': false, 'editor.wordBasedSuggestions': 'off',
+    'editor.inlineSuggest.enabled': false, 'editor.parameterHints.enabled': false, 'editor.inlayHints.enabled': 'off',
     'telemetry.telemetryLevel': 'off', 'java.autobuild.enabled': true, 'java.maxConcurrentBuilds': 8,
+    'java.completion.enabled': false, 'java.debug.settings.enableRunDebugCodeLens': false,
+    // TextMate supplies syntax highlighting; navigation needs the standard server, without a second syntax-only JVM.
+    'java.server.launchMode': 'Standard',
     'java.configuration.updateBuildConfiguration': 'automatic', 'java.trace.server': 'off',
     // Library JARs cannot call project code, so searching them only slows usages; their index is the same for every task.
     'java.search.scope': 'projectOnly', 'java.sharedIndexes.enabled': 'on',
@@ -98,9 +105,15 @@ export async function startRuntime(connection: IdeConnection, container: HTMLEle
     // without stopping the first; both then import the same workspace and corrupt its project state.
     'java.transport': 'stdio',
     'go.showWelcome': false, 'go.toolsManagement.autoUpdate': false, 'go.toolsManagement.checkForUpdates': 'off',
-    'rust-analyzer.testExplorer': true, 'extensions.autoUpdate': false, 'extensions.autoCheckUpdates': false,
+    'go.testExplorer.enable': true, 'go.enableCodeLens': { runtest: false },
+    'rust-analyzer.testExplorer': true, 'rust-analyzer.checkOnSave': false,
+    'rust-analyzer.lens.debug.enable': false, 'rust-analyzer.lens.implementations.enable': false,
+    'extensions.autoUpdate': false, 'extensions.autoCheckUpdates': false,
     'testing.saveBeforeTest': false, 'debug.saveBeforeStart': 'none', 'task.saveBeforeRun': 'never',
+    'debug.toolBarLocation': 'hidden', 'debug.openDebug': 'neverOpen', 'debug.internalConsoleOptions': 'neverOpen',
     'task.allowAutomaticTasks': 'off', 'task.reconnection': false,
+    // The custom Terminal tab opens shells explicitly; an unused native panel must not start one during restore.
+    'terminal.integrated.hideOnStartup': 'whenEmpty',
     'git.enabled': false, 'scm.graph.pageSize': 100, 'terminal.integrated.enablePersistentSessions': false,
   }));
   await initUserKeybindings(JSON.stringify(localStorage.getItem('bytequay.ide.keymap') === 'VS Code' ? assistantKeys : ideaKeys));

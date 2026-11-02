@@ -557,5 +557,12 @@ const ide: IdeDesktopBridge = {
   reply: reply => ipcRenderer.send('ide:reply', reply),
   onRequest: listener => subscribe('ide:request', listener),
   onEvent: listener => subscribe('ide:event', listener),
+  onVisibility: listener => {
+    let live = true;
+    let received = false;
+    const stop = subscribe('ide:window-visibility', (visible: boolean) => { received = true; listener(visible); });
+    void ipcRenderer.invoke('ide:window-visibility').then((visible: boolean) => { if (live && !received) listener(visible); });
+    return () => { live = false; stop(); };
+  },
 };
 contextBridge.exposeInMainWorld('ide', ide);

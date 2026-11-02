@@ -50,13 +50,16 @@ describe('coordinated IDE saves', () => {
     mocks.save.mockImplementation(() => new Promise<void>(resolve => { finish = resolve; }));
     const chunks = ['saved ', 'snapshot'];
     const writing = mocks.textFiles.write(uri, { read: () => chunks.shift() ?? null }, { etag: 'loaded' });
+    expect(saves.pending).toBe(true);
     await vi.waitFor(() => expect(mocks.save).toHaveBeenCalled());
     expect(saved).not.toHaveBeenCalled();
     finish();
     await writing;
+    expect(saves.pending).toBe(false);
     expect(saved).toHaveBeenCalledWith({ resource: uri, text: 'saved snapshot' });
     mocks.save.mockRejectedValueOnce(new Error('Unavailable'));
     await expect(mocks.textFiles.write(uri, 'failed snapshot', { etag: 'loaded' })).rejects.toThrow('Unavailable');
+    expect(saves.pending).toBe(false);
     expect(saved).toHaveBeenCalledTimes(1);
   });
   it('rejects a stale buffer before sending any bytes', async () => {

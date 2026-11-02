@@ -52,8 +52,9 @@ export async function verifyFileAppearance() {
   const stop = installTestTabColors(editors);
   const root = createRoot(tree);
   let opened = '';
+  let previewed = '';
   flushSync(() => root.render(<TreeItems items={buildFileTree(paths.map(path => ({ path, changedInPr: false, addedInPr: false, onlyInWorkingCopy: false, uncommitted: false })), file => file.path, { layout: 'ide' })}
-    depth={0} selected={paths[1]} isOpen={() => true} onToggle={() => undefined} onOpen={path => { opened = path; }}
+    depth={0} selected={paths[1]} isOpen={() => true} onToggle={() => undefined} onOpen={path => { opened = path; }} onPreview={path => { previewed = path; }}
     renderFileIcon={path => path.endsWith('.java') ? <JavaFileIcon uri={uri(path).toString()} /> : undefined} />));
   const until = async (test: () => boolean, message: string) => {
     for (let attempt = 0; attempt < 100; attempt++) { if (test()) return; await new Promise(resolve => setTimeout(resolve, 50)); }
@@ -77,7 +78,11 @@ export async function verifyFileAppearance() {
     assert(row('src/test/resources/target').querySelector('[aria-label="Build output"]') === null, 'A target directory in resources is not build output');
     assert(row('docs/java').querySelector('[aria-label="Directory"]') !== null, 'An unrelated java directory remains generic');
     assert(row('pom.xml').querySelector('[aria-label="Maven POM"]') !== null, 'Maven POM has its own icon');
-    row(paths[0]).click(); assert(opened === paths[0], 'Opening uses the full unchanged source path');
+    row(paths[0]).dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    assert(previewed === paths[0] && opened === '', 'A single mouse click previews the full source path without pinning');
+    row(paths[0]).dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 }));
+    assert(opened === paths[0], 'A double click pins the file');
+    row(paths[1]).click(); assert(opened === paths[1], 'Keyboard activation pins the full unchanged source path');
     for (const path of [paths[0], paths[1], paths[4], paths[5]]) await editors.openEditor({ resource: uri(path), options: { pinned: true } });
     const group = editors.activeEditorPane?.group;
     assert(group !== undefined, 'Native editor group opens');

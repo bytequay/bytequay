@@ -51,12 +51,13 @@ export type IdeContext = {
 
 export type IdeRequest = { id: string; requestId: string; method: string; args: unknown[] };
 export type IdeReply = { requestId: string; value?: unknown; error?: string };
-export type IdeEvent = { id: string; dirty: number; busy: boolean; closed?: boolean; error?: string };
+export type IdeEvent = { id: string; dirty: number; busy: boolean; closed?: boolean; suspended?: boolean; error?: string };
+export type IdeStateReport = Pick<IdeEvent, 'dirty' | 'busy' | 'error'> & { idleCheckId?: string };
 export type IdeBounds = { x: number; y: number; width: number; height: number };
 
 /** Only the ByteQuay renderer can own or position an IDE view. */
 export type IdeDesktopBridge = {
-  resume: (host: CodeHostRef) => Promise<string | null>;
+  resume: (host: CodeHostRef, previousId?: string) => Promise<string | null>;
   open: (host: CodeHostRef) => Promise<string>;
   /** Covered editors retain their session; a new DOM focus choice can cancel restoration. */
   present: (id: string, bounds: IdeBounds | null, covered?: boolean, allowFocusRestore?: boolean) => Promise<void>;
@@ -65,6 +66,7 @@ export type IdeDesktopBridge = {
   reply: (reply: IdeReply) => void;
   onRequest: (listener: (request: IdeRequest) => void) => () => void;
   onEvent: (listener: (event: IdeEvent) => void) => () => void;
+  onVisibility: (listener: (visible: boolean) => void) => () => void;
 };
 
 /** The isolated workbench has no desktop session token and cannot invoke arbitrary app IPC. */
@@ -80,8 +82,10 @@ export type IdeWorkbenchBridge = {
   save: (path: string, content: string, expectedHash: string) => Promise<void>;
   bootstrap: () => Promise<{ connection: IdeConnection; context: IdeContext | null }>;
   request: (method: string, ...args: unknown[]) => Promise<unknown>;
-  report: (event: Pick<IdeEvent, 'dirty' | 'busy' | 'error'>) => void;
+  report: (event: IdeStateReport) => void;
+  onIdleCheck: (listener: (id: string) => void) => () => void;
   onContext: (listener: (context: IdeContext) => void) => () => void;
+  onVisibility: (listener: (visible: boolean) => void) => () => void;
 };
 
 declare global {

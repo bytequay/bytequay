@@ -324,7 +324,32 @@ For a watched PR, open **WorkBench → Tears of time → Create worktree to
 explore**. It opens a local editor and starts no agent.
 
 - **Shift twice** or **⌘⇧F** searches everywhere; **⌘F** searches the file.
-- A test’s play button runs or debugs it.
+- Select a file in the left tree to preview it; double-click to keep its tab open.
+- **⌘B** jumps to a definition, **⌥F7** finds usages, and **⌃⌥H** shows callers
+  with the IDEA keymap.
+- Edit and save files, then use a test’s play button to run it. **Run** shows
+  results and output; **Terminal** opens a shell in the task’s working copy.
+- **Blame** shows line authorship; **Git history** shows commits and changes.
+
+The editor keeps its IDEA-style layout and VS Code navigation and test support.
+Debugger controls, automatic completion, and inlay hints are disabled. Rust
+checks run with your tests or terminal commands rather than on every save.
+
+Java, Go, and Rust language extensions are included. Viewing and editing Go or
+Rust files uses the same editor, file tree, Git history, and terminal. Project
+navigation and test runs also need the language's local tools: Go and `gopls`
+for Go projects, or Rust's `cargo`, `rustc`, and `rust-src` for Rust projects.
+Open the project root containing `go.mod`/`go.work` or `Cargo.toml` so the
+language service can resolve its packages and dependencies.
+
+The selected editor stays running while ByteQuay is minimized, so returning
+does not restart its language service. This keeps more memory in use for a
+faster return. Other unused editors can release their runtime after about two
+minutes out of view. Returning to one of those editors restarts it and restores
+its tabs; language navigation may take a moment to become ready.
+Unsaved edits, running tests, pending operations, and open terminal sessions
+keep the runtime alive. A silent terminal is still protected; use `exit` when
+you are finished with its shell.
 
 On your own PR, **Development** opens or creates its agent task. **Review** opens
 or starts a review task. Both use a robot icon; an assigned Development task has

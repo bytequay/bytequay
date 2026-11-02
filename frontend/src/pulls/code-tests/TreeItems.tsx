@@ -17,13 +17,14 @@ import type { FileTreeItem } from '../fileTree';
 import { fileName, inTestRoot, isTestFile } from './codeModel';
 import type { ReviewCodeFileEntryDto } from './contracts';
 
-export default function TreeItems({ items, depth, selected, isOpen, onToggle, onOpen, renderFileIcon }: {
+export default function TreeItems({ items, depth, selected, isOpen, onToggle, onOpen, onPreview, renderFileIcon }: {
   items: FileTreeItem<ReviewCodeFileEntryDto>[];
   depth: number;
   selected: string | null;
   isOpen: (path: string) => boolean;
   onToggle: (path: string) => void;
   onOpen: (path: string) => void;
+  onPreview?: (path: string) => void;
   renderFileIcon?: (path: string) => ReactNode;
 }) {
   return (
@@ -42,11 +43,11 @@ export default function TreeItems({ items, depth, selected, isOpen, onToggle, on
           </button>
           {isOpen(item.path) && (
             <TreeItems items={item.children} depth={depth + 1} selected={selected} isOpen={isOpen}
-              onToggle={onToggle} onOpen={onOpen} renderFileIcon={renderFileIcon} />
+              onToggle={onToggle} onOpen={onOpen} onPreview={onPreview} renderFileIcon={renderFileIcon} />
           )}
         </li>
       ) : (
-        <FileRow key={`file:${item.path}`} entry={item.entry} depth={depth} selected={selected === item.path} onOpen={onOpen} icon={renderFileIcon?.(item.path)} />
+        <FileRow key={`file:${item.path}`} entry={item.entry} depth={depth} selected={selected === item.path} onOpen={onOpen} onPreview={onPreview} icon={renderFileIcon?.(item.path)} />
       ))}
     </ul>
   );
@@ -69,17 +70,20 @@ function DirectoryIcon({ path, module }: { path: string; module?: boolean }) {
   </span>;
 }
 
-function FileRow({ entry, depth, selected, onOpen, icon }: {
+function FileRow({ entry, depth, selected, onOpen, onPreview, icon }: {
   entry: ReviewCodeFileEntryDto;
   depth: number;
   selected: boolean;
   onOpen: (path: string) => void;
+  onPreview?: (path: string) => void;
   icon?: ReactNode;
 }) {
   return (
     <li>
       <button type="button" className={`ct-tree__row is-file${isTestFile(entry.path) ? ' is-test-root' : ''}${selected ? ' is-selected' : ''}`} style={{ paddingLeft: 8 + depth * 16 }}
-        title={entry.path} aria-current={selected ? 'true' : undefined} onClick={() => onOpen(entry.path)}>
+        title={entry.path} aria-current={selected ? 'true' : undefined}
+        onClick={event => event.detail > 0 && onPreview ? onPreview(entry.path) : onOpen(entry.path)}
+        onDoubleClick={onPreview ? () => onOpen(entry.path) : undefined}>
         <span className="ct-tree__twisty" aria-hidden="true" />
         {icon ?? (fileName(entry.path) === 'pom.xml'
           ? <span className="ct-tree__icon ct-tree__maven" role="img" aria-label="Maven POM" title="Maven POM">m</span>

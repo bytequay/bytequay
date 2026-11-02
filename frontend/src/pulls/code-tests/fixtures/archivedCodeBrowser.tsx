@@ -18,7 +18,7 @@ import RunPanel from '../RunPanel';
 import type { LocalRunDto, ReviewCodeFilesDto } from '../contracts';
 import type { CodeTestsBridge } from '../CodeTestsTab';
 import { useCodeComments, type CodeCommentsOptions } from '../useCodeComments';
-import { textButton, element as fixtureElement, assert, changeInput, settle } from '../../../fixtures/harness';
+import { textButton, element as fixtureElement, assert, changeInput, settle, controlTimers } from '../../../fixtures/harness';
 import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto } from '../../../types';
 import { reviewFixture } from '../../agent-review/fixtures/review';
 import TestRuns from '../../../ide/TestRuns';
@@ -189,6 +189,7 @@ export async function runArchivedCodeScenarios(): Promise<{ name: string; error?
     results.push({ name: 'A failure and the run output take separate tabs' });
   } catch (error) { results.push({ name: 'Run failure and output tabs', error: String(error) }); }
   const originalWorkbench = window.ideWorkbench;
+  const outputTimers = controlTimers(1000);
   try {
     const run = (id: string, ordinal: number, debug = false): LocalRunDto => ({ id, ordinal, initiator: 'USER', scope: 'TESTS',
       path: 'main_test.go', testClass: null, testMethod: null, module: null, command: debug ? 'Debug tests' : 'Run tests',
@@ -200,45 +201,54 @@ export async function runArchivedCodeScenarios(): Promise<{ name: string; error?
     runs.unshift({ ...run('configuration', 5), scope: 'DEBUG', command: 'Launch configuration' });
     const outputs: string[] = [];
     let historyReads = 0;
+    let visible = true;
+    const visibilityListeners = new Set<(visible: boolean) => void>();
+    const present = (value: boolean) => { visible = value; visibilityListeners.forEach(listener => listener(value)); };
     window.ideWorkbench = { request: async (method: string, ...args: unknown[]) => {
       if (method === 'listCodeRuns') { historyReads++; return runs; }
       if (method === 'readCodeRunOutput') {
         outputs.push(String(args[1]));
-        return { text: `Output for ${args[1]}`, nextOffset: 10, skippedBytes: 0, complete: true };
+        return { text: `Output for ${args[1]}`, nextOffset: 10, skippedBytes: 0, complete: runs.find(run => run.id === args[1])?.status !== 'RUNNING' };
       }
       throw new Error(`Unexpected request: ${method}`);
-    } } as typeof window.ideWorkbench;
+    }, onVisibility: listener => { visibilityListeners.add(listener); listener(visible); return () => { visibilityListeners.delete(listener); }; } } as typeof window.ideWorkbench;
     const context = { host: { kind: 'task', taskId: 'task' }, review: null, task: null } as IdeContext;
     const runtime = { executions: { run: null } } as IdeRuntime;
-    const render = (mode: 'run' | 'debug' | null) => flushSync(() => root.render(<TestRuns context={context} files={null} runtime={runtime} mode={mode} />));
-    const panel = (mode: 'Run' | 'Debug') => {
-      const element = host.querySelector<HTMLElement>(`[aria-label="${mode} tests"]`);
-      assert(element !== null, `${mode} must have a result panel`); return element;
+    const render = (active: boolean) => flushSync(() => root.render(<TestRuns context={context} files={null} runtime={runtime} active={active} />));
+    const panel = () => {
+      const element = host.querySelector<HTMLElement>('[aria-label="Run tests"]');
+      assert(element !== null, 'Run must have a result panel'); return element;
     };
-    const selected = (mode: 'Run' | 'Debug') => panel(mode).querySelector('[role="tab"][aria-selected="true"]')?.textContent;
-    render('run'); await settle(); await settle();
-    assert(selected('Run')?.includes('#3') && selected('Debug')?.includes('#4'), 'Each panel selects its latest matching execution');
-    assert(panel('Run').querySelector('[role="treeitem"]')?.textContent?.includes('run-newTest'), 'Passing tests are visible by default');
-    assert(!host.querySelector('.ct-run__mode') && !host.textContent?.includes('Launch configuration'), 'Embedded results have no nested Run label or launch configuration');
-    const history = (mode: 'Run' | 'Debug') => {
-      const button = fixtureElement<HTMLButtonElement>('.ct-run__history', panel(mode), 'History button must remain available');
-      flushSync(() => button.click());
-    };
-    history('Run'); await settle();
-    assert(panel('Run').querySelectorAll('.ct-history__row').length === 1 && !panel('Run').querySelector('.ct-history')?.textContent?.includes('Debug tests'), 'Run history excludes debug executions');
-    panel('Run').querySelector<HTMLButtonElement>('.ct-history__row')?.click(); await settle();
-    render('debug'); await settle();
-    assert(getComputedStyle(panel('Run')).display === 'none' && getComputedStyle(panel('Debug')).display !== 'none', 'Debug shows only its own results');
-    history('Debug'); await settle(); panel('Debug').querySelector<HTMLButtonElement>('.ct-history__row')?.click(); await settle();
+    const selected = () => panel().querySelector('[role="tab"][aria-selected="true"]')?.textContent;
+    render(false); await settle();
+    assert(historyReads === 0 && outputs.length === 0 && !host.querySelector('.ct-run'), 'A closed Run panel reads no history or logs');
+    render(true); await settle(); await settle();
+    assert(selected()?.includes('#5'), 'The latest retained execution remains available, including previous debug runs');
+    assert(!host.querySelector('.ct-run__mode') && !host.querySelector('[aria-label="Debug tests"]'), 'There is one Run results panel');
+    const historyButton = fixtureElement<HTMLButtonElement>('.ct-run__history', panel(), 'History button must remain available');
+    flushSync(() => historyButton.click()); await settle();
+    assert(panel().querySelectorAll('.ct-history__row').length === 4, 'Run history retains all previous execution results');
+    const previous = [...panel().querySelectorAll<HTMLButtonElement>('.ct-history__row')].find(button => button.textContent?.includes('#1'));
+    assert(previous, 'The oldest run remains selectable'); previous.click(); await settle();
+    assert(panel().querySelector('[role="treeitem"]')?.textContent?.includes('run-oldTest'), 'Passing tests are visible by default');
     const readsBeforeRefresh = historyReads;
-    render(null); render('run'); document.dispatchEvent(new Event('visibilitychange')); await settle();
-    assert(historyReads > readsBeforeRefresh, 'Returning to the app must refresh its run history');
-    assert(selected('Run')?.includes('#1') && selected('Debug')?.includes('#2'), 'Switching panels and refreshing history preserves both selections');
-    assert(outputs.includes('run-old') && outputs.includes('debug-old'), 'Selecting either history reads its retained log');
-    runs = [run('run-latest', 6), ...runs]; document.dispatchEvent(new Event('visibilitychange')); await settle();
-    assert(selected('Run')?.includes('#6') && selected('Debug')?.includes('#2'), 'A new run selects its result without changing the Debug selection');
-    results.push({ name: 'Run and Debug retain separate test results, logs and history selections' });
-  } catch (error) { results.push({ name: 'Run and Debug result panels', error: String(error) }); }
-  finally { dispose(); window.ideWorkbench = originalWorkbench; }
+    render(false); await settle(); document.dispatchEvent(new Event('visibilitychange')); await settle();
+    assert(historyReads === readsBeforeRefresh && !host.querySelector('.ct-run'), 'Closing the panel suspends history and unmounts its log reader');
+    render(true); await settle(); await settle();
+    assert(historyReads > readsBeforeRefresh && selected()?.includes('#1'), 'Reopening refreshes history and preserves the selected result');
+    runs = [{ ...run('run-latest', 6), status: 'RUNNING', endedAt: null }, ...runs];
+    document.dispatchEvent(new Event('visibilitychange')); await settle(); await settle();
+    assert(selected()?.includes('#6'), 'A newly captured run selects its result');
+    const hiddenReads = historyReads;
+    const hiddenOutputs = outputs.length;
+    flushSync(() => present(false)); await settle();
+    document.dispatchEvent(new Event('visibilitychange')); outputTimers.tick(); await settle();
+    assert(!host.querySelector('.ct-run') && historyReads === hiddenReads && outputs.length === hiddenOutputs,
+      'A hidden unthrottled editor reads neither history nor live output');
+    present(true); await settle(); await settle();
+    assert(historyReads > hiddenReads && outputs.length > hiddenOutputs && selected()?.includes('#6'), 'Presenting the editor resumes the live result');
+    results.push({ name: 'Run results retain history and pause readers while hidden' });
+  } catch (error) { results.push({ name: 'Run results visibility and history', error: String(error) }); }
+  finally { dispose(); outputTimers.restore(); window.ideWorkbench = originalWorkbench; }
   return results;
 }

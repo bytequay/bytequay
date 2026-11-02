@@ -28,13 +28,14 @@ export function sourceDrafts(storage: Pick<Storage, 'getItem'>, key = KEY): Sour
 
 /** Paths, rather than ephemeral server authorities, identify drafts across a runtime restart. */
 export function trackSourceDrafts(runtime: IdeRuntime, onError: (message: string) => void) {
-  const bases = new Map<string, string>();
+  // A closed preview/query document must not keep its source text alive for the entire workbench session.
+  const bases = new WeakMap<import('vscode').TextDocument, string>();
 
   const pathOf = (document: { uri: { scheme: string; path: string } }) => document.uri.scheme === 'vscode-remote'
     && document.uri.path.startsWith(runtime.workspace.path + '/') ? document.uri.path.slice(runtime.workspace.path.length + 1) : null;
   const remember = (document: import('vscode').TextDocument) => {
     const path = pathOf(document);
-    if (path !== null && !runtime.saves.isDirty(document.uri)) bases.set(path, document.getText());
+    if (path !== null && !runtime.saves.isDirty(document.uri)) bases.set(document, document.getText());
   };
   runtime.api.workspace.textDocuments.forEach(remember);
   const opened = runtime.api.workspace.onDidOpenTextDocument(remember);
@@ -45,9 +46,9 @@ export function trackSourceDrafts(runtime: IdeRuntime, onError: (message: string
     try { drafts = new Map(sourceDrafts(localStorage).map(draft => [draft.path, draft])); }
     catch { onError('Saved editor drafts could not be read. Keep this editor open until your changes are saved.'); return; }
     const existing = drafts.get(path);
-    if (!runtime.saves.isDirty(event.document.uri)) { bases.set(path, event.document.getText()); drafts.delete(path); }
+    if (!runtime.saves.isDirty(event.document.uri)) { bases.set(event.document, event.document.getText()); drafts.delete(path); }
     else {
-      const base = existing?.base ?? bases.get(path);
+      const base = existing?.base ?? bases.get(event.document);
       if (base === undefined) { onError(`Could not record the original contents of ${path}. Keep this editor open until saved.`); return; }
       drafts.set(path, { path, base, text: event.document.getText() });
     }
@@ -57,10 +58,10 @@ export function trackSourceDrafts(runtime: IdeRuntime, onError: (message: string
   const saved = runtime.saves.onDidSave(({ resource, text }) => {
     const path = pathOf({ uri: resource });
     if (path === null) return;
-    bases.set(path, text);
     try {
-      const drafts = new Map(sourceDrafts(localStorage).map(draft => [draft.path, draft]));
       const document = runtime.api.workspace.textDocuments.find(document => document.uri.toString() === resource.toString());
+      if (document) bases.set(document, text);
+      const drafts = new Map(sourceDrafts(localStorage).map(draft => [draft.path, draft]));
       const current = document?.getText() ?? drafts.get(path)?.text;
       if (current === undefined || current === text) drafts.delete(path);
       else drafts.set(path, { path, base: text, text: current });

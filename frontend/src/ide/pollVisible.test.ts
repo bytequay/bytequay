@@ -60,3 +60,31 @@ it('does not resume a disposed poll when its pending read completes', async () =
   document.dispatchEvent(new Event('visibilitychange'));
   expect(load).toHaveBeenCalledTimes(1);
 });
+
+it('pauses an unthrottled native editor until it is presented and resumes on return', async () => {
+  let present: (visible: boolean) => void = () => {};
+  const unsubscribe = vi.fn();
+  vi.stubGlobal('window', { ideWorkbench: { onVisibility: (listener: typeof present) => {
+    present = listener; listener(false); return unsubscribe;
+  } } });
+  const load = vi.fn(async () => {});
+  stop = pollVisible(load, 1500);
+  expect(vi.getTimerCount()).toBe(0);
+  await vi.advanceTimersByTimeAsync(15_000);
+  document.dispatchEvent(new Event('visibilitychange'));
+  expect(load).not.toHaveBeenCalled();
+  present(true);
+  expect(load).toHaveBeenCalledTimes(1);
+  expect(vi.getTimerCount()).toBe(1);
+  await vi.advanceTimersByTimeAsync(1500);
+  expect(load).toHaveBeenCalledTimes(2);
+  present(false);
+  expect(vi.getTimerCount()).toBe(0);
+  await vi.advanceTimersByTimeAsync(15_000);
+  expect(load).toHaveBeenCalledTimes(2);
+  present(true);
+  expect(load).toHaveBeenCalledTimes(3);
+  stop();
+  expect(unsubscribe).toHaveBeenCalledOnce();
+  expect(vi.getTimerCount()).toBe(0);
+});

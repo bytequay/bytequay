@@ -16,27 +16,22 @@ import RunPanel from '../pulls/code-tests/RunPanel';
 import { parseLocalRun, parseLocalRunOutput, codeHostKey, type LocalRunDto, type ReviewCodeFilesDto } from '../pulls/code-tests/contracts';
 import type { IdeContext } from './contracts';
 import type { IdeRuntime } from './runtime';
-import { pollVisible } from './pollVisible';
+import { observeVisibility, pollVisible } from './pollVisible';
 
-type Mode = 'run' | 'debug';
-
-export function testRunPanel(run: LocalRunDto): Mode | null {
-  // Test debug profiles are recorded by the test controller, including their debugger's output.
-  if (run.scope === 'TESTS' && run.command === 'Debug tests') return 'debug';
-  return run.scope === 'DEBUG' ? null : 'run';
-}
-
-export default function TestRuns({ context, files, runtime, mode }: {
-  context: IdeContext; files: ReviewCodeFilesDto | null; runtime: IdeRuntime; mode: Mode | null;
+export default function TestRuns({ context, files, runtime, active }: {
+  context: IdeContext; files: ReviewCodeFilesDto | null; runtime: IdeRuntime; active: boolean;
 }) {
   const [runs, setRuns] = useState<LocalRunDto[]>([]);
-  const [selected, setSelected] = useState<Record<Mode, string | null>>({ run: null, debug: null });
-  const newest = useRef<Record<Mode, string | null>>({ run: null, debug: null });
+  const [selected, setSelected] = useState<string | null>(null);
+  const newest = useRef<string | null>(null);
+  const [visible, setVisible] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const key = codeHostKey(context.host);
   const host = useMemo(() => context.host, [key]); // eslint-disable-line react-hooks/exhaustive-deps -- IPC context objects refresh; host identity is stable.
+  useEffect(() => observeVisibility(setVisible), []);
   useEffect(() => {
+    if (!active) return;
     let live = true;
     const load = async () => {
       try {
@@ -44,22 +39,20 @@ export default function TestRuns({ context, files, runtime, mode }: {
         if (!Array.isArray(value)) throw new Error('Invalid run history');
         if (live) {
           const next = value.map(parseLocalRun);
-          // Polled every 1.5 seconds; an unchanged history keeps the shown runs and skips the hidden panels' render.
+          // An unchanged history keeps the shown runs without rendering the result tree again.
           setRuns(shown => JSON.stringify(shown) === JSON.stringify(next) ? shown : next);
           setLoadError(null);
-          for (const panel of ['run', 'debug'] as const) {
-            const id = next.find(run => testRunPanel(run) === panel)?.id ?? null;
-            if (id !== newest.current[panel]) {
-              newest.current[panel] = id;
-              setSelected(current => ({ ...current, [panel]: id }));
-            }
+          const id = next[0]?.id ?? null;
+          if (id !== newest.current) {
+            newest.current = id;
+            setSelected(id);
           }
         }
       } catch (error) { if (live) setLoadError(`Could not refresh run history: ${String(error)}`); }
     };
     const stop = pollVisible(load, 1500);
     return () => { live = false; stop(); };
-  }, [host]);
+  }, [host, active]);
   const output = useCallback(async (id: string, after: number) => parseLocalRunOutput(await window.ideWorkbench.request('readCodeRunOutput', host, id, after)), [host]);
   const showRunHint = files !== null && (context.review
     ? context.review.state === 'OPEN' && files.source === 'WORKING_COPY'
@@ -71,20 +64,19 @@ export default function TestRuns({ context, files, runtime, mode }: {
       else await window.ideWorkbench.request('stopCodeRun', host, run.id);
     } catch (error) { setNotice(String(error)); }
   };
-  return <div className="ide-test-runs" style={{ display: mode === null ? 'none' : undefined }}>
+  // Unmount the output reader while hidden; execution capture continues independently in the runtime.
+  if (!active || !visible) return null;
+  return <div className="ide-test-runs" aria-label="Run tests">
     {(notice || loadError) && <div className="ide-notice" role="status">{notice ?? loadError}<button onClick={() => { setNotice(null); setLoadError(null); }}>Dismiss</button></div>}
-    {(['run', 'debug'] as const).map(panel => <div key={panel} className="ide-test-runs" aria-label={panel === 'run' ? 'Run tests' : 'Debug tests'}
-      style={{ display: mode === panel ? undefined : 'none' }}>
-      <RunPanel embedded runs={runs.filter(run => testRunPanel(run) === panel)} files={files} showRunHint={showRunHint} hostKind={host.kind}
-        onStop={run => { void stop(run); }} readOutput={output} selectedRunId={selected[panel]} onSelectRun={id => setSelected(current => ({ ...current, [panel]: id }))}
-        onAskAgent={(context.review ?? context.task)?.state === 'OPEN' ? (run, text) => {
-          void window.ideWorkbench.request('run.ask', run.id, text).then(shown => setNotice(shown === true ? null
-            : 'Added to the agent draft. Open the conversation to review and send.'), error => setNotice(String(error)));
-        } : undefined}
-        onRunWithAgent={host.kind === 'review' && context.review?.state === 'OPEN' ? (run, tests) => {
-          void window.ideWorkbench.request('run.agent', run.id, tests)
-            .then(() => setNotice('Asked the review agent to run these tests. Its run shows here, running, as soon as it starts Maven.'), error => setNotice(String(error)));
-        } : undefined} />
-    </div>)}
+    <RunPanel embedded runs={runs} files={files} showRunHint={showRunHint} hostKind={host.kind}
+      onStop={run => { void stop(run); }} readOutput={output} selectedRunId={selected} onSelectRun={setSelected}
+      onAskAgent={(context.review ?? context.task)?.state === 'OPEN' ? (run, text) => {
+        void window.ideWorkbench.request('run.ask', run.id, text).then(shown => setNotice(shown === true ? null
+          : 'Added to the agent draft. Open the conversation to review and send.'), error => setNotice(String(error)));
+      } : undefined}
+      onRunWithAgent={host.kind === 'review' && context.review?.state === 'OPEN' ? (run, tests) => {
+        void window.ideWorkbench.request('run.agent', run.id, tests)
+          .then(() => setNotice('Asked the review agent to run these tests. Its run shows here, running, as soon as it starts Maven.'), error => setNotice(String(error)));
+      } : undefined} />
   </div>;
 }

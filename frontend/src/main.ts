@@ -350,7 +350,7 @@ const quickAsk = new QuickAsk(async target => {
   if ('url' in target) requestBrowser(target.url);
   else mainWindow?.webContents.send('assistant:navigate', target);
 });
-const ideViews = new IdeViews(() => mainWindow, sender => codeTerminals.lastUsed(sender), () => appNotices.raise());
+const ideViews = new IdeViews(() => mainWindow, sender => codeTerminals.hasLive(sender), () => appNotices.raise());
 const artifactView = new ArtifactView(() => mainWindow,
   target => backendJson(workspaceUrl(target.workspaceId, `/artifacts/${encodeURIComponent(target.artifactId)}/pages/${encodeURIComponent(target.pageId)}`))
     .then(parseArtifactPage), () => appNotices.raise());
@@ -518,6 +518,11 @@ async function createWindow(): Promise<void> {
     },
   });
   if (process.platform === 'darwin') mainWindow.setWindowButtonVisibility(false);
+  const refreshIdeVisibility = () => ideViews.refreshVisibility();
+  mainWindow.on('show', refreshIdeVisibility);
+  mainWindow.on('hide', refreshIdeVisibility);
+  mainWindow.on('minimize', refreshIdeVisibility);
+  mainWindow.on('restore', refreshIdeVisibility);
   mainWindow.webContents.on('dom-ready', () => draftAttachments.clear());
   mainWindow.on('closed', () => {
     appNotices.releaseWindow();

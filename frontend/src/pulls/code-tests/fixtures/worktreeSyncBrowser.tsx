@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import { useState } from 'react';
+import { Activity, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createFixtureRoot } from '../../../fixtures/reactFixture';
 import CodeTestsTab, { type CodeTestsBridge } from '../CodeTestsTab';
@@ -30,22 +30,33 @@ export async function runStartup(taskHost: boolean): Promise<string> {
   const task = { ...parseAgentTask(contracts.task), interactive: true };
   let show: (active: boolean) => void = () => {};
   let event: (event: IdeEvent) => void = () => {};
+  let visibility: (visible: boolean) => void = () => {};
+  let nativeVisible = true;
+  let suspendedId: string | null = null;
   let checks = 0;
   let starts = 0;
-  let available = false;
+  let readyId: string | null = null;
   let finish: (id: string) => void = () => {};
   let fail: (error: Error) => void = () => {};
   const presentations: Parameters<typeof window.ide.present>[] = [];
   const oldIde = window.ide;
   window.ide = {
-    resume: async () => { checks++; return available ? 'editor' : null; },
+    resume: async (host, previousId) => { checks++; return previousId && previousId === suspendedId ? window.ide.open(host) : readyId; },
     open: async host => {
       assert(taskHost ? host.kind === 'task' && host.taskId === task.id : host.kind === 'review' && host.reviewId === review.id,
         'Confirmation must start only the selected working copy');
-      starts++; return new Promise((resolve, reject) => { finish = resolve; fail = reject; });
+      starts++; return new Promise((resolve, reject) => {
+        finish = id => { readyId = id; suspendedId = null; resolve(id); };
+        fail = reject;
+      });
     },
     present: async (...args) => { presentations.push(args); }, update: async () => {}, reply: () => {}, close: async () => {},
-    onRequest: () => () => {}, onEvent: listener => { event = listener; return () => {}; },
+    onRequest: () => () => {}, onEvent: listener => { event = listener; return () => { event = () => {}; }; },
+    onVisibility: listener => {
+      let live = true; visibility = listener;
+      queueMicrotask(() => { if (live) listener(nativeVisible); });
+      return () => { live = false; visibility = () => {}; };
+    },
   };
   const unused = async (): Promise<never> => { throw new Error('Unexpected bridge call'); };
   const bridge: CodeTestsBridge = {
@@ -57,8 +68,8 @@ export async function runStartup(taskHost: boolean): Promise<string> {
   const { host, root, dispose } = createFixtureRoot(); host.style.cssText = 'display:flex;flex-direction:column;height:820px;width:1050px';
   function Harness() {
     const [active, setActive] = useState(false); show = setActive;
-    return <CodeTestsTab workspaceId="workspace-1" review={taskHost ? null : review} task={taskHost ? task : null}
-      onReviewChange={() => {}} active={active} ownReviewStream={false} bridge={bridge} />;
+    return <Activity mode={active ? 'visible' : 'hidden'}><CodeTestsTab workspaceId="workspace-1" review={taskHost ? null : review} task={taskHost ? task : null}
+      onReviewChange={() => {}} active={active} ownReviewStream={false} bridge={bridge} /></Activity>;
   }
   const click = (label: string) => textButton(label, host).click();
   try {
@@ -97,9 +108,10 @@ export async function runStartup(taskHost: boolean): Promise<string> {
     finally { entrance.remove(); focusChoice.remove(); }
     flushSync(() => show(false)); await settle(); flushSync(() => show(true)); await settle();
     assert(Number(starts) === 2 && !host.textContent?.includes('Start IDE'), 'Tab switches must retain a successfully started editor');
+    readyId = null;
     event({ id: 'editor', dirty: 0, busy: false, closed: true }); await settle();
     assert(Number(starts) === 2 && host.textContent?.includes('Start IDE'), 'An expired editor must require fresh confirmation');
-    available = true;
+    readyId = 'editor';
     flushSync(() => show(false)); await settle(); flushSync(() => show(true)); await settle();
     assert(Number(starts) === 2 && !host.textContent?.includes('Start IDE'), 'Returning to the tab must reuse a server that became ready elsewhere');
     const previousChecks = checks;
@@ -107,6 +119,23 @@ export async function runStartup(taskHost: boolean): Promise<string> {
     flushSync(() => root.render(<Harness />));
     flushSync(() => show(true)); await settle();
     assert(Number(starts) === 2 && checks === previousChecks + 1 && !host.textContent?.includes('Start IDE'), 'A ready editor must resume without confirmation or startup');
+    suspendedId = 'editor'; readyId = null; nativeVisible = false; visibility(false); await settle();
+    event({ id: 'editor', dirty: 0, busy: false, closed: true, suspended: true }); await settle();
+    assert(Number(starts) === 2, 'Suspension must not restart code tools while the native window is hidden');
+    nativeVisible = true; visibility(true); await settle();
+    assert(Number(starts) === 3, 'Restoring the native window resumes its suspended active editor without another confirmation');
+    finish('resumed'); await settle();
+    assert(presentations.at(-1)?.[0] === 'resumed' && presentations.at(-1)?.[1] !== null, 'The resumed editor must be presented in the same surface');
+    flushSync(() => show(false)); await settle();
+    suspendedId = 'resumed'; readyId = null;
+    nativeVisible = false;
+    event({ id: 'resumed', dirty: 0, busy: false, closed: true, suspended: true });
+    flushSync(() => show(true)); await settle();
+    assert(Number(starts) === 3 && !host.querySelector('[role="alert"]'), 'Activity reactivation must await fresh native visibility and reconcile its stale editor ID');
+    nativeVisible = true; visibility(true); await settle();
+    assert(Number(starts) === 4, 'A suspension missed while Activity unsubscribed must resume only when its window returns');
+    finish('resumed-again'); await settle();
+    assert(presentations.at(-1)?.[0] === 'resumed-again' && !host.querySelector('[role="alert"]'), 'A hidden-page suspension must recover in the same editor surface');
     return 'Startup requires confirmation, discloses costs, retries failures, and reuses ready editors';
   } finally { dispose(); window.ide = oldIde; }
 }
@@ -126,6 +155,7 @@ export async function runExploration(): Promise<string> {
     },
     present: async () => {}, update: async () => {}, reply: () => {}, close: async () => {},
     onRequest: () => () => {}, onEvent: () => () => {},
+    onVisibility: listener => { listener(true); return () => {}; },
   };
   const unused = async (): Promise<never> => { throw new Error('Unexpected bridge call'); };
   const bridge: CodeTestsBridge = {
@@ -179,6 +209,7 @@ export async function run(): Promise<string> {
     present: async () => {}, update: async (_id, value) => { context = value; }, reply: () => {},
     onRequest: () => () => {},
     onEvent: listener => { event = listener; return () => {}; },
+    onVisibility: listener => { listener(true); return () => {}; },
     close: async () => { calls.push('close'); event({ id: 'editor', closed: true, dirty: 0, busy: false }); },
   };
   const unused = async (): Promise<never> => { throw new Error('Unexpected bridge call'); };

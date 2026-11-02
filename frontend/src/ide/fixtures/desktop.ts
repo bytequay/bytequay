@@ -25,6 +25,7 @@ export function installDesktopFixture() {
     present: async (_id, bounds) => { visible = bounds !== null; }, update: async () => {}, reply: () => {},
     close: async () => listener({ id: 'fixture-editor', dirty: 0, busy: false, closed: true }),
     onRequest: () => () => {}, onEvent: receive => { listener = receive; return () => { listener = () => {}; }; },
+    onVisibility: receive => { receive(true); return () => {}; },
   };
   return { get opens() { return opens; }, get visible() { return visible; },
     report: (dirty: number) => listener({ id: 'fixture-editor', dirty, busy: false }), dispose: () => { window.ide = previous; } };

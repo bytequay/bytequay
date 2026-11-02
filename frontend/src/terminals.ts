@@ -53,7 +53,6 @@ interface Terminal {
   sender: TerminalSender;
   process: TerminalProcess;
   scrollback: string;
-  lastUsed: number;
 }
 
 // ponytail: trims by UTF-16 units, not bytes; close enough for a replay buffer.
@@ -111,14 +110,12 @@ export class CodeTerminals {
       }
       terminal = await pending.promise;
     }
-    terminal.lastUsed = Date.now();
     return { terminalId: terminal.id, scrollback: terminal.scrollback.slice(-SCROLLBACK_LIMIT) };
   }
 
   write(sender: TerminalSender, terminalId: string, data: string): void {
     const terminal = this.owned(sender, terminalId);
     if (!terminal) return;
-    terminal.lastUsed = Date.now();
     terminal.process.write(data);
   }
 
@@ -136,9 +133,9 @@ export class CodeTerminals {
     }
   }
 
-  /** When this window last attached to, typed into or got output from one of its shells; 0 when it has none. */
-  lastUsed(sender: TerminalSender): number {
-    return Math.max(0, ...[...this.terminals.values()].filter(terminal => terminal.sender === sender).map(terminal => terminal.lastUsed));
+  /** A silent shell or pending launch still owns work; inactivity cannot prove its processes stopped. */
+  hasLive(sender: TerminalSender): boolean {
+    return [...this.terminals.values(), ...this.opening.values()].some(terminal => terminal.sender === sender);
   }
 
   stopAll(): void {
@@ -148,10 +145,9 @@ export class CodeTerminals {
 
   private start(key: string, sender: TerminalSender, hostKey: string, launch: TerminalLaunch, cols: number, rows: number, command?: string): Terminal {
     if (sender.isDestroyed()) throw new Error('The window closed before the terminal opened');
-    const terminal: Terminal = { id: randomUUID(), key, hostKey, sender, process: this.spawn(launch, cols, rows, command), scrollback: '', lastUsed: Date.now() };
+    const terminal: Terminal = { id: randomUUID(), key, hostKey, sender, process: this.spawn(launch, cols, rows, command), scrollback: '' };
     this.terminals.set(key, terminal);
     terminal.process.onData(data => {
-      terminal.lastUsed = Date.now();
       const scrollback = terminal.scrollback + data;
       // Trimming copies the whole buffer; at twice the limit a busy build pays that once per 256 KiB, not on every chunk.
       terminal.scrollback = scrollback.length > 2 * SCROLLBACK_LIMIT ? scrollback.slice(scrollback.length - SCROLLBACK_LIMIT) : scrollback;

@@ -25,6 +25,7 @@ export async function coordinateSaves(connection: IdeConnection) {
   const files = await getService(IFileService);
   const textFiles = await getService(ITextFileService);
   const saved = new Emitter<{ resource: URI; text: string }>();
+  let pending = 0;
   const write = files.writeFile.bind(files);
   const coordinatedWrite: typeof files.writeFile = async (resource, value, options) => {
     if (resource.scheme !== 'vscode-remote') return write(resource, value, options);
@@ -50,10 +51,15 @@ export async function coordinateSaves(connection: IdeConnection) {
     }
     return files.resolve(resource, { resolveMetadata: true });
   };
-  files.writeFile = coordinatedWrite;
+  const trackedWrite: typeof files.writeFile = async (...args) => {
+    pending++;
+    try { return await coordinatedWrite(...args); }
+    finally { pending--; }
+  };
+  files.writeFile = trackedWrite;
   // VS Code's delayed-service proxy caches bound methods separately from the service instance.
   // Update that cache too: assigning alone leaves native editor saves calling the cached original.
-  Object.defineProperty(files, 'writeFile', { value: coordinatedWrite, configurable: true, writable: true });
+  Object.defineProperty(files, 'writeFile', { value: trackedWrite, configurable: true, writable: true });
   const writeText = textFiles.write.bind(textFiles);
   const coordinatedTextWrite: typeof textFiles.write = async (resource, value, options) => {
     if (resource.scheme !== 'vscode-remote' || resource.authority !== connection.authority || !resource.path.startsWith(connection.root + '/')) {
@@ -70,5 +76,5 @@ export async function coordinateSaves(connection: IdeConnection) {
   };
   textFiles.write = coordinatedTextWrite;
   Object.defineProperty(textFiles, 'write', { value: coordinatedTextWrite, configurable: true, writable: true });
-  return { onDidSave: saved.event, isDirty: (resource: URI) => textFiles.isDirty(resource) };
+  return { onDidSave: saved.event, isDirty: (resource: URI) => textFiles.isDirty(resource), get pending() { return pending > 0; } };
 }

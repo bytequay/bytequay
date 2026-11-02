@@ -19,18 +19,24 @@ const store = new Map<string, string>();
 const key = 'bytequay.ide.sourceDrafts';
 beforeEach(() => { store.clear(); vi.stubGlobal('localStorage', { getItem: (key: string) => store.get(key) ?? null, setItem: (key: string, value: string) => store.set(key, value) }); });
 function fixture(text: string) {
-  const document = { uri: { scheme: 'vscode-remote', path: '/task/main.go' }, isDirty: false, nativeDirty: false, getText: () => text, positionAt: (offset: number) => offset };
+  const document = { uri: { scheme: 'vscode-remote', path: '/task/main.go', toString() { return `vscode-remote://fixture${this.path}`; } },
+    isDirty: false, nativeDirty: false, languageId: 'go', getText: () => text, positionAt: (offset: number) => offset };
+  const documents = [document];
   const applyEdit = vi.fn(async () => true);
+  const opened = { listener: (_document: typeof document) => {} };
+  const closed = { listener: (_document: typeof document) => {} };
   const change = { listener: (_event: { document: typeof document }) => {} };
   const save = { listener: (_event: { resource: typeof document.uri; text: string }) => {} };
-  const runtime = { saves: { isDirty: () => document.nativeDirty, onDidSave: (listener: typeof save.listener) => { save.listener = listener; return { dispose(): void { return; } }; } }, workspace: { path: '/task', with: (value: unknown) => value }, api: {
+  const runtime = { saves: { isDirty: (resource: typeof document.uri) => documents.find(item => item.uri.toString() === resource.toString())?.nativeDirty ?? false,
+    onDidSave: (listener: typeof save.listener) => { save.listener = listener; return { dispose(): void { return; } }; } }, workspace: { path: '/task', with: (value: unknown) => value }, api: {
     WorkspaceEdit: class { replace(): void { return; } }, Range: class {}, window: { showTextDocument: vi.fn() }, workspace: {
-      textDocuments: [document], openTextDocument: async () => document, applyEdit,
-      onDidOpenTextDocument: () => ({ dispose(): void { return; } }), onDidSaveTextDocument: () => ({ dispose(): void { return; } }),
+      textDocuments: documents, openTextDocument: async () => documents[0], applyEdit,
+      onDidOpenTextDocument: (listener: typeof opened.listener) => { opened.listener = listener; return { dispose(): void { return; } }; },
+      onDidCloseTextDocument: (listener: typeof closed.listener) => { closed.listener = listener; return { dispose(): void { return; } }; },
       onDidChangeTextDocument: (listener: typeof change.listener) => { change.listener = listener; return { dispose(): void { return; } }; },
     },
   } } as unknown as IdeRuntime;
-  return { runtime, document, applyEdit, change, save };
+  return { runtime, document, documents, applyEdit, opened, closed, change, save };
 }
 
 describe('IDE draft recovery', () => {
@@ -86,6 +92,56 @@ describe('IDE draft recovery', () => {
     document.getText = () => 'saved snapshot'; change.listener({ document });
     save.listener({ resource: document.uri, text: 'saved snapshot' });
     expect(sourceDrafts(localStorage)).toEqual([]);
+    tracking.dispose();
+  });
+  it('takes the current disk text as the base after a clean document closes and reopens', () => {
+    const { runtime, document, documents, opened, closed, change } = fixture('old base');
+    const error = vi.fn();
+    const tracking = trackSourceDrafts(runtime, error);
+    documents.length = 0; closed.listener(document);
+    const reopened = { ...document, getText: () => 'external disk edit' };
+    documents.push(reopened); opened.listener(reopened);
+    reopened.nativeDirty = true; reopened.getText = () => 'my edit'; change.listener({ document: reopened });
+    expect(sourceDrafts(localStorage)).toEqual([{ path: 'main.go', base: 'external disk edit', text: 'my edit' }]);
+    expect(error).not.toHaveBeenCalled();
+    tracking.dispose();
+  });
+  it('preserves dirty recovery when a language change emits close and open for the same document', () => {
+    const { runtime, document, opened, closed, change } = fixture('base');
+    const error = vi.fn();
+    const tracking = trackSourceDrafts(runtime, error);
+    document.nativeDirty = true; document.getText = () => 'first edit';
+    // The language-ID close/open can precede the next change notification; the document object is reused.
+    closed.listener(document); document.languageId = 'plaintext'; opened.listener(document);
+    document.getText = () => 'second edit'; change.listener({ document });
+    expect(sourceDrafts(localStorage)).toEqual([{ path: 'main.go', base: 'base', text: 'second edit' }]);
+    expect(error).not.toHaveBeenCalled();
+    tracking.dispose();
+  });
+  it('keeps a newer recoverable draft when a save finishes after its document closed', () => {
+    const { runtime, document, documents, closed, change, save } = fixture('base');
+    const tracking = trackSourceDrafts(runtime, vi.fn());
+    document.nativeDirty = true; document.getText = () => 'saved snapshot'; change.listener({ document });
+    document.getText = () => 'newer edit'; change.listener({ document });
+    documents.length = 0; closed.listener(document);
+    save.listener({ resource: document.uri, text: 'saved snapshot' });
+    expect(sourceDrafts(localStorage)).toEqual([{ path: 'main.go', base: 'saved snapshot', text: 'newer edit' }]);
+    tracking.dispose();
+  });
+  it('updates a reopened document base when an earlier save finishes', () => {
+    const { runtime, document, documents, opened, closed, change, save } = fixture('base');
+    const error = vi.fn();
+    const tracking = trackSourceDrafts(runtime, error);
+    document.nativeDirty = true; document.getText = () => 'saved snapshot'; change.listener({ document });
+    documents.length = 0; closed.listener(document);
+    const reopened = { ...document, nativeDirty: false, getText: () => 'base' };
+    documents.push(reopened); opened.listener(reopened);
+    reopened.getText = () => 'saved snapshot';
+    save.listener({ resource: document.uri, text: 'saved snapshot' });
+    expect(sourceDrafts(localStorage)).toEqual([]);
+    reopened.nativeDirty = true; reopened.getText = () => 'new edit'; change.listener({ document: reopened });
+    expect(sourceDrafts(localStorage)).toEqual([{ path: 'main.go', base: 'saved snapshot', text: 'new edit' }]);
+    expect(error).not.toHaveBeenCalled();
     tracking.dispose();
   });
   it('retains malformed storage instead of treating it as an empty draft list', () => {

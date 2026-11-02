@@ -147,14 +147,21 @@ export default function IdeSurface(props: IdeSurfaceProps) {
   serverRef.current = server;
   current.current = props;
   const idRef = useRef<string | null>(null);
+  const resumeId = useRef<string | null>(null);
+  const windowVisible = useRef(false);
   const [id, setId] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [startRequested, setStartRequested] = useState(props.startRequested ?? false);
   const [needsStart, setNeedsStart] = useState(false);
+  const [visibilityVersion, setVisibilityVersion] = useState(0);
   useFocusBreakSurface(props.active && error === null ? id : null);
 
   useEffect(() => {
+    // Activity hides effects while preserving state; reconcile any editor closed during that interval.
+    if (idRef.current) { resumeId.current = idRef.current; idRef.current = null; setId(null); }
+    windowVisible.current = false;
+    const stopVisibility = window.ide.onVisibility(visible => { windowVisible.current = visible; setVisibilityVersion(value => value + 1); });
     const stopRequest = window.ide.onRequest(request => {
       if (request.id !== idRef.current) return;
       void handleRequest(current.current, request, findingActionsRef.current).then(value => window.ide.reply({ requestId: request.requestId, value }), failure => {
@@ -164,45 +171,51 @@ export default function IdeSurface(props: IdeSurfaceProps) {
     const stopEvent = window.ide.onEvent(event => {
       if (event.id !== idRef.current) return;
       current.current.onUnsavedChange?.(event.dirty);
-      if (event.closed) { idRef.current = null; setId(null); setStartRequested(false); setNeedsStart(true); }
+      if (event.closed) {
+        resumeId.current = event.suspended ? event.id : null;
+        idRef.current = null; setId(null); setStartRequested(false); setNeedsStart(event.suspended !== true);
+      }
       if (event.error) setError(event.error);
     });
     // A hidden task page runs this cleanup and later subscribes again with its editor still open, so the id stays.
     return () => {
-      stopRequest(); stopEvent();
+      windowVisible.current = false;
+      stopVisibility(); stopRequest(); stopEvent();
       if (idRef.current) void window.ide.present(idRef.current, null).catch(() => {});
     };
   }, []);
 
   useEffect(() => {
-    if (!props.active || id !== null || error !== null) return;
+    if (!props.active || !windowVisible.current || id !== null || error !== null) return;
     let live = true;
-    const opening = startRequested ? window.ide.open(current.current.host) : window.ide.resume(current.current.host);
+    const opening = startRequested ? window.ide.open(current.current.host) : window.ide.resume(current.current.host, resumeId.current ?? undefined);
     void opening.then(opened => {
       if (opened === null) { if (live) setNeedsStart(true); return; }
       if (!live) { void window.ide.present(opened, null); return; }
       idRef.current = opened;
+      resumeId.current = null;
       setId(opened);
+      setStartRequested(false);
       setNeedsStart(false);
-      void window.ide.update(opened, contextOf(current.current, findingActionsRef.current, serverRef.current));
+      void window.ide.update(opened, contextOf(current.current, findingActionsRef.current, serverRef.current)).catch(failure => { if (idRef.current === opened) setError(String(failure)); });
     }).catch(failure => { if (live) setError(String(failure)); });
     return () => { live = false; };
-  }, [attempt, props.active, id, error, startRequested]);
+  }, [attempt, props.active, visibilityVersion, id, error, startRequested]);
 
   useEffect(() => {
-    if (id) void window.ide.update(id, contextOf(props, findingActions, server)).catch(failure => setError(String(failure)));
+    if (id && idRef.current === id) void window.ide.update(id, contextOf(props, findingActions, server)).catch(failure => { if (idRef.current === id) setError(String(failure)); });
   }, [id, props, findingActions, server]);
 
   useEffect(() => {
     const target = element.current;
-    if (!id || !target) return;
+    if (!id || idRef.current !== id || !target) return;
     const present = (allowFocusRestore = true) => {
       const obscured = [...document.querySelectorAll('[role="dialog"], [data-focus-break-entrance]')].some(dialog => !dialog.contains(target) && dialog.getClientRects().length > 0);
       const bounds = target.getBoundingClientRect();
       const active = current.current.active && !error && bounds.width > 0 && bounds.height > 0;
       const visible = active && !obscured;
       void window.ide.present(id, visible ? { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height } : null, active && obscured, allowFocusRestore)
-        .catch(failure => setError(String(failure)));
+        .catch(failure => { if (idRef.current === id) setError(String(failure)); });
     };
     const layout = () => present();
     const focus = (event: FocusEvent) => {

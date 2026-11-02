@@ -24,11 +24,11 @@ import { startWorkbench } from './startup';
 import { resolveIdeTheme, type IdeRuntime } from './runtime';
 import { ReviewDraftStorage } from '../pulls/ReviewDrafts';
 import { restoreSourceDrafts, trackSourceDrafts, restoreNavigation, trackNavigation, discardRecoveredDraft, type SourceDraft } from './drafts';
-import TestRuns, { testRunPanel } from './TestRuns';
+import TestRuns from './TestRuns';
 import TerminalView from '../pulls/code-tests/TerminalView';
 import FileExplorer from './FileExplorer';
 import { useResizablePane } from '../useResizablePane';
-import { PanelLeft, ArrowLeft, ArrowRight, ChevronDown, ChevronUp, MessageSquare, Play, Bug, TerminalSquare, GitCommitHorizontal } from 'lucide-react';
+import { PanelLeft, ArrowLeft, ArrowRight, ChevronDown, ChevronUp, MessageSquare, Play, TerminalSquare, GitCommitHorizontal } from 'lucide-react';
 import ReviewZones from './ReviewZones';
 import ReviewComments from './ReviewComments';
 import { PullRequestWorkspaceProvider } from '../pulls/PullRequestWorkspace';
@@ -41,6 +41,7 @@ import Search from './Search';
 import { installGitHistory } from './gitHistory';
 import { codeHostKey } from '../pulls/code-tests/contracts';
 import { pollVisible } from './pollVisible';
+import { idleState } from './idleState';
 import '../css/base.css';
 import '../scrollbarFade';
 import '../css/markdown-editor.css';
@@ -100,6 +101,7 @@ function reviewOptions(context: IdeContext): CodeCommentsOptions | undefined {
 }
 
 function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; context: IdeContext; connection: IdeConnection }) {
+  const restoring = useRef(true);
   const [active, setActive] = useState<TextEditor | undefined>(runtime.api.window.activeTextEditor);
   const [generation, setGeneration] = useState(0);
   const [files, setFiles] = useState<ReviewCodeFilesDto | null>(null);
@@ -113,7 +115,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
   const [fileError, setFileError] = useState<string | null>(null);
   const [execution, setExecution] = useState(runtime.executions.run);
   const [executionError, setExecutionError] = useState(runtime.executions.error);
-  const [bottom, setBottom] = useState<'run' | 'debug' | 'terminal' | 'history'>('run');
+  const [bottom, setBottom] = useState<'run' | 'terminal' | 'history'>('run');
   const [panelCollapsed, setPanelCollapsed] = useState(true);
   const column = useResizablePane(285, 180, 650);
   const panel = useResizablePane(270, 100, 900, 'start', 'y');
@@ -137,18 +139,13 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
     return () => media.removeEventListener('change', apply);
   }, [runtime, theme]);
   const command = (name: string) => { void runtime.api.commands.executeCommand(name).then(undefined, cause => setError(String(cause))); };
-  const report = () => {
-    const privateDrafts = [...document.querySelectorAll('textarea')].filter(node => !node.classList.contains('inputarea') && node.value.trim()).length;
-    window.ideWorkbench.report({ dirty: runtime.api.workspace.textDocuments.filter(document => runtime.saves.isDirty(document.uri)).length + privateDrafts,
-      busy: runtime.executions.run !== null || runtime.terminals.instances.some(terminal => terminal.hasChildProcesses) || runtime.api.debug.activeDebugSession !== undefined || runtime.tests.results.some(result => result.completedAt === undefined) });
-  };
+  const report = () => window.ideWorkbench.report(idleState(runtime, restoring.current));
 
   useEffect(() => {
     let previous = runtime.executions.run?.id;
     const listener = runtime.executions.onChange(state => {
       setExecution(state.run); setExecutionError(state.error);
-      const panel = state.run && testRunPanel(state.run);
-      if (panel && state.run?.id !== previous) { setBottom(panel); setPanelCollapsed(false); }
+      if (state.run && state.run.id !== previous) { setBottom('run'); setPanelCollapsed(false); }
       previous = state.run?.id;
     });
     return () => listener.dispose();
@@ -162,16 +159,18 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
   useEffect(() => { if (files?.revision) gitHistory?.updateRevision(files.revision); }, [gitHistory, files?.revision]);
 
   useEffect(() => {
+    restoring.current = true;
     const drafts = trackSourceDrafts(runtime, setError);
     let navigation: ReturnType<typeof trackNavigation> | undefined;
     let live = true;
     void restoreSourceDrafts(runtime, draft => setRecovered(current => [...current, draft]))
-      .then(() => restoreNavigation(runtime)).catch(cause => setError(String(cause)))
-      .finally(() => { if (live) navigation = trackNavigation(runtime, setError); });
+      .then(() => restoreNavigation(runtime)).then(() => { if (live) restoring.current = false; }).catch(cause => setError(String(cause)))
+      .finally(() => { if (live) { navigation = trackNavigation(runtime, setError); report(); } });
     return () => { live = false; drafts.dispose(); navigation?.dispose(); };
-  }, [runtime]);
+  }, [runtime]); // eslint-disable-line react-hooks/exhaustive-deps -- Reports read native mutable state and the restoration ref.
 
   useEffect(() => {
+    const stopIdle = window.ideWorkbench.onIdleCheck(idleCheckId => window.ideWorkbench.report({ ...idleState(runtime, restoring.current), idleCheckId }));
     const editor = runtime.api.window.onDidChangeActiveTextEditor(value => { setActive(value); setGeneration(value => value + 1); });
     const changed = runtime.api.workspace.onDidChangeTextDocument(() => { setGeneration(value => value + 1); report(); });
     const saved = runtime.api.workspace.onDidSaveTextDocument(() => { setGeneration(value => value + 1); report(); });
@@ -180,17 +179,16 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
     document.addEventListener('input', report);
     const timer = setInterval(report, 5_000);
     const showPanel = (id: string | undefined) => {
-      // Native test and debugger views must not replace the selected result or expose launch configuration.
+      // Java test runs use the debug adapter, but their output belongs in Run.
       if (id?.includes('debug') || id === 'workbench.panel.repl' || id?.toLowerCase().includes('test')) {
-        const run = runtime.executions.run;
-        setBottom((run && testRunPanel(run)) || (id?.toLowerCase().includes('test') ? 'run' : 'debug'));
+        setBottom('run');
       }
       else if (id?.includes('scm')) setBottom('history');
       else return;
       setPanelCollapsed(false);
     };
     const panel = runtime.panels.onDidPaneCompositeOpen(event => { if (event.viewContainerLocation === 1) showPanel(event.composite.getId()); });
-    return () => { editor.dispose(); changed.dispose(); saved.dispose(); tests.dispose(); debug.dispose(); panel.dispose(); clearInterval(timer); document.removeEventListener('input', report); };
+    return () => { stopIdle(); editor.dispose(); changed.dispose(); saved.dispose(); tests.dispose(); debug.dispose(); panel.dispose(); clearInterval(timer); document.removeEventListener('input', report); };
   }, [runtime]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -322,7 +320,6 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
     <footer className={`ide-bottom${panelCollapsed ? ' is-collapsed' : ''}`} style={{ height: panelCollapsed ? 'auto' : panel.width }}>
       <nav className="ide-toolbar" aria-label="Code tools">
         <button aria-pressed={!panelCollapsed && bottom === 'run'} onClick={() => { void selectBottom('run'); }}><Play size={13} /> Run</button>
-        <button aria-pressed={!panelCollapsed && bottom === 'debug'} onClick={() => { void selectBottom('debug'); }}><Bug size={14} /> Debug</button>
         <button aria-pressed={!panelCollapsed && bottom === 'terminal'} onClick={() => { void selectBottom('terminal'); }}><TerminalSquare size={14} /> Terminal</button>
         <button aria-pressed={!panelCollapsed && bottom === 'history'} onClick={() => { void selectBottom('history'); }}><GitCommitHorizontal size={14} /> Git history</button>
         <span className="ide-spacer" />
@@ -331,7 +328,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
           aria-expanded={!panelCollapsed} onClick={() => setPanelCollapsed(value => !value)}>{panelCollapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>
       </nav>
       <div className="ide-tools" style={{ display: bottom === 'history' && !history ? undefined : 'none' }}><Part part={Parts.PANEL_PART} /></div>
-      <TestRuns key={codeHostKey(context.host)} context={context} files={files} runtime={runtime} mode={bottom === 'run' || bottom === 'debug' ? bottom : null} />
+      <TestRuns key={codeHostKey(context.host)} context={context} files={files} runtime={runtime} active={!panelCollapsed && bottom === 'run'} />
       {bottom === 'terminal' && <TerminalView host={context.host} bridge={window.ideWorkbench.terminal} />}
       {bottom === 'history' && <nav className="ide-toolbar" aria-label="History scope">
         <button onClick={() => { setHistory(null); void gitHistory?.focus().catch(cause => setError(String(cause))); }}>Repository history</button>
@@ -371,6 +368,10 @@ function App() {
   const [context, setContext] = useState<IdeContext | null>(null);
   const [ready, setReady] = useState<{ runtime: IdeRuntime; connection: IdeConnection } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!ready || context) return;
+    return window.ideWorkbench.onIdleCheck(idleCheckId => window.ideWorkbench.report({ ...idleState(ready.runtime), idleCheckId }));
+  }, [ready, context]);
   useEffect(() => {
     let live = true;
     let receivedContext = false;

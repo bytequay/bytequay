@@ -25,12 +25,9 @@ import { parseCodeQuery, parseCodeQueryReply, queryFailure, type CodeQueryReques
 import { parseExecutionRequest } from './ide/executionProtocol';
 import { parseLocalRun } from './pulls/code-tests/contracts';
 import { validateIdeAction } from './ide/actionPolicy';
-import type { IdeConnection, IdeContext, IdeEvent, IdeReply, IdeRequest } from './ide/contracts';
+import type { IdeConnection, IdeContext, IdeEvent, IdeReply, IdeRequest, IdeStateReport } from './ide/contracts';
 
 declare const IDE_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
-
-// A forgotten shell would otherwise keep a hidden editor's language server, which can hold gigabytes, alive indefinitely.
-const IDLE_TERMINAL_MS = 60 * 60_000;
 
 // Electron caches compiled code only for http(s) unless a scheme asks; without it every editor recompiles the whole workbench.
 protocol.registerSchemesAsPrivileged([{ scheme: 'bytequay-ide', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, codeCache: true } }]);
@@ -44,6 +41,8 @@ type Editor = {
   context: IdeContext | null;
   visible: boolean;
   covered: boolean;
+  retained: boolean;
+  presented?: boolean;
   restoreFocus: boolean;
   dirty: number;
   busy: boolean;
@@ -53,6 +52,9 @@ type Editor = {
   queryReady: boolean;
   execution: string | null;
   executionStarting: boolean;
+  saves: number;
+  suspending: boolean;
+  idleCheck?: { id: string; finish: (clean: boolean) => void };
   queries: Map<string, { request: CodeQueryRequest; finish: (reply: CodeQueryReply) => void }>;
   closing: Promise<void> | null;
   pending: Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>;
@@ -84,6 +86,7 @@ function isGitHubAvatar(url: URL): boolean {
 /** Native view ownership, resource access and idle cleanup live in main, outside repository-controlled content. */
 export class IdeViews {
   private readonly editors = new Map<string, Editor>();
+  private readonly suspended = new Map<string, string>();
   private readonly queryPump = new AbortController();
   private readonly runningQueries = new Map<string, AbortController>();
   private pumping = false;
@@ -91,7 +94,7 @@ export class IdeViews {
   private readonly opening = new Map<string, Promise<string>>();
   private readonly timer: ReturnType<typeof setInterval>;
 
-  constructor(private readonly window: () => BrowserWindow | null, private readonly terminalUsed: (sender: WebContents) => number = () => 0,
+  constructor(private readonly window: () => BrowserWindow | null, private readonly hasTerminal: (sender: WebContents) => boolean = () => false,
     private readonly onPresent: () => void = () => {}) {
     this.timer = setInterval(() => { void this.maintain(); }, 15_000);
     this.timer.unref();
@@ -126,9 +129,14 @@ export class IdeViews {
       try { query.finish(parseCodeQueryReply(value)); }
       catch { query.finish(queryFailure('UNAVAILABLE', 'The language service returned an invalid result')); }
     });
-    ipcMain.handle('ide:resume', async (event, value: unknown) => {
+    ipcMain.handle('ide:resume', async (event, value: unknown, previousId?: unknown) => {
       parent(event);
       const host = parseCodeHost(value);
+      if (typeof previousId === 'string' && this.suspended.get(previousId) === codeHostKey(host) && this.windowVisible()) {
+        const id = await this.open(host);
+        this.suspended.delete(previousId);
+        return id;
+      }
       const route = host.kind === 'review' ? `/reviews/${encodeURIComponent(host.reviewId)}`
         : `/tasks/${encodeURIComponent(host.workspaceId)}/${encodeURIComponent(host.taskId)}`;
       const response = await runtimeRequest(route, 'GET');
@@ -139,21 +147,33 @@ export class IdeViews {
       return this.create(host, connection);
     });
     ipcMain.handle('ide:open', (event, host: unknown) => { parent(event); return this.open(parseCodeHost(host)); });
+    ipcMain.handle('ide:window-visibility', event => { parent(event); return this.windowVisible(); });
     ipcMain.handle('ide:present', (event, id: string, bounds: unknown, covered: unknown = false, allowFocusRestore: unknown = true) => {
       parent(event);
       if (typeof covered !== 'boolean') throw new Error('Invalid IDE visibility');
       if (typeof allowFocusRestore !== 'boolean') throw new Error('Invalid IDE focus restoration');
       const retained = this.editors.get(id);
       if (bounds === null && (!retained || retained.closing || retained.contents.isDestroyed())) return;
+      if (retained?.suspending || this.suspended.has(id)) return;
       const editor = this.require(id);
       const window = this.window();
       if (!window) return;
-      if (bounds !== null || editor.visible || editor.covered) editor.lastUsed = Date.now();
+      if (bounds !== null || covered) {
+        for (const other of this.editors.values()) {
+          if (other === editor || (!other.visible && !other.covered)) continue;
+          other.visible = false;
+          other.covered = false;
+          other.restoreFocus = false;
+          this.reportVisibility(other);
+          if (!other.contents.isDestroyed()) other.view.setVisible(false);
+        }
+      }
       if (bounds === null && covered && editor.visible) editor.restoreFocus = editor.contents.isFocused();
       if (bounds === null && !covered) editor.restoreFocus = false;
       if (!allowFocusRestore) editor.restoreFocus = false;
       editor.covered = bounds === null && covered;
       editor.visible = bounds !== null;
+      this.reportVisibility(editor);
       if (bounds === null) {
         editor.view.setVisible(false);
         return;
@@ -167,14 +187,16 @@ export class IdeViews {
     });
     ipcMain.handle('ide:update', (event, id: string, context: IdeContext) => {
       parent(event);
+      if (this.editors.get(id)?.suspending || this.suspended.has(id)) return;
       const editor = this.require(id);
       if (codeHostKey(parseCodeHost(context.host)) !== codeHostKey(editor.host)) throw new Error('IDE context belongs to another task');
       editor.context = context;
       editor.contents.send('ide:context', context);
     });
-    ipcMain.handle('ide:close', async (event, id: string) => { parent(event); await this.close(id); });
+    ipcMain.handle('ide:close', async (event, id: string) => { parent(event); this.suspended.delete(id); await this.close(id); });
     ipcMain.handle('ide:bootstrap', event => {
       const editor = child(event);
+      this.reportVisibility(editor, true);
       return { connection: editor.connection, context: editor.context };
     });
     ipcMain.handle('ide:save', async (event, file: unknown, content: unknown, expectedHash: unknown) => {
@@ -184,7 +206,9 @@ export class IdeViews {
         || typeof expectedHash !== 'string' || (expectedHash !== '-' && !/^[a-f0-9]{64}$/.test(expectedHash))) throw new Error('Invalid editor save');
       const host = editor.host;
       const route = host.kind === 'review' ? `/reviews/${encodeURIComponent(host.reviewId)}` : `/tasks/${encodeURIComponent(host.workspaceId)}/${encodeURIComponent(host.taskId)}`;
-      await runtimeRequest(`${route}/file`, 'PUT', { path: file, content, expectedHash });
+      editor.saves++;
+      try { await runtimeRequest(`${route}/file`, 'PUT', { path: file, content, expectedHash }); }
+      finally { editor.saves--; }
     });
     ipcMain.handle('ide:execution', async (event, value: unknown) => {
       const editor = child(event);
@@ -288,11 +312,12 @@ export class IdeViews {
         return;
       }
     });
-    ipcMain.on('ide:report', (event, report: Pick<IdeEvent, 'dirty' | 'busy' | 'error'>) => {
+    ipcMain.on('ide:report', (event, report: IdeStateReport) => {
       const editor = child(event);
       if (!Number.isSafeInteger(report.dirty) || report.dirty < 0 || typeof report.busy !== 'boolean') return;
       editor.dirty = report.dirty;
       editor.busy = report.busy;
+      if (report.idleCheckId === editor.idleCheck?.id) editor.idleCheck?.finish(editor.dirty === 0 && !editor.busy);
       const error = typeof report.error === 'string' ? report.error.slice(0, 10_000) : undefined;
       const reported = JSON.stringify([editor.dirty, editor.busy, error]);
       if (reported === editor.reported) return;
@@ -327,11 +352,13 @@ export class IdeViews {
     const id = randomUUID();
     const view = new WebContentsView({ webPreferences: {
       preload: path.join(__dirname, 'idePreload.js'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, partition: `persist:bytequay-ide-${connection.taskId}`,
+      // Cache compiled editor code on its first load so the first resume can reuse it.
+      v8CacheOptions: 'bypassHeatCheck',
     } });
     view.setBackgroundColor('#00000000');
     // Electron clears view.webContents on destruction; retain the handle for cleanup and isDestroyed().
     const contents = view.webContents;
-    const editor: Editor = { id, host, connection, view, contents, context: null, visible: false, covered: false, restoreFocus: false, dirty: 0, busy: false, lastUsed: Date.now(), queryReady: false, execution: null, executionStarting: false, queries: new Map(), closing: null, pending: new Map() };
+    const editor: Editor = { id, host, connection, view, contents, context: null, visible: false, covered: false, retained: false, restoreFocus: false, dirty: 0, busy: false, lastUsed: Date.now(), queryReady: false, execution: null, executionStarting: false, saves: 0, suspending: false, queries: new Map(), closing: null, pending: new Map() };
     this.editors.set(id, editor);
     try {
       const resources = await Promise.all(['extensions', 'server'].map(name => realpath(path.join(connection.bundleRoot, name))));
@@ -476,7 +503,12 @@ export class IdeViews {
 
   private async maintain(): Promise<void> {
     await Promise.allSettled([...this.editors.values()].map(async editor => {
-      if (editor.contents.isDestroyed() || (!editor.visible && !editor.covered && editor.dirty === 0 && !editor.busy && Date.now() - this.terminalUsed(editor.contents) > IDLE_TERMINAL_MS && editor.pending.size === 0 && editor.queries.size === 0 && editor.execution === null && !editor.executionStarting && Date.now() - editor.lastUsed > 120_000)) {
+      if (editor.contents.isDestroyed()) {
+        await this.close(editor.id);
+        return;
+      }
+      if (!editor.closing && !editor.idleCheck && this.canSuspend(editor) && await this.checkIdle(editor) && this.canSuspend(editor)) {
+        editor.suspending = true;
         await this.close(editor.id);
         return;
       }
@@ -488,11 +520,29 @@ export class IdeViews {
     }));
   }
 
+  private canSuspend(editor: Editor): boolean {
+    return !editor.retained && editor.dirty === 0 && !editor.busy && !this.hasTerminal(editor.contents)
+      && editor.pending.size === 0 && editor.queries.size === 0 && editor.execution === null && !editor.executionStarting
+      && editor.saves === 0 && Date.now() - editor.lastUsed > 120_000;
+  }
+
+  private checkIdle(editor: Editor): Promise<boolean> {
+    return new Promise(resolve => {
+      const id = randomUUID();
+      const timer = setTimeout(() => finish(false), 5_000);
+      const finish = (clean: boolean) => { clearTimeout(timer); editor.idleCheck = undefined; resolve(clean); };
+      editor.idleCheck = { id, finish };
+      // Cached reports can precede a recent edit or startup restoration. Silence never authorizes teardown.
+      editor.contents.send('ide:idle-check', id);
+    });
+  }
+
   async close(id: string): Promise<void> {
     const editor = this.editors.get(id);
     if (!editor) return;
     if (editor.closing) return editor.closing;
     const closing = async () => {
+      editor.idleCheck?.finish(false);
       editor.visible = false;
       const window = this.window();
       if (window && !window.isDestroyed()) window.contentView.removeChildView(editor.view);
@@ -510,20 +560,56 @@ export class IdeViews {
       // Failed termination remains registered so maintenance and explicit close retry the same process tree.
       await runtimeRequest(`/${editor.connection.taskId}/${editor.connection.sessionId}`, 'DELETE');
       this.editors.delete(id);
+      if (editor.suspending) {
+        this.suspended.set(id, codeHostKey(editor.host));
+        // Hidden React Activity pages can miss the close event. Keep only their recent restart receipts.
+        const oldest = this.suspended.keys().next().value;
+        if (this.suspended.size > 64 && oldest !== undefined) this.suspended.delete(oldest);
+      }
       if (this.editors.size === 0) { this.background?.destroy(); this.background = null; }
-      this.window()?.webContents.send('ide:event', { id, dirty: editor.dirty, busy: false, closed: true } satisfies IdeEvent);
+      this.window()?.webContents.send('ide:event', { id, dirty: editor.dirty, busy: false, closed: true, suspended: editor.suspending } satisfies IdeEvent);
     };
     editor.closing = closing().finally(() => { editor.closing = null; });
     return editor.closing;
+  }
+
+  private windowVisible(): boolean {
+    const window = this.window();
+    return window !== null && !window.isDestroyed() && window.isVisible() && !window.isMinimized();
+  }
+
+  private reportVisibility(editor: Editor, force = false): void {
+    const shown = this.windowVisible();
+    // Keep the selected editor ready across native hide/minimize; changing tabs still releases its idle lease.
+    const retained = editor.visible || editor.covered;
+    if (retained !== editor.retained) {
+      editor.retained = retained;
+      editor.lastUsed = Date.now();
+      editor.idleCheck?.finish(false);
+    }
+    const visible = shown && editor.visible;
+    if (!editor.contents.isDestroyed() && (force || editor.presented !== visible)) {
+      editor.presented = visible;
+      editor.contents.send('ide:visibility', visible);
+    }
+  }
+
+  refreshVisibility(): void {
+    this.window()?.webContents.send('ide:window-visibility', this.windowVisible());
+    for (const editor of this.editors.values()) this.reportVisibility(editor);
   }
 
   releaseWindow(): void {
     for (const editor of this.editors.values()) {
       editor.visible = false;
       editor.covered = false;
+      editor.retained = false;
+      editor.presented = false;
       editor.restoreFocus = false;
       editor.lastUsed = Date.now();
+      editor.idleCheck?.finish(false);
       if (!editor.contents.isDestroyed()) {
+        editor.contents.send('ide:visibility', false);
         editor.view.setVisible(false);
         this.owner().contentView.addChildView(editor.view);
       }
@@ -536,6 +622,7 @@ export class IdeViews {
     for (const controller of this.runningQueries.values()) controller.abort();
     this.runningQueries.clear();
     for (const editor of this.editors.values()) {
+      editor.idleCheck?.finish(false);
       if (!editor.contents.isDestroyed()) editor.contents.close({ waitForBeforeUnload: false });
     }
     this.background?.destroy(); this.background = null;

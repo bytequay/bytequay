@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 /* eslint-disable import/no-unresolved -- This adapter targets the pinned VS Code services. */
-import { getService, ITestService, ITestResultService, IDebugService, ITerminalService, ICommandService } from '@codingame/monaco-vscode-api';
+import { getService, ITestService, ITestResultService, ITestProfileService, IDebugService, ITerminalService, ICommandService } from '@codingame/monaco-vscode-api';
 import { ITaskService } from '@codingame/monaco-vscode-api/vscode/vs/workbench/contrib/tasks/common/taskService.service';
 import { ITerminalInstanceService } from '@codingame/monaco-vscode-api/vscode/vs/workbench/contrib/terminal/browser/terminal.service';
 import type { ITerminalInstance } from '@codingame/monaco-vscode-api/vscode/vs/workbench/contrib/terminal/browser/terminal';
@@ -41,13 +41,22 @@ type Live = {
 export async function coordinateExecutions(api: typeof vscode, root: string, authority: string) {
   const tests = await getService(ITestService);
   const results = await getService(ITestResultService);
+  const profiles = await getService(ITestProfileService);
   const debug = await getService(IDebugService);
   const terminals = await getService(ITerminalService);
   const terminalInstances = await getService(ITerminalInstanceService);
   const tasks = await getService(ITaskService);
   const commands = await getService(ICommandService);
+  // Gutter menus read profile capabilities directly, rather than MenuRegistry.
+  const addProfile = profiles.addProfile.bind(profiles);
+  replace(profiles, 'addProfile', (controller, profile) => { if (profile.group !== 4) addProfile(controller, profile); });
+  for (const group of profiles.all()) for (const profile of [...group.profiles]) {
+    if (profile.group === 4) profiles.removeProfile(profile.controllerId, profile.profileId);
+  }
   const changed = new api.EventEmitter<{ run: LocalRunDto | null; error: string | null }>();
   let current: Live | null = null;
+  let timer: ReturnType<typeof setInterval> | undefined;
+  const stopTimer = () => { clearInterval(timer); timer = undefined; };
   let starting = false;
   let error: string | null = null;
   const publish = () => changed.fire({ run: current?.run ?? null, error });
@@ -75,6 +84,7 @@ export async function coordinateExecutions(api: typeof vscode, root: string, aut
       const run = await window.ideWorkbench.startExecution({ scope, label: label.slice(0, 2000), path });
       current = { run, calls: 1, sessions: new Set(), tasks: new Set(), results: new Set(), logs: new Map(), terminals: new Set(),
         result: { cancelled: false, failed: false, incomplete: false, exitCode: null, tests: [] }, output: '', truncated: false, sequence: 0, sending: false, finishing: false };
+      timer = setInterval(() => { void tick(); }, 250);
       error = null; publish();
       return current;
     } finally { starting = false; }
@@ -118,7 +128,7 @@ export async function coordinateExecutions(api: typeof vscode, root: string, aut
       }
       live.run = await window.ideWorkbench.finishExecution(live.run.id, live.result);
       // A protocol completion is not process proof. Keep polling until the backend observes quiescence.
-      if (!live.run.treeUnverified) { current = null; error = null; }
+      if (!live.run.treeUnverified) { current = null; error = null; stopTimer(); }
       publish();
     } catch (cause) { failed(cause); }
     finally { live.sending = false; }
@@ -131,37 +141,45 @@ export async function coordinateExecutions(api: typeof vscode, root: string, aut
   };
 
   const runTests = tests.runResolvedTests.bind(tests);
-  replace(tests, 'runResolvedTests', (request, token) => within('TESTS', request.group === 4 ? 'Debug tests' : 'Run tests', async live => {
-    const known = new Set(results.results.map(result => result.id));
-    const track = () => { for (const result of results.results) if (!known.has(result.id)) live.results.add(result); };
-    const listener = results.onResultsChanged(track);
-    const controllers = [...new Set(request.targets.map(target => target.controllerId))].flatMap(id => {
-      const controller = tests.getTestController(id);
-      if (!controller) return [];
-      const original = controller.runTests;
-      // VS Code shows controller launch errors as notifications, without putting them in test results.
-      replace(controller, 'runTests', async (...args) => {
-        const replies = await original.apply(controller, args);
-        for (const reply of replies) if (reply.error) { live.result.failed = true; append(live, `${reply.error}\n`); }
-        return replies;
+  replace(tests, 'runResolvedTests', async (request, token) => {
+    if (request.group === 4) throw new Error('Debugging is not enabled; choose Run tests');
+    return within('TESTS', 'Run tests', async live => {
+      const known = new Set(results.results.map(result => result.id));
+      const track = () => { for (const result of results.results) if (!known.has(result.id)) live.results.add(result); };
+      const listener = results.onResultsChanged(track);
+      const controllers = [...new Set(request.targets.map(target => target.controllerId))].flatMap(id => {
+        const controller = tests.getTestController(id);
+        if (!controller) return [];
+        const original = controller.runTests;
+        // VS Code shows controller launch errors as notifications, without putting them in test results.
+        replace(controller, 'runTests', async (...args) => {
+          const replies = await original.apply(controller, args);
+          for (const reply of replies) if (reply.error) { live.result.failed = true; append(live, `${reply.error}\n`); }
+          return replies;
+        });
+        return [{ controller, original }];
       });
-      return [{ controller, original }];
+      const cancellation = token?.onCancellationRequested(() => { live.result.cancelled = true; });
+      try { const result = await runTests(request, token); live.results.add(result); return result; }
+      finally { track(); listener.dispose(); cancellation?.dispose(); for (const { controller, original } of controllers) replace(controller, 'runTests', original); }
     });
-    const cancellation = token?.onCancellationRequested(() => { live.result.cancelled = true; });
-    try { const result = await runTests(request, token); live.results.add(result); return result; }
-    finally { track(); listener.dispose(); cancellation?.dispose(); for (const { controller, original } of controllers) replace(controller, 'runTests', original); }
-  }));
+  });
   // Continuous profiles bypass runResolvedTests and can outlive the user action. Explicit runs remain available.
-  replace(tests, 'startContinuousRun', async () => { throw new Error('Use Run tests or Debug tests; continuous execution is not enabled'); });
+  replace(tests, 'startContinuousRun', async () => { throw new Error('Use Run tests; continuous execution is not enabled'); });
   tests.onDidCancelTestRun(() => { if (current?.run.scope === 'TESTS') current.result.cancelled = true; });
 
   const startDebug = debug.startDebugging.bind(debug);
-  replace(debug, 'startDebugging', (launch, configuration, options) => within(options?.noDebug || (typeof configuration === 'object' && configuration.noDebug) ? 'RUN' : 'DEBUG',
-    typeof configuration === 'string' ? configuration : configuration?.name ?? 'Debug configuration', async live => {
+  replace(debug, 'startDebugging', async (launch, configuration, options) => {
+    // Java's Run test profile uses DAP with noDebug, so the adapter remains available for runs.
+    const noDebug = options?.noDebug === true || (typeof configuration === 'object' && configuration.noDebug === true)
+      || (options?.noDebug === undefined && options?.parentSession?.configuration.noDebug === true);
+    if (!noDebug) throw new Error('Debugging is not enabled; choose Run tests');
+    return within('RUN', typeof configuration === 'string' ? configuration : configuration?.name ?? 'Run configuration', async live => {
       const launched = await startDebug(launch, configuration, options, false);
       if (!launched) live.result.failed = true;
       return launched;
-    }));
+    });
+  });
   debug.onWillNewSession(session => { if (current) current.sessions.add(session.getId()); });
   debug.onDidEndSession(({ session, restart }) => { if (current && !restart) { current.sessions.delete(session.getId()); void tick(); } });
   const stopSession = debug.stopSession.bind(debug);
@@ -170,8 +188,9 @@ export async function coordinateExecutions(api: typeof vscode, root: string, aut
     return stopSession(...args);
   });
   api.debug.registerDebugConfigurationProvider('*', { resolveDebugConfigurationWithSubstitutedVariables: (_folder, configuration) => {
-    if (configuration.request === 'attach') throw new Error('Choose a launch configuration; attaching to external processes is not supported');
-    if (!current) throw new Error('Start debugging from this task’s Tears of time editor');
+    if (configuration.request === 'attach') throw new Error('Choose a run configuration; attaching to external processes is not supported');
+    if (configuration.noDebug !== true) throw new Error('Debugging is not enabled; choose Run tests');
+    if (!current) throw new Error('Start the run from this task’s Tears of time editor');
     return configuration;
   } });
   // Observe the workbench adapter boundary: local-host API trackers do not see remote Java/Go/Rust adapters.
@@ -179,7 +198,7 @@ export async function coordinateExecutions(api: typeof vscode, root: string, aut
   const createAdapter = adapters.createDebugAdapter.bind(adapters);
   replace(adapters, 'createDebugAdapter', session => {
     const live = current;
-    if (!live || session.configuration.request === 'attach') throw new Error('Start a launch configuration in Tears of time');
+    if (!live || session.configuration.request === 'attach' || session.configuration.noDebug !== true) throw new Error('Start a run configuration in Tears of time');
     const adapter: IDebugAdapter | undefined = createAdapter(session);
     if (!adapter) return adapter;
     const onEvent = adapter.onEvent.bind(adapter);
@@ -234,9 +253,9 @@ export async function coordinateExecutions(api: typeof vscode, root: string, aut
   };
   terminals.instances.forEach(captureTerminal);
   terminals.onDidCreateInstance(terminal => { current?.terminals.add(terminal); captureTerminal(terminal); });
-  const timer = setInterval(() => { void tick(); }, 250);
   return {
     onChange: changed.event,
+    get starting() { return starting; },
     get run() { return current?.run ?? null; },
     get error() { return error; },
     stop: async (force = false) => {
@@ -244,7 +263,7 @@ export async function coordinateExecutions(api: typeof vscode, root: string, aut
       if (!live) return;
       if (force) {
         live.run = await window.ideWorkbench.stopExecution(live.run.id);
-        if (!live.run.treeUnverified) current = null;
+        if (!live.run.treeUnverified) { current = null; stopTimer(); }
         publish(); return;
       }
       live.result.cancelled = true;
@@ -253,6 +272,6 @@ export async function coordinateExecutions(api: typeof vscode, root: string, aut
       for (const task of await tasks.getActiveTasks()) await tasks.terminate(task);
       void tick();
     },
-    dispose: () => { clearInterval(timer); changed.dispose(); },
+    dispose: () => { stopTimer(); changed.dispose(); },
   };
 }

@@ -22,6 +22,7 @@ const desktop = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => unknown>(),
   views: [] as MockView[],
   backgrounds: [] as { contentView: { addChildView: ReturnType<typeof vi.fn>; removeChildView: ReturnType<typeof vi.fn> }; destroy: ReturnType<typeof vi.fn> }[],
+  idleReplies: true,
 }));
 type MockView = {
   options: { webPreferences: Record<string, unknown> };
@@ -30,7 +31,7 @@ type MockView = {
   webContents: MockView['contents'] | undefined;
   contents: {
     destroyed: boolean; mainFrame: object; isDestroyed: () => boolean;
-    loadURL: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; send: ReturnType<typeof vi.fn>;
+    loadURL: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; send: Mock<unknown[], void>;
     isFocused: Mock<[], boolean>; focus: ReturnType<typeof vi.fn>;
     emit: (name: string, ...args: unknown[]) => void;
     session: { protocol: { handle: ReturnType<typeof vi.fn> }; fetch: ReturnType<typeof vi.fn>; webRequest: { onBeforeRequest: ReturnType<typeof vi.fn> } };
@@ -58,7 +59,12 @@ vi.mock('electron', async () => {
         isDestroyed: () => this.contents.destroyed,
         isFocused: vi.fn(() => false), focus: vi.fn(),
         close: vi.fn().mockImplementation(() => { this.contents.destroyed = true; }),
-        loadURL: vi.fn().mockImplementation(async (): Promise<void> => undefined), send: vi.fn(), setWindowOpenHandler: vi.fn(),
+        loadURL: vi.fn().mockImplementation(async (): Promise<void> => undefined),
+        send: vi.fn((...args: unknown[]) => {
+          const [name, id] = args;
+          if (name === 'ide:idle-check' && desktop.idleReplies) desktop.handlers.get('ide:report')?.(
+            { sender: this.contents, senderFrame: this.contents.mainFrame }, { dirty: 0, busy: false, idleCheckId: id });
+        }), setWindowOpenHandler: vi.fn(),
         session: { fetch: vi.fn().mockImplementation(async () => new Response('avatar')), protocol: { handle: vi.fn().mockImplementation((scheme: string) => this.handled.add(scheme)),
           isProtocolHandled: vi.fn(async (scheme: string) => this.handled.has(scheme)),
           unhandle: vi.fn().mockImplementation((scheme: string) => { if (!this.handled.delete(scheme)) throw new Error(`Failed to unhandle protocol: ${scheme}`); }) }, setPermissionRequestHandler: vi.fn(),
@@ -75,7 +81,10 @@ const connection = { taskId: 'task', sessionId: 'session', authority: '127.0.0.1
   cacheRoot: '/cache', connectionToken: 'server-only-token', commit: 'a'.repeat(40) };
 const host = { kind: 'task', workspaceId: 'workspace', taskId: 'task' };
 const sender = { mainFrame: {}, send: vi.fn(), getZoomFactor: () => 1 };
+let windowVisible = true;
+let windowMinimized = false;
 const window = { isDestroyed: () => false, isFocused: () => true, webContents: sender, contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
+  isVisible: () => windowVisible, isMinimized: () => windowMinimized,
   getContentBounds: () => ({ width: 1000, height: 800 }) } as unknown as BrowserWindow;
 const fetchMock = vi.fn();
 const parent = () => ({ sender, senderFrame: sender.mainFrame });
@@ -83,6 +92,8 @@ const child = () => ({ sender: desktop.views[0].contents, senderFrame: desktop.v
 const invoke = (name: string, ...args: unknown[]) => desktop.handlers.get(name)?.(...args);
 let views: IdeViews;
 beforeEach(() => {
+  windowVisible = true; windowMinimized = false;
+  desktop.idleReplies = true;
   vi.useFakeTimers(); desktop.views.length = 0; desktop.backgrounds.length = 0; desktop.handlers.clear(); sender.send.mockClear();
   fetchMock.mockReset().mockImplementation(async (_url: string, request: RequestInit) => new Response(request.method === 'POST' ? JSON.stringify(connection) : ''));
   vi.stubGlobal('fetch', fetchMock);
@@ -131,11 +142,39 @@ it('requires confirmation to restart a stopped server even while its old view re
 it('deduplicates worktree opens and keeps native credentials out of renderer URLs', async () => {
   const [first, second] = await Promise.all([invoke('ide:open', parent(), host), invoke('ide:open', parent(), host)]);
   expect(first).toBe(second); expect(desktop.views).toHaveLength(1);
-  expect(desktop.views[0].options.webPreferences).toMatchObject({ sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false });
+  expect(desktop.views[0].options.webPreferences).toMatchObject({ sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false,
+    v8CacheOptions: 'bypassHeatCheck' });
   expect(desktop.views[0].contents.loadURL).toHaveBeenCalledWith('bytequay-ide://app/ide/index.html');
   expect(invoke('ide:bootstrap', child())).toEqual({ connection, context: null });
   expect(() => invoke('ide:bootstrap', parent())).toThrow('Unknown IDE view');
   expect(() => invoke('ide:present', { sender, senderFrame: {} }, first, null)).toThrow('Unknown IDE owner');
+});
+
+it('reports native presentation changes without suspending the editor runtime', async () => {
+  const id = await invoke('ide:open', parent(), host);
+  const contents = desktop.views[0].contents;
+  const bounds = { x: 0, y: 0, width: 900, height: 700 };
+  invoke('ide:present', parent(), id, bounds);
+  invoke('ide:present', parent(), id, bounds);
+  expect(contents.send.mock.calls.filter(([name]) => name === 'ide:visibility')).toEqual([['ide:visibility', true]]);
+  contents.send.mockClear();
+  invoke('ide:bootstrap', child());
+  expect(contents.send).toHaveBeenLastCalledWith('ide:visibility', true);
+  windowMinimized = true; views.refreshVisibility();
+  expect(contents.send).toHaveBeenLastCalledWith('ide:visibility', false);
+  windowMinimized = false; views.refreshVisibility();
+  expect(contents.send).toHaveBeenLastCalledWith('ide:visibility', true);
+  windowVisible = false; views.refreshVisibility();
+  expect(contents.send).toHaveBeenLastCalledWith('ide:visibility', false);
+  windowVisible = true; views.refreshVisibility();
+  expect(contents.send).toHaveBeenLastCalledWith('ide:visibility', true);
+  invoke('ide:present', parent(), id, null, true);
+  expect(contents.send).toHaveBeenLastCalledWith('ide:visibility', false);
+  invoke('ide:present', parent(), id, bounds);
+  expect(contents.send).toHaveBeenLastCalledWith('ide:visibility', true);
+  views.releaseWindow();
+  expect(contents.send).toHaveBeenLastCalledWith('ide:visibility', false);
+  expect(contents.close).not.toHaveBeenCalled();
 });
 
 it('loads public GitHub avatars through the IDE policies without allowing arbitrary remote requests', async () => {
@@ -192,6 +231,115 @@ it('stops a hidden idle worktree even if the parent keeps reporting hidden bound
   expect(desktop.views[0].contents.close).toHaveBeenCalledOnce();
   expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:9527/agent/ide/task/session', expect.objectContaining({ method: 'DELETE' }));
   expect(sender.send).toHaveBeenCalledWith('ide:event', expect.objectContaining({ id, closed: true }));
+});
+
+it.each(['minimized', 'hidden'])('keeps the selected editor warm while its window is %s and restores the same runtime', async state => {
+  const id = await invoke('ide:open', parent(), host);
+  const bounds = { x: 0, y: 0, width: 900, height: 700 };
+  invoke('ide:present', parent(), id, bounds);
+  await vi.advanceTimersByTimeAsync(180_000);
+  if (state === 'minimized') windowMinimized = true;
+  else windowVisible = false;
+  views.refreshVisibility();
+  expect(invoke('ide:window-visibility', parent())).toBe(false);
+  expect(desktop.views[0].contents.send).toHaveBeenLastCalledWith('ide:visibility', false);
+  await vi.advanceTimersByTimeAsync(15 * 60_000);
+  invoke('ide:present', parent(), id, bounds);
+  expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
+  expect(fetchMock.mock.calls.some(([, request]) => request.method === 'DELETE')).toBe(false);
+  windowMinimized = false; windowVisible = true; views.refreshVisibility();
+  expect(desktop.views[0].contents.send).toHaveBeenLastCalledWith('ide:visibility', true);
+  fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(connection)));
+  expect(await invoke('ide:resume', parent(), host, id)).toBe(id);
+  expect(desktop.views).toHaveLength(1);
+  expect(desktop.views[0].contents.loadURL).toHaveBeenCalledOnce();
+});
+
+it.each([false, true])('keeps only the selected editor warm across minimize, including covered=%s', async covered => {
+  const first = await invoke('ide:open', parent(), host);
+  const bounds = { x: 0, y: 0, width: 900, height: 700 };
+  invoke('ide:present', parent(), first, bounds);
+  fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...connection, taskId: 'other', sessionId: 'other-session' })));
+  const second = await invoke('ide:open', parent(), { ...host, taskId: 'other' });
+  invoke('ide:present', parent(), second, covered ? null : bounds, covered);
+  expect(desktop.views[0].setVisible).toHaveBeenLastCalledWith(false);
+  expect(desktop.views[0].contents.send).toHaveBeenLastCalledWith('ide:visibility', false);
+  // Late cleanup of the previous React surface must not release the new selection.
+  invoke('ide:present', parent(), first, null);
+  windowMinimized = true; views.refreshVisibility();
+  await vi.advanceTimersByTimeAsync(135_000);
+  expect(desktop.views[0].contents.close).toHaveBeenCalledOnce();
+  expect(desktop.views[1].contents.close).not.toHaveBeenCalled();
+  expect(sender.send).toHaveBeenCalledWith('ide:event', expect.objectContaining({ id: first, closed: true, suspended: true }));
+  expect(() => invoke('ide:present', parent(), first, bounds)).not.toThrow();
+  expect(() => invoke('ide:update', parent(), first, { host })).not.toThrow();
+  windowMinimized = false; views.refreshVisibility();
+  const reopened = await invoke('ide:resume', parent(), host, first);
+  expect(reopened).not.toBe(first);
+  invoke('ide:present', parent(), reopened, bounds);
+  expect(desktop.views).toHaveLength(3);
+  expect(desktop.views[2].setVisible).toHaveBeenLastCalledWith(true);
+  expect(desktop.views[1].setVisible).toHaveBeenLastCalledWith(false);
+});
+
+it('does not turn an explicit close into an automatic start', async () => {
+  const id = await invoke('ide:open', parent(), host);
+  await invoke('ide:close', parent(), id);
+  fetchMock.mockClear().mockResolvedValue(new Response('null'));
+  expect(await invoke('ide:resume', parent(), host, id)).toBeNull();
+  expect(fetchMock.mock.calls.every(([, request]) => request.method === 'GET')).toBe(true);
+});
+
+it('cancels an idle check when an inactive editor is selected and ignores its stale clean reply', async () => {
+  desktop.idleReplies = false;
+  const id = await invoke('ide:open', parent(), host);
+  invoke('ide:present', parent(), id, { x: 0, y: 0, width: 900, height: 700 });
+  invoke('ide:present', parent(), id, null);
+  await vi.advanceTimersByTimeAsync(135_000);
+  const check = desktop.views[0].contents.send.mock.calls.find(([name]) => name === 'ide:idle-check')?.[1];
+  expect(typeof check).toBe('string');
+  invoke('ide:present', parent(), id, { x: 0, y: 0, width: 900, height: 700 });
+  invoke('ide:report', child(), { dirty: 0, busy: false, idleCheckId: check });
+  await vi.advanceTimersByTimeAsync(150_000);
+  expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
+  desktop.idleReplies = true;
+  invoke('ide:present', parent(), id, null);
+  await vi.advanceTimersByTimeAsync(119_000);
+  expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(16_000);
+  expect(desktop.views[0].contents.close).toHaveBeenCalledOnce();
+});
+
+it('requires a fresh clean renderer reply and retains startup or restoration without one', async () => {
+  desktop.idleReplies = false;
+  await invoke('ide:open', parent(), host);
+  invoke('ide:report', child(), { dirty: 0, busy: false });
+  await vi.advanceTimersByTimeAsync(600_000);
+  expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
+  const check = desktop.views[0].contents.send.mock.calls.filter(([name]) => name === 'ide:idle-check').at(-1)?.[1];
+  invoke('ide:report', child(), { dirty: 1, busy: false, idleCheckId: check });
+  await vi.advanceTimersByTimeAsync(15_000);
+  expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
+  invoke('ide:report', child(), { dirty: 0, busy: true });
+  desktop.idleReplies = true;
+  await vi.advanceTimersByTimeAsync(150_000);
+  expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
+  invoke('ide:report', child(), { dirty: 0, busy: false });
+  await vi.advanceTimersByTimeAsync(15_000);
+  expect(desktop.views[0].contents.close).toHaveBeenCalledOnce();
+});
+
+it('retains an accepted save until the backend write settles even with a clean renderer report', async () => {
+  await invoke('ide:open', parent(), host);
+  let finish!: (value: Response) => void;
+  fetchMock.mockImplementation(async (_url: string, request: RequestInit) => request.method === 'PUT'
+    ? new Promise<Response>(resolve => { finish = resolve; }) : new Response(''));
+  const saving = invoke('ide:save', child(), 'src/main.go', 'eA==', 'a'.repeat(64));
+  await vi.advanceTimersByTimeAsync(150_000);
+  expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
+  finish(new Response('')); await saving;
+  await vi.advanceTimersByTimeAsync(15_000);
+  expect(desktop.views[0].contents.close).toHaveBeenCalledOnce();
 });
 
 it('keeps a covered editor alive through a break and restores its keyboard focus', async () => {
@@ -518,10 +666,10 @@ it('stops an accepted execution after its start response is lost, using only its
 });
 
 
-it('binds an interactive terminal to its known editor and retains that hidden shell for an hour after its last use', async () => {
+it('retains a live or opening terminal even when its command stays silent for hours', async () => {
   views.dispose();
-  let used = Date.now();
-  const terminal = vi.fn(() => used);
+  let live = true;
+  const terminal = vi.fn(() => live);
   views = new IdeViews(() => window, terminal); views.register();
   const id = await invoke('ide:open', parent(), host);
   expect(() => views.terminalHost(child() as unknown as IpcMainInvokeEvent)).toThrow('Unknown');
@@ -530,10 +678,10 @@ it('binds an interactive terminal to its known editor and retains that hidden sh
   expect(() => views.terminalHost(parent() as unknown as IpcMainInvokeEvent)).toThrow('Unknown');
   await vi.advanceTimersByTimeAsync(150_000);
   expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
-  used = Date.now();
-  await vi.advanceTimersByTimeAsync(3_585_000);
+  await vi.advanceTimersByTimeAsync(7_200_000);
   expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
-  await vi.advanceTimersByTimeAsync(45_000);
+  live = false;
+  await vi.advanceTimersByTimeAsync(15_000);
   expect(desktop.views[0].contents.close).toHaveBeenCalledOnce();
 });
 

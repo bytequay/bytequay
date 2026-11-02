@@ -73,24 +73,22 @@ describe('code terminals', () => {
     expect(processes).toHaveLength(2);
   });
 
-  it('reports when a window last attached to, typed into or got output from its shells', async () => {
+  it('protects live shells regardless of silence and releases them only after exit', async () => {
     vi.useFakeTimers({ now: 1_000 });
     try {
       const { terminals, processes, cwd } = setup();
       const sender = new FakeSender();
-      expect(terminals.lastUsed(sender)).toBe(0);
+      expect(terminals.hasLive(sender)).toBe(false);
       const { terminalId } = await terminals.open(sender, 'task:t1', 80, 24, cwd);
-      expect(terminals.lastUsed(sender)).toBe(1_000);
-      vi.setSystemTime(2_000);
-      processes[0].data('$ ');
-      expect(terminals.lastUsed(sender)).toBe(2_000);
-      vi.setSystemTime(3_000);
+      expect(terminals.hasLive(sender)).toBe(true);
+      vi.setSystemTime(7_200_000);
+      expect(terminals.hasLive(sender)).toBe(true);
       terminals.write(new FakeSender(), terminalId, 'ls\r');
-      expect(terminals.lastUsed(sender)).toBe(2_000);
+      expect(terminals.hasLive(new FakeSender())).toBe(false);
       terminals.write(sender, terminalId, 'ls\r');
-      expect(terminals.lastUsed(sender)).toBe(3_000);
+      expect(terminals.hasLive(sender)).toBe(true);
       processes[0].exit({ exitCode: 0 });
-      expect(terminals.lastUsed(sender)).toBe(0);
+      expect(terminals.hasLive(sender)).toBe(false);
     } finally {
       vi.useRealTimers();
     }
@@ -117,10 +115,12 @@ describe('code terminals', () => {
     const sender = new FakeSender();
     const launch = Promise.withResolvers<TerminalLaunch>();
     const opening = terminals.open(sender, 'task:t1', 80, 24, () => launch.promise);
+    expect(terminals.hasLive(sender)).toBe(true);
     if (action === 'navigation') sender.navigate();
     else if (action === 'window close') sender.destroyed();
     else if (action === 'host close') terminals.close('task:t1');
     else terminals.stopAll();
+    expect(terminals.hasLive(sender)).toBe(false);
 
     launch.resolve(await cwd());
 

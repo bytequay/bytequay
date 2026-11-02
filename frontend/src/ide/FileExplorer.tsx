@@ -32,8 +32,8 @@ export default function FileExplorer({ files, selected, runtime, onRefresh, onEr
     if (!selected) return;
     setExpanded(current => new Set([...current, ...selected.split('/').slice(0, -1).map((_part, index, parts) => parts.slice(0, index + 1).join('/'))]));
   }, [selected]);
-  const open = (path: string) => {
-    void runtime.api.window.showTextDocument(runtime.workspace.with({ path: `${runtime.workspace.path}/${path}` }), { preview: false }).then(undefined, error => onError(String(error)));
+  const open = (path: string, preview = false) => {
+    void runtime.api.window.showTextDocument(runtime.workspace.with({ path: `${runtime.workspace.path}/${path}` }), { preview }).then(undefined, error => onError(String(error)));
   };
   const create = async (folder: boolean) => {
     const path = await runtime.api.window.showInputBox({ title: folder ? 'New folder' : 'New file', prompt: 'Path relative to this working copy',
@@ -65,7 +65,8 @@ export default function FileExplorer({ files, selected, runtime, onRefresh, onEr
       {files === null && <div className="ct-files__note" role="status">Loading files…</div>}
       <TreeItems items={tree} depth={0} selected={selected} isOpen={path => changed ? !expanded.has(`closed:${path}`) : expanded.has(path)}
         renderFileIcon={path => path.endsWith('.java') ? <JavaFileIcon uri={runtime.workspace.with({ path: `${runtime.workspace.path}/${path}` }).toString()} /> : undefined}
-        onToggle={path => setExpanded(current => { const next = new Set(current); const key = changed ? `closed:${path}` : path; if (next.has(key)) next.delete(key); else next.add(key); return next; })} onOpen={open} />
+        onToggle={path => setExpanded(current => { const next = new Set(current); const key = changed ? `closed:${path}` : path; if (next.has(key)) next.delete(key); else next.add(key); return next; })}
+        onOpen={open} onPreview={path => open(path, true)} />
       {files?.truncated && <div className="ct-files__note">More files are available through Search.</div>}
       {files && entries.length === 0 && <div className="ct-files__note">{changed ? 'Nothing touched' : 'No files'}</div>}
     </div>

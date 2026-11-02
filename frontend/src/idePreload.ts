@@ -15,6 +15,9 @@ import { subscribe } from './ipcSubscribe';
 import { contextBridge, ipcRenderer } from 'electron';
 import type { IdeWorkbenchBridge } from './ide/contracts';
 
+let visible = false;
+ipcRenderer.on('ide:visibility', (_event, value: boolean) => { visible = value; });
+
 const bridge: IdeWorkbenchBridge = {
   terminal: {
     openCodeTerminal: (_host, cols, rows) => ipcRenderer.invoke('ide:terminal-open', cols, rows),
@@ -37,6 +40,11 @@ const bridge: IdeWorkbenchBridge = {
   bootstrap: () => ipcRenderer.invoke('ide:bootstrap'),
   request: (method, ...args) => ipcRenderer.invoke('ide:request', method, args, navigator.userActivation.isActive),
   report: event => ipcRenderer.send('ide:report', event),
+  onIdleCheck: listener => subscribe('ide:idle-check', listener),
   onContext: listener => subscribe('ide:context', listener),
+  onVisibility: listener => {
+    listener(visible);
+    return subscribe('ide:visibility', listener);
+  },
 };
 contextBridge.exposeInMainWorld('ideWorkbench', bridge);

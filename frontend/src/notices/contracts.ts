@@ -59,7 +59,17 @@ export const APPROVAL_NUDGE_MS = 60_000;
 export function approvalTimeLeft(expiresAt: string, now: number): { text: string; urgent: boolean } | null {
   const left = Date.parse(expiresAt) - now;
   if (!(left > 0)) return null;
-  return { text: left < 60_000 ? `${Math.ceil(left / 1000)} s` : `${Math.ceil(left / 60_000)} min`, urgent: left < 120_000 };
+  return { text: left < 60_000 ? `${Math.ceil(left / 1000)} s` : `${Math.round(left / 60_000)} min`, urgent: left < 120_000 };
+}
+const deadline = (notice: AppNotice): number => notice.expiresAt === undefined ? Number.POSITIVE_INFINITY : Date.parse(notice.expiresAt);
+/**
+ * The one alert drawn: an approval in its last minute first, soonest deadline first, since its nudge can come after newer alerts;
+ * otherwise the newest.
+ */
+export function shownAlert(popups: AppNotice[], now: number): AppNotice | null {
+  const closing = popups.filter(notice => deadline(notice) - now <= APPROVAL_NUDGE_MS);
+  if (closing.length > 0) return closing.reduce((soonest, notice) => deadline(notice) < deadline(soonest) ? notice : soonest);
+  return popups.reduce<AppNotice | null>((newest, notice) => newest === null || Date.parse(notice.occurredAt) > Date.parse(newest.occurredAt) ? notice : newest, null);
 }
 export function parseNotices(value: unknown): AppNotice[] {
   if (!Array.isArray(value)) throw new Error('Invalid notices');

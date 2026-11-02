@@ -504,8 +504,7 @@ export function PendingApprovalCard({ approval, onDecide }: {
   approval: AgentPendingApprovalDto;
   onDecide: ApprovalDecider;
 }): React.JSX.Element {
-  const deadlines = useMemo(() => new Map([[approval.approvalId, approval.expiresAt]]), [approval.approvalId, approval.expiresAt]);
-  return <ApprovalDeadlines.Provider value={deadlines}><ApprovalView block={pendingApprovalBlock(approval)} onDecide={onDecide} /></ApprovalDeadlines.Provider>;
+  return <ApprovalView block={pendingApprovalBlock(approval)} onDecide={onDecide} />;
 }
 
 /** A question Claude asked: its own options, answered in place, instead of an allow over raw tool input. */

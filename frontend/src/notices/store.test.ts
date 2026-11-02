@@ -15,7 +15,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { NOTICE_KINDS, approvalTimeLeft, parseNotices, type AppNotice } from './contracts';
+import { NOTICE_KINDS, approvalTimeLeft, parseNotices, shownAlert, type AppNotice } from './contracts';
 import { NoticeStore } from './store';
 
 const now = Date.parse('2026-09-27T10:00:00Z');
@@ -190,12 +190,32 @@ it('brings an unanswered approval back once in its last minute, even after it wa
   expect(store.snapshot(true).popupIds).toEqual([]);
 });
 
-it('says how long an approval has left, and nothing once it expired', () => {
+it('nudges an approval whose deadline passed while the Mac slept, as long as it is still listed', () => {
+  const store = new NoticeStore(() => file); store.update([], now);
+  const slept = { ...notice('approval:slept', 'APPROVAL'), expiresAt: new Date(now - 120_000).toISOString() };
+  expect(store.update([slept], now)).toEqual([slept.id]);
+  expect(store.update([slept], now + 5_000)).toEqual([]);
+});
+
+it('says how long an approval has left, to the nearest minute, and nothing once it expired', () => {
   const at = new Date(now + 300_000).toISOString();
   expect(approvalTimeLeft(at, now + 1_000)).toEqual({ text: '5 min', urgent: false });
   expect(approvalTimeLeft(at, now + 181_000)).toEqual({ text: '2 min', urgent: true });
+  expect(approvalTimeLeft(at, now + 215_000)).toEqual({ text: '1 min', urgent: true });
   expect(approvalTimeLeft(at, now + 255_000)).toEqual({ text: '45 s', urgent: true });
   expect(approvalTimeLeft(at, now + 300_000)).toBeNull();
+});
+
+it('draws an approval in its last minute over newer alerts, soonest deadline first, and otherwise the newest alert', () => {
+  const at = (seconds: number) => new Date(now + seconds * 1000).toISOString();
+  const early = { ...notice('approval:early', 'APPROVAL', 'early'), occurredAt: at(-250), expiresAt: at(50) };
+  const later = { ...notice('approval:later', 'APPROVAL', 'later'), occurredAt: at(-245), expiresAt: at(55) };
+  const calm = { ...notice('approval:calm', 'APPROVAL', 'calm'), occurredAt: at(-30), expiresAt: at(270) };
+  const finished = { ...notice('finished', 'TURN_FINISHED', 'finished'), occurredAt: at(-1) };
+  expect(shownAlert([], now)).toBeNull();
+  expect(shownAlert([calm, finished], now)).toBe(finished);
+  expect(shownAlert([calm, later, finished], now)).toBe(later);
+  expect(shownAlert([later, early, finished], now)).toBe(early);
 });
 
 it('rejects malformed data at the desktop boundary', () => {

@@ -171,7 +171,7 @@ describe('the unified review conversation', () => {
       detail: 'npm test', approvalKind: 'COMMAND', scope: [], sandboxed: true, availableDecisions: ['ALLOW_ONCE', 'DENY'], actionable: true,
     }] });
     expect(pending(170_000)).toMatch(/class="agt-appr__left"[^>]*>3 min left</);
-    expect(pending(90_000)).toMatch(/class="agt-appr__left is-urgent"[^>]*>2 min left</);
+    expect(pending(100_000)).toMatch(/class="agt-appr__left is-urgent"[^>]*>2 min left</);
     expect(pending(-1_000)).not.toContain('agt-appr__left');
   });
 

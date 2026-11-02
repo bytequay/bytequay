@@ -15,7 +15,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import { X } from 'lucide-react';
 import { ago } from '@bytequay/ui/relativeTime';
 import { useNow } from '../useNow';
-import { APPROVAL_NOTICE, APPROVAL_NUDGE_MS, NOTICE_ACTIONS as ACTIONS, approvalTimeLeft, needsAction, noticeLabel as label, type AppNotice, type NoticeBridge,
+import { APPROVAL_NOTICE, NOTICE_ACTIONS as ACTIONS, approvalTimeLeft, needsAction, noticeLabel as label, shownAlert, type AppNotice, type NoticeBridge,
   type NoticeSnapshot } from './contracts';
 
 const describe = (notice: AppNotice): string => `${label(notice)}: ${notice.pullRequestTitle ?? notice.title}`;
@@ -79,10 +79,9 @@ export default function NoticeStack({ bridge = window.noticeBridge }: { bridge?:
     return () => { active = false; stop(); };
   }, [bridge]);
   const popups = state.notices.filter(notice => state.popupIds.includes(notice.id));
-  // An approval's last-minute nudge comes back on top, even when newer alerts arrived after it.
-  const closing = popups.filter(notice => notice.expiresAt !== undefined && Date.parse(notice.expiresAt) - Date.now() <= APPROVAL_NUDGE_MS);
-  const alert = (closing.length > 0 ? closing : popups)
-    .reduce<AppNotice | null>((newest, notice) => newest === null || Date.parse(notice.occurredAt) > Date.parse(newest.occurredAt) ? notice : newest, null);
+  // Ticks while an alert has a deadline: an approval reaching its last minute behind a newer alert brings no new snapshot.
+  const now = useNow(popups.some(notice => notice.expiresAt !== undefined));
+  const alert = shownAlert(popups, now);
   const shown = alert !== null;
   useLayoutEffect(() => {
     const node = root.current;

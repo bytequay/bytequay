@@ -437,19 +437,36 @@ it('also shows a new alert on macOS while the user is in another app, and closes
   host.stop();
 });
 
-it('sends an unanswered approval to macOS again in its last minute, once, with the time it has left', async () => {
+it('sends an unanswered approval to macOS again in its last minute, once, naming when the wait ends', async () => {
   const { host, read, window } = setup();
   await host.refresh();
   vi.spyOn(window, 'isFocused').mockReturnValue(false);
+  const until = (iso: string) => `Approval needed · until ${new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
   const approval = { ...notice, expiresAt: new Date(Date.now() + 150_000).toISOString() };
   read.mockResolvedValue([approval]); await host.refresh();
   expect(desktop.notifications).toHaveLength(1);
   const first = desktop.notifications[0] as Shown;
-  expect(first.options).toEqual({ title: 'Approval needed · 3 min left', body: 'Build' });
-  read.mockResolvedValue([{ ...approval, expiresAt: new Date(Date.now() + 30_000).toISOString() }]); await host.refresh(); await host.refresh();
+  expect(first.options).toEqual({ title: until(approval.expiresAt), body: 'Build' });
+  const closing = { ...approval, expiresAt: new Date(Date.now() + 30_000).toISOString() };
+  read.mockResolvedValue([closing]); await host.refresh(); await host.refresh();
   expect(desktop.notifications).toHaveLength(2);
   expect(first.close).toHaveBeenCalledTimes(1);
-  expect((desktop.notifications[1] as Shown).options.title).toMatch(/^Approval needed · \d+ s left$/);
+  expect((desktop.notifications[1] as Shown).options).toEqual({ title: until(closing.expiresAt), body: 'Build' });
+  host.stop();
+});
+
+it('still alerts, on macOS too, while the Assistant panel is open but the user is in another app', async () => {
+  const { host, read, window } = setup();
+  await host.refresh();
+  const owner = { sender: window.webContents, senderFrame: window.webContents.mainFrame };
+  desktop.handlers.get('notices:suppress')?.(owner, true);
+  const focused = vi.spyOn(window, 'isFocused').mockReturnValue(false);
+  read.mockResolvedValue([notice]); await host.refresh();
+  expect(desktop.notifications).toHaveLength(1);
+  expect(desktop.handlers.get('notices:read')?.(owner)).toMatchObject({ popupIds: [notice.id] });
+  // Back in ByteQuay, the open panel shows it, so it leaves the alerts.
+  focused.mockReturnValue(true); window.emit('focus'); await host.refresh();
+  expect(desktop.handlers.get('notices:read')?.(owner)).toMatchObject({ popupIds: [] });
   host.stop();
 });
 

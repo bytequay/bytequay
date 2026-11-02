@@ -13,7 +13,7 @@
  */
 import { app, ipcMain, Notification, shell, WebContentsView, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import path from 'node:path';
-import { APPROVAL_NOTICE, NOTICE_WIDTH, approvalTimeLeft, needsAction, noticeLabel, parseNotices, type AppNotice, type NoticeSnapshot } from './contracts';
+import { APPROVAL_NOTICE, NOTICE_WIDTH, needsAction, noticeLabel, parseNotices, type AppNotice, type NoticeSnapshot } from './contracts';
 import { NoticeStore } from './store';
 
 /** One trusted app surface above native browser/editor views; its bridge cannot execute task actions. */
@@ -183,9 +183,10 @@ export class NoticeHost {
   private notify(notice: AppNotice): Notification | null {
     // Platform support does not imply permission: unsigned macOS builds also pass isSupported() and then fail.
     if (this.nativeDisabled || !Notification.isSupported()) return null;
-    const left = notice.expiresAt === undefined ? null : approvalTimeLeft(notice.expiresAt, Date.now());
+    // A notification stays in Notification Center, so it names when the wait ends rather than a count that goes stale.
+    const until = notice.expiresAt === undefined ? null : new Date(notice.expiresAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     try {
-      const shown = new Notification({ title: `${noticeLabel(notice)} · ${left === null ? notice.repository : `${left.text} left`}`, body: notice.title });
+      const shown = new Notification({ title: `${noticeLabel(notice)} · ${until === null ? notice.repository : `until ${until}`}`, body: notice.title });
       shown.on('click', () => {
         // ponytail: a reopened window's page may not listen yet, so then the click only brings ByteQuay back and keeps the alert.
         const window = this.window();
@@ -222,10 +223,12 @@ export class NoticeHost {
     const window = this.window();
     if (!window || window.isDestroyed()) return;
     let state = this.snapshot();
-    if (state.active || this.suppressed) {
+    // The open panel shows every notice, so none pops up after it closes; but not while the user is in another app, where an alert
+    // and its macOS notification are the only way a notice, or an approval's last-minute nudge, reaches them.
+    const shownByPanel = this.suppressed && window.isFocused();
+    if (state.active || shownByPanel) {
       for (const notice of state.notices) {
-        // The open panel shows every notice, so none pops up after it closes.
-        if (this.suppressed || [...this.sources.values()].includes(notice.taskId)) {
+        if (shownByPanel || [...this.sources.values()].includes(notice.taskId)) {
           this.store.markViewed(notice.id);
         }
       }

@@ -61,8 +61,9 @@ export class NoticeStore {
         // Notices already waiting at startup are old news: no alert and no unread dot.
         if (!known && !this.initialized) this.viewed.add(notice.id);
         const left = notice.expiresAt === undefined ? Number.NaN : Date.parse(notice.expiresAt) - now;
-        // Once, even after the alert was closed: in real use, one approval in five expired unanswered.
-        if (left > 0 && left <= APPROVAL_NUDGE_MS && !this.nudged.has(notice.id)) {
+        // Once, even after the alert was closed: in real use, one approval in five expired unanswered. A deadline already past
+        // still counts while the approval is listed: the backend's wait does not count time the Mac sleeps.
+        if (left <= APPROVAL_NUDGE_MS && !this.nudged.has(notice.id)) {
           this.nudged.add(notice.id); this.popups.add(notice.id); this.viewed.delete(notice.id); nudges.push(notice.id);
         }
       }

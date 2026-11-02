@@ -18,6 +18,8 @@ import type { AssistantSummaryDto, AssistantViewDto } from '../types';
 
 /** How often the open panel looks again while a reply is being written. */
 const RUNNING_POLL_MS = 1000;
+/** And otherwise, so what a task writes back into the conversation shows while the panel stays open. */
+const OPEN_POLL_MS = 5000;
 
 export type Assistant = {
   /** The conversation on screen; null until it has been read. */
@@ -38,8 +40,9 @@ export type Assistant = {
 };
 
 /**
- * One conversation and the history while the panel is open: read on open, focus and a switch of conversation, and every second while a
- * reply runs. A conversation id nobody wrote in yet reads as empty, and the first message begins it.
+ * One conversation and the history while the panel is open: read on open, focus and a switch of conversation, every second while a reply
+ * runs, and every five seconds otherwise, for the reports tasks write. A conversation id nobody wrote in yet reads as empty, and the first
+ * message begins it.
  */
 export function useAssistant(open: boolean, conversation: string): Assistant {
   const [view, setView] = useState<AssistantViewDto | null>(null);
@@ -73,7 +76,7 @@ export function useAssistant(open: boolean, conversation: string): Assistant {
 
   // A reply in another conversation still moves the history's spinner.
   const running = view?.running === true || conversations.some(each => each.running);
-  useEffect(() => open && running ? pollVisible(load, RUNNING_POLL_MS) : undefined, [load, open, running]);
+  useEffect(() => open ? pollVisible(load, running ? RUNNING_POLL_MS : OPEN_POLL_MS) : undefined, [load, open, running]);
 
   const act = useCallback(async (action: () => Promise<unknown>): Promise<boolean> => {
     setError(null);

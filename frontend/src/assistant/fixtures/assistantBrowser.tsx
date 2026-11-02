@@ -1120,6 +1120,30 @@ async function reportsWhatItsTasksRaised(): Promise<void> {
   finally { view.dispose(); }
 }
 
+async function showsWhatATaskReportsWhileOpen(): Promise<void> {
+  // The fixture window is hidden, which pauses every poll; on screen the page is visible.
+  const visibility = Object.getOwnPropertyDescriptor(Document.prototype, 'visibilityState');
+  Object.defineProperty(Document.prototype, 'visibilityState', { configurable: true, get: () => 'visible' });
+  let reported = false;
+  const ready = report('k5', 'READY', 'finished:turn-5', '“Expose snapshot id in metadata” is ready', 't9');
+  const view = mount(VIEW, 0, [], [], undefined, undefined,
+    { getAssistantConversation: async (id: string) => ({ ...VIEW, id, items: reported ? [...VIEW.items, ready] : VIEW.items }) });
+  try {
+    await settle();
+    enter(type(view.host, 'How is the snapshot id one going?'));
+    await settle();
+    assert(view.host.querySelector('.assistant-talk')?.textContent?.includes('is ready') === false, 'Nothing is reported yet');
+    reported = true;
+    await new Promise(resolve => setTimeout(resolve, 5500));
+    assert(view.host.querySelector('.assistant-talk')?.textContent?.includes('“Expose snapshot id in metadata” is ready') === true,
+      'A task’s report shows while the panel stays open, with no focus or message');
+  }
+  finally {
+    view.dispose();
+    if (visibility !== undefined) Object.defineProperty(Document.prototype, 'visibilityState', visibility);
+  }
+}
+
 async function stopsATurnThatLooksStuck(): Promise<void> {
   const stuck = { ...notice('stuck:turn-task-3:1', 'STUCK', 'task-3', 'Retry Iceberg commit'), message: 'Quiet 14 min · last: gh api repos/owner/repository/pulls' };
   const working: RunningTask = { ...RUNNING, id: 'task-3', kind: 'TASK', targetId: 'task-3', title: 'Retry Iceberg commit', startedAt: '2026-10-16T06:55:00Z' };
@@ -1152,7 +1176,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     ['creates a drafted issue as an Epic', createsADraftedIssueAsAnEpic], ['reads the marks the assistant made', readsTheMarksTheAssistantMade],
     ['acts on a pull request from its card', actsOnAPullRequestFromItsCard], ['asks to sign in when the model is not ready', asksToSignInWhenTheModelIsNotReady],
     ['keeps the set-up box whole with chat off', keepsTheSetUpBoxWholeWithChatOff], ['keeps a conversation for each topic', keepsAConversationForEachTopic],
-    ['reports what its tasks raised', reportsWhatItsTasksRaised], ['stops a turn that looks stuck', stopsATurnThatLooksStuck]]);
+    ['reports what its tasks raised', reportsWhatItsTasksRaised], ['shows what a task reports while open', showsWhatATaskReportsWhileOpen],
+    ['stops a turn that looks stuck', stopsATurnThatLooksStuck]]);
 }
 
 const receiptsView = (): AssistantViewDto => {

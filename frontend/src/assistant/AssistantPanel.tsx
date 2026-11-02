@@ -25,8 +25,8 @@ import { MyWorkBoard } from '../home/MyWork';
 import TodayList, { openTarget } from '../home/TodayList';
 import { reloadHandled, type AttentionSource } from '../home/attention';
 import { clockTime } from '../home/today';
-import { useMyWork } from '../home/useMyWork';
-import type { WorkLane } from '../home/work';
+import { useMyWork, useShownWork } from '../home/useMyWork';
+import type { WorkItem, WorkLane } from '../home/work';
 import { requestPullComment } from '../pulls/PullOverview';
 import { APPROVAL_NOTICE, type AppNotice } from '../notices/contracts';
 import { remoteErrorMessage } from '../remoteError';
@@ -431,7 +431,9 @@ function AssistantViews({ notices, view, lane, card, talk, pointsDown, composer,
   onClearNotice: (id: string) => void;
 }) {
   const waiting = useWaiting(notices);
-  const { work } = useMyWork();
+  const shown = useShownWork();
+  const [read, setRead] = useState<WorkItem[]>([]);
+  const work = shown ?? read;
   const [opened, setOpened] = useState<string | null>(null);
   const { cards } = waiting;
   const decisions = decisionOrder(cards);
@@ -511,12 +513,21 @@ function AssistantViews({ notices, view, lane, card, talk, pointsDown, composer,
   }
 
   return <>
+    {shown === null && <MyWorkReader onWork={setRead} />}
     <div className="assistant-head">
       {composer}
       <AssistantPills waiting={waiting} needsYou={work.some(item => item.lane === 'needs')} open={view === 'conversation' ? null : view} onPick={onPick} />
     </div>
     {body !== null && <div ref={scroller} className="assistant-body">{body}</div>}
   </>;
+}
+
+/** My work for the Assistant opened away from Home, which has no list to hand it. */
+function MyWorkReader({ onWork }: { onWork: (work: WorkItem[]) => void }) {
+  const { work } = useMyWork();
+  // Before paint, so the board and the pill's dot draw with the list on the first frame, as they did when the Assistant read it itself.
+  useLayoutEffect(() => onWork(work), [onWork, work]);
+  return null;
 }
 
 /** Conversations as one-line rows, titled by their first message: the history, or the newest one to continue. */

@@ -34,7 +34,7 @@ import ContributionCard from './ContributionCard';
 import DoneList from './DoneList';
 import { isoDay } from '../recent/model';
 import { AllMyWork, MyWorkLine } from './MyWork';
-import { useMyWork } from './useMyWork';
+import { publishShownWork, useMyWork } from './useMyWork';
 import { isOwnWork } from './work';
 import TodayList, { useWideWindow } from './TodayList';
 import { showsToday, todayKeys, todayRows } from './today';
@@ -95,6 +95,8 @@ function HomePage({
   assistantChat = false,
 }: Props) {
   const { profile, workspaces, loading, workspaceError, addWorkspace, candidates, work, jiraError, attentionError, issueAttentionError } = useMyWork({ ended: allWork });
+  useEffect(() => publishShownWork(allWork ? null : work), [allWork, work]);
+  useEffect(() => () => publishShownWork(null), []);
   const [followingEvents, setFollowingEvents] = useState<RecentEventDto[]>([]);
   const teams = useTeams();
   const [showModal, setShowModal] = useState(false);

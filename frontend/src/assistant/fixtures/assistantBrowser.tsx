@@ -29,6 +29,7 @@ import type {
 import { settingsRoute } from '../../settings/routes';
 import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../../workspaces/model';
 import { MyWorkLine } from '../../home/MyWork';
+import { publishShownWork } from '../../home/useMyWork';
 import { WORK_LANES, type WorkItem } from '../../home/work';
 import HomeComposer from '../HomeComposer';
 import { dayLabel, localDay, type AssistantRequest } from '../model';
@@ -582,6 +583,29 @@ async function opensMyWork(): Promise<void> {
   }
   finally {
     window.location.hash = '';
+    view.dispose();
+  }
+}
+
+async function takesTheListHomeShows(): Promise<void> {
+  let reads = 0;
+  const counted = { fetchAttentionPrs: async () => { reads++; return []; } } as unknown as Partial<Bridge>;
+  const shown = { key: 'home-1', source: 'pr', label: 'owner/repository#12', title: 'Retry flaky uploads', updatedAt: '2026-10-16T07:00:00Z',
+    target: { kind: 'PULL', repo: 'owner/repository', number: 12, workspaceId: 'ws1', id: null, connectionId: null, cloudId: null }, task: null, running: null,
+    branch: null, prs: [], lane: 'needs', next: null, decision: null, keys: ['home-1'], ended: null, repos: ['owner/repository'], agents: [] } as WorkItem;
+  publishShownWork([shown]);
+  const view = mount(VIEW, 0, NOTICES, [], undefined, undefined, counted);
+  try {
+    view.render(true, { view: 'mywork' });
+    await settle();
+    assert(selected(view.host) === 'My work' && view.host.querySelector('.mw-card__title')?.textContent === 'Retry flaky uploads' && reads === 0,
+      `Over Home the Assistant shows Home's list and reads none of its sources again: ${reads} reads`);
+    publishShownWork(null);
+    await settle();
+    assert(reads > 0 && view.host.querySelector('.mw-card__title') === null, `Away from Home it reads My work itself: ${reads} reads`);
+  }
+  finally {
+    publishShownWork(null);
     view.dispose();
   }
 }
@@ -1180,7 +1204,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   return runScenarios([['floats over the page', floatsOverThePage], ['shows the day once the user talks', showsTheDayOnceTheUserTalks],
     ['opens one view at a time', opensOneViewAtATime], ['answers with the task’s buttons', answersWithTheTasksButtons], ['sends with what is shown', sendsWithWhatIsShown],
     ['shows running tasks and All', showsRunningTasksAndAll], ['draws results with their evidence', drawsResultsWithTheirEvidence],
-    ['opens at a card from its alert', opensAtACardFromItsAlert], ['waits in line while it answers', waitsInLineWhileItAnswers], ['opens My work', opensMyWork],
+    ['opens at a card from its alert', opensAtACardFromItsAlert], ['waits in line while it answers', waitsInLineWhileItAnswers], ['opens My work', opensMyWork], ['takes the list Home shows', takesTheListHomeShows],
     ['stops a running reply', stopsARunningReply], ['shows a list as rows, cards or a timeline', showsAListAsRowsCardsOrATimeline],
     ['follows an open once when it arrives', followsAnOpenOnceWhenItArrives], ['completes a task from its card', completesATaskFromItsCard],
     ['creates a drafted issue as an Epic', createsADraftedIssueAsAnEpic], ['reads the marks the assistant made', readsTheMarksTheAssistantMade],

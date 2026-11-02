@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { linkTasks, useTaskAttention } from '../agents/attention';
 import { getCached, setCached } from '../dataCache';
 import { useJiraAttention } from '../jira/attention';
@@ -22,7 +22,7 @@ import { workspaceIsUpdating } from '../workspaces/model';
 import { pollVisible } from '../ide/pollVisible';
 import { useNotices } from '../notices/useNotices';
 import { ATTENTION_SEED, ISSUE_ATTENTION_REFRESH_MS, attentionCandidates, issueAttentionItems, type AttentionItem } from './attention';
-import { decisionMarks, myWorkItems } from './work';
+import { decisionMarks, myWorkItems, type WorkItem } from './work';
 
 // The backend searches GitHub for the viewer's issues at most this often; asking sooner only rereads its answer.
 const AUTHORED_ISSUES_REFRESH_MS = 5 * 60 * 1000;
@@ -60,11 +60,31 @@ function useLocalWork(workspaceIds: string): WorkItemDto[] {
   return work;
 }
 
+let shownWork: WorkItem[] | null = null;
+const shownListeners = new Set<() => void>();
+
+/**
+ * Home hands the Assistant the list it already read, so the Assistant opened over Home reads none of these sources again. Null while
+ * Home shows no such list, as on All my work, whose list also holds finished work.
+ */
+export function publishShownWork(work: WorkItem[] | null): void {
+  shownWork = work;
+  shownListeners.forEach(listener => listener());
+}
+
+/** The list Home is showing, for the Assistant opened over it; null away from Home. */
+export function useShownWork(): WorkItem[] | null {
+  return useSyncExternalStore(subscribeShownWork, () => shownWork);
+}
+
+function subscribeShownWork(listener: () => void): () => void {
+  shownListeners.add(listener);
+  return () => { shownListeners.delete(listener); };
+}
+
 /**
  * Everything Home and the Assistant's My work read: the viewer, the watched repositories, what asks for the viewer's attention, and the
  * viewer's own work built from it. `ended` also builds All my work, which lists finished work too.
- *
- * ponytail: the Assistant opened over Home reads the same sources a second time; share one reader if that load ever shows.
  */
 export function useMyWork({ ended = false }: { ended?: boolean } = {}) {
   const [profile, setProfile] = useState<UserProfileDto | null>(() => getCached<UserProfileDto>(SEED.profile) ?? null);

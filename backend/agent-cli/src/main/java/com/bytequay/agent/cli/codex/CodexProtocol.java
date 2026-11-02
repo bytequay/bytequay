@@ -21,10 +21,12 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -674,11 +676,38 @@ final class CodexProtocol
         }
     }
 
-    record TurnError(String message)
+    record TurnError(String message, Optional<JsonNode> codexErrorInfo)
     {
+        /** Codex's error codes for a model service that was busy or failed on its side. */
+        private static final Set<String> PASSING_CODES = ImmutableSet.of("serverOverloaded", "rateLimitExceeded", "internalServerError");
+        /** Codex's connection failure codes; each may carry the HTTP status that caused it. */
+        private static final Set<String> CONNECTION_CODES = ImmutableSet.of(
+                "httpConnectionFailed", "responseStreamConnectionFailed", "responseStreamDisconnected", "responseTooManyFailedAttempts");
+
         TurnError
         {
             requireNonNull(message, "message is null");
+            requireNonNull(codexErrorInfo, "codexErrorInfo is null");
+        }
+
+        /**
+         * Whether the error passes on its own: a busy or failing model service, or a lost connection with no HTTP status
+         * or a 408, 429 or 5xx one. A usage limit, sign-in, bad request or policy error never does.
+         */
+        boolean passing()
+        {
+            return codexErrorInfo.filter(info -> {
+                if (info.isTextual()) {
+                    return PASSING_CODES.contains(info.textValue());
+                }
+                if (!info.isObject() || info.size() != 1) {
+                    return false;
+                }
+                Map.Entry<String, JsonNode> code = info.properties().iterator().next();
+                JsonNode status = code.getValue().path("httpStatusCode");
+                return CONNECTION_CODES.contains(code.getKey())
+                        && (!status.isNumber() || status.intValue() == 408 || status.intValue() == 429 || status.intValue() / 100 == 5);
+            }).isPresent();
         }
     }
 

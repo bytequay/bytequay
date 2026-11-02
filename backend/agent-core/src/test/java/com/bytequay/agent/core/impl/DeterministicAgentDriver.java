@@ -288,6 +288,12 @@ final class DeterministicAgentDriver
         requireCurrentTurn().fail(reason, failureKind);
     }
 
+    /** Fails the running turn the way a busy model service does: the failure may pass, and the process is stopped. */
+    synchronized void failTransiently(String reason)
+    {
+        requireCurrentTurn().failTransiently(reason);
+    }
+
     synchronized List<AgentSessionRef> openedReferences()
     {
         return ImmutableList.copyOf(openedReferences);
@@ -546,6 +552,12 @@ final class DeterministicAgentDriver
         {
             checkState(!completion.isDone(), "deterministic turn is already complete");
             completion.complete(new AgentTurnResult(AgentTurnResult.State.FAILED, Optional.empty(), Optional.of(reason), Duration.ZERO, true, Optional.of(failureKind)));
+        }
+
+        private void failTransiently(String reason)
+        {
+            checkState(!completion.isDone(), "deterministic turn is already complete");
+            completion.complete(new AgentTurnResult(AgentTurnResult.State.FAILED, Optional.empty(), Optional.of(reason), Duration.ZERO, true, Optional.empty(), true));
         }
 
         private void failCompletion(RuntimeException failure)

@@ -670,6 +670,105 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void retriesAPassingProviderFailureInTheSameTurn()
+    {
+        List<Duration> waits = new ArrayList<>();
+        service.retryWait((wait, retry) -> {
+            waits.add(wait);
+            retry.run();
+        });
+        AgentTurn turn = service.start(command("first", "key-1"));
+        AgentSessionRef thread = taskService.get(task.id()).sessionReference().orElseThrow();
+
+        driver.failTransiently("Selected model is at capacity.");
+
+        // The turn carries on in a fresh session on the same thread, without a second copy of the user's message.
+        assertThat(service.get(turn.id()).state()).isEqualTo(TurnState.RUNNING);
+        assertThat(driver.openedContexts().getLast().sessionReference()).contains(thread);
+        assertThat(driver.commands()).hasSize(2);
+        assertThat(driver.commands().getLast().turnId()).isEqualTo(turn.id().toString());
+        assertThat(driver.commands().getLast().message()).contains("Continue from where you stopped").doesNotContain("first");
+        assertThat(waits).containsExactly(Duration.ofSeconds(10));
+        assertThat(lifecycleMessages(AgentEventPayload.LifecyclePhase.RETRYING)).containsExactly("Retrying in 10 s (1 of 3)");
+
+        driver.complete("done");
+
+        assertThat(service.get(turn.id()).state()).isEqualTo(TurnState.COMPLETED);
+        assertThat(stores.find(task.id()).orElseThrow().worktreeMutationClaim()).isEmpty();
+    }
+
+    @Test
+    void failsWithAHintAfterThreeRetriesOfAPassingFailure()
+    {
+        List<Duration> waits = new ArrayList<>();
+        service.retryWait((wait, retry) -> {
+            waits.add(wait);
+            retry.run();
+        });
+        AgentTurn turn = service.start(command("first", "key-1"));
+
+        for (int attempt = 0; attempt < 4; attempt++) {
+            driver.failTransiently("Selected model is at capacity.");
+        }
+
+        AgentTurn failed = service.get(turn.id());
+        assertThat(failed.state()).isEqualTo(TurnState.FAILED);
+        assertThat(failed.terminalReason()).contains("Selected model is at capacity. Still failing after 3 retries. Send a message to try again, or pick another model.");
+        assertThat(failed.failureKind()).isEmpty();
+        assertThat(waits).containsExactly(Duration.ofSeconds(10), Duration.ofSeconds(30), Duration.ofSeconds(90));
+        assertThat(driver.commands()).hasSize(4);
+        assertThat(lifecycleMessages(AgentEventPayload.LifecyclePhase.RETRYING))
+                .containsExactly("Retrying in 10 s (1 of 3)", "Retrying in 30 s (2 of 3)", "Retrying in 90 s (3 of 3)");
+        assertThat(stores.find(task.id()).orElseThrow().worktreeMutationClaim()).isEmpty();
+    }
+
+    @Test
+    void cancelEndsATurnWaitingToRetryAndSteeringIsRefused()
+    {
+        List<Runnable> pending = new ArrayList<>();
+        service.retryWait((wait, retry) -> pending.add(retry));
+        AgentTurn turn = service.start(command("first", "key-1"));
+        driver.failTransiently("Selected model is at capacity.");
+
+        AgentInputDelivery steer = service.steer(new SteerAgentTurnCommand(turn.id(), "more", ImmutableList.of(), "steer-1"));
+        AgentTurn cancelled = service.cancel(turn.id());
+        pending.forEach(Runnable::run);
+
+        assertThat(steer.state()).isEqualTo(AgentInputDelivery.State.FAILED);
+        assertThat(steer.failure()).hasValueSatisfying(failure -> assertThat(failure).contains("waiting to retry"));
+        assertThat(cancelled.state()).isEqualTo(TurnState.CANCELLED);
+        assertThat(cancelled.terminalReason()).contains("Stopped while waiting to retry");
+        assertThat(driver.commands()).hasSize(1);
+        assertThat(driver.steers()).isEmpty();
+        assertThat(stores.find(task.id()).orElseThrow().worktreeMutationClaim()).isEmpty();
+    }
+
+    @Test
+    void stoppingTheRuntimeEndsATurnWaitingToRetry()
+    {
+        List<Runnable> pending = new ArrayList<>();
+        service.retryWait((wait, retry) -> pending.add(retry));
+        AgentTurn turn = service.start(command("first", "key-1"));
+        driver.failTransiently("Selected model is at capacity.");
+
+        AgentTask stopped = service.stopRuntime(task.id(), service.stopImpact(task.id()).generation());
+        pending.forEach(Runnable::run);
+
+        assertThat(stopped.worktreeMutationClaim()).isEmpty();
+        assertThat(service.get(turn.id()).state()).isEqualTo(TurnState.CANCELLED);
+        assertThat(driver.commands()).hasSize(1);
+    }
+
+    private List<String> lifecycleMessages(AgentEventPayload.LifecyclePhase phase)
+    {
+        return events.readAfter(task.id(), 0, 100).stream()
+                .map(AgentEventEnvelope::payload)
+                .filter(payload -> payload instanceof AgentEventPayload.Lifecycle lifecycle && lifecycle.phase() == phase)
+                .map(payload -> ((AgentEventPayload.Lifecycle) payload).message())
+                .collect(toImmutableList());
+    }
+
+    @Test
     void snapshotsSubmissionAutomationWithoutChangingTaskDefaultsOrQueuedWork()
     {
         AgentTask interactive = interactiveTask("Implement the change");

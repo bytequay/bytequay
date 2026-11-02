@@ -2660,7 +2660,9 @@ public final class CodexCliDriver
                 log.warn("Codex turn {} finished, but runtime cleanup is unresolved: {}", reference.value(), cleanupFailure.orElseThrow());
                 reason = reason.map(value -> value + "; Runtime cleanup: " + cleanupFailure.orElseThrow());
             }
-            completion.complete(new AgentTurnResult(state, finalResponse, reason, elapsed(turn), cleanupFailure.isEmpty()));
+            boolean transientFailure = state == AgentTurnResult.State.FAILED && cleanupFailure.isEmpty() && !cancellationRequested.get()
+                    && turn.error().filter(CodexProtocol.TurnError::passing).isPresent();
+            completion.complete(new AgentTurnResult(state, finalResponse, reason, elapsed(turn), cleanupFailure.isEmpty(), Optional.empty(), transientFailure));
         }
 
         /**

@@ -1536,6 +1536,15 @@
           "required": true,
           "nullable": false,
           "sample": "value"
+        },
+        {
+          "javaName": "codexErrorInfo",
+          "wireName": "codexErrorInfo",
+          "required": false,
+          "nullable": true,
+          "sample": {
+            "httpConnectionFailed": {}
+          }
         }
       ]
     },

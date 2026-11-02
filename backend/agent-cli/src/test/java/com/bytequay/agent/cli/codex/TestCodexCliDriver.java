@@ -68,6 +68,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -2024,6 +2025,28 @@ class TestCodexCliDriver
     }
 
     @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "\"serverOverloaded\"|true",
+            "{\"responseTooManyFailedAttempts\":{\"httpStatusCode\":429}}|true",
+            "{\"responseStreamDisconnected\":{\"httpStatusCode\":null}}|true",
+            "{\"httpConnectionFailed\":{\"httpStatusCode\":401}}|false",
+            "\"usageLimitExceeded\"|false",
+            "null|false"})
+    void reportsOnlyPassingProviderFailuresAsTransient(String codexErrorInfo, boolean transientFailure)
+            throws Exception
+    {
+        AgentSession session = driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn turn = session.start(command("busy model"));
+        supervisor.server().failTurn("Selected model is at capacity", codexErrorInfo);
+
+        AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.FAILED);
+        assertThat(result.providerQuiescent()).isTrue();
+        assertThat(result.transientFailure()).isEqualTo(transientFailure);
+    }
+
+    @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void disconnectCannotReplaceTheAuthoritativeFailureBeforeItsStopVerificationBegins(boolean verifiedStop)
             throws Exception
@@ -2036,7 +2059,7 @@ class TestCodexCliDriver
         AppServerProcess server = supervisor.server();
         CodexMessageDispatcher.Listener listener = (CodexMessageDispatcher.Listener) session;
         CodexProtocol.Turn reported = new CodexProtocol.Turn(server.activeTurn, CodexProtocol.TurnStatus.FAILED,
-                Optional.of(new CodexProtocol.TurnError("429 Too Many Requests known-secret")), Optional.of(2L), ImmutableList.of());
+                Optional.of(new CodexProtocol.TurnError("429 Too Many Requests known-secret", Optional.empty())), Optional.of(2L), ImmutableList.of());
         // Hold the session monitor so the asynchronous settler cannot win this race by chance.
         synchronized (session) {
             listener.onNotification(new CodexProtocol.TurnCompletedNotification(new CodexProtocol.TurnNotificationParams("thread-1", reported)));
@@ -5411,9 +5434,14 @@ class TestCodexCliDriver
 
         private void failTurn(String message)
         {
+            failTurn(message, "null");
+        }
+
+        private void failTurn(String message, String codexErrorInfo)
+        {
             emit("{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"thread-1\","
-                    + "\"turn\":{\"id\":\"" + activeTurn
-                    + "\",\"status\":\"failed\",\"error\":" + objectMapper.createObjectNode().put("message", message) + ",\"durationMs\":2,\"items\":[]}}}");
+                    + "\"turn\":{\"id\":\"" + activeTurn + "\",\"status\":\"failed\",\"error\":{\"message\":"
+                    + objectMapper.getNodeFactory().textNode(message) + ",\"codexErrorInfo\":" + codexErrorInfo + "},\"durationMs\":2,\"items\":[]}}}");
         }
 
         private void disconnect()

@@ -158,6 +158,14 @@ public record AgentTurn(
                 .build();
     }
 
+    /** Moves a running turn onto the provider turn that carries it on after its last one failed for a passing reason. */
+    public AgentTurn restarted(ProviderTurnRef reference)
+    {
+        requireState(TurnState.RUNNING);
+        requireNonNull(reference, "reference is null");
+        return toBuilder().providerTurnReference(Optional.of(reference)).build();
+    }
+
     /** What the provider session that runs this turn was set up with, recorded when the turn starts running. */
     public AgentTurn withSetup(Optional<String> runningSetup)
     {

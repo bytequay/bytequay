@@ -186,12 +186,20 @@ public final class DefaultAgentTurnService
     private final ConcurrentMap<TurnId, Long> launchedTurns = new ConcurrentHashMap<>();
     /** The session of a running turn whose provider had not saved it at launch; its reference is recorded when the turn ends. */
     private final ConcurrentMap<TurnId, AgentSession> unsavedSessions = new ConcurrentHashMap<>();
+    /** Runs a retry once its wait is over. */
+    private BiConsumer<Duration, Runnable> retryWait;
 
     /** How long a closed process may take to report its turn interrupted before the stop is a failure. */
     private static final Duration STOP_TIMEOUT = Duration.ofSeconds(30);
 
     /** How long a finished turn whose settlement failed waits before it is tried again. */
     private static final Duration SETTLE_RETRY_DELAY = Duration.ofSeconds(1);
+
+    /** How long a turn waits before each retry after a provider failure that passes on its own; one wait per retry. */
+    private static final List<Duration> RETRY_DELAYS = ImmutableList.of(Duration.ofSeconds(10), Duration.ofSeconds(30), Duration.ofSeconds(90));
+
+    /** What a retried turn's provider is sent in place of the user's message, which its resumed thread already holds. */
+    private static final String RETRY_INPUT = "The previous attempt stopped on a temporary model service error. Continue from where you stopped.";
 
     /** Refuses a key another kind of input already used. The desktop matches this text to clear a draft it already sent. */
     static final String ALREADY_SENT = "This message was already sent";
@@ -258,6 +266,13 @@ public final class DefaultAgentTurnService
         this.stopChildren = requireNonNull(stopChildren, "stopChildren is null");
         this.idleWorktreePreparation = requireNonNull(idleWorktreePreparation, "idleWorktreePreparation is null");
         this.eventRouter = new AgentTurnEventRouter(turnStore, eventService, eventCommitter, metricsService, runtimeRegistry, launchedTurns::containsKey, clock);
+        this.retryWait = (delay, retry) -> CompletableFuture.delayedExecutor(delay.toMillis(), TimeUnit.MILLISECONDS, this.queueStarter).execute(retry);
+    }
+
+    /** Tests run the waits before retries themselves. */
+    void retryWait(BiConsumer<Duration, Runnable> wait)
+    {
+        this.retryWait = requireNonNull(wait, "wait is null");
     }
 
     @Override
@@ -816,14 +831,14 @@ public final class DefaultAgentTurnService
             deliveryAttempted = true;
             sendTiming.log(System.Logger.Level.DEBUG,
                     () -> "send-timing phase=turn.provider_send.begin epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + accepted.id());
-            RunningTurn runningTurn = session.start(new AgentTurnCommand(
+            RunningTurn runningTurn = new RetryingTurn(accepted, session.start(new AgentTurnCommand(
                     accepted.id().toString(),
                     acceptance.message(),
                     acceptance.attachments(),
                     settings.maximumRuntime(),
                     settings.model(),
                     settings.effort(),
-                    settings.serviceTier()));
+                    settings.serviceTier())));
             sendTiming.log(System.Logger.Level.DEBUG,
                     () -> "send-timing phase=turn.provider_send.end epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + accepted.id());
             started = Optional.of(runningTurn);
@@ -1839,6 +1854,10 @@ public final class DefaultAgentTurnService
             approvalService.denyPending(turn.id());
             return;
         }
+        // Between retry attempts no process runs that the close could stop, so the turn ends here instead.
+        if (running.orElseThrow() instanceof RetryingTurn retrying) {
+            retrying.stopWaiting();
+        }
         try {
             running.orElseThrow().completion().toCompletableFuture().get(STOP_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
         }
@@ -2366,6 +2385,70 @@ public final class DefaultAgentTurnService
         });
     }
 
+    /** Whether a turn whose provider failed for a passing reason may wait this long and then run again. */
+    private boolean retryAllowed(TaskId taskId, TurnId turnId, Duration wait)
+    {
+        synchronized (runtimeRegistry.taskLock(taskId)) {
+            AgentTask task = taskStore.require(taskId);
+            AgentTurn turn = turnStore.require(turnId);
+            Duration limit = turn.settings().orElseThrow().maximumRuntime();
+            return task.state() == TaskState.OPEN && turn.state() == TurnState.RUNNING && turn.cancellationRequestedAt().isEmpty() && !runtimeRegistry.closing()
+                    // A retry resumes the thread that holds the user's message; a new thread would start without it.
+                    && task.sessionReference().isPresent()
+                    && (limit.isZero() || runtime(turn).plus(wait).compareTo(limit) < 0);
+        }
+    }
+
+    /**
+     * Starts a turn's provider work again on a fresh session that resumes its thread, asking the agent to carry on.
+     *
+     * <p>The failed attempt's process is already stopped, so its session is closed rather than reused. The user's message is
+     * in the thread, so it is never sent twice.
+     */
+    private RunningTurn restartTurn(TaskId taskId, TurnId turnId)
+    {
+        if (!retryAllowed(taskId, turnId, Duration.ZERO)) {
+            throw new AgentConflictException("Turn can no longer be retried: " + turnId);
+        }
+        AgentTurnSettings settings = turnStore.require(turnId).settings().orElseThrow();
+        AgentSessionContext context = sessionContext(taskStore.require(taskId), turnId, settings);
+        runtimeRegistry.closeSession(taskId);
+        synchronized (runtimeRegistry.taskLock(taskId)) {
+            if (!retryAllowed(taskId, turnId, Duration.ZERO)) {
+                throw new AgentConflictException("Turn can no longer be retried: " + turnId);
+            }
+            Duration limit = settings.maximumRuntime();
+            Duration remaining = limit.isZero() ? limit : limit.minus(runtime(turnStore.require(turnId)));
+            AgentSession session = session(taskStore.require(taskId), turnId, context, Optional.empty());
+            try {
+                RunningTurn next = session.start(new AgentTurnCommand(
+                        turnId.toString(), RETRY_INPUT, ImmutableList.of(), remaining, settings.model(), settings.effort(), settings.serviceTier()));
+                turnStore.update(turnStore.require(turnId).restarted(next.reference()).withSetup(next.setup()));
+                return next;
+            }
+            catch (RuntimeException failure) {
+                // Nothing watches an attempt that is not returned, so its process is stopped either way.
+                suppressFailure(failure, () -> runtimeRegistry.closeSession(taskId));
+                throw failure;
+            }
+        }
+    }
+
+    private Duration runtime(AgentTurn turn)
+    {
+        return Duration.between(turn.startedAt().orElseThrow(), Instant.now(clock));
+    }
+
+    /** The last attempt's failure, saying that retrying did not help and what the user can do. */
+    private static AgentTurnResult stillFailing(AgentTurnResult result)
+    {
+        String reason = result.terminalReason().orElseThrow();
+        return new AgentTurnResult(result.state(), result.finalResponse(),
+                Optional.of(reason + (reason.endsWith(".") ? " " : ". ") + "Still failing after " + RETRY_DELAYS.size() + " retries. "
+                        + "Send a message to try again, or pick another model."),
+                result.elapsed(), result.providerQuiescent());
+    }
+
     /**
      * The settings a turn on this task records.
      *
@@ -2441,6 +2524,171 @@ public final class DefaultAgentTurnService
             case INTERRUPTED -> "Turn interrupted: " + reason.orElseThrow();
             case ACCEPTED, RUNNING -> throw new IllegalArgumentException("Turn is not terminal: " + state);
         };
+    }
+
+    /**
+     * Runs a turn's provider work, and starts it again after a failure that passes on its own, such as a busy model.
+     *
+     * <p>The turn stays running across its attempts, so whatever watches it, such as a review or development automation,
+     * sees only how the last attempt ended. Between attempts no provider process runs: a stop ends the turn at once, and
+     * new input is refused.
+     */
+    private final class RetryingTurn
+            implements RunningTurn
+    {
+        private final TaskId taskId;
+        private final TurnId turnId;
+        private final CompletableFuture<AgentTurnResult> completion = new CompletableFuture<>();
+        private volatile RunningTurn attempt;
+        // Guarded by this.
+        private int retries;
+        private boolean waiting;
+        private boolean restarting;
+        private boolean cancelled;
+
+        private RetryingTurn(AgentTurn turn, RunningTurn first)
+        {
+            this.taskId = turn.taskId();
+            this.turnId = turn.id();
+            this.attempt = requireNonNull(first, "first is null");
+            first.completion().whenComplete(this::settle);
+        }
+
+        @Override
+        public ProviderTurnRef reference()
+        {
+            return attempt.reference();
+        }
+
+        @Override
+        public Optional<String> setup()
+        {
+            return attempt.setup();
+        }
+
+        @Override
+        public CompletionStage<AgentTurnResult> completion()
+        {
+            return completion;
+        }
+
+        @Override
+        public void steer(AgentTurnInput input)
+        {
+            RunningTurn current;
+            synchronized (this) {
+                if (waiting) {
+                    throw new AgentUnavailableException("The turn is waiting to retry after a provider error");
+                }
+                current = attempt;
+            }
+            current.steer(input);
+        }
+
+        @Override
+        public void cancel()
+        {
+            if (!stopWaiting()) {
+                attempt.cancel();
+            }
+        }
+
+        /**
+         * Ends the turn while it waits between attempts, when no provider process runs that a stop could reach.
+         *
+         * @return whether the turn was between attempts
+         */
+        private boolean stopWaiting()
+        {
+            boolean idle;
+            synchronized (this) {
+                cancelled = true;
+                if (!waiting) {
+                    return false;
+                }
+                idle = !restarting;
+            }
+            // A restart under way sees the cancellation and stops the attempt it started.
+            if (idle) {
+                completion.complete(stoppedWhileWaiting(true));
+            }
+            return true;
+        }
+
+        private void settle(AgentTurnResult result, Throwable failure)
+        {
+            if (failure != null) {
+                completion.completeExceptionally(failure);
+                return;
+            }
+            // Nothing else completes this turn, so a retry that cannot be set up ends it with the provider's failure.
+            try {
+                Optional<Duration> delay;
+                int retry;
+                synchronized (this) {
+                    delay = result.transientFailure() && result.providerQuiescent() && !cancelled && retries < RETRY_DELAYS.size()
+                            ? Optional.of(RETRY_DELAYS.get(retries)).filter(wait -> retryAllowed(taskId, turnId, wait))
+                            : Optional.empty();
+                    if (delay.isPresent()) {
+                        retries++;
+                        waiting = true;
+                    }
+                    retry = retries;
+                }
+                if (delay.isEmpty()) {
+                    completion.complete(result.transientFailure() && retry == RETRY_DELAYS.size() ? stillFailing(result) : result);
+                    return;
+                }
+                eventCommitter.publish(pendingLifecycle(EventId.random(), taskId, Optional.of(turnId), AgentEventPayload.LifecyclePhase.RETRYING,
+                        "Retrying in %d s (%d of %d)".formatted(delay.orElseThrow().toSeconds(), retry, RETRY_DELAYS.size()), Instant.now(clock)));
+                retryWait.accept(delay.orElseThrow(), () -> restart(result));
+            }
+            catch (RuntimeException retryFailure) {
+                log.log(System.Logger.Level.WARNING, "Turn " + turnId + " could not be retried", retryFailure);
+                completion.complete(result);
+            }
+        }
+
+        private void restart(AgentTurnResult failed)
+        {
+            synchronized (this) {
+                if (cancelled) {
+                    // The stop already ended the turn.
+                    return;
+                }
+                restarting = true;
+            }
+            RunningTurn next;
+            try {
+                next = restartTurn(taskId, turnId);
+            }
+            catch (RuntimeException failure) {
+                boolean quiescent = runtimeRegistry.unverifiedClose(taskId).isEmpty();
+                boolean stopped;
+                synchronized (this) {
+                    stopped = cancelled;
+                }
+                completion.complete(stopped ? stoppedWhileWaiting(quiescent) : new AgentTurnResult(AgentTurnResult.State.FAILED, failed.finalResponse(),
+                        Optional.of(failed.terminalReason().orElseThrow() + "; the retry could not start: " + failureMessage(failure)), failed.elapsed(), quiescent));
+                return;
+            }
+            boolean stop;
+            synchronized (this) {
+                attempt = next;
+                waiting = false;
+                restarting = false;
+                stop = cancelled;
+            }
+            next.completion().whenComplete(this::settle);
+            if (stop) {
+                next.cancel();
+            }
+        }
+
+        private static AgentTurnResult stoppedWhileWaiting(boolean providerQuiescent)
+        {
+            return new AgentTurnResult(AgentTurnResult.State.CANCELLED, Optional.empty(), Optional.of("Stopped while waiting to retry"), Duration.ZERO, providerQuiescent);
+        }
     }
 
     private record TurnAcceptance(AgentTurn turn, EventId deliveryEventId, String message, List<AgentAttachment> attachments, ReviewTurnInputResolver.Reference reference)

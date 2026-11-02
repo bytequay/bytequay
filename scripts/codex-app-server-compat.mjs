@@ -263,6 +263,7 @@ const referenceRecordBindings = [
   ]),
   recordBinding("TurnError", "decode", [schemaSource("v2", "TurnError")], [
     component("message"),
+    component("codexErrorInfo"),
   ]),
   recordBinding("PlanStep", "decode", [schemaSource("v2", "TurnPlanStep")], [
     component("step"),

@@ -20,17 +20,28 @@ import static com.bytequay.core.domain.Checks.checkOptionalText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
+/**
+ * @param transientFailure whether the provider failed for a reason that passes on its own, such as a busy model, a rate
+ *     limit or a lost connection, so the same work may succeed when tried again later
+ */
 public record AgentTurnResult(
         State state,
         Optional<String> finalResponse,
         Optional<String> terminalReason,
         Duration elapsed,
         boolean providerQuiescent,
-        Optional<AgentTurnFailureKind> failureKind)
+        Optional<AgentTurnFailureKind> failureKind,
+        boolean transientFailure)
 {
     public AgentTurnResult(State state, Optional<String> finalResponse, Optional<String> terminalReason, Duration elapsed, boolean providerQuiescent)
     {
         this(state, finalResponse, terminalReason, elapsed, providerQuiescent, Optional.empty());
+    }
+
+    public AgentTurnResult(State state, Optional<String> finalResponse, Optional<String> terminalReason, Duration elapsed, boolean providerQuiescent,
+            Optional<AgentTurnFailureKind> failureKind)
+    {
+        this(state, finalResponse, terminalReason, elapsed, providerQuiescent, failureKind, false);
     }
 
     public AgentTurnResult
@@ -44,6 +55,7 @@ public record AgentTurnResult(
         checkArgument(state != State.COMPLETED || terminalReason.isEmpty(), "a completed turn cannot have a terminal reason");
         checkArgument(state == State.COMPLETED || terminalReason.isPresent(), "a non-completed turn requires a terminal reason");
         checkArgument(failureKind.isEmpty() || state == State.FAILED, "a typed failure requires a failed turn");
+        checkArgument(!transientFailure || state == State.FAILED, "a transient failure requires a failed turn");
     }
 
     public enum State

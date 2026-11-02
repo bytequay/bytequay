@@ -328,6 +328,22 @@ class TestAgendaService
     }
 
     @Test
+    void aRunCutShortByQuittingLeavesTheDayToTheNextStart()
+    {
+        now.set(FRIDAY_MORNING);
+        // Quitting kills the readiness probe's process, which then fails with no output.
+        when(driver.probe()).thenAnswer(call -> {
+            agenda.closing();
+            return new AgentProviderStatus(LANE, AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE, Optional.empty(), "claude --help failed: ", AgentCapabilities.none());
+        });
+        agenda.runIfDue(Optional.of(FRIDAY_MORNING));
+
+        assertThat(store.days).isEmpty();
+        assertThat(store.runs).isEmpty();
+        assertThat(agenda.today(Optional.empty()).state()).isEqualTo("NONE");
+    }
+
+    @Test
     void aFailedRemakeKeepsTheReadyAgenda()
     {
         now.set(FRIDAY_MORNING);

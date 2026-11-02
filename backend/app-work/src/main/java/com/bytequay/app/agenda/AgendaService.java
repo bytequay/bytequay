@@ -41,6 +41,8 @@ import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.event.ContextClosedEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -127,6 +129,7 @@ public class AgendaService
     private final ExecutorService executor;
     private final AtomicBoolean running = new AtomicBoolean();
     private volatile Optional<Failure> lastFailure = Optional.empty();
+    private volatile boolean closing;
 
     public AgendaService(AgendaStore store, AgendaReader reader, AgendaCalendarReader calendars, TeamService teams, AgendaDone done, AgendaSettings settings,
             AppSettingsService appSettings, ModelSettingsService models, AgentDriverRegistry drivers, AgentResourceService resources, ItemTaskStarter starts,
@@ -151,6 +154,13 @@ public class AgendaService
 
     /** A ready agenda's failed Make again, which keeps the agenda it could not replace. */
     private record Failure(String reason, Instant at) {}
+
+    /** Published before the web server and beans stop, so a run's failure after it is already known to be the quit's. */
+    @EventListener(ContextClosedEvent.class)
+    public void closing()
+    {
+        closing = true;
+    }
 
     /** @param workspaceId a workspace Home's own items only, without the summary and recap written across every repository */
     public AgendaView today(Optional<String> workspaceId)
@@ -308,6 +318,12 @@ public class AgendaService
             record(today, startedAt, AgendaDay.State.READY, trigger, selected, session.calls(), reply.picked(), reply.dropped(), calendar, Optional.empty());
         }
         catch (RuntimeException failure) {
+            if (closing) {
+                // Quitting stops the run's provider processes, such as a readiness probe dev.sh's cleanup kills. Saved, that failure would
+                // stand as the day's and keep the next start from making it.
+                log.info("Agenda run for {} stopped by shutdown: {}", today, failure.getMessage());
+                return;
+            }
             String reason = clip(Optional.ofNullable(failure.getMessage()).filter(message -> !message.isBlank()).orElse("The agenda could not be made"), REASON);
             log.warn("Could not make the agenda for {}: {}", today, reason, failure);
             if (store.find(today).filter(day -> day.state() == AgendaDay.State.READY).isPresent()) {

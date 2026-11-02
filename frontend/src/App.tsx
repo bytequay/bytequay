@@ -25,6 +25,7 @@ import JiraScreen, { JiraTicketLayer } from './jira/JiraScreen';
 import { listenForLabTasks } from './lab';
 import { JIRA_CHANGED, anyJiraConnected, type JiraConnection } from './jira/contracts';
 import HomePage from './home/HomePage';
+import { openTarget } from './home/TodayList';
 import TeamsPage from './teams/TeamsPage';
 import { reloadHandled } from './home/attention';
 import { loadPinned } from './home/pinned';
@@ -137,7 +138,7 @@ function AppContent() {
     catch { return false; }
   });
   const [assistantOpen, setAssistantOpen] = useState(false);
-  const assistantShown = assistantOpen && status === 'ready';
+  const [assistantDetails, setAssistantDetails] = useState<ReadonlySet<string>>(() => new Set());
   // A new object for every request, so the Assistant opens there again even when the same one was asked for last.
   const [assistantRequest, setAssistantRequest] = useState<AssistantRequest | null>(null);
   const assistantRequestDone = useCallback(() => setAssistantRequest(null), []);
@@ -157,6 +158,8 @@ function AppContent() {
   }, [browserAction]);
   /** Issues, pull requests and Jira tickets shown over the page, the one opened last on top. */
   const [layers, setLayers] = useState<ZoomedReference[]>([]);
+  const assistantCovered = layers.some(layer => assistantDetails.has(layerKey(layer)));
+  const assistantShown = assistantOpen && status === 'ready' && !assistantCovered;
   const [paletteOpen, setPaletteOpen] = useState(false);
   // A null workspace is every workspace's tasks, from a page outside one.
   const [taskSwitcher, setTaskSwitcher] = useState<{ workspaceId: string | null; activeTaskId: string | null } | null>(null);
@@ -183,6 +186,7 @@ function AppContent() {
 
   // Opening the page already under a layer fires no hashchange, so what covers it closes here.
   const openPage = useCallback((hash: string) => {
+    setAssistantOpen(false);
     setLayers([]);
     setTaskSwitcher(null);
     navigateTo(hash, 'push');
@@ -277,7 +281,11 @@ function AppContent() {
     return () => { stopAttention(); stopNotification(); };
   }, []);
 
-  useEffect(() => window.bridge.onAssistantToggle?.(() => { if (assistantAccessible) setAssistantOpen(open => !open); }), [assistantAccessible]);
+  useEffect(() => window.bridge.onAssistantToggle?.(() => {
+    if (!assistantAccessible) return;
+    setAssistantOpen(!assistantShown);
+    setAssistantDetails(new Set());
+  }), [assistantAccessible, assistantShown]);
 
   useEffect(() => {
     let current = true;
@@ -289,12 +297,14 @@ function AppContent() {
   }, [assistantEnabled, availability.development]);
 
   useEffect(() => window.bridge.onAssistantOpenCard?.(id => {
+    setAssistantDetails(new Set());
     setAssistantOpen(true);
     setAssistantRequest({ view: 'decision', card: id });
   }), []);
 
   // Home's My work line and composer, and a card's decision mark, open the Assistant where they point.
   useEffect(() => onOpenAssistant(request => {
+    setAssistantDetails(new Set());
     setAssistantOpen(true);
     setAssistantRequest(request);
   }), []);
@@ -311,7 +321,7 @@ function AppContent() {
 
   // A web page is a native view the floating Assistant cannot cover: opening the Assistant goes back to the app, and opening a page closes it.
   useEffect(() => { if (assistantShown) backToApp(); }, [assistantShown, backToApp]);
-  useEffect(() => { if (browserOpen) setAssistantOpen(false); }, [browserOpen]);
+  useEffect(() => { if (browserOpen && !assistantCovered) setAssistantOpen(false); }, [browserOpen, assistantCovered]);
 
   useEffect(() => {
     let received = false;
@@ -361,6 +371,8 @@ function AppContent() {
       backToApp();
       setPaletteOpen(false);
       const target = (event as CustomEvent<ZoomedReference>).detail;
+      // Keep the Assistant behind the detail it opened, including any further layers opened from that detail.
+      if (assistantOpen) setAssistantDetails(current => new Set([...current, layerKey(target)]));
       // A reference that is already open comes back to the top, as it was, instead of opening twice; a start, such as an Epic's Run,
       // still opens its composer.
       setLayers(current => [
@@ -370,7 +382,7 @@ function AppContent() {
     };
     window.addEventListener(ZOOM_REFERENCE, open);
     return () => window.removeEventListener(ZOOM_REFERENCE, open);
-  }, [backToApp]);
+  }, [backToApp, assistantOpen]);
 
   useEffect(() => {
     if (status !== 'ready') return;
@@ -429,6 +441,7 @@ function AppContent() {
       // Navigating leaves every open layer; the first route of the session must not, or it
       // races the pull request a notification asked to show while the app was still starting.
       setLayers([]);
+      setAssistantOpen(false);
       setTaskSwitcher(null);
       applyRoute();
     };
@@ -867,8 +880,8 @@ function AppContent() {
       </div>
       {browserTab && <InAppBrowser tab={browserTab} fullScreen={fullScreen} railExpanded={railExpanded}
         error={browserError} onError={setBrowserError} onBack={backToApp} />}
-      <AssistantPanel open={assistantShown} chatEnabled={assistantAvailable} notices={notices} request={assistantRequest} onRequestDone={assistantRequestDone} onScreen={onScreen} onClose={() => setAssistantOpen(false)}
-        onPage={openPage} onOpened={() => setPageComposerFocus(true)} />
+      <AssistantPanel open={assistantOpen} covered={assistantCovered} chatEnabled={assistantAvailable} notices={notices} request={assistantRequest} onRequestDone={assistantRequestDone} onScreen={onScreen} onClose={() => setAssistantOpen(false)}
+        onPage={openPage} onOpenDetail={openTarget} onOpened={() => setPageComposerFocus(true)} />
     </div>
     </FocusBreakProvider>
   );

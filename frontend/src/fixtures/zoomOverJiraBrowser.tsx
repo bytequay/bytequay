@@ -20,8 +20,9 @@ import type { WorkItemDto, UnifiedWorkItem } from '../workitems/contracts';
 import { createPreviewBridge } from '../agents/fixtures/previewBridge';
 import { jiraRoute, type JiraConnection, type JiraIssueDetail } from '../jira/contracts';
 import { jiraDetail, jiraIssue } from '../jira/fixtures/jira';
+import { pr, prDetail } from '../pulls/fixtures/pullRequest';
 import type { Bridge, InAppBrowserState, RepositoryIssueSnapshotDto, WorkspaceDto } from '../types';
-import { assert, changeInput, settle, until, runScenarios } from './harness';
+import { assert, button, changeInput, element, settle, until, runScenarios } from './harness';
 import '../index.css';
 
 const connection: JiraConnection = {
@@ -53,7 +54,7 @@ let toggleAssistant: () => void = () => {};
 /** The Jira page's own ticket sits in the page; a ticket opened from a link or a row is a layer beside it. */
 const ticketLayer = () => [...document.querySelectorAll<HTMLDialogElement>('dialog.jira-detail')].find(dialog => dialog.closest('.app-shell') === null) ?? null;
 
-function installBridge() {
+function installBridge(overrides: Partial<Bridge> = {}) {
   opened.length = 0; lookups.length = 0; posted.length = 0;
   let browser: InAppBrowserState = { tabs: [], activeTabId: null };
   let showBrowser: (state: InAppBrowserState) => void = () => {};
@@ -115,14 +116,15 @@ function installBridge() {
     getWorkspaceMetadata: async () => ({ repositoryId: 40, repository, contributors: [], labels: [], topics: [], contributorsSyncedAt: null, labelsTopicsSyncedAt: null }),
     fetchWorkspaceIssueDetail: async () => ({ repositoryId: 40, issueNumber: issue.number, timeline: [], currentType: null, availableTypes: [], refreshedAt: issue.updatedAt }),
     recordRecentTouch: async () => {},
+    ...overrides,
   } satisfies Partial<Bridge>;
   window.bridge = bridge as unknown as Bridge;
 }
 
-async function withApp(hash: string, scenario: () => Promise<void>): Promise<void> {
+async function withApp(hash: string, scenario: () => Promise<void>, bridge: Partial<Bridge> = {}): Promise<void> {
   window.localStorage.clear();
   saveHandled({});
-  installBridge();
+  installBridge(bridge);
   window.location.hash = hash;
   const { root, dispose: disposeRoot } = createFixtureRoot();
   flushSync(() => root.render(<App />));
@@ -209,15 +211,121 @@ async function myWorkOverHome(): Promise<void> {
     pill()?.click();
     const card = () => [...document.querySelectorAll<HTMLElement>('.assistant-float .mw-card')].find(item => item.textContent?.includes(ticket.title)) ?? null;
     await until(() => card() !== null, 'The line opens My work in the Assistant, where the ticket is a card');
+    const assistant = element<HTMLElement>('.assistant-float');
+    const board = element('.mw-boardview', assistant);
+    button('Jira', board).click();
+    const draft = element<HTMLTextAreaElement>('textarea', assistant);
+    changeInput(draft, 'Check this ticket after reading its issue');
+    await settle();
+    const originalCard = card();
     card()?.click();
     await until(() => ticketLayer()?.matches(':modal') ?? false, 'The My work card opened the ticket');
-    assert(document.querySelector('.assistant-float') === null && window.location.hash === '#/home' && onTop(ticketLayer()),
-      'The Assistant closes and the ticket is drawn over Home instead of leaving it');
+    assert(document.querySelector('.assistant-float') === assistant && !assistant.checkVisibility() && window.location.hash === '#/home' && onTop(ticketLayer()),
+      'The ticket covers the retained Assistant without navigating away');
+
+    ticketLayer()?.querySelector<HTMLAnchorElement>('.md-reference')?.click();
+    const issueLayer = () => document.querySelector('.issues-detail.zoom-card');
+    await until(() => onTop(issueLayer()), 'The linked issue opens above the ticket');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await until(() => issueLayer() === null, 'Escape closes the nested issue');
+    assert(onTop(ticketLayer()) && !assistant.checkVisibility(), 'Closing a nested issue stays in the ticket');
+    ticketLayer()?.querySelector<HTMLAnchorElement>('.md-reference')?.click();
+    await until(() => onTop(issueLayer()), 'The linked issue opens again');
+    issueLayer()?.querySelector<HTMLAnchorElement>(`a[href="${jiraIssue.url}"]`)?.click();
+    await until(() => ticketLayer()?.matches(':modal') ?? false, 'The issue brings the existing ticket back to the top');
+    ticketLayer()?.querySelector<HTMLButtonElement>('[aria-label="Close ticket"]')?.click();
+    await until(() => ticketLayer() === null && onTop(issueLayer()), 'Closing the reordered ticket returns to the issue');
+    assert(!assistant.checkVisibility(), 'The Assistant stays covered until every detail it opened closes');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await until(() => issueLayer() === null && onTop(assistant), 'Closing the last detail restores My work');
+    assert(document.querySelector('.mw-boardview') === board && card() === originalCard && button('Jira', board).getAttribute('aria-selected') === 'true'
+      && draft.value === 'Check this ticket after reading its issue' && board.querySelector('.mw-lane.is-focused')?.getAttribute('aria-label') === 'In progress',
+    'Returning restores the same board, source filter, focused lane and draft');
+
+    card()?.click();
+    await until(() => ticketLayer()?.matches(':modal') ?? false, 'The retained card can open its ticket again');
 
     [...ticketLayer()?.querySelectorAll('button') ?? []].find(button => button.textContent === 'Start development')?.click();
     const assignment = () => document.querySelector<HTMLDialogElement>(`dialog[aria-label="Assign workspace for ${ticket.key}"]`);
     await until(() => assignment()?.matches(':modal') ?? false, 'Starting from the ticket asks for its workspace');
     assert(window.location.hash === '#/home' && ticketLayer() !== null && onTop(assignment()), 'Development starts over the ticket, which stays over Home');
+  });
+}
+
+async function myWorkPullReturnsToTheBoard(): Promise<void> {
+  const pulls = Array.from({ length: 4 }, (_, index) => pr({
+    id: 40 + index, repo: 'owner/repository', number: 40 + index, title: `Retain query context ${index + 1}`, author: 'alex',
+    htmlUrl: `https://github.com/owner/repository/pull/${40 + index}`, reviewDecision: 'APPROVED',
+  }));
+  const detail = (number: number) => prDetail({ ...pulls.find(pull => pull.number === number), number, author: 'alex', labels: [],
+    body: `Related issue: https://github.com/owner/repository/issues/${issue.number}`, ciStatus: 'PASSING', approvalCount: 1 });
+  await withApp('#/home', async () => {
+    const ready = () => [...document.querySelectorAll<HTMLButtonElement>('.mw-line button.mw-pill')].find(item => item.textContent?.startsWith('Ready to merge') === true);
+    await until(() => ready() !== undefined, 'Home lists ready pull requests');
+    ready()?.click();
+    const card = () => [...document.querySelectorAll<HTMLElement>('.assistant-float .mw-card')].find(item => item.textContent?.includes(pulls[3].title));
+    await until(() => document.querySelector('.assistant-float .mw-boardview') !== null, 'My work opens');
+    const assistant = element<HTMLElement>('.assistant-float');
+    const board = element('.mw-boardview', assistant);
+    button('PR', board).click();
+    await settle();
+    button('Show 1 more', board).click();
+    await until(() => card() !== undefined, 'The expanded ready lane includes the fourth card');
+    const draft = element<HTMLTextAreaElement>('textarea', assistant);
+    changeInput(draft, 'Review the remaining ready changes');
+    await settle();
+    const scroller = element<HTMLElement>('.assistant-body');
+    scroller.scrollTop = scroller.scrollHeight;
+    const scroll = scroller.scrollTop;
+    const originalCard = card();
+    assert(originalCard !== undefined && scroll > 0, 'The expanded board scrolls to its final card');
+    originalCard.focus();
+    originalCard.click();
+    const pullLayer = () => document.querySelector<HTMLElement>('.pull-detail.zoom-card:not(.issues-detail)');
+    await until(() => pullLayer()?.textContent?.includes(pulls[3].title) ?? false, 'Clicking the ready card opens its pull request');
+    assert(onTop(pullLayer()) && !assistant.checkVisibility() && window.location.hash === '#/home', 'The pull request is interactive above the retained board');
+    pullLayer()?.querySelector<HTMLButtonElement>('[aria-label="Close pull request details"]')?.click();
+    await until(() => pullLayer() === null && onTop(assistant), 'Closing the pull request returns to My work');
+    assert(document.querySelector('.mw-boardview') === board && card() === originalCard && button('PR', board).getAttribute('aria-selected') === 'true'
+      && button('Show less', board).getAttribute('aria-expanded') === 'true' && scroller.scrollTop === scroll && draft.value === 'Review the remaining ready changes',
+    'The same board keeps its source, expanded lane, scroll position and draft');
+    assert(board.querySelector('.mw-lane.is-focused')?.getAttribute('aria-label') === 'Ready to merge', 'The selected ready lane stays selected');
+
+    originalCard.click();
+    await until(() => pullLayer()?.textContent?.includes(pulls[3].title) ?? false, 'The same card reopens its detail');
+    pullLayer()?.querySelector<HTMLButtonElement>('[aria-label="Enter full screen"]')?.click();
+    await settle();
+    assert(pullLayer()?.classList.contains('is-full'), 'The pull request expands to full screen');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await until(() => pullLayer() === null && onTop(assistant), 'Escape from full screen also restores My work');
+
+    toggleAssistant();
+    await until(() => document.querySelector('.assistant-float') === null, 'The Assistant closes explicitly');
+    zoomReference({ kind: 'issue', repo: 'owner/repository', number: issue.number, workspaceId: 'workspace' });
+    const issueLayer = () => document.querySelector('.issues-detail.zoom-card');
+    await until(() => onTop(issueLayer()), 'An existing issue is open before the Assistant');
+    toggleAssistant();
+    await until(() => document.querySelector('.assistant-float') !== null, 'The Assistant opens above the existing issue');
+    const reopened = element<HTMLElement>('.assistant-float');
+    button('My work', reopened).click();
+    await until(() => reopened.querySelector('.mw-card') !== null, 'My work reloads over the existing issue');
+    const firstCard = [...reopened.querySelectorAll<HTMLElement>('.mw-card')].find(item => item.textContent?.includes(pulls[0].title));
+    assert(firstCard !== undefined, 'The ready pull request is listed');
+    firstCard.click();
+    await until(() => onTop(pullLayer()), 'A pull request opens above the Assistant and earlier issue');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await until(() => pullLayer() === null && onTop(reopened), 'The Assistant returns while the earlier issue stays open');
+    assert(issueLayer() !== null && !onTop(issueLayer()), 'Returning stops at the Assistant instead of unwinding the earlier issue');
+    button('All my work →', reopened).click();
+    await until(() => window.location.hash === '#/work' && document.querySelector('.assistant-float') === null && issueLayer() === null,
+      'Opening All my work leaves the Assistant and reference layers for its page');
+  }, {
+    fetchAttentionPrs: async () => pulls,
+    fetchPullRequestDetailByRef: async (_repo, number) => detail(number),
+    refreshPullRequestDetailByRef: async (_repo, number) => ({ full: true, detail: detail(number), status: null }),
+    fetchMergeMode: async () => ({ mergeQueue: false }),
+    findPullRequestTask: async () => null,
+    findAgentReview: async () => null,
   });
 }
 
@@ -288,6 +396,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     ['links open tickets, issues and web pages on top of whatever opened them', ticketLinksOverThePage],
     ['the Assistant opens above a Jira ticket', assistantOverTicket],
     ['My work opens and starts tickets on top of Home', myWorkOverHome],
+    ['My work pull requests return to the retained board', myWorkPullReturnsToTheBoard],
     ['Local Epic cards and task links retain the underlying layers', localWorkAndTasksOverEpic],
   ]);
   return results;

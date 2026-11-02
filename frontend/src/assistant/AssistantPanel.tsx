@@ -57,8 +57,10 @@ function setHash(hash: string) {
  * opens on a new one, and the history or the line to continue goes back to an earlier one. It floats, and nothing paints over a native
  * view, so the app leaves a web page before it opens and the editor hides under any dialog.
  */
-export default function AssistantPanel({ open, chatEnabled = true, notices, request, onRequestDone, onScreen, onClose, onPage = setHash, onOpened }: {
+export default function AssistantPanel({ open, covered = false, chatEnabled = true, notices, request, onRequestDone, onScreen, onClose, onPage = setHash, onOpenDetail, onOpened }: {
   open: boolean;
+  /** A detail opened from here keeps this view mounted until the user returns. */
+  covered?: boolean;
   chatEnabled?: boolean;
   notices: AppNotice[];
   /** Where to open, such as a pill from Home or an alert's card; a new object each time. */
@@ -70,7 +72,9 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, requ
   onClose: () => void;
   /** Opens a page's route with nothing left over it. */
   onPage?: (hash: string) => void;
-  /** After it closed to open a page or an item there, where the user goes on. */
+  /** The main window can cover this panel with a detail; the floating window hands off and closes. */
+  onOpenDetail?: (target: AgendaTargetDto) => void;
+  /** After opening a page or detail, where the user goes on. */
   onOpened?: () => void;
 }) {
   const [conversation, setConversation] = useState<string>(() => crypto.randomUUID());
@@ -90,6 +94,7 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, requ
   const scroller = useRef<HTMLDivElement>(null);
   const visible = useRef<string[]>([]);
   const returnFocus = useRef<Element | null>(null);
+  const detailReturnFocus = useRef<Element | null>(null);
   const openedAt = useRef(0);
   const followed = useRef(new Set<string>());
   const items = chat?.items ?? [];
@@ -116,12 +121,21 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, requ
     setLane(null);
     setHistory(false);
     setFailure(null);
+    detailReturnFocus.current = null;
     closedAt.current = Date.now();
     const previous = returnFocus.current;
     returnFocus.current = null;
     const active = document.activeElement;
     if (previous instanceof HTMLElement && previous.isConnected && (active === null || active === document.body)) previous.focus();
   }, [open]);
+
+  useLayoutEffect(() => {
+    if (covered) return;
+    openedAt.current = Date.now();
+    const previous = detailReturnFocus.current;
+    detailReturnFocus.current = null;
+    if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true });
+  }, [covered]);
 
   // Runs after the open above, so a message from Home goes to the conversation the Assistant opens on.
   useLayoutEffect(() => {
@@ -153,24 +167,29 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, requ
     onOpened?.();
   }, [onClose, onOpened]);
 
+  const show = useCallback((target: AgendaTargetDto) => {
+    if (onOpenDetail === undefined || target.kind === 'TASK' || target.kind === 'REVIEW') { leave(() => openTarget(target)); return; }
+    detailReturnFocus.current = document.activeElement;
+    onOpenDetail(target);
+    onOpened?.();
+  }, [leave, onOpenDetail, onOpened]);
+
   // Where a receipt opens, a page before an item.
   const openReceipt = useCallback((receipt: AssistantReceiptDto) => {
     const hash = receipt.page === null ? null : pageRoute(receipt.page);
     if (hash === null && receipt.target === null) return;
-    leave(() => {
-      if (hash !== null) onPage(hash);
-      else if (receipt.target !== null) openTarget(receipt.target);
-    });
-  }, [leave, onPage]);
+    if (hash !== null) leave(() => onPage(hash));
+    else if (receipt.target !== null) show(receipt.target);
+  }, [leave, onPage, show]);
 
   // An open the assistant made while the user watched goes there once; read later, its receipt only offers Open.
   useEffect(() => {
-    if (!open) return;
+    if (!open || covered) return;
     const arrived = arrivedOpen(chat?.items ?? [], openedAt.current, followed.current);
     if (arrived === null || arrived.receipt === null) return;
     followed.current.add(arrived.id);
     openReceipt(arrived.receipt);
-  }, [open, chat, openReceipt]);
+  }, [open, covered, chat, openReceipt]);
 
   // The lists read marks once at start, so a mark the assistant made reaches them when its receipt does.
   const marked = items.filter(item => item.receipt?.outcome === 'DONE' && (item.receipt.operation === 'ACKNOWLEDGE' || item.receipt.operation === 'SNOOZE')).length;
@@ -204,7 +223,6 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, requ
 
   if (!open) return null;
 
-  const show = (target: AgendaTargetDto) => leave(() => openTarget(target));
   const choose = (id: string) => {
     setConversation(id);
     setHistory(false);
@@ -354,7 +372,7 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, requ
   );
 
   return (
-    <div className="assistant-panel">
+    <div className="assistant-panel" hidden={covered} inert={covered}>
       <button type="button" className="assistant-backdrop" tabIndex={-1} aria-label="Close the Assistant" onClick={onClose} />
       <section className={`assistant-float${busy || sending ? ' is-replying' : ''}${view === 'mywork' && !history ? ' is-wide' : ''}`} role="dialog" aria-label="Assistant"
         onKeyDown={event => {
@@ -371,7 +389,7 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, requ
         }}>
         <AssistantViews notices={waiting} view={history ? 'conversation' : view} lane={lane} card={card} talk={talk} pointsDown={pointsDown}
           composer={composer} scroller={scroller} visible={visible} conversation={conversation} onPick={pick} onView={setView} onLane={setLane}
-          onCardShown={() => setCard(null)} onLeave={leave} onPage={onPage} onAnswered={answeredNotice} onOpenNotice={openNotice} onClearNotice={clearNotice} />
+          onCardShown={() => setCard(null)} onLeave={leave} onPage={onPage} onShow={show} onAnswered={answeredNotice} onOpenNotice={openNotice} onClearNotice={clearNotice} />
       </section>
     </div>
   );
@@ -381,7 +399,7 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, requ
  * The pills and the view they open, mounted only while the Assistant is open, since it reads running tasks, today's agenda and the
  * viewer's work: the composer and pills on top, one scroll under them.
  */
-function AssistantViews({ notices, view, lane, card, talk, pointsDown, composer, scroller, visible, conversation, onPick, onView, onLane, onCardShown, onLeave, onPage,
+function AssistantViews({ notices, view, lane, card, talk, pointsDown, composer, scroller, visible, conversation, onPick, onView, onLane, onCardShown, onLeave, onPage, onShow,
   onAnswered, onOpenNotice, onClearNotice }: {
   notices: AppNotice[];
   view: AssistantView;
@@ -401,6 +419,7 @@ function AssistantViews({ notices, view, lane, card, talk, pointsDown, composer,
   onCardShown: () => void;
   onLeave: (go: () => void) => void;
   onPage: (hash: string) => void;
+  onShow: (target: AgendaTargetDto) => void;
   onAnswered: (id: string) => void;
   onOpenNotice: (id: string) => void;
   onClearNotice: (id: string) => void;
@@ -450,7 +469,7 @@ function AssistantViews({ notices, view, lane, card, talk, pointsDown, composer,
       : <NoticeCard key={each.key} notice={notice} focused={opened === notice.id} onOpen={() => onOpenNotice(notice.id)} onClear={() => onClearNotice(notice.id)} />;
   };
   const resultCard = (each: WaitingCard) => 'notice' in each
-    && <ResultCard key={each.key} notice={each.notice} onShow={target => onLeave(() => openTarget(target))} onOpen={() => onOpenNotice(each.notice.id)}
+    && <ResultCard key={each.key} notice={each.notice} onShow={onShow} onOpen={() => onOpenNotice(each.notice.id)}
       onClear={() => onClearNotice(each.notice.id)} />;
   const runningCard = (each: WaitingCard) => 'task' in each && <RunningCard key={each.key} task={each.task} onOpen={() => onLeave(() => onPage(runningTaskRoute(each.task)))} />;
   const section = (label: string) => <div className="assistant-section">{label}</div>;
@@ -477,10 +496,10 @@ function AssistantViews({ notices, view, lane, card, talk, pointsDown, composer,
       </>;
       break;
     case 'today':
-      body = <div className="assistant-today"><TodayList today={waiting.today} scope="global" onOpen={target => onLeave(() => openTarget(target))} /></div>;
+      body = <div className="assistant-today"><TodayList today={waiting.today} scope="global" onOpen={onShow} /></div>;
       break;
     case 'mywork':
-      body = <MyWorkBoard items={work} lane={lane} onLane={onLane} onOpen={target => onLeave(() => openTarget(target))} onDecision={() => onView('decision')}
+      body = <MyWorkBoard items={work} lane={lane} onLane={onLane} onOpen={onShow} onDecision={() => onView('decision')}
         onAllWork={() => onLeave(() => onPage('#/work'))} />;
       break;
   }

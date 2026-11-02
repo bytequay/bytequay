@@ -1424,6 +1424,28 @@ class TestClaudeCliDriver
     }
 
     @Test
+    void reportsClaudeErrorWhenItCancelsInputAfterAnErrorResult()
+            throws Exception
+    {
+        supervisor.versionOutput = "2.1.295";
+        try (ClaudeCliDriver driver = driver(supervisor);
+                AgentSession session = driver.open(context(Optional.empty()), ignored -> {})) {
+            driver.probe();
+            RunningTurn turn = session.start(command("Review"));
+            ScriptedTurn process = supervisor.turns.getFirst();
+            process.streamingResult("You've hit your weekly limit", true);
+            process.inputLifecycle(0, "cancelled");
+            assertThat(process.cancelled).isFalse();
+            assertThat(process.inputClosed).isTrue();
+            process.exit.complete(new ProcessExit(1, ProcessExit.Reason.EXITED, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ofMillis(10), false, false));
+
+            AgentTurnResult result = await(turn);
+            assertThat(result.state()).isEqualTo(AgentTurnResult.State.FAILED);
+            assertThat(result.terminalReason()).contains("You've hit your weekly limit");
+        }
+    }
+
+    @Test
     void stopsClaudeWhenStreamingInputCannotClose()
             throws Exception
     {
@@ -2523,11 +2545,17 @@ class TestClaudeCliDriver
 
         private void streamingResult(String text)
         {
+            streamingResult(text, false);
+        }
+
+        // Claude reports an API error, such as a usage limit, as an error on a "success" result.
+        private void streamingResult(String text, boolean error)
+        {
             emit(ProcessStream.STDOUT, """
-                    {"type":"result","is_error":false,"duration_ms":1,"duration_api_ms":0,"num_turns":1,"session_id":"%s",
+                    {"type":"result","is_error":%s,"duration_ms":1,"duration_api_ms":0,"num_turns":1,"session_id":"%s",
                     "usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0},
                     "subtype":"success","queued_turn_count":0,"result":"%s","uuid":"result-%d"}
-                    """.formatted(sessionId(), text, inputs.size()).replace("\n", "") + "\n");
+                    """.formatted(error, sessionId(), text, inputs.size()).replace("\n", "") + "\n");
         }
 
         private void completeFailedTurn()

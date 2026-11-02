@@ -1043,9 +1043,16 @@ public final class ClaudeCliDriver
                                 pendingInputs.remove(lifecycle.commandId());
                             }
                             case "cancelled" -> {
-                                interruptionReason = "Claude cancelled submitted input before completing it";
-                                receipt.completeExceptionally(new AgentUnavailableException(interruptionReason));
-                                cancel = true;
+                                String reason = "Claude cancelled submitted input before completing it";
+                                receipt.completeExceptionally(new AgentUnavailableException(reason));
+                                // Claude also cancels the input of a turn that ended in an error result; that result explains the ending.
+                                if (result != null && !result.successful()) {
+                                    pendingInputs.remove(lifecycle.commandId());
+                                }
+                                else {
+                                    interruptionReason = reason;
+                                    cancel = true;
+                                }
                             }
                             default -> {}
                         }

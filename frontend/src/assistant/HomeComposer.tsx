@@ -17,7 +17,8 @@ import Composer from '../Composer';
 import { IconButton } from '../cards/Card';
 import type { WorkItem } from '../home/work';
 import { SUGGESTION, openAssistant, takesSuggestion } from './model';
-import AssistantPills, { useNotices, useWaiting } from './Pills';
+import { useNotices } from '../notices/useNotices';
+import AssistantPills, { useWaiting } from './Pills';
 import '../css/assistant.css';
 
 /**

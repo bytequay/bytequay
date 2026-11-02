@@ -16,7 +16,7 @@ import type { RunningTask } from '../agents/runningTaskModel';
 import { doneRatio, showsToday } from '../home/today';
 import { useTodayAgenda, type TodayAgenda } from '../home/useTodayAgenda';
 import { pollVisible } from '../ide/pollVisible';
-import { approvalTimeLeft, type AppNotice, type NoticeSnapshot } from '../notices/contracts';
+import { approvalTimeLeft, type AppNotice } from '../notices/contracts';
 import { useNow } from '../useNow';
 import type { AgendaDto } from '../types';
 import { PILLS, soonestDeadline, waitingCards, type Pill, type WaitingCard } from './model';
@@ -37,19 +37,6 @@ function useRunningTasks(): RunningTask[] | null {
     catch { /* The last list stays through a failed read. */ }
   }, RUNNING_POLL_MS), []);
   return tasks;
-}
-
-/** The task notices the window holds, read once and then as they change. */
-export function useNotices(): AppNotice[] {
-  const [notices, setNotices] = useState<AppNotice[]>([]);
-  useEffect(() => {
-    let received = false;
-    const show = (state: NoticeSnapshot) => setNotices(state.notices);
-    const stop = window.bridge.onAppNotices?.(state => { received = true; show(state); });
-    void window.bridge.readAppNotices?.().then(state => { if (!received) show(state); }).catch(() => {});
-    return stop;
-  }, []);
-  return notices;
 }
 
 /** `ready` once running tasks were read, so an empty Running means none rather than not read yet. */

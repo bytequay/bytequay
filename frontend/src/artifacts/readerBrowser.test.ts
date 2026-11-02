@@ -89,6 +89,9 @@ it('wraps long content and reads isolated pages continuously with a section inde
         }
         await reader.show(target, { x: 0, y: 0, width: 900, height: 760 });
         await fitted(900);
+        // Index entries jump to heading offsets the pages report after laying out at the new width.
+        const heights = () => book('[...document.querySelectorAll("iframe")].map(frame => frame.offsetHeight).join()');
+        await until(async () => { const before = await heights(); await sleep(200); return before === await heights(); });
         if (process.env.BYTEQUAY_ARTIFACT_READER_CAPTURE) {
           await book('scrollTo(0,0); document.getElementById("index-toggle").click()');
           for (const theme of ['light', 'dark']) {

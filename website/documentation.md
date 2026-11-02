@@ -232,6 +232,11 @@ allowance.
 notifications. An approval or question waits five minutes for your answer: its
 card shows the time left, and its alert comes back once in the last minute.
 
+A running task that goes quiet for 10 minutes, with no command running and
+nothing waiting on you, or whose command runs far longer than that program
+usually takes, moves to **Decision** as **Looks stuck**, with why. Open it or
+choose **Stop turn…**; nothing is stopped for you.
+
 **⌥Space** opens the same Assistant from any app, even over a full-screen
 window, with voice, cards and replies. What you open from it shows in
 ByteQuay. Escape puts it away and keeps what you typed. If another app, such

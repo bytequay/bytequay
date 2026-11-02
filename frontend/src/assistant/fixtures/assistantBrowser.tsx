@@ -1120,6 +1120,28 @@ async function reportsWhatItsTasksRaised(): Promise<void> {
   finally { view.dispose(); }
 }
 
+async function stopsATurnThatLooksStuck(): Promise<void> {
+  const stuck = { ...notice('stuck:turn-task-3:1', 'STUCK', 'task-3', 'Retry Iceberg commit'), message: 'Quiet 14 min · last: gh api repos/owner/repository/pulls' };
+  const working: RunningTask = { ...RUNNING, id: 'task-3', kind: 'TASK', targetId: 'task-3', title: 'Retry Iceberg commit', startedAt: '2026-10-16T06:55:00Z' };
+  const view = mount(VIEW, 0, [stuck], [working, RUNNING]);
+  try {
+    await settle();
+    pill(view.host, 'all')?.click();
+    await settle();
+    const card = element<HTMLElement>('.assistant-card[data-card="stuck:turn-task-3:1"]', view.host, 'A turn that looks stuck waits on the user');
+    assert(card.querySelector('.assistant-state')?.textContent === 'Looks stuck' && card.textContent?.includes('Quiet 14 min · last: gh api') === true,
+      `It says why: ${card.textContent}`);
+    assert(view.host.querySelector('.assistant-fold')?.textContent === '1 running · all fine', 'Running counts the stuck task once, under Decision');
+    buttonIn(card, 'Stop turn…')?.click();
+    await settle();
+    assert(view.calls.cancelled.length === 0, 'Stop asks first');
+    buttonIn(document.querySelector('dialog.bq-confirm-dialog'), 'Stop turn')?.click();
+    await settle();
+    assert(JSON.stringify(view.calls.cancelled) === '["turn-task-3"]', `Stop cancels the stuck turn: ${JSON.stringify(view.calls.cancelled)}`);
+  }
+  finally { view.dispose(); }
+}
+
 export async function run(): Promise<{ name: string; error?: string }[]> {
   return runScenarios([['floats over the page', floatsOverThePage], ['shows the day once the user talks', showsTheDayOnceTheUserTalks],
     ['opens one view at a time', opensOneViewAtATime], ['answers with the task’s buttons', answersWithTheTasksButtons], ['sends with what is shown', sendsWithWhatIsShown],
@@ -1130,7 +1152,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     ['creates a drafted issue as an Epic', createsADraftedIssueAsAnEpic], ['reads the marks the assistant made', readsTheMarksTheAssistantMade],
     ['acts on a pull request from its card', actsOnAPullRequestFromItsCard], ['asks to sign in when the model is not ready', asksToSignInWhenTheModelIsNotReady],
     ['keeps the set-up box whole with chat off', keepsTheSetUpBoxWholeWithChatOff], ['keeps a conversation for each topic', keepsAConversationForEachTopic],
-    ['reports what its tasks raised', reportsWhatItsTasksRaised]]);
+    ['reports what its tasks raised', reportsWhatItsTasksRaised], ['stops a turn that looks stuck', stopsATurnThatLooksStuck]]);
 }
 
 const receiptsView = (): AssistantViewDto => {

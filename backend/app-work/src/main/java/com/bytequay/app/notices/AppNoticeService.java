@@ -77,6 +77,7 @@ public class AppNoticeService
     private final EpicNextWork next;
     private final ArtifactStore artifacts;
     private final WorkspaceStore workspaces;
+    private final TaskWatchdog watchdog;
     private final ObjectMapper mapper;
 
     public AppNoticeService(
@@ -90,6 +91,7 @@ public class AppNoticeService
             EpicNextWork next,
             ArtifactStore artifacts,
             WorkspaceStore workspaces,
+            TaskWatchdog watchdog,
             ObjectMapper mapper)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
@@ -102,6 +104,7 @@ public class AppNoticeService
         this.next = requireNonNull(next, "next is null");
         this.artifacts = requireNonNull(artifacts, "artifacts is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.watchdog = requireNonNull(watchdog, "watchdog is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -184,6 +187,14 @@ public class AppNoticeService
             return Optional.of(notice(task, review, overview, latest, "recovery:" + task.id() + ":" + claim.ownerId(), AppNotice.Kind.RECOVERY,
                     "ByteQuay could not verify that the agent stopped. New work is blocked; your files are kept.",
                     latest.flatMap(AgentTurn::endedAt).orElse(claim.acquiredAt())));
+        }
+        Optional<AgentTurn> active = latest.filter(turn -> turn.state().active());
+        Optional<TaskWatchdog.Stuck> stuck = active.flatMap(turn -> watchdog.stuck(turn.id()));
+        if (stuck.isPresent()) {
+            TaskWatchdog.Stuck why = stuck.orElseThrow();
+            // Each time a turn gets stuck is a notice of its own, so each one alerts once.
+            return Optional.of(notice(task, review, overview, latest, "stuck:" + active.orElseThrow().id() + ":" + why.since().toEpochMilli(), AppNotice.Kind.STUCK,
+                    why.reason(), why.since()));
         }
         if (task.worktreeMutationClaim().isPresent() || task.developmentContinuationUnfinished() || latest.filter(turn -> turn.state().active()).isPresent()) {
             return Optional.empty();

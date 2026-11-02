@@ -13,8 +13,8 @@
  */
 import { useEffect, useState, type ReactNode } from 'react';
 import {
-  CircleCheck, CircleX, Clock, ExternalLink, Eye, GitPullRequest, Hand, Hourglass, ListTodo, LoaderCircle, MessageCircleQuestion, Terminal, TriangleAlert, X,
-  type LucideIcon,
+  CircleCheck, CircleX, Clock, ExternalLink, Eye, GitPullRequest, Hand, Hourglass, ListTodo, LoaderCircle, MessageCircleQuestion, Terminal, TimerOff, TriangleAlert,
+  X, type LucideIcon,
 } from 'lucide-react';
 import { latestStep, PendingApprovalCard, type ApprovalDecider, type TaskStep } from '../agents/AgentConversation';
 import type { RunningTask } from '../agents/runningTaskModel';
@@ -153,19 +153,24 @@ export function ApprovalCard({ notice, focused, conversation, onAnswered, onOpen
   );
 }
 
-const NOTICE_ICONS: Partial<Record<AppNotice['kind'], LucideIcon>> = { QUESTION: MessageCircleQuestion, RECOVERY: Hourglass, QUEUE_PAUSED: Clock };
+const NOTICE_ICONS: Partial<Record<AppNotice['kind'], LucideIcon>> = { QUESTION: MessageCircleQuestion, RECOVERY: Hourglass, STUCK: TimerOff, QUEUE_PAUSED: Clock };
 
-/** A decision the task's own page answers, such as a question asked at the end of a turn or a blocked task: why, then where to answer. */
+/**
+ * A decision the task's own page answers, such as a question asked at the end of a turn or a blocked task: why, then where to answer. A
+ * turn that looks stuck can also be stopped here.
+ */
 export function NoticeCard({ notice, focused, onOpen, onClear }: { notice: AppNotice; focused: boolean; onOpen: () => void; onClear: () => void }) {
   const now = useNow(notice.expiresAt !== undefined);
+  const warn = notice.kind === 'RECOVERY' || notice.kind === 'STUCK';
   return (
-    <CardRow id={notice.id} focused={focused} icon={NOTICE_ICONS[notice.kind] ?? TriangleAlert} tone={notice.kind === 'RECOVERY' ? 'warn' : undefined}
+    <CardRow id={notice.id} focused={focused} icon={NOTICE_ICONS[notice.kind] ?? TriangleAlert} tone={warn ? 'warn' : undefined}
       title={heading(notice)} meta={where(notice)} urgent={notice.expiresAt !== undefined && approvalTimeLeft(notice.expiresAt, now)?.urgent === true}
-      right={<StatePill text={noticeLabel(notice)} expiresAt={notice.expiresAt} urgent={notice.kind === 'RECOVERY'} />}
+      right={<StatePill text={noticeLabel(notice)} expiresAt={notice.expiresAt} urgent={warn} />}
       body={<>
         {notice.message !== '' && <div className="assistant-card__why">{notice.message}</div>}
         <div className="assistant-card__buttons">
           <button type="button" className="assistant-button" onClick={onOpen}>{NOTICE_ACTIONS[notice.kind]}</button>
+          {notice.kind === 'STUCK' && notice.turnId !== null && <StopButton turnId={notice.turnId} label="Stop turn…" />}
           <span className="assistant-spacer" />
           <IconButton label={`Clear “${heading(notice)}”`} title="Clear" onClick={onClear}><X size={13} aria-hidden="true" /></IconButton>
         </div>

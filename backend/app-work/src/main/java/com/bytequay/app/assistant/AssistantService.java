@@ -106,8 +106,9 @@ public class AssistantService
     private static final int REASON = 200;
     // ponytail: a task asked for over a day ago reports only in Finished; follow it longer if turns that long turn up.
     private static final Duration FOLLOWED = Duration.ofDays(1);
-    // AppNoticeService's mark for an approval or a question a running turn waits on; the turn goes on once it is answered.
-    private static final String PENDING = "approval:";
+    // AppNoticeService's marks for an approval or a question a running turn waits on, and for a turn that looks stuck; the turn goes on
+    // after either.
+    private static final List<String> GOES_ON = ImmutableList.of("approval:", "stuck:");
     private static final DateTimeFormatter LOCAL_TIME = DateTimeFormatter.ofPattern("EEEE yyyy-MM-dd HH:mm", Locale.ENGLISH);
     private static final DateTimeFormatter CLOCK = DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH);
     // Fixed, so the session's setup is the same for every message.
@@ -371,7 +372,8 @@ public class AssistantService
                 .flatMap(AssistantReceipt::target).filter(target -> target.kind() == AgendaTarget.Kind.TASK).flatMap(AgendaTarget::id)
                 .ifPresent(task -> followed.put(task, new Followed(item.conversationId(), item.at(), ImmutableSet.of())));
         item.report().ifPresent(report -> report.target().id().ifPresent(task -> followed.computeIfPresent(task, (_, follow) ->
-                !follow.conversationId().equals(item.conversationId()) ? follow : report.noticeId().startsWith(PENDING) ? follow.with(report.noticeId()) : null)));
+                !follow.conversationId().equals(item.conversationId()) ? follow
+                        : GOES_ON.stream().anyMatch(report.noticeId()::startsWith) ? follow.with(report.noticeId()) : null)));
     }
 
     private static String reportLine(AppNotice notice)
@@ -384,6 +386,7 @@ public class AssistantService
             case FAILURE -> task + " failed: " + notice.message();
             case APPROVAL -> task + " asked for your approval: " + notice.message();
             case QUESTION -> task + " asked: " + notice.message();
+            case STUCK -> task + " looks stuck: " + notice.message();
             case RECOVERY, QUEUE_PAUSED, CI_ATTENTION -> task + ": " + notice.message();
         };
     }
@@ -393,7 +396,7 @@ public class AssistantService
         return switch (notice.kind()) {
             case TURN_FINISHED, NEXT_WORK -> AssistantReport.State.READY;
             case FAILURE -> AssistantReport.State.FAILED;
-            case APPROVAL, QUESTION, RECOVERY, QUEUE_PAUSED, CI_ATTENTION -> AssistantReport.State.DECISION;
+            case APPROVAL, QUESTION, STUCK, RECOVERY, QUEUE_PAUSED, CI_ATTENTION -> AssistantReport.State.DECISION;
         };
     }
 

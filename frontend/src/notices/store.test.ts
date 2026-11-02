@@ -220,6 +220,8 @@ it('draws an approval in its last minute over newer alerts, soonest deadline fir
 
 it('rejects malformed data at the desktop boundary', () => {
   expect(parseNotices([notice('one')])).toEqual([notice('one')]);
+  const stuck = notice('stuck:turn-1:1', 'STUCK');
+  expect(parseNotices([stuck])).toEqual([stuck]);
   const approval = { ...notice('approval:one', 'APPROVAL'), expiresAt: '2026-09-27T10:05:00Z' };
   expect(parseNotices([approval])).toEqual([approval]);
   expect(parseNotices([{ ...notice('one'), expiresAt: null }])).toEqual([notice('one')]);

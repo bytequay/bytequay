@@ -49,6 +49,8 @@ public record AppNotice(
         APPROVAL,
         FAILURE,
         RECOVERY,
+        /** A running turn that looks stuck, as the watchdog tells it. */
+        STUCK,
         QUEUE_PAUSED,
         CI_ATTENTION,
         NEXT_WORK

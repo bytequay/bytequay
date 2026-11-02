@@ -100,7 +100,9 @@ class TestAppNoticeService
     private final EpicNextWork next = mock(EpicNextWork.class);
     private final ArtifactStore artifacts = mock(ArtifactStore.class);
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
-    private final AppNoticeService service = new AppNoticeService(tasks, turns, approvals, queues, reviews, pullRequests, ciRuns, next, artifacts, workspaces, new ObjectMapper());
+    private final TaskWatchdog watchdog = mock(TaskWatchdog.class);
+    private final AppNoticeService service = new AppNoticeService(tasks, turns, approvals, queues, reviews, pullRequests, ciRuns, next, artifacts, workspaces, watchdog,
+            new ObjectMapper());
     private final AgentTask task = created(TaskId.random(), Optional.of("workspace"), true, "Fix recovery", new AgentLaneId("codex"),
             new RepositoryIdentity("owner", "repo"), Path.of("/tmp/notice-worktree"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
 
@@ -130,6 +132,28 @@ class TestAppNoticeService
         show(task, turn.finish(TurnState.CANCELLED, AgentMetrics.empty(), Optional.of("Stopped by user"), NOW.plusSeconds(10)));
         when(queues.listQueued(task.id())).thenReturn(ImmutableList.of());
         assertThat(service.current()).isEmpty();
+    }
+
+    @Test
+    void aRunningTurnTheWatchdogFindsStuckWaitsOnTheUserOnceForEachTimeItGetsStuck()
+    {
+        AgentTurn turn = turn();
+        show(task, turn);
+        assertThat(service.current()).isEmpty();
+
+        Instant since = NOW.plusSeconds(660);
+        when(watchdog.stuck(turn.id())).thenReturn(Optional.of(new TaskWatchdog.Stuck("Quiet 12 min · last: gh api repos/owner/repo/pulls", since)));
+        assertThat(service.current()).singleElement().satisfies(notice -> {
+            assertThat(notice.kind()).isEqualTo(AppNotice.Kind.STUCK);
+            assertThat(notice.id()).isEqualTo("stuck:" + turn.id() + ":" + since.toEpochMilli());
+            assertThat(notice.turnId()).contains(turn.id().toString());
+            assertThat(notice.message()).isEqualTo("Quiet 12 min · last: gh api repos/owner/repo/pulls");
+            assertThat(notice.occurredAt()).isEqualTo(since);
+        });
+
+        // A card waiting for the user is what the turn waits on, not a sign it is stuck.
+        approval(turn, ImmutableList.of(), "./mvnw test");
+        assertThat(service.current()).singleElement().extracting(AppNotice::kind).isEqualTo(AppNotice.Kind.APPROVAL);
     }
 
     @Test

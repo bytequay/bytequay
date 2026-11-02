@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { remoteErrorMessage } from './remoteError';
+import { ipcFailure, remoteErrorMessage } from './remoteError';
 
 describe('remoteErrorMessage', () => {
   it('shows the backend message without Electron IPC noise', () => {
@@ -29,5 +29,11 @@ describe('remoteErrorMessage', () => {
     expect(remoteErrorMessage('Permission denied')).toBe('Permission denied');
     expect(remoteErrorMessage(null)).toBe('null');
     expect(remoteErrorMessage(new Error(''))).toBe('');
+  });
+});
+
+describe('ipcFailure', () => {
+  it('rethrows the main process reason as a plain error', () => {
+    expect(ipcFailure(new Error("Error invoking remote method 'prs:sync': Error: Rate limited")).message).toBe('Rate limited');
   });
 });

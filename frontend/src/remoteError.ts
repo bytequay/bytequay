@@ -17,3 +17,7 @@ export function remoteErrorMessage(failure: unknown) {
   // Electron prefixes the channel and the error's class, which is not always a plain Error, such as TimeoutError.
   return message.replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '');
 }
+
+export function ipcFailure(failure: unknown): Error {
+  return new Error(remoteErrorMessage(failure));
+}

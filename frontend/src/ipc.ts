@@ -12,9 +12,15 @@
  * limitations under the License.
  */
 import { ipcRenderer } from 'electron';
+import { ipcFailure } from './remoteError';
 
 export function subscribe<T>(channel: string, callback: (payload: T) => void): () => void {
   const receive = (_event: unknown, payload: T) => callback(payload);
   ipcRenderer.on(channel, receive);
   return () => { ipcRenderer.removeListener(channel, receive); };
+}
+
+/** Every renderer-facing invoke goes through here so screens get the main process's reason without Electron's wrapper. */
+export function ipcInvoke(channel: string, ...args: unknown[]) {
+  return ipcRenderer.invoke(channel, ...args).catch((failure: unknown) => { throw ipcFailure(failure); });
 }

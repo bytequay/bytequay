@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { subscribe } from './ipcSubscribe';
+import { ipcInvoke, subscribe } from './ipc';
 import { contextBridge, ipcRenderer } from 'electron';
 import type { IdeWorkbenchBridge } from './ide/contracts';
 
@@ -20,7 +20,7 @@ ipcRenderer.on('ide:visibility', (_event, value: boolean) => { visible = value; 
 
 const bridge: IdeWorkbenchBridge = {
   terminal: {
-    openCodeTerminal: (_host, cols, rows) => ipcRenderer.invoke('ide:terminal-open', cols, rows),
+    openCodeTerminal: (_host, cols, rows) => ipcInvoke('ide:terminal-open', cols, rows),
     writeReviewTerminal: (id, data) => ipcRenderer.send('terminal:write', id, data),
     resizeReviewTerminal: (id, cols, rows) => ipcRenderer.send('terminal:resize', id, cols, rows),
     onReviewTerminalEvent: listener => {
@@ -29,16 +29,16 @@ const bridge: IdeWorkbenchBridge = {
       return () => { data(); exit(); };
     },
   },
-  startExecution: request => ipcRenderer.invoke('ide:execution', { operation: 'start', request }),
-  outputExecution: (id, request) => ipcRenderer.invoke('ide:execution', { operation: 'output', id, request }),
-  finishExecution: (id, request) => ipcRenderer.invoke('ide:execution', { operation: 'finish', id, request }),
-  stopExecution: id => ipcRenderer.invoke('ide:execution', { operation: 'stop', id }),
+  startExecution: request => ipcInvoke('ide:execution', { operation: 'start', request }),
+  outputExecution: (id, request) => ipcInvoke('ide:execution', { operation: 'output', id, request }),
+  finishExecution: (id, request) => ipcInvoke('ide:execution', { operation: 'finish', id, request }),
+  stopExecution: id => ipcInvoke('ide:execution', { operation: 'stop', id }),
   queryReady: () => ipcRenderer.send('ide:query-ready'),
   queryReply: (id, reply) => ipcRenderer.send('ide:query-reply', id, reply),
   onQuery: listener => subscribe('ide:query', listener),
-  save: (path, content, expectedHash) => ipcRenderer.invoke('ide:save', path, content, expectedHash),
-  bootstrap: () => ipcRenderer.invoke('ide:bootstrap'),
-  request: (method, ...args) => ipcRenderer.invoke('ide:request', method, args, navigator.userActivation.isActive),
+  save: (path, content, expectedHash) => ipcInvoke('ide:save', path, content, expectedHash),
+  bootstrap: () => ipcInvoke('ide:bootstrap'),
+  request: (method, ...args) => ipcInvoke('ide:request', method, args, navigator.userActivation.isActive),
   report: event => ipcRenderer.send('ide:report', event),
   onIdleCheck: listener => subscribe('ide:idle-check', listener),
   onContext: listener => subscribe('ide:context', listener),

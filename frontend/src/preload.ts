@@ -13,7 +13,7 @@
  */
 import { createJiraBridge } from '@bytequay/jira/preload';
 import { createLabBridge } from '@bytequay/lab/preload';
-import { subscribe } from './ipcSubscribe';
+import { ipcInvoke, subscribe } from './ipc';
 import { createGoogleBridge } from '@bytequay/google/preload';
 import type { IdeDesktopBridge } from './ide/contracts';
 import { contextBridge, ipcRenderer } from 'electron';
@@ -36,24 +36,24 @@ function streamSubscriber(prefix: 'agent' | 'review'): Bridge['subscribeAgentTas
     const unsubscribe = subscribe<AgentStreamMessage>(`${prefix}:stream:message`, message => receiver.receive(message));
     let subscriptionId: string | null = null;
     try {
-      const subscribed: unknown = await ipcRenderer.invoke(`${prefix}:stream:subscribe`, id, after, statusOnly);
+      const subscribed: unknown = await ipcInvoke(`${prefix}:stream:subscribe`, id, after, statusOnly);
       if (typeof subscribed !== 'string') throw new Error('Invalid stream subscription');
       subscriptionId = subscribed;
       receiver.activate(subscribed);
     }
     catch (failure) {
       unsubscribe();
-      if (subscriptionId !== null) void ipcRenderer.invoke(`${prefix}:stream:unsubscribe`, subscriptionId);
+      if (subscriptionId !== null) void ipcInvoke(`${prefix}:stream:unsubscribe`, subscriptionId);
       throw failure;
     }
     return () => {
       unsubscribe();
-      void ipcRenderer.invoke(`${prefix}:stream:unsubscribe`, subscriptionId);
+      void ipcInvoke(`${prefix}:stream:unsubscribe`, subscriptionId);
     };
   };
 }
 
-const invoke = (channel: string) => (...args: unknown[]) => ipcRenderer.invoke(channel, ...args);
+const invoke = (channel: string) => (...args: unknown[]) => ipcInvoke(channel, ...args);
 
 const bridge: Bridge = {
   onAppNavigation: callback => subscribe('app:navigate', callback),
@@ -67,8 +67,8 @@ const bridge: Bridge = {
   onAssistantToggle: callback => subscribe('assistant:toggle', callback),
   onAssistantOpenCard: callback => subscribe('assistant:open-card', callback),
   onAssistantNavigate: callback => subscribe('assistant:navigate', callback),
-  ...createGoogleBridge(ipcRenderer),
-  ...createJiraBridge(ipcRenderer),
+  ...createGoogleBridge({ invoke: ipcInvoke }),
+  ...createJiraBridge({ invoke: ipcInvoke }),
   createLocalJiraChild: invoke('jira:issue:local-child'),
   savePat: invoke('pat:save'),
   hasPat: invoke('pat:has'),
@@ -87,7 +87,7 @@ const bridge: Bridge = {
   onPrNotificationOpen: callback => {
     let active = true;
     const consume = () => {
-      void ipcRenderer.invoke('prs:notification:pending')
+      void ipcInvoke('prs:notification:pending')
         .then((reference: { repo: string; number: number; workspaceId?: string; accountId?: number } | null) => {
           if (active && reference !== null) callback(reference);
         })
@@ -234,7 +234,7 @@ const bridge: Bridge = {
   getGitHubCliAvailable: invoke('github:cli-available'),
   importGitHubCliToken: invoke('github:cli-import'),
 
-  ...createLabBridge(channel => ipcRenderer.invoke(channel), subscribe),
+  ...createLabBridge(ipcInvoke, subscribe),
   captureFocusBreakBackground: invoke('focus:background'),
   openInAppBrowser: invoke('inapp:open'),
   newInAppBrowserPage: invoke('inapp:new'),
@@ -298,7 +298,7 @@ const bridge: Bridge = {
   addClaudeGateway: invoke('settings:claude-accounts:add-gateway'),
   restrictClaudeAccount: invoke('settings:claude-accounts:restrict'),
   removeClaudeAccount: invoke('settings:claude-accounts:remove'),
-  refreshModelSettings: (force = false, workspaceId) => ipcRenderer.invoke('settings:models:refresh', force, workspaceId),
+  refreshModelSettings: (force = false, workspaceId) => ipcInvoke('settings:models:refresh', force, workspaceId),
   setAgentModel: invoke('settings:models:agent:set'),
   clearAgentModel: invoke('settings:models:agent:clear'),
   addModelApiKey: invoke('settings:api-keys:add'),
@@ -362,8 +362,8 @@ const bridge: Bridge = {
   clearWorkspaceAgentModel: invoke('workspaces:agent-model:clear'),
 
   fetchRecent: invoke('recent:list'),
-  searchRecent: (query, limit = 10) => ipcRenderer.invoke('recent:search', query, limit),
-  searchRecentWords: (query, limit = 10) => ipcRenderer.invoke('recent:words', query, limit),
+  searchRecent: (query, limit = 10) => ipcInvoke('recent:search', query, limit),
+  searchRecentWords: (query, limit = 10) => ipcInvoke('recent:words', query, limit),
   fetchRecentChanges: invoke('recent:changes'),
   recordRecentTouch: invoke('recent:touch'),
   saveRecentDraft: invoke('recent:draft'),
@@ -561,7 +561,7 @@ const ide: IdeDesktopBridge = {
     let live = true;
     let received = false;
     const stop = subscribe('ide:window-visibility', (visible: boolean) => { received = true; listener(visible); });
-    void ipcRenderer.invoke('ide:window-visibility').then((visible: boolean) => { if (live && !received) listener(visible); });
+    void ipcInvoke('ide:window-visibility').then((visible: boolean) => { if (live && !received) listener(visible); });
     return () => { live = false; stop(); };
   },
 };

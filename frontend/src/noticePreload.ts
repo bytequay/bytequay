@@ -12,17 +12,18 @@
  * limitations under the License.
  */
 import { contextBridge, ipcRenderer } from 'electron';
+import { ipcInvoke } from './ipc';
 import type { NoticeBridge, NoticeSnapshot } from './notices/contracts';
 
 const bridge: NoticeBridge = {
-  read: () => ipcRenderer.invoke('notices:read'),
+  read: () => ipcInvoke('notices:read'),
   subscribe: listener => {
     const receive = (_event: unknown, state: NoticeSnapshot) => listener(state);
     ipcRenderer.on('notices:changed', receive);
     return () => { ipcRenderer.removeListener('notices:changed', receive); };
   },
-  dismiss: (id, seen) => ipcRenderer.invoke('notices:dismiss', id, seen),
-  open: id => ipcRenderer.invoke('notices:open', id),
+  dismiss: (id, seen) => ipcInvoke('notices:dismiss', id, seen),
+  open: id => ipcInvoke('notices:open', id),
   resize: height => ipcRenderer.send('notices:resize', height),
 };
 contextBridge.exposeInMainWorld('noticeBridge', bridge);

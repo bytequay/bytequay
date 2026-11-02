@@ -61,6 +61,9 @@ it('wraps long content and reads isolated pages continuously with a section inde
         const book = script => contents.executeJavaScript(script);
         const frame = id => contents.mainFrame.frames.find(frame => frame.url.endsWith('/pages/' + id + '/'));
         const page = (id, script) => frame(id).executeJavaScript(script);
+        // Pages fill the reader's content width, which is narrower than the window when scroll bars always show, as on CI.
+        const fitted = width => until(async () => await book('innerWidth') === width
+          && await page('first', 'innerWidth') === await book('document.documentElement.clientWidth'));
         await until(() => frame('second'));
         const failedPage = await until(() => page('second', 'document.querySelector("[role=alert]")?.textContent'));
         await page('second', 'document.querySelector("[data-artifact-retry]").click()');
@@ -74,8 +77,7 @@ it('wraps long content and reads isolated pages continuously with a section inde
         const layouts = [];
         for (const width of [900, 500, 280]) {
           await reader.show(target, { x: 0, y: 0, width, height: 760 });
-          await until(() => book('innerWidth === ' + width));
-          await until(() => page('first', 'innerWidth === ' + width));
+          await fitted(width);
           layouts.push(await page('first', \`(() => {
             const contained = [...document.querySelectorAll('.cite')].every(cite => {
               const card = cite.closest('.card').getBoundingClientRect();
@@ -86,7 +88,7 @@ it('wraps long content and reads isolated pages continuously with a section inde
           })()\`));
         }
         await reader.show(target, { x: 0, y: 0, width: 900, height: 760 });
-        await until(() => page('first', 'innerWidth === 900'));
+        await fitted(900);
         if (process.env.BYTEQUAY_ARTIFACT_READER_CAPTURE) {
           await book('scrollTo(0,0); document.getElementById("index-toggle").click()');
           for (const theme of ['light', 'dark']) {

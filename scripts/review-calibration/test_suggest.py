@@ -157,7 +157,7 @@ class TestSuggestions(unittest.TestCase):
         if not (ROOT / "backend").is_dir():
             self.skipTest("the application's source is not beside the lab")
         places ={place for _, where, _ in suggest.PROVIDERS.values() for place in [where]}
-        places |= {(suggest.CODEX_DRIVER, "APPROVAL_TIMEOUT"), (suggest.PERMISSIONS, "APPROVAL_TIMEOUT"), (suggest.INSTRUCTIONS, "compose"), (suggest.CONTEXT, "ContextBuildService"),
+        places |= {(suggest.APPROVALS, "WAIT"), (suggest.INSTRUCTIONS, "compose"), (suggest.CONTEXT, "ContextBuildService"),
                    (suggest.MEMORY, "MemoryDelivery"), (suggest.GUIDELINES, "MAX_TOTAL_BYTES"), (suggest.REVIEW_TOOLS, "ReviewTools"), (suggest.PERMISSIONS, "CALL_TOOL"),
                    (suggest.REVIEW_SERVICE, "repairAssignment")}
         found = suggest.suggestions(data([row(after={suggest.START: {"seconds": 300.0, "times": 1}}, long_runs=[("maven", 900.0)],

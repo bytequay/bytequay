@@ -31,6 +31,7 @@ START, AFTER_TOOLS = "at the start of a turn", "after " + activity.BYTEQUAY
 # checks that each file is still there and still holds that name, so a move in ByteQuay breaks the test and not the advice.
 CODEX_DRIVER = "backend/agent-cli/src/main/java/com/bytequay/agent/cli/codex/CodexCliDriver.java"
 PERMISSIONS = "backend/agent-cli/src/main/java/com/bytequay/agent/cli/mcp/PermissionBroker.java"
+APPROVALS = "backend/agent-spi/src/main/java/com/bytequay/agent/spi/AgentApprovalHandler.java"
 INSTRUCTIONS = "backend/agent-cli/src/main/java/com/bytequay/agent/cli/ProviderInstructions.java"
 MEMORY = "backend/app-review/src/main/java/com/bytequay/app/memory/MemoryDelivery.java"
 CONTEXT = "backend/app-review/src/main/java/com/bytequay/app/context/ContextBuildService.java"
@@ -170,7 +171,7 @@ def ran_out(data):
     advice = ("A Codex command or a Claude question that runs out stops the turn and the work it was doing. A desktop notice when a card appears, "
               "or a longer wait, would keep the turn going.")
     return [Suggestion("Make sure an ask is seen before it runs out", weekly(sum(ask.seconds for ask in stopped), data.days), seen, advice,
-                       ((CODEX_DRIVER, "APPROVAL_TIMEOUT"), (PERMISSIONS, "APPROVAL_TIMEOUT")), "asks that ended their turn, of every ask (%)",
+                       ((APPROVALS, "WAIT"),), "asks that ended their turn, of every ask (%)",
                        lambda window: ranges.ratio(counted([ask for ask in window.asks if ask.stopped]), counted(window.asks), 100))]
 
 

@@ -15,6 +15,7 @@ import { plural } from '@bytequay/ui/displayText';
 import { taskCardState, taskLastMessage, type WorkspaceTask } from '../agents/attention';
 import { taskArchived, taskStatePill } from '../agents/taskStatus';
 import { pullRequestIsMine } from '../pulls/model';
+import { isDecision, type AppNotice } from '../notices/contracts';
 import { laneLabel } from '../settings/model';
 import type { AgendaTargetDto, AgentTaskActivityDto, AgentTaskDto, AuthoredIssueDto, PullRequestDto } from '../types';
 import type { WorkItemDto } from '../workitems/contracts';
@@ -168,6 +169,7 @@ function workItem(
   named: WorkPr[],
   rows: ReadonlyMap<string, PullRequestDto>,
   activity: Record<string, AgentTaskActivityDto>,
+  decisions: ReadonlyMap<string, string>,
 ): WorkItem {
   const prs = new Map(named.map(pr => [prKey(pr.repo, pr.number), pr]));
   for (const { task, workspace } of tasks) {
@@ -197,14 +199,22 @@ function workItem(
     prs: list,
     lane,
     next: nextAction(lane, list),
-    decision: chosen === null || chosen.state.label !== 'Needs you' ? null
-      : chosen.state.reason === 'Question for you' ? 'Question' : chosen.state.reason?.startsWith('Approval') ? 'Approval' : 'Blocked',
+    decision: tasks.map(({ task: linked }) => decisions.get(linked.id)).find(mark => mark !== undefined) ?? null,
     keys: [attentionKey(base.target), ...list.flatMap(pr => pr.row === null ? [] : [pullRequestAttentionKey(pr.row)]), ...tasks.map(({ task: linked }) => `task:${linked.id}`)]
       .filter((key): key is string => key !== null).map(key => key.toLowerCase()),
     repos: [...new Set([base.target.repo, ...list.map(pr => pr.repo), ...tasks.map(({ workspace }) => workspace.repository)]
       .filter((repo): repo is string => repo !== null))],
     agents: [...new Set(tasks.map(({ task: linked }) => laneLabel(linked.laneId)))],
   };
+}
+
+/**
+ * The mark a My work card shows for each task that waits on the user, read from the notices the Decision pill counts, so a card is
+ * marked exactly while its decision is in Decision.
+ */
+export function decisionMarks(notices: AppNotice[]): ReadonlyMap<string, string> {
+  return new Map(notices.filter(isDecision).map(notice => [notice.taskId,
+    notice.kind === 'APPROVAL' ? 'Approval' : notice.kind === 'QUESTION' ? 'Question' : notice.kind === 'STUCK' ? 'Stuck' : 'Blocked']));
 }
 
 /** Whether an attention item is the viewer's own work, which My Work lists rather than Needs attention. */
@@ -219,10 +229,12 @@ export function isOwnWork(item: AttentionItem, viewerLogin: string | null): bool
  * progress, open tasks of their own, and their open pull requests that none of those already deliver. Each task and pull request belongs
  * to one piece of work.
  */
-export function myWorkItems({ candidates, tasks, activity, work, viewerLogin, authored = [], ended = false }: {
+export function myWorkItems({ candidates, tasks, activity, work, viewerLogin, authored = [], ended = false, decisions = new Map() }: {
   candidates: AttentionItem[];
   tasks: WorkspaceTask[];
   activity: Record<string, AgentTaskActivityDto>;
+  /** The mark of each task that waits on the user, by task id, as `decisionMarks` reads it from the notices. */
+  decisions?: ReadonlyMap<string, string>;
   /** Local work items of every watched repository. */
   work: WorkItemDto[];
   viewerLogin: string | null;
@@ -248,7 +260,7 @@ export function myWorkItems({ candidates, tasks, activity, work, viewerLogin, au
       key: item.key, source: 'jira', label: jira.key, title: item.title, updatedAt: item.updatedAt,
       ended: jira.status.category === 'done' ? jira.status.name : null,
       target: target('JIRA', { id: jira.id, connectionId: jira.connectionId, cloudId: jira.cloudId }),
-    }, linked, [], rows, activity));
+    }, linked, [], rows, activity, decisions));
   }
 
   for (const item of candidates) {
@@ -258,7 +270,7 @@ export function myWorkItems({ candidates, tasks, activity, work, viewerLogin, au
       key: item.key, source: 'issue', label: `${repoName(item.repo)}#${item.number}`, title: item.title, updatedAt: item.updatedAt,
       ended: item.issueState === 'closed' ? 'Closed' : null,
       target: target('ISSUE', { workspaceId: item.workspaceId, repo: item.repo, number: item.number }),
-    }, linked, [], rows, activity));
+    }, linked, [], rows, activity, decisions));
   }
 
   // An issue assigned to the viewer is their work and is already listed; one they only opened waits on others.
@@ -272,7 +284,7 @@ export function myWorkItems({ candidates, tasks, activity, work, viewerLogin, au
     const card = workItem({
       key, source: 'issue', label: `${repoName(issue.repo)}#${issue.number}`, title: issue.title, updatedAt: issue.updatedAt, ended: null,
       target: target('ISSUE', { workspaceId, repo: issue.repo, number: issue.number }),
-    }, linked, [], rows, activity);
+    }, linked, [], rows, activity, decisions);
     items.push({ ...card, lane: card.lane === 'progress' ? 'review' : card.lane, authored: true });
   }
 
@@ -292,7 +304,7 @@ export function myWorkItems({ candidates, tasks, activity, work, viewerLogin, au
       key: `work:${entry.id}`, source: 'local', label: '', title: entry.title, updatedAt: entry.updatedAt,
       ended: entry.state === 'DONE' ? 'Done' : entry.state === 'DROPPED' ? 'Dropped' : null,
       target: target('WORK', { workspaceId: entry.workspaceId, id: entry.id }),
-    }, linked, named, rows, activity));
+    }, linked, named, rows, activity, decisions));
   }
 
   for (const entry of live) {
@@ -302,7 +314,7 @@ export function myWorkItems({ candidates, tasks, activity, work, viewerLogin, au
       key: `task:${entry.task.id}`, source: 'local', label: '', title: entry.task.title, updatedAt: entry.task.updatedAt,
       ended: entry.task.state !== 'OPEN' ? taskStatePill(entry.task).label : taskArchived(entry.task) ? 'Archived' : null,
       target: target('TASK', { workspaceId: entry.task.workspaceId, id: entry.task.id }),
-    }, [entry], [], rows, activity));
+    }, [entry], [], rows, activity, decisions));
   }
 
   const delivered = new Set(items.flatMap(item => item.prs.map(pr => prKey(pr.repo, pr.number))));
@@ -315,7 +327,7 @@ export function myWorkItems({ candidates, tasks, activity, work, viewerLogin, au
       key: item.key, source: 'pr', label: `${repoName(item.repo)}#${item.number}`, title: item.title, updatedAt: item.updatedAt,
       ended: prState(pr) === 'merged' ? 'Merged' : prState(pr) === 'closed' ? 'Closed' : null,
       target: target('PULL', { repo: item.repo, number: item.number, id: String(pr.id), workspaceId: item.workspaceId, accountId: item.accountId ?? null }),
-    }, claim(linked), [{ repo: item.repo, number: item.number, title: item.title, state: prState(pr), row: pr }], rows, activity));
+    }, claim(linked), [{ repo: item.repo, number: item.number, title: item.title, state: prState(pr), row: pr }], rows, activity, decisions));
   }
 
   return items.sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));

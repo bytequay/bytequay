@@ -14,7 +14,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight, Check, ChevronRight, CircleDot, ExternalLink, GitMerge, GitPullRequest, GitPullRequestDraft, Hand, Hourglass, Laptop, LoaderCircle, MessageCircleQuestion,
-  SquareKanban, X, type LucideIcon,
+  SquareKanban, TimerOff, X, type LucideIcon,
 } from 'lucide-react';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import Avatar from '../Avatar';
@@ -38,7 +38,7 @@ const DATES = [
   { days: 90, label: 'Past 3 months' },
 ];
 const SOURCE_ICONS: Record<WorkSource, LucideIcon> = { local: Laptop, jira: SquareKanban, pr: GitPullRequest, issue: CircleDot };
-const DECISION_ICONS: Record<string, LucideIcon> = { Approval: Hand, Question: MessageCircleQuestion };
+const DECISION_ICONS: Record<string, LucideIcon> = { Approval: Hand, Question: MessageCircleQuestion, Stuck: TimerOff };
 
 const laneItems = (items: WorkItem[]) => WORK_LANES.map(lane => ({ ...lane, items: items.filter(item => item.lane === lane.id) }));
 

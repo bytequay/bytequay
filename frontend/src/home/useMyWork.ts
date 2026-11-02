@@ -20,8 +20,9 @@ import type { WorkItemDto } from '../workitems/contracts';
 import { ISSUE_DEVELOPMENT_CHANGED } from '../workspaces/issueDevelopment';
 import { workspaceIsUpdating } from '../workspaces/model';
 import { pollVisible } from '../ide/pollVisible';
+import { useNotices } from '../notices/useNotices';
 import { ATTENTION_SEED, ISSUE_ATTENTION_REFRESH_MS, attentionCandidates, issueAttentionItems, type AttentionItem } from './attention';
-import { myWorkItems } from './work';
+import { decisionMarks, myWorkItems } from './work';
 
 // The backend searches GitHub for the viewer's issues at most this often; asking sooner only rereads its answer.
 const AUTHORED_ISSUES_REFRESH_MS = 5 * 60 * 1000;
@@ -225,9 +226,11 @@ export function useMyWork({ ended = false }: { ended?: boolean } = {}) {
     [attentionPrs, issueItems, jira.items, login, tasks.items, tasks.tasks, workspaces]);
 
   const localWork = useLocalWork(workspaceKey);
+  const notices = useNotices();
+  const decisions = useMemo(() => decisionMarks(notices), [notices]);
   const work = useMemo(() => myWorkItems({
-    candidates, tasks: tasks.tasks, activity: tasks.activity, work: localWork, viewerLogin: login ?? null, authored: authoredIssues, ended,
-  }), [authoredIssues, candidates, ended, localWork, login, tasks.activity, tasks.tasks]);
+    candidates, tasks: tasks.tasks, activity: tasks.activity, work: localWork, viewerLogin: login ?? null, authored: authoredIssues, ended, decisions,
+  }), [authoredIssues, candidates, decisions, ended, localWork, login, tasks.activity, tasks.tasks]);
 
   const addWorkspace = useCallback((dto: WorkspaceDto) => setWorkspaces(previous => {
     const next = [dto, ...previous.filter(row => row.id !== dto.id)].sort((left, right) => left.displayOrder - right.displayOrder);

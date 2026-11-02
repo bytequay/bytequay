@@ -197,11 +197,17 @@ export function ResultCard({ notice, onShow, onOpen, onClear }: {
   const review = notice.reviewId !== null;
   const pull = pullOf(notice);
   const { changes } = notice;
-  // A development result's pull request is where it is reviewed; the rest are read in their task.
+  // A development result's pull request is where it is reviewed; the rest are read in their task. Opened either way, it has been seen,
+  // so it leaves Finished, as opening it in its task does.
   const next = failed ? 'Open' : review ? 'Read' : pull !== null ? 'Review' : notice.kind === 'NEXT_WORK' ? NOTICE_ACTIONS.NEXT_WORK : 'Open';
-  const act = () => pull !== null && !failed && !review
-    ? onShow({ kind: 'PULL', repo: pull.repo, number: pull.number, workspaceId: notice.workspaceId, id: null, connectionId: null, cloudId: null })
-    : onOpen();
+  const act = () => {
+    if (pull === null || failed || review) {
+      onOpen();
+      return;
+    }
+    onShow({ kind: 'PULL', repo: pull.repo, number: pull.number, workspaceId: notice.workspaceId, id: null, connectionId: null, cloudId: null });
+    onClear();
+  };
   const evidence = [
     pull !== null && <span key="pr"><GitPullRequest size={13} aria-hidden="true" />{review ? notice.pullRequest : `PR #${pull.number}`}</span>,
     changes !== null && changes.files > 0 && (

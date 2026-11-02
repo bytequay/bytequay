@@ -483,6 +483,8 @@ async function drawsResultsWithTheirEvidence(): Promise<void> {
     finally { window.removeEventListener('bytequay:zoom-reference', listener); }
     assert(JSON.stringify(opened) === JSON.stringify([{ kind: 'pull', repo: 'owner/repository', number: 58, workspaceId: 'ws1' }]) && Number(view.calls.closed) === 1,
       `Review closes the Assistant and opens the pull request: ${JSON.stringify(opened)}`);
+    await settle();
+    assert(JSON.stringify(view.calls.removed) === JSON.stringify([DRAFTED.id]), `A result opened for review has been seen, so it leaves Finished: ${JSON.stringify(view.calls.removed)}`);
   }
   finally { view.dispose(); }
 }

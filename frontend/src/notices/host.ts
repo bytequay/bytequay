@@ -13,7 +13,7 @@
  */
 import { app, ipcMain, Notification, shell, WebContentsView, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import path from 'node:path';
-import { APPROVAL_NOTICE, NOTICE_WIDTH, needsAction, noticeLabel, parseNotices, type AppNotice, type NoticeSnapshot } from './contracts';
+import { APPROVAL_NOTICE, NOTICE_WIDTH, isDecision, noticeLabel, parseNotices, type AppNotice, type NoticeSnapshot } from './contracts';
 import { NoticeStore } from './store';
 
 /** One trusted app surface above native browser/editor views; its bridge cannot execute task actions. */
@@ -139,7 +139,7 @@ export class NoticeHost {
   /** ⇧⌘J: opens the task that has waited longest on the user, then the next one on each press. */
   async next(): Promise<void> {
     await this.refresh();
-    const waiting = this.snapshot().notices.filter(needsAction)
+    const waiting = this.snapshot().notices.filter(isDecision)
       .sort((a, b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt) || a.id.localeCompare(b.id));
     if (!waiting.length) { shell.beep(); return; }
     const notice = waiting[(waiting.findIndex(item => item.id === this.jumped) + 1) % waiting.length];
@@ -158,8 +158,9 @@ export class NoticeHost {
       window.webContents.send('assistant:open-card', notice.id);
     }
     else await this.openNotice(notice);
-    if (notice.kind === 'TURN_FINISHED') this.store.remove(id);
-    else this.store.markViewed(id);
+    // An opened result has been seen, so it leaves Finished; a decision stays until it is answered.
+    if (isDecision(notice)) this.store.markViewed(id);
+    else this.store.remove(id);
     this.publish();
   }
 
@@ -217,8 +218,8 @@ export class NoticeHost {
   }
 
   private publish(): void {
-    // The Dock counts what the sidebar's Assistant row counts, with or without a window.
-    const waiting = this.store.snapshot(false).notices.filter(needsAction).length;
+    // The Dock counts what the Assistant's Decision pill counts, with or without a window.
+    const waiting = this.store.snapshot(false).notices.filter(isDecision).length;
     if (waiting !== this.badge) { this.badge = waiting; app.setBadgeCount(waiting); }
     const window = this.window();
     if (!window || window.isDestroyed()) return;

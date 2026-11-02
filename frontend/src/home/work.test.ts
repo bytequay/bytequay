@@ -18,9 +18,10 @@ import { jiraIssue } from '../jira/fixtures/jira';
 import { pr } from '../pulls/fixtures/pullRequest';
 import { laneLabel } from '../settings/model';
 import type { JiraTaskSource } from '../jira/contracts';
+import type { AppNotice } from '../notices/contracts';
 import type { AuthoredIssueDto, PullRequestDto } from '../types';
 import { QUESTION_TOOL, issueAttentionItem, pullRequestItem, type AttentionItem } from './attention';
-import { isOwnWork, myWorkItems, workPrStatus } from './work';
+import { decisionMarks, isOwnWork, myWorkItems, workPrStatus } from './work';
 
 const workspace = { id: 'ws1', name: 'Repository', repository: 'owner/repository' };
 
@@ -102,7 +103,7 @@ describe('My work', () => {
     expect(lanes([mine(7, { latestActivity: feedback() })], [task])).toEqual([['', 'needs', 'Respond to review feedback']]);
   });
 
-  it('keeps a task that waits on a decision in its pull request’s lane, with a mark instead of a next step', () => {
+  it('keeps a task that waits on a decision in its pull request’s lane, marked exactly while Decision holds its notice', () => {
     const waiting = (id: string, number: number | null, scope: string[]) => {
       const task = { ...previewTask('ws1', id), ...(number === null ? {} : { pullRequest: { number, title: `Change ${number}`, state: 'open', draft: false } }) };
       const pendingApproval = { approvalId: `a-${id}`, occurredAt: '2026-08-15T00:00:00Z', title: 'Run', detail: 'mvn test', approvalKind: 'COMMAND', scope };
@@ -110,12 +111,20 @@ describe('My work', () => {
     };
     const local = waiting('task-1', null, []);
     const reviewed = waiting('task-2', 7, [QUESTION_TOOL]);
-    const items = myWorkItems({ candidates: [mine(7, { requestedReviewers: ['ana'] })], tasks: [local, reviewed].map(({ task }) => ({ task, workspace })),
-      activity: { 'task-1': local.activity, 'task-2': reviewed.activity }, work: [], viewerLogin: 'me' });
-    expect(items.map(item => [item.title, item.lane, item.decision, item.next]).sort()).toEqual([
+    const stuck = waiting('task-3', null, []);
+    const notice = (taskId: string, kind: AppNotice['kind']): AppNotice => ({ id: `${kind}:${taskId}`, kind, taskId, workspaceId: 'ws1', turnId: null, reviewId: null,
+      title: taskId, pullRequest: null, pullRequestTitle: null, changes: null, message: '', repository: 'owner/repository', laneId: 'claude', occurredAt: '2026-08-15T00:00:00Z' });
+    const build = (notices: AppNotice[]) => myWorkItems({ candidates: [mine(7, { requestedReviewers: ['ana'] })],
+      tasks: [local, reviewed, stuck].map(({ task }) => ({ task, workspace })), work: [], viewerLogin: 'me', decisions: decisionMarks(notices),
+      activity: { 'task-1': local.activity, 'task-2': reviewed.activity, 'task-3': stuck.activity } })
+      .map(item => [item.title, item.lane, item.decision, item.next]).sort();
+    expect(build([notice('task-1', 'APPROVAL'), notice('task-2', 'QUESTION'), notice('task-3', 'STUCK'), notice('task-3', 'FAILURE')])).toEqual([
       [local.task.title, 'progress', 'Approval', null],
       [reviewed.task.title, 'review', 'Question', null],
+      [stuck.task.title, 'progress', 'Stuck', null],
     ].sort());
+    // Once Decision no longer holds the notice, answered or cleared, the card loses its mark, whatever the task last said.
+    expect(build([notice('task-2', 'QUESTION')]).filter(([, , decision]) => decision !== null)).toEqual([[reviewed.task.title, 'review', 'Question', null]]);
   });
 
   it('lists a ticket with the task and pull request delivering it once, and leaves others’ pull requests out', () => {

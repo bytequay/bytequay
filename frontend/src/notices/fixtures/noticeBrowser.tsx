@@ -135,7 +135,7 @@ export async function run() {
     front = alert();
     assert(front !== null && front.classList.contains('is-question') && action()?.textContent === 'Answer'
       && front.querySelector('.app-notice__message')?.textContent === 'Should interrupted tasks resume automatically?'
-      && front.querySelector('.app-notice__head')?.textContent?.startsWith('Waiting for you'), 'A question card alerts with what the agent asked and answers in the panel');
+      && front.querySelector('.app-notice__head')?.textContent?.startsWith('Answer question'), 'A question card alerts with what the agent asked and answers in the panel');
     const close = front.querySelector<HTMLButtonElement>('.app-notice__close'); assert(close, 'The alert has a close button');
     rejectDismiss = true; close.click(); await wait();
     assert(alert()?.classList.contains('is-question') && action()?.textContent === 'Answer'

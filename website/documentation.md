@@ -213,7 +213,8 @@ allowance.
 2. The pills under the composer open one view each: **All**, **Decision**,
    **Running**, **Finished**, **Today**, and **My work**. Click the open pill
    again to go back to the conversation. Answer approvals and questions right
-   on Decision's cards; a failed turn shows under Finished with why.
+   on Decision's cards; a failed turn shows under Finished with why. A result
+   you open leaves Finished.
 3. Ask it to find work or open a page, such as a repository's Tasks. A page
    with a message box, such as a task, opens with the cursor in it. Pull
    request cards can **Approve**, **Merge**, **Comment**, and, on your own PRs,
@@ -228,9 +229,10 @@ allowance.
 7. Keep typing while it answers: a message you send then waits in line, and
    each is answered in turn.
 
-**⇧⌘J** opens the task that has waited longest. Task alerts also show as macOS
-notifications. An approval or question waits five minutes for your answer: its
-card shows the time left, and its alert comes back once in the last minute.
+**⇧⌘J** opens the task that has waited longest on your decision, and the Dock
+counts what Decision counts. Task alerts also show as macOS notifications. An
+approval or question waits five minutes for your answer: its card shows the
+time left, and its alert comes back once in the last minute.
 
 A running task that goes quiet for 10 minutes, with no command running and
 nothing waiting on you, or whose command runs far longer than that program

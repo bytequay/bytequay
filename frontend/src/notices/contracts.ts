@@ -41,9 +41,15 @@ export const APPROVAL_NOTICE = 'approval:';
 /** An Artifacts question that timed out; its `taskId` is the conversation's id, and opening it shows the conversation. */
 export const ARTIFACT_NOTICE = 'artifact:';
 export const needsAction = (notice: AppNotice): boolean => notice.kind !== 'TURN_FINISHED' && notice.kind !== 'NEXT_WORK';
+/**
+ * The one rule for what waits on the user's decision, which the Decision pill, the Dock badge and My work's marks all count. A failed
+ * turn needs the user too, but as a result that says why, so it is Finished.
+ */
+export const isDecision = (notice: AppNotice): boolean => needsAction(notice) && notice.kind !== 'FAILURE';
+/** A decision's label says what waits on the user, as its card's own state does, rather than naming the task's internal state. */
 export const NOTICE_LABELS: Record<NoticeKind, string> = {
-  TURN_FINISHED: 'Turn finished', QUESTION: 'Waiting for you', APPROVAL: 'Approval needed',
-  FAILURE: 'Turn failed', RECOVERY: 'Task is blocked', STUCK: 'Looks stuck', QUEUE_PAUSED: 'Queued messages paused', CI_ATTENTION: 'CI needs attention',
+  TURN_FINISHED: 'Turn finished', QUESTION: 'Answer question', APPROVAL: 'Approval needed',
+  FAILURE: 'Turn failed', RECOVERY: 'Check the task', STUCK: 'Looks stuck', QUEUE_PAUSED: 'Resume the queue', CI_ATTENTION: 'Check CI',
   NEXT_WORK: 'Next in Epic',
 };
 /** What opening a notice shows, as its button says, on its alert and in the Assistant panel alike. */

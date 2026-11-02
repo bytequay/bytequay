@@ -17,7 +17,7 @@ import { pullRequestFromRoute, type ZoomedReference } from '../githubReference';
 import { issueAttentionKey } from '../home/attention';
 import { dayText } from '../home/today';
 import type { WorkLane } from '../home/work';
-import { needsAction, type AppNotice } from '../notices/contracts';
+import { isDecision, type AppNotice } from '../notices/contracts';
 import { SETTINGS_ENTRIES, isWorkspaceSection, settingsRoute } from '../settings/routes';
 import type { AgendaTargetDto, AssistantItemDto, AssistantRowDto } from '../types';
 import { workspaceLocationFromRoute, workspaceRoute, type WorkspaceTab } from '../workspaces/model';
@@ -49,12 +49,6 @@ export function onOpenAssistant(listener: (request: AssistantRequest) => void): 
   window.addEventListener(OPEN_EVENT, handle);
   return () => window.removeEventListener(OPEN_EVENT, handle);
 }
-
-/**
- * Whether a notice waits on the user's decision. A failed turn needs the user too, but as a result that says why, so it is Finished;
- * the sidebar's Assistant count is this one, so both say the same.
- */
-export const isDecision = (notice: AppNotice): boolean => needsAction(notice) && notice.kind !== 'FAILURE';
 
 /** One card of a view: a task's notice, or a task still running. */
 export type WaitingCard = { key: string; group: 'decision' | 'finished'; at: number; notice: AppNotice }

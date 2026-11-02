@@ -227,6 +227,21 @@ it.each([null, 'review'])('removes an opened completion across refreshes and res
   restarted.host.stop();
 });
 
+it.each(['FAILURE', 'NEXT_WORK'] as const)('removes an opened %s result, which has been seen, and keeps an opened decision', async kind => {
+  const { host, read, open, window } = setup();
+  const result: AppNotice = { ...notice, id: `result:${kind}`, kind, taskId: 'done-task', occurredAt: new Date().toISOString() };
+  const decision: AppNotice = { ...notice, id: 'queue:task', kind: 'QUEUE_PAUSED', taskId: 'paused-task', occurredAt: new Date().toISOString() };
+  await host.refresh(); read.mockResolvedValue([result, decision]); await host.refresh();
+  const owner = { sender: window.webContents, senderFrame: window.webContents.mainFrame };
+  await desktop.handlers.get('notices:open')?.(owner, result.id);
+  await desktop.handlers.get('notices:open')?.(owner, decision.id);
+  expect(open).toHaveBeenNthCalledWith(1, result);
+  expect(open).toHaveBeenNthCalledWith(2, decision);
+  await host.refresh();
+  expect(desktop.handlers.get('notices:read')?.(owner)).toMatchObject({ notices: [decision] });
+  host.stop();
+});
+
 it.each(['navigation', 'persistence'])('keeps a completion available to retry when %s fails', async failure => {
   const { host, read, open } = setup();
   const current: AppNotice = { ...notice, id: 'finished:turn', kind: 'TURN_FINISHED', occurredAt: new Date().toISOString() };
@@ -487,12 +502,13 @@ it.each(['refused', 'failed'] as const)('pauses macOS alerts until restart once 
   host.stop();
 });
 
-it('counts the notices waiting on the user on the Dock', async () => {
+it('counts on the Dock what Decision counts: neither a result nor a failed turn', async () => {
   const { host, read } = setup();
   const finished: AppNotice = { ...notice, id: 'finished:turn', kind: 'TURN_FINISHED', taskId: 'done-task', occurredAt: new Date().toISOString() };
+  const failed: AppNotice = { ...notice, id: 'failed:turn', kind: 'FAILURE', taskId: 'failed-task', occurredAt: new Date().toISOString() };
   await host.refresh();
   expect(desktop.badge).toHaveBeenLastCalledWith(0);
-  read.mockResolvedValue([notice, finished]); await host.refresh();
+  read.mockResolvedValue([notice, finished, failed]); await host.refresh();
   expect(desktop.badge).toHaveBeenLastCalledWith(1);
   const calls = desktop.badge.mock.calls.length;
   await host.refresh();
@@ -508,7 +524,9 @@ it('opens the task that has waited longest, then the next on each press, and bee
   expect(desktop.beep).toHaveBeenCalledTimes(1);
   const newer: AppNotice = { ...notice, id: 'approval:ask', kind: 'QUESTION', taskId: 'newer-task', occurredAt: '2026-09-27T11:00:00Z' };
   const finished: AppNotice = { ...notice, id: 'finished:turn', kind: 'TURN_FINISHED', taskId: 'done-task', occurredAt: new Date().toISOString() };
-  read.mockResolvedValue([newer, finished, notice]);
+  // A failed turn is a result, so it waits on no one, however old.
+  const failed: AppNotice = { ...notice, id: 'failed:turn', kind: 'FAILURE', taskId: 'failed-task', occurredAt: '2026-09-27T09:00:00Z' };
+  read.mockResolvedValue([newer, finished, failed, notice]);
   for (const expected of [notice, newer, notice]) {
     await host.next();
     expect(open).toHaveBeenLastCalledWith(expected);

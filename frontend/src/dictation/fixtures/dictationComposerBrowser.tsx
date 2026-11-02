@@ -143,7 +143,8 @@ export function run() {
       await new Promise(resolve => window.setTimeout(resolve, 400));
       key(input, 'keyup', rightOption);
       await settle();
-      assert(calls.length === 0, 'An ⌥ character does not start dictation');
+      // A late stop or cancel of the session that just ended is not a new dictation.
+      assert(!calls.includes('start'), `An ⌥ character does not start dictation: ${calls.join(', ')}`);
     }],
     ['Esc cancels without closing the panel around the composer', async () => {
       const input = await listening('d3');

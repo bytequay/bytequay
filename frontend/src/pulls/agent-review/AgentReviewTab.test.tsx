@@ -14,7 +14,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import AgentReviewTab from './AgentReviewTab';
 import ReviewFindingCard from './ReviewFindingCard';
 import ReviewSummaryCard from './ReviewSummaryCard';
@@ -444,6 +444,7 @@ describe('review details', () => {
 
 describe('the summary card', () => {
   const review = reviewFixture();
+  afterEach(() => { vi.restoreAllMocks(); });
 
   it('offers an accessible explanation refresh and disables it while the task is occupied or closed', () => {
     const label = 'aria-label="Refresh change intention and commit summaries"';
@@ -541,6 +542,7 @@ describe('the summary card', () => {
   });
 
   it('leads with the intention and picks one commit at a time from the row above it', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse(review.runs[0].createdAt) + 31 * 86_400_000);
     const html = summary(review);
     expect(html).toContain('aria-label="What changed"');
     expect(html).toContain('aria-label="Summary outline"');

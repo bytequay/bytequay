@@ -1,9 +1,7 @@
 name: Release
 
-# Triggers only on tag pushes matching v*. The plain CI workflow
-# (ci.yml) handles main + PRs and does NOT run this. workflow_dispatch
-# lets us re-run a flaky build manually from the Actions tab without
-# re-tagging.
+# Tags publish releases. Manual branch runs verify signing and retain artifacts
+# without publishing, so certificate or packaging changes can be tested first.
 on:
   push:
     tags:
@@ -40,7 +38,12 @@ jobs:
   macos:
     name: macOS — build DMG + ZIP
     runs-on: macos-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
+    env:
+      BYTEQUAY_SIGN_RELEASE: '1'
+      BYTEQUAY_NOTARY_PROFILE: bytequay-release
+      APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
 
     steps:
       - uses: actions/checkout@v6
@@ -65,6 +68,16 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Import signing and notarization credentials
+        env:
+          BYTEQUAY_SIGNING_KEYCHAIN: ${{ runner.temp }}/bytequay-signing.keychain-db
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ vars.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ vars.APPLE_API_ISSUER }}
+        run: bash scripts/prepare-macos-signing.sh
+
       # Forge's generateAssets hook builds the backend JAR without tests,
       # so we don't need a separate backend build step here.
       - name: Build Mac installers (DMG + ZIP)
@@ -85,12 +98,16 @@ jobs:
       - name: Check packaged dictation helper
         run: node scripts/test-packaged-dictation.mjs
 
+      - name: Verify signed app and notarize disk image
+        run: bash scripts/verify-macos-release.sh
+
       # Surface what was produced before the upload step in case we
       # need to debug a missing asset.
       - name: List built artefacts
         run: find frontend/out/make -type f \( -name '*.dmg' -o -name '*.zip' \) -ls
 
       - name: Attach installers to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           # Both formats: DMG for the typical "drag to Applications"
@@ -105,3 +122,22 @@ jobs:
           # Don't fail the run when re-uploading on a manual dispatch —
           # the action overwrites existing assets of the same name.
           fail_on_unmatched_files: true
+
+      - name: Retain installers from manual branch builds
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v7
+        with:
+          name: signed-macos-installers
+          path: |
+            frontend/out/make/**/*.dmg
+            frontend/out/make/**/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Remove signing credentials
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/bytequay-signing.keychain-db" ]; then
+            security delete-keychain "$RUNNER_TEMP/bytequay-signing.keychain-db"
+          fi
+          rm -f "$RUNNER_TEMP/bytequay-certificate.p12" "$RUNNER_TEMP/bytequay-api-key.p8" "$RUNNER_TEMP/DeveloperIDG2CA.cer"

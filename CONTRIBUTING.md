@@ -437,6 +437,10 @@ source JDK changes.
 Release CI uses the latest Temurin 25 patch; Java security updates reach users
 through new ByteQuay releases.
 
+GitHub releases use Developer ID signing and Apple notarization. See the
+[macOS release runbook](scripts/macos-release.md) for certificate secrets,
+notarization access, and verification before publishing.
+
 The IDE's Java language server uses a suitable installed JDK when available,
 otherwise the backend's Java runtime. The IDE bundle omits the Java extension's
 duplicate runtime. `node scripts/test-packaged-ide.mjs` verifies that the Java

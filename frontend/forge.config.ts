@@ -20,6 +20,7 @@ import { FuseV1Options, FuseVersion } from '@electron/fuses';
 import { execFileSync, execSync } from 'node:child_process';
 import { chmodSync, cpSync } from 'node:fs';
 import { join } from 'node:path';
+import { macSigningConfig } from './forge.signing';
 
 // Path to the Spring Boot uber-jar produced by `mvn package`. Bundled
 // into the packaged app via packagerConfig.extraResource and spawned
@@ -33,6 +34,7 @@ const DICTATION = join(__dirname, 'vendor', 'dictation');
 
 const config: ForgeConfig = {
   packagerConfig: {
+    ...macSigningConfig(),
     // node-pty execs spawn-helper beside pty.node, which cannot run from inside the archive.
     asar: { unpack: '**/node_modules/node-pty/**' },
     // Product name shown in Finder, the menu bar, About box, and the
@@ -81,6 +83,9 @@ const config: ForgeConfig = {
         cwd: join(__dirname, '..', 'backend'),
         stdio: 'inherit',
       });
+      if (process.env.BYTEQUAY_SIGN_RELEASE === '1') {
+        execFileSync('bash', ['scripts/sign-backend-macos.sh', BACKEND_JAR], { cwd: root, stdio: 'inherit' });
+      }
     },
   },
   // N-API prebuilds load in any Electron, so nothing is rebuilt against its headers.

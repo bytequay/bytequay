@@ -83,6 +83,9 @@ const config: ForgeConfig = {
         cwd: join(__dirname, '..', 'backend'),
         stdio: 'inherit',
       });
+      if (process.env.BYTEQUAY_SIGN_RELEASE === '1') {
+        execFileSync('bash', ['scripts/sign-backend-macos.sh', BACKEND_JAR], { cwd: root, stdio: 'inherit' });
+      }
     },
   },
   // N-API prebuilds load in any Electron, so nothing is rebuilt against its headers.

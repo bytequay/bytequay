@@ -62,7 +62,9 @@ Java needs JIT/executable-memory entitlements and library-validation exceptions
 for JNI libraries extracted by SQLite and JNA. Python needs executable memory
 for libffi callbacks. Electron retains osx-sign's standard hardened-runtime
 entitlements. Binary data such as JARs is sealed as app resources, not signed
-individually through extended attributes.
+individually through extended attributes. Before packaging, the macOS SQLite
+libraries inside the backend's nested JDBC JAR are signed and timestamped;
+the dependency JAR stays uncompressed as required by Spring Boot.
 
 Before a certificate expires, issue a replacement, update the two certificate
 secrets and signing identity, then verify a manual branch build. Revoke a

@@ -39,10 +39,10 @@ describe('release signing', () => {
   });
 
   it('refuses to import credentials or publish artifacts when secrets are absent', () => {
-    for (const script of ['prepare-macos-signing.sh', 'verify-macos-release.sh']) {
+    for (const script of ['prepare-macos-signing.sh', 'sign-backend-macos.sh', 'verify-macos-release.sh']) {
       const result = spawnSync('/bin/bash', [join(__dirname, '..', 'scripts', script)], { env: { PATH: '/usr/bin:/bin' }, encoding: 'utf8' });
       expect(result.status).not.toBe(0);
-      expect(result.stderr).toMatch(/Missing required release credential|Release Team ID is required/);
+      expect(result.stderr).toMatch(/Missing required release credential|Release (Team ID|signing identity) is required/);
     }
   });
 

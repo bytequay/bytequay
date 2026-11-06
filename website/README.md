@@ -9,6 +9,12 @@ tanuki from [Simple Icons](https://simpleicons.org) (CC0), which the app also
 uses. No analytics, account
 system, or application data is embedded.
 
+The landing page's download buttons resolve the latest stable GitHub release's
+Apple silicon DMG through the public GitHub API. They fall back to the latest
+release page if the request fails or no matching installer is available. The
+release-notes link also offers the ZIP. Verify the resolver with
+`node --test scripts/website-download.test.mjs` from the repository root.
+
 The landing page stays short: a headline with one line, one app screenshot,
 four feature rows led by the Assistant and Today, and link cards, each with a
 sentence or less. Framed bands separate the sections, feature rows alternate
